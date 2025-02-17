@@ -1,0 +1,33 @@
+# Node.js (Frontend)
+
+backend/uploads/
+backend/db/
+backend/backend_venv/
+test_data_sources/
+excel-add-in/hi/node_modules/
+
+frontend/.nuxt/cache/
+# Nuxt dev/build outputs
+frontend/.output
+frontend/.data
+frontend/.nuxt
+frontend/.nitro
+frontend/.cache
+frontend/dist
+frontend/node_modules/
+frontend/.output/
+frontend/test-results/
+# Logs
+backend/logs
+*.log
+
+# Misc
+.DS_Store
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+
+*.pyc

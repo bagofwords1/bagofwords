@@ -1,0 +1,17 @@
+# Deployment Configuration
+base_url: http://0.0.0.0:3000 
+
+
+# Feature Flags
+features:
+  allow_uninvited_signups: false
+  allow_multiple_organizations: false 
+  verify_emails: false
+
+google_oauth:
+  enabled: false
+
+encryption_key: ${BOW_ENCRYPTION_KEY}
+
+intercom:
+  enabled: true

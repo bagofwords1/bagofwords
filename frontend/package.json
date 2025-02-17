@@ -1,0 +1,40 @@
+{
+  "name": "nuxt-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "devs": "NODE_TLS_REJECT_UNAUTHORIZED=0 nuxt dev --https --ssl-cert localhost.pem --ssl-key localhost-key.pem",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@nuxt-alt/proxy": "^2.5.8",
+    "@nuxt/ui": "^2.16.0",
+    "@nuxtjs/mdc": "^0.9.2",
+    "@vue-flow/core": "^1.41.4",
+    "ag-grid-vue3": "^31.3.2",
+    "nuxt": "^3.13.2",
+    "nuxt-echarts": "^0.2.4",
+    "nuxt-tiptap-editor": "^2.0.0",
+    "tiptap": "^1.32.2",
+    "vue": "^3.4.27",
+    "vue-router": "^4.3.2"
+  },
+  "devDependencies": {
+    "@nuxt/types": "^2.17.3",
+    "@nuxt/typescript-build": "^3.0.2",
+    "@nuxt/typescript-runtime": "^3.0.2",
+    "@playwright/test": "^1.46.1",
+    "@sidebase/nuxt-auth": "0.9.3",
+    "highlight.js": "^11.11.1",
+    "http-proxy": "^1.18.1",
+    "nuxt-3-intercom": "^1.1.2",
+    "qs": "^6.13.0",
+    "typescript": "^5.4.5",
+    "vue-draggable-resizable": "^3.0.0"
+  },
+  "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
+}

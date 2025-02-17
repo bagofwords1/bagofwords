@@ -1,0 +1,167 @@
+import os
+import json
+import uvicorn
+import sentry_sdk
+import argparse
+# Add this before app initialization
+parser = argparse.ArgumentParser()
+parser.add_argument('--config', type=str, help='Path to custom config file')
+args, _ = parser.parse_known_args()
+
+# Set environment variable for config path if specified
+if args.config:
+    os.environ['BOW_CONFIG_PATH'] = args.config
+
+from fastapi import FastAPI, Request, Depends
+from fastapi.responses import RedirectResponse
+from httpx_oauth.clients.google import GoogleOAuth2
+
+from app.core.auth import get_user_manager, auth_backend, create_fastapi_users, SECRET
+from app.dependencies import get_async_session
+from app.schemas.user_schema import UserCreate, UserRead, UserUpdate
+from app.settings.config import settings
+from app.core.cors import init_cors
+from app.core.scheduler import scheduler
+from app.models.user import User
+
+from app.routes import (
+    report,
+    widget,
+    completion,
+    file,
+    organization,
+    data_source,
+    memory,
+    text_widget,
+    user_profile,
+    llm
+)
+
+sentry_sdk.init(
+    dsn=settings.SENTRY_DSN,
+    traces_sample_rate=1.0,
+    environment=settings.ENVIRONMENT,
+)
+
+# Read configuration
+enable_google_oauth = settings.bow_config.google_oauth.enabled
+google_client_id = settings.bow_config.google_oauth.client_id
+google_client_secret = settings.bow_config.google_oauth.client_secret
+
+
+
+# Initialize FastAPI app
+app = FastAPI(title=settings.PROJECT_NAME, debug=settings.DEBUG)
+init_cors(app)
+
+oauth_providers = []
+if enable_google_oauth and google_client_id and google_client_secret:
+    google_oauth_client = GoogleOAuth2(
+        google_client_id,
+        google_client_secret
+    )
+    oauth_providers.append(google_oauth_client)
+else:
+    google_oauth_client = None
+
+fastapi_users = create_fastapi_users(get_user_manager, auth_backend, oauth_providers)
+current_user = fastapi_users.current_user(active=True)
+
+app.include_router(user_profile.router, prefix="/api")
+
+# Auth routes
+app.include_router(
+    fastapi_users.get_auth_router(auth_backend),
+    prefix="/api/auth/jwt",
+    tags=["auth"]
+)
+
+app.include_router(
+    fastapi_users.get_register_router(UserRead, UserCreate),
+    prefix="/api/auth",
+    tags=["auth"]
+)
+
+app.include_router(
+    fastapi_users.get_reset_password_router(),
+    prefix="/api/auth",
+    tags=["auth"],
+)
+
+if settings.bow_config.features.verify_emails:
+    app.include_router(
+        fastapi_users.get_verify_router(UserRead),
+        prefix="/api/auth",
+        tags=["auth"],
+    )
+
+app.include_router(
+    fastapi_users.get_users_router(UserRead, UserUpdate),
+    prefix="/api/users",
+    tags=["users"],
+)
+if google_oauth_client:
+    oauth_router = fastapi_users.get_oauth_router(
+        google_oauth_client,
+        auth_backend,
+        SECRET,
+        associate_by_email=True,
+        redirect_url=settings.bow_config.base_url + "/api/auth/google/callback",
+        is_verified_by_default=True
+    )
+
+    app.include_router(
+        oauth_router,
+        prefix="/api/auth/google",
+        tags=["auth"]
+    )
+
+app.include_router(data_source.router, prefix="/api")
+app.include_router(report.router, prefix="/api")
+app.include_router(widget.router, prefix="/api")
+app.include_router(completion.router)
+app.include_router(file.router, prefix="/api")
+app.include_router(organization.router, prefix="/api")
+app.include_router(text_widget.router, prefix="/api")
+app.include_router(memory.router, prefix="/api")
+app.include_router(llm.router, prefix="/api")
+
+@app.on_event("startup")
+async def startup_event():
+    scheduler.start()
+    print(f"""
+          
+   ____                       __                         _     
+ |  _ \                     / _|                       | |    
+ | |_) | __ _  __ _    ___ | |_  __      _____  _ __ __| |___ 
+ |  _ < / _` |/ _` |  / _ \|  _| \ \ /\ / / _ \| '__/ _` / __|
+ | |_) | (_| | (_| | | (_) | |    \ V  V / (_) | | | (_| \__ \
+
+ |____/ \__,_|\__, |  \___/|_|     \_/\_/ \___/|_|  \__,_|___/
+               __/ |                                          
+              |___/                                                                       
+
+🚀 Starting server with configuration:
+    - Environment: {settings.ENVIRONMENT}
+    - Debug Mode: {settings.DEBUG}
+    - Google OAuth: {'Enabled' if enable_google_oauth else 'Disabled'}
+    - Email Verification: {'Enabled' if settings.bow_config.features.verify_emails else 'Disabled'}
+    - Deployment Type: {settings.bow_config.deployment.type}
+    - Version: {settings.PROJECT_VERSION}
+    
+    >>>>>
+    You can now start using the app at {settings.bow_config.base_url}
+    """)
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler.shutdown()
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        workers=20
+    )

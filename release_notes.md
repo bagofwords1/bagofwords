@@ -1,0 +1,77 @@
+# Release Notes
+
+## Version 0.0.14 (January 3, 2025)
+
+- Added basic self-hosting support
+- Added printing in code gen for better healing
+- Improve answering agent and planner agent
+- Replaced highcharts with ECharts
+- Added intercom
+- Various fixes and improvements
+
+## Version 0.0.13 (December 26, 2024)
+
+- Added prompt guidelines 
+- Fixed modify, creation of widgets
+- Fix proxy in nuxt/fastapi 
+- Improved agents: dashboard, data model, chart, and prompt
+- Added email validation for signups
+- Dockerized the application
+- Kubernetesized the application
+
+## Version 0.0.12 (December 13, 2024)
+
+- Added functionality to rerun dashboard steps, including cron support with configurable intervals
+- Enabled automated LLM-generated summaries, starters, and reports for connected data sources
+- Integrated Google Sign-In for seamless user authentication
+- Added support for nginx reverse proxy
+- Redesigned the home page for improved usability
+- Added `bow-llm`, an abstracted LLM provider to set as the default
+- Enhanced error handling with interactive toasts for better feedback
+- Improved agent capabilities for code generation with better data source context and refined JSON parsing
+- Enabled dynamic modifications to agent plans
+- Resolved the "thinking bug"
+- Made LLM provider presets uneditable
+- Fixed WebSocket functionality in production
+- Completed end-to-end tests for completions and data sources
+
+## Version 0.0.11 (December 5, 2024)
+
+- Completed integrations for Presto, Salesforce, and Google Analytics
+- Added support to CRUD model providers and LLM models
+- Added Claude AI model support
+- Implemented data source credential security
+- Enhanced agent capabilities:
+  - Added clarification questions feature
+  - Fixed dashboard layout generation
+  - Fixed chart parameter rendering
+  - Improved data model modifications
+- UI Improvements:
+  - Fixed report title updates
+  - Resolved copy-paste styling issues in prompt box
+  - Completed memberships interface
+  - Enhanced mention component
+- Infrastructure updates:
+  - Added configuration file support
+  - Removed Excel special routes
+  - Cleaned up Nuxt from git repository
+  - Fixed default menu data source association
+  - Removed unique organization name requirement
+
+## Version 0.0.10 (November 28, 2024)
+
+- Edge left menu is now scrollable.  
+- Fixed logo scaling issue in Edge browser.  
+- Added schema browser for data sources.  
+- Enabled manual test connection for data sources.  
+- Converted data source list in prompts to a dictionary for better position handling.  
+- Added Markdown support for completions in both agent and UI.  
+- MySQL, BigQuery, Snowflake, MariaDB, and ClickHouse integrations are complete.  
+- Initial scaffold for service type data sources
+- Fixed `_build_schemas_context` to run only once during agent initialization.  
+- Improved data source error messages.  
+- Only active data sources are now displayed.  
+- Data sources failing test connection are automatically set to inactive.  
+- Introduced a service-type architecture for data source handling in code generation.  
+- Permissions module completed.  
+- Public dashboard completed.
