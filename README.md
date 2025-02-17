@@ -80,8 +80,12 @@ yarn install
 yarn dev      # Regular mode
 ```
 
-## API Documentation
 - OpenAPI docs: http://localhost:8000/docs
+
+## Links
+
+- Website: https://bagofwords.com
+- Docs: https://docs.bagofwords.com
 
 ## License
 AGPL-3.0
