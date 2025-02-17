@@ -1,9 +1,9 @@
 # Bag of words
 > Build and share smart data apps using AI
 
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/bagofwords1/bagofwords)
-[![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/bagofwords/bagofwords)
+[![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
+[![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/bagofwords/bagofwords)
 ---
 
 Bag of words enables users to create comprehensive dashboards with a single prompt and refine them iteratively. It integrates seamlessly with various data sources, including databases, APIs, and business systems, allowing for effective data utilization.
