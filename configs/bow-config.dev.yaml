@@ -32,9 +32,8 @@ smtp_settings:
 
 encryption_key: ${BOW_ENCRYPTION_KEY}
 
-stripe:
-  api_key: ${BOW_STRIPE_API_KEY}
-  webhook_secret: ${BOW_STRIPE_WEBHOOK_SECRET}
-
 intercom:
   enabled: true
+
+database:
+  url: ${BOW_DATABASE_URL}

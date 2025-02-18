@@ -27,10 +27,19 @@ def create_async_database_engine():
         engine = create_async_engine(database_url, echo=True)
     else:
         if "postgres" in settings.bow_config.database.url:
-            database_url = settings.bow_config.database.url.replace("postgres://", "postgresql+asyncpg://")
+            database_url = settings.bow_config.database.url.replace(
+                "postgres://", "postgresql+asyncpg://"
+            ).replace(
+                "postgresql://", "postgresql+asyncpg://"
+            )
             engine = create_async_engine(database_url, pool_size=50, max_overflow=20, echo=True)
         elif "sqlite" in settings.bow_config.database.url:
-            database_url = settings.bow_config.database.url.replace("sqlite://", "sqlite+aiosqlite://")
+            database_url = settings.bow_config.database.url.replace(
+                "sqlite://", "sqlite+aiosqlite://"
+            )
+            engine = create_async_engine(database_url, echo=True)
+        else:
+            database_url = "sqlite+aiosqlite:///./app.db"
             engine = create_async_engine(database_url, echo=True)
 
     return engine
