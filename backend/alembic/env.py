@@ -33,6 +33,8 @@ from app.models.text_widget import TextWidget
 from app.models.llm_provider import LLMProvider
 from app.models.llm_model import LLMModel
 from app.models.oauth_account import OAuthAccount
+from app.models.datasource_table import DataSourceTable
+
 from app.settings.config import settings
 
 # this is the Alembic Config object, which provides

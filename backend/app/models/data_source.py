@@ -119,6 +119,7 @@ class DataSource(BaseSchema):
     organization = relationship("Organization", back_populates="data_sources")
     reports = relationship(
         "Report", secondary="report_data_source_association", back_populates="data_sources")
+    tables = relationship("DataSourceTable", back_populates="datasource")
 
     def get_client(self):
         try:
@@ -151,3 +152,32 @@ class DataSource(BaseSchema):
     def decrypt_credentials(self) -> dict:
         fernet = Fernet(settings.bow_config.encryption_key)
         return json.loads(fernet.decrypt(self.credentials.encode()).decode())
+
+    def get_schemas(self, include_inactive: bool = False) -> str:
+        """
+        Get the database schema information from associated DataSourceTable records in a prompt-ready format.
+        Returns a formatted string describing all tables, their columns, and relationships.
+        """
+        schema_text = f"Database: {self.name} ({self.type})\n\n"
+        
+        for table in self.tables:
+            if not include_inactive and not table.is_active:
+                continue
+                
+            schema_text += f"Table: {table.name}\n"
+            schema_text += "Columns:\n"
+            
+            # Add column information
+            for column in table.columns:
+                pk_marker = "🔑 " if any(pk["name"] == column["name"] for pk in table.pks) else "  "
+                schema_text += f"{pk_marker}{column['name']} ({column.get('dtype', 'unknown')})\n"
+            
+            # Add foreign key information
+            if table.fks:
+                schema_text += "Foreign Keys:\n"
+                for fk in table.fks:
+                    schema_text += f"  {fk['column']['name']} → {fk['references_name']}.{fk['references_column']['name']}\n"
+            
+            schema_text += f"Approximate row count: {table.no_rows}\n\n"
+        
+        return schema_text

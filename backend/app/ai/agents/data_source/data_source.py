@@ -17,13 +17,12 @@ class DataSourceAgent:
         self.llm = LLM(model)
 
     def generate_summary(self):
-
         prompt = f"""
 Given this data source:
 {self.data_source.name}
 
 And this schema
-{self.client.get_schemas()}
+{self.data_source.get_schemas()}
 
 Please describe the data source in a few sentences. Make it useful for a non-technical audience. 
 
@@ -39,7 +38,6 @@ Guidelines:
 Respond only markdown text (with newlines), no json or any other formatting.
 """
         response = self.llm.inference(prompt)
-
         return response
 
     def generate_conversation_starters(self):
@@ -48,7 +46,7 @@ Given this data source:
 {self.data_source.name}
 
 And this schema
-{self.client.get_schemas()}
+{self.data_source.get_schemas()}
 
 Please generate 4 conversation starters. Return them in a strict JSON array format.
 
@@ -94,7 +92,7 @@ Given this data source:
 {self.data_source.name}
 
 And this schema
-{self.client.get_schemas()}
+{self.data_source.get_schemas()}
 
 Please review the schema and the data source name and it client. Then, understand the nature of the data source, think about the purpose of the data source, and generate a description for the data source. Make it useful for a non-technical audience. 
 Description should be max 3 sentences. Should be concise, valuable, and useful.
@@ -114,5 +112,4 @@ Examples:
 - "Jira data that provides information about engineering projects, tasks, and team performance."
 """
         response = self.llm.inference(prompt)
-
         return response

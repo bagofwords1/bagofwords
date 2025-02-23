@@ -15,6 +15,13 @@ import uuid
 from uuid import UUID
 import json
 
+from app.schemas.datasource_table_schema import DataSourceTableCreateSchema
+from app.models.datasource_table import DataSourceTable
+from sqlalchemy import select, and_
+from datetime import datetime, timedelta
+
+import asyncio
+
 class DataSourceService:
 
     def __init__(self):
@@ -246,15 +253,112 @@ class DataSourceService:
         return main_model_schema
 
     async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+        """Get schema from database tables."""
+        result = await db.execute(
+            select(DataSourceTable)
+            .filter(
+                DataSourceTable.datasource_id == data_source_id,
+                DataSourceTable.is_active == True
+            )
+        )
+        tables = result.scalars().all()
+        
+        if not tables:
+            # If no tables found, try to load fresh schemas
+            return await self.get_fresh_schema(db, data_source_id, organization, current_user)
+        
+        return [table.to_prompt_table() for table in tables]
+
+    async def get_fresh_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+        """Get schema directly from data source."""
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
+        
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+        
         client = data_source.get_client()
         try:
             schema = client.get_schemas()
+            # Save the fresh schema to database
+            await self.save_schema_tables(db, data_source_id, schema)
+            return schema
         except Exception as e:
-
             print(f"Error getting data source schema: {e}")
-            schema = None
             raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
+
+    async def save_schema_tables(self, db: AsyncSession, data_source_id: str, schema_tables: list[Table]):
+        """Save or update schema tables in database."""
+        # Get existing tables
+        result = await db.execute(
+            select(DataSourceTable)
+            .filter(DataSourceTable.datasource_id == data_source_id)
+        )
+        existing_tables = {table.name: table for table in result.scalars().all()}
         
-        return schema
+        # Track processed tables
+        processed_tables = set()
+        
+        # Update or create tables
+        for table in schema_tables:
+            table_data = {
+                "name": table.name,
+                "columns": [{"name": col.name, "dtype": col.dtype} for col in table.columns] if table.columns else [],
+                "pks": [{"name": pk.name, "dtype": pk.dtype} for pk in table.pks] if table.pks else [],
+                "fks": [{
+                    "column": {"name": fk.column.name, "dtype": fk.column.dtype},
+                    "references_name": fk.references_name,
+                    "references_column": {"name": fk.references_column.name, "dtype": fk.references_column.dtype}
+                } for fk in table.fks] if table.fks else [],
+                "datasource_id": data_source_id,
+                "is_active": True
+            }
+            
+            if table.name in existing_tables:
+                # Update existing table
+                existing_table = existing_tables[table.name]
+                for key, value in table_data.items():
+                    setattr(existing_table, key, value)
+            else:
+                # Create new table
+                new_table = DataSourceTable(**table_data)
+                db.add(new_table)
+            
+            processed_tables.add(table.name)
+        
+        # Deactivate tables that no longer exist
+        for table_name, table in existing_tables.items():
+            if table_name not in processed_tables:
+                table.is_active = False
+        
+        await db.commit()
+
+    async def refresh_all_schemas(self, db: AsyncSession):
+        """Refresh schemas for all active data sources."""
+        result = await db.execute(
+            select(DataSource)
+            .filter(DataSource.is_active == True)
+        )
+        data_sources = result.scalars().all()
+        
+        for data_source in data_sources:
+            try:
+                client = data_source.get_client()
+                schema = client.get_schemas()
+                await self.save_schema_tables(db, data_source.id, schema)
+            except Exception as e:
+                print(f"Error refreshing schema for data source {data_source.id}: {e}")
+                continue
+
+    async def schedule_schema_refresh(self):
+        """Schedule daily schema refresh."""
+        while True:
+            try:
+                # Create new session for the background task
+                async with AsyncSession() as db:
+                    await self.refresh_all_schemas(db)
+            except Exception as e:
+                print(f"Error in scheduled schema refresh: {e}")
+            
+            # Wait for 24 hours
+            await asyncio.sleep(24 * 60 * 60)
