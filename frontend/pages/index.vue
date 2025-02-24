@@ -1,5 +1,13 @@
 <template>
   <div class="flex flex-col min-h-screen bg-white relative">
+    <div v-if="models.filter(model => model.is_enabled).length === 0">
+      <div
+        @click="router.push('/settings/models')"
+      class="text-center cursor-pointer text-gray-500 text-sm bg-blue-500 text-white p-2 flex items-center justify-center">
+        <UIcon name="i-heroicons-cube-transparent" class="h-5 mr-2 bg-yellow-500" />
+        <span>Connect your LLM to get started</span>
+      </div>
+    </div>
     <!-- Add background div with grid -->
     <div class="absolute inset-0 pointer-events-none" 
          style="background-image: linear-gradient(to right, rgb(15 23 42 / 0.04) 1px, transparent 1px),

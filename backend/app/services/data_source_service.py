@@ -61,7 +61,7 @@ class DataSourceService:
         # Test connection and generate items...
         connection = await self.test_data_source_connection(db=db, data_source_id=new_data_source.id, organization=organization, current_user=current_user)
         if connection["success"]:
-            await self.save_or_update_tables(db=db, data_source=new_data_source, organization=organization)
+            await self.save_or_update_tables(db=db, data_source=new_data_source, organization=organization, should_set_active=True)
 
             if generate_summary:
                 response = await self.generate_data_source_items(db=db, item="summary", data_source_id=new_data_source.id, organization=organization, current_user=current_user)
@@ -82,7 +82,12 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
 
         model = await organization.get_default_llm_model(db)
-        data_source_agent = DataSourceAgent(data_source=data_source, model=model)
+        if not model:
+            raise HTTPException(status_code=400, detail="No default LLM model found")
+
+        schema = await data_source.get_schemas(db=db, include_inactive=False)
+
+        data_source_agent = DataSourceAgent(data_source=data_source, model=model, schema=schema)
         response = {}
         if item == "summary":
             response["summary"] = data_source_agent.generate_summary()
@@ -287,7 +292,7 @@ class DataSourceService:
         
         return data_source
     
-    async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None):
+    async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None, should_set_active: bool = True):
         try:
             tables = await self.get_data_source_fresh_schema(db=db, data_source_id=data_source.id, organization=organization)
             
@@ -326,7 +331,7 @@ class DataSourceService:
                         pks=table.get("pks", []) if isinstance(table, dict) else getattr(table, "pks", []),
                         fks=table.get("fks", []) if isinstance(table, dict) else getattr(table, "fks", []),
                         datasource_id=data_source.id,
-                        is_active=active_status.get(table_name, False) 
+                        is_active=active_status.get(table_name, should_set_active) 
                     )
                     table_objects.append(table_object)
             
@@ -354,5 +359,5 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
         
-        schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization)
+        schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False)
         return schemas

@@ -11,10 +11,11 @@ from app.models.llm_model import LLMModel
 
 class DataSourceAgent:
 
-    def __init__(self, data_source: DataSource, model: LLMModel):
+    def __init__(self, data_source: DataSource, model: LLMModel, schema):
         self.data_source = data_source
         self.client = data_source.get_client()
         self.llm = LLM(model)
+        self.schema = schema
 
     def generate_summary(self):
         prompt = f"""
@@ -22,7 +23,7 @@ Given this data source:
 {self.data_source.name}
 
 And this schema
-{self.data_source.get_schemas()}
+{self.schema}
 
 Please describe the data source in a few sentences. Make it useful for a non-technical audience. 
 
@@ -46,7 +47,7 @@ Given this data source:
 {self.data_source.name}
 
 And this schema
-{self.data_source.get_schemas()}
+{self.schema}
 
 Please generate 4 conversation starters. Return them in a strict JSON array format.
 
@@ -92,7 +93,7 @@ Given this data source:
 {self.data_source.name}
 
 And this schema
-{self.data_source.get_schemas()}
+{self.schema}
 
 Please review the schema and the data source name and it client. Then, understand the nature of the data source, think about the purpose of the data source, and generate a description for the data source. Make it useful for a non-technical audience. 
 Description should be max 3 sentences. Should be concise, valuable, and useful.
