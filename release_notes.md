@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.15 (February 24, 2025)
+
+- Added active toggle to data source tables to hide from context
+- Fixed bug when generating data source items
+- Add top bar to index page when no LLMs are available
+
 ## Version 0.0.14 (January 3, 2025)
 
 - Added basic self-hosting support
