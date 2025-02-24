@@ -68,7 +68,6 @@ class Agent:
             self.files = self.report.files
 
             # should be last
-            self.schemas = self._build_schemas_context()
 
     async def main_execution(self):
 
@@ -79,7 +78,7 @@ class Agent:
                 "text_widgets": [],
                 "widgets": []
             }
-            schemas = self.schemas
+            schemas = await self._build_schemas_context()
             memories = await self._build_memories_context()
             previous_messages = await self._build_messages_context()
             head_completion = self.head_completion
@@ -383,7 +382,7 @@ class Agent:
 
         code_and_error_messages = []
         retries = 0
-        schemas = self.schemas
+        schemas = await self._build_schemas_context()
         memories = await self._build_memories_context()
         previous_messages = await self._build_messages_context()
         code = ""
@@ -458,7 +457,7 @@ class Agent:
         data_model_diff = action['details']
         code_and_error_messages = []
         retries = 0
-        schemas = self.schemas
+        schemas = await self._build_schemas_context()
         memories = await self._build_memories_context()
         previous_messages = await self._build_messages_context()
         previous_step = await self._get_last_step()
@@ -635,11 +634,11 @@ class Agent:
                              for row in widget['rows']]
         return widget
 
-    def _build_schemas_context(self):
+    async def _build_schemas_context(self):
         context = []
         for data_source in self.data_sources:
             context.append(f"<data_source>: {data_source.name}</data_source>\n<data_source_type>: {data_source.type}</data_source_type>\n\n<schema>:")
-            context.append(self.clients[data_source.name].prompt_schema())
+            context.append(await data_source.prompt_schema(self.db))
             context.append("</schema>\n")
             context.append(f"<data_source_context>: \n Use this context as business context and rules for the data source\n{data_source.context}\n</data_source_context>")
 

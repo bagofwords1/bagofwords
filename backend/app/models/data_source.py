@@ -8,6 +8,15 @@ from importlib import import_module
 from cryptography.fernet import Fernet
 from app.settings.config import settings
 import json
+from typing import List
+from app.models.datasource_table import DataSourceTable
+from app.schemas.datasource_table_schema import DataSourceTableSchema
+from app.ai.prompt_formatters import Table, TableColumn
+from sqlalchemy.orm import selectinload
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import object_session
+
 
 DATA_SOURCE_DETAILS = [
     {
@@ -153,31 +162,47 @@ class DataSource(BaseSchema):
         fernet = Fernet(settings.bow_config.encryption_key)
         return json.loads(fernet.decrypt(self.credentials.encode()).decode())
 
-    def get_schemas(self, include_inactive: bool = False) -> str:
+    async def get_schemas(self, db: AsyncSession = None, include_inactive: bool = False) -> List[Table]:
         """
-        Get the database schema information from associated DataSourceTable records in a prompt-ready format.
-        Returns a formatted string describing all tables, their columns, and relationships.
+        Get the database schema information from associated DataSourceTable records.
+        Returns a list of Table objects containing table structure information.
         """
-        schema_text = f"Database: {self.name} ({self.type})\n\n"
+        # Use provided session or try to get from object
+        session = db or object_session(self)
+        if not isinstance(session, AsyncSession):
+            raise RuntimeError("An async database session is required")
+            
+        # Load the data source with its tables
+        stmt = select(DataSource).where(DataSource.id == self.id).options(selectinload(DataSource.tables))
+        result = await session.execute(stmt)
+        data_source = result.scalar_one()
         
-        for table in self.tables:
+        tables = []
+        for table in data_source.tables:
             if not include_inactive and not table.is_active:
                 continue
                 
-            schema_text += f"Table: {table.name}\n"
-            schema_text += "Columns:\n"
+            columns = [
+                TableColumn(name=col["name"], dtype=col.get("dtype", "unknown"))
+                for col in table.columns
+            ]
             
-            # Add column information
-            for column in table.columns:
-                pk_marker = "🔑 " if any(pk["name"] == column["name"] for pk in table.pks) else "  "
-                schema_text += f"{pk_marker}{column['name']} ({column.get('dtype', 'unknown')})\n"
+            tables.append(Table(
+                name=table.name,
+                columns=columns,
+                pks=table.pks,
+                fks=table.fks,
+                is_active=table.is_active
+            ))
             
-            # Add foreign key information
-            if table.fks:
-                schema_text += "Foreign Keys:\n"
-                for fk in table.fks:
-                    schema_text += f"  {fk['column']['name']} → {fk['references_name']}.{fk['references_column']['name']}\n"
-            
-            schema_text += f"Approximate row count: {table.no_rows}\n\n"
-        
-        return schema_text
+        return tables
+
+    async def prompt_schema(self, db: AsyncSession = None) -> str:
+        """
+        Get the database schema information using TableFormatter.
+        Returns a formatted string suitable for prompts.
+        """
+        from app.ai.prompt_formatters import TableFormatter
+        # Pass the session to get_schemas
+        tables = await self.get_schemas(db=db)
+        return TableFormatter(tables).table_str

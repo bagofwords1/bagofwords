@@ -121,10 +121,31 @@ Create a table of all customers, show customer name, email, phone, address and c
 
                 <div v-if="activeTab === 'schema'" class="mt-4">
                     <div class="font-semibold mb-2">Schema</div>
+
+                    <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
+                        <div class="flex items-start">
+                            <UIcon name="heroicons-light-bulb" class="w-5 h-5 text-blue-500 mt-0.5 mr-2" />
+                            <div>
+                                <p class="text-sm text-blue-600">
+                                    You can toggle tables on/off to control which ones are included in AI queries. Inactive tables will be excluded from the schema provided to AI agents.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                     
                     <div v-if="schema" class="mt-2">
+                        <div class="flex justify-between">
+                            <button @click="refreshSchema()"
+                                :disabled="isRefreshing"
+                                class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs mb-2 mt-2 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                                <UIcon v-if="isRefreshing" name="heroicons-arrow-path" class="animate-spin" />
+                                <UIcon v-else name="heroicons-arrow-path" />
+                                Refresh Schema
+                            </button>
+                        </div>
                         <ul class="py-2 list-none list-inside">
                             <li class="py-1" v-for="table in schema" :key="table.name">
+                                <UCheckbox v-model="table.is_active" class="float-left mr-2"/>
                                 <div @click="toggleTable(table)" class="font-semibold text-gray-500 cursor-pointer">
                                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="p-1" />
                                     {{ table.name }}
@@ -137,6 +158,10 @@ Create a table of all customers, show customer name, email, phone, address and c
                                 </ul>
                             </li>
                         </ul>
+
+                        <button @click="updateTableStatus()" class="bg-blue-500 text-white px-4 py-2 text-sm mt-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                            Save
+                        </button>
                     </div>
                     <div v-else-if="testConnectionStatus?.success" class="flex justify-center items-center p-4">
                         <UIcon name="heroicons-arrow-path" class="animate-spin" />
@@ -325,6 +350,8 @@ const activeTab = ref('main');
 
 const schema = ref(null);
 
+const isRefreshing = ref(false);
+
 watch(testConnectionStatus, (newStatus) => {
     if (!newStatus?.success) {
         activeTab.value = 'configuration';
@@ -360,12 +387,71 @@ async function testConnection() {
     }
 }
 
+async function refreshSchema() {
+    isRefreshing.value = true;
+    try {
+        const response = await useMyFetch(`/data_sources/${ds_id}/refresh_schema`, {
+            method: 'GET',
+        });
+        schema.value = response.data.value;
+    } finally {
+        isRefreshing.value = false;
+    }
+}
 
 async function fetchSchema() {
-    const response = await useMyFetch(`/data_sources/${ds_id}/schema`, {
+    const response = await useMyFetch(`/data_sources/${ds_id}/full_schema`, {
         method: 'GET',
     });
     schema.value = response.data.value;
+}
+
+async function updateTableStatus() {
+    if (!schema.value) {
+        toast.add({
+            title: 'Error',
+            description: 'No schema data available to update',
+            color: 'red'
+        });
+        return;
+    }
+
+    try {
+        // Add datasource_id and ensure pks/fks are arrays
+        const tablesWithDatasourceId = schema.value.map(table => ({
+            ...table,
+            datasource_id: ds_id,
+            pks: table.pks || [],
+            fks: table.fks || []
+        }));
+
+        const response = await useMyFetch(`/data_sources/${ds_id}/update_schema`, {
+            method: 'PUT',
+            body: tablesWithDatasourceId
+        });
+
+        if (response.status.value === "success") {
+            schema.value = response.data.value;
+            toast.add({
+                title: 'Success',
+                description: 'Table status updated successfully',
+                color: 'green'
+            });
+            
+            // Refresh the schema and test connection after update
+            await fetchSchema();
+            await testConnection();
+        } else {
+            throw new Error('Failed to update table status');
+        }
+    } catch (error) {
+        console.error('Failed to update table status:', error);
+        toast.add({
+            title: 'Error',
+            description: 'Failed to update table status',
+            color: 'red'
+        });
+    }
 }
 
 async function generateItem(item: string) {

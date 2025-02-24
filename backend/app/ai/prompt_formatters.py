@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class TableColumn(BaseModel):
     name: str
     dtype: str | None
+    is_active: bool = True
 
 
 class ForeignKey(BaseModel):
@@ -17,6 +18,7 @@ class Table(BaseModel):
     columns: list[TableColumn] | None
     pks: list[TableColumn] | None
     fks: list[ForeignKey] | None
+    is_active: bool = True
 
 
 class ServiceFormatter:

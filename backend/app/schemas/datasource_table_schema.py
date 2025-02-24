@@ -5,6 +5,7 @@ from typing import Optional
 class TableColumnSchema(BaseModel):
     name: str
     dtype: Optional[str] = None
+    is_active: bool = True
 
 
 class ForeignKeySchema(BaseModel):
@@ -20,7 +21,7 @@ class DataSourceTableSchema(BaseModel):
     datasource_id: str
     pks: list[TableColumnSchema]
     fks: list[ForeignKeySchema]
-    is_active: bool = True
+    is_active: bool = False
 
     def to_prompt_table(self) -> 'Table':
         """Convert to prompt formatter Table model."""

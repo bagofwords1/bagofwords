@@ -15,12 +15,9 @@ import uuid
 from uuid import UUID
 import json
 
-from app.schemas.datasource_table_schema import DataSourceTableCreateSchema
-from app.models.datasource_table import DataSourceTable
-from sqlalchemy import select, and_
-from datetime import datetime, timedelta
-
-import asyncio
+from sqlalchemy import insert, delete
+from app.schemas.datasource_table_schema import DataSourceTableSchema
+from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 
 class DataSourceService:
 
@@ -64,6 +61,8 @@ class DataSourceService:
         # Test connection and generate items...
         connection = await self.test_data_source_connection(db=db, data_source_id=new_data_source.id, organization=organization, current_user=current_user)
         if connection["success"]:
+            await self.save_or_update_tables(db=db, data_source=new_data_source, organization=organization)
+
             if generate_summary:
                 response = await self.generate_data_source_items(db=db, item="summary", data_source_id=new_data_source.id, organization=organization, current_user=current_user)
                 new_data_source.description = response["summary"]
@@ -94,7 +93,7 @@ class DataSourceService:
 
         return response
 
-    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization): 
+    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
         
@@ -181,7 +180,6 @@ class DataSourceService:
             # Get the matching client from DATA_SOURCE_DETAILS
             # Import and instantiate the client class
             client = data_source.get_client()
-
             # Test the connection
             connection_status = client.test_connection()
 
@@ -252,113 +250,109 @@ class DataSourceService:
 
         return main_model_schema
 
-    async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
-        """Get schema from database tables."""
-        result = await db.execute(
-            select(DataSourceTable)
-            .filter(
-                DataSourceTable.datasource_id == data_source_id,
-                DataSourceTable.is_active == True
-            )
-        )
-        tables = result.scalars().all()
-        
-        if not tables:
-            # If no tables found, try to load fresh schemas
-            return await self.get_fresh_schema(db, data_source_id, organization, current_user)
-        
-        return [table.to_prompt_table() for table in tables]
+    async def get_data_source_fresh_schema(self, db: AsyncSession, data_source_id: str, organization: Organization):
+        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        data_source = result.scalar_one_or_none()
+        client = data_source.get_client()
+        try:
+            schema = client.get_schemas()
+        except Exception as e:
 
-    async def get_fresh_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
-        """Get schema directly from data source."""
+            print(f"Error getting data source schema: {e}")
+            schema = None
+            raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
+        
+        return schema
+    
+    async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None):
+        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        data_source = result.scalar_one_or_none()
+
+        schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive)
+
+        return schemas
+    
+    async def update_table_status_in_schema(self, db: AsyncSession, data_source_id: str, tables: list[DataSourceTableSchema], organization: Organization):
+        data_source = await self.get_data_source(db=db, data_source_id=data_source_id, organization=organization)
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+        
+        for table in tables:
+            table_object = await db.execute(select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source_id, DataSourceTable.name == table.name))
+            table_object = table_object.scalar_one_or_none()
+            if table_object:
+                table_object.is_active = table.is_active
+                await db.commit()
+                await db.refresh(table_object)
+        
+        return data_source
+    
+    async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None):
+        try:
+            tables = await self.get_data_source_fresh_schema(db=db, data_source_id=data_source.id, organization=organization)
+            
+            if not tables:
+                return
+            
+            # Get existing tables and their active status before deletion
+            existing_tables = await db.execute(
+                select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id)
+            )
+            active_status = {table.name: table.is_active for table in existing_tables.scalars().all()}
+            
+            # Delete existing tables for this datasource
+            await db.execute(
+                delete(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id)
+            )
+            
+            table_objects = []
+            for table in tables:
+                # Convert TableColumn objects to dictionaries
+                if isinstance(table, dict):
+                    columns = table.get("columns", {})
+                    columns_dict = [{"name": col.name, "dtype": col.dtype} if hasattr(col, 'name') else col 
+                                  for col in columns]
+                    table_name = table.get("name")
+                else:
+                    columns = getattr(table, "columns", {})
+                    columns_dict = [{"name": col.name, "dtype": col.dtype} if hasattr(col, 'name') else col 
+                                  for col in columns]
+                    table_name = getattr(table, "name", None)
+                
+                if table_name:  # Only add if name is present
+                    table_object = DataSourceTable(
+                        name=table_name,
+                        columns=columns_dict,
+                        pks=table.get("pks", []) if isinstance(table, dict) else getattr(table, "pks", []),
+                        fks=table.get("fks", []) if isinstance(table, dict) else getattr(table, "fks", []),
+                        datasource_id=data_source.id,
+                        is_active=active_status.get(table_name, False) 
+                    )
+                    table_objects.append(table_object)
+            
+            if table_objects:
+                db.add_all(table_objects)
+                await db.commit()
+
+        except Exception as e:
+            print(f"Error saving tables: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to save database tables: {str(e)}"
+            )
+        
+        schemas = await data_source.get_schemas(db=db, include_inactive=True)
+
+        return schemas
+        
+    
+    async def refresh_data_source_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+        # Get the DataSource model instance instead of schema
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
         
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
         
-        client = data_source.get_client()
-        try:
-            schema = client.get_schemas()
-            # Save the fresh schema to database
-            await self.save_schema_tables(db, data_source_id, schema)
-            return schema
-        except Exception as e:
-            print(f"Error getting data source schema: {e}")
-            raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
-
-    async def save_schema_tables(self, db: AsyncSession, data_source_id: str, schema_tables: list[Table]):
-        """Save or update schema tables in database."""
-        # Get existing tables
-        result = await db.execute(
-            select(DataSourceTable)
-            .filter(DataSourceTable.datasource_id == data_source_id)
-        )
-        existing_tables = {table.name: table for table in result.scalars().all()}
-        
-        # Track processed tables
-        processed_tables = set()
-        
-        # Update or create tables
-        for table in schema_tables:
-            table_data = {
-                "name": table.name,
-                "columns": [{"name": col.name, "dtype": col.dtype} for col in table.columns] if table.columns else [],
-                "pks": [{"name": pk.name, "dtype": pk.dtype} for pk in table.pks] if table.pks else [],
-                "fks": [{
-                    "column": {"name": fk.column.name, "dtype": fk.column.dtype},
-                    "references_name": fk.references_name,
-                    "references_column": {"name": fk.references_column.name, "dtype": fk.references_column.dtype}
-                } for fk in table.fks] if table.fks else [],
-                "datasource_id": data_source_id,
-                "is_active": True
-            }
-            
-            if table.name in existing_tables:
-                # Update existing table
-                existing_table = existing_tables[table.name]
-                for key, value in table_data.items():
-                    setattr(existing_table, key, value)
-            else:
-                # Create new table
-                new_table = DataSourceTable(**table_data)
-                db.add(new_table)
-            
-            processed_tables.add(table.name)
-        
-        # Deactivate tables that no longer exist
-        for table_name, table in existing_tables.items():
-            if table_name not in processed_tables:
-                table.is_active = False
-        
-        await db.commit()
-
-    async def refresh_all_schemas(self, db: AsyncSession):
-        """Refresh schemas for all active data sources."""
-        result = await db.execute(
-            select(DataSource)
-            .filter(DataSource.is_active == True)
-        )
-        data_sources = result.scalars().all()
-        
-        for data_source in data_sources:
-            try:
-                client = data_source.get_client()
-                schema = client.get_schemas()
-                await self.save_schema_tables(db, data_source.id, schema)
-            except Exception as e:
-                print(f"Error refreshing schema for data source {data_source.id}: {e}")
-                continue
-
-    async def schedule_schema_refresh(self):
-        """Schedule daily schema refresh."""
-        while True:
-            try:
-                # Create new session for the background task
-                async with AsyncSession() as db:
-                    await self.refresh_all_schemas(db)
-            except Exception as e:
-                print(f"Error in scheduled schema refresh: {e}")
-            
-            # Wait for 24 hours
-            await asyncio.sleep(24 * 60 * 60)
+        schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization)
+        return schemas

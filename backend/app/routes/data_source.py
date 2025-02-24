@@ -9,7 +9,7 @@ from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from app.services.data_source_service import DataSourceService
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate
-
+from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.core.permissions_decorator import requires_permission
 from app.models.data_source import DataSource
 
@@ -113,7 +113,28 @@ async def get_data_source_schema(
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.get_data_source_schema(db, data_source_id, organization, current_user)
+    return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user)
+
+@router.get("/data_sources/{data_source_id}/full_schema", response_model=list)
+@requires_permission('view_data_source_full_schema', model=DataSource)
+async def get_data_source_full_schema(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=True, organization=organization, current_user=current_user)
+
+@router.put("/data_sources/{data_source_id}/update_schema", response_model=DataSourceSchema)
+@requires_permission('view_data_source_full_schema', model=DataSource)
+async def update_table_status_in_schema(
+    data_source_id: str,
+    tables: list[DataSourceTableSchema],
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    return await data_source_service.update_table_status_in_schema(db, data_source_id, tables, organization)
 
 @router.get("/data_sources/{data_source_id}/generate_items", response_model=dict)
 @requires_permission('update_data_source', model=DataSource)
@@ -125,3 +146,13 @@ async def generate_data_source_items(
     current_user: User = Depends(current_user)
 ):
     return await data_source_service.generate_data_source_items(db, item, data_source_id, organization, current_user)
+
+@router.get("/data_sources/{data_source_id}/refresh_schema", response_model=list)
+@requires_permission('view_data_source_full_schema', model=DataSource)
+async def refresh_data_source_schema(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    return await data_source_service.refresh_data_source_schema(db, data_source_id, organization, current_user)
