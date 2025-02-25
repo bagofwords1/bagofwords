@@ -161,6 +161,21 @@ class LLMService:
         is_enabled: bool = None
     ):
         """Get all LLM models for an organization, optionally filtered by status"""
+        # First, get all active providers
+        providers = await db.execute(
+            select(LLMProvider)
+            .filter(LLMProvider.organization_id == organization.id)
+            .filter(LLMProvider.deleted_at == None)
+        )
+        providers = providers.unique().scalars().all()
+
+        # Sync new models for each provider
+        for provider in providers:
+            await self._sync_provider_with_latest_models(db, provider, organization)
+
+        await db.commit()
+
+        # Get all models with filters
         query = select(LLMModel).join(LLMModel.provider).filter(
             LLMProvider.organization_id == organization.id
         ).filter(
@@ -397,4 +412,38 @@ class LLMService:
                 db.add(model)
 
         await db.commit()
+        
+    async def _sync_provider_with_latest_models(
+        self,
+        db: AsyncSession,
+        provider: LLMProvider,
+        organization: Organization
+    ):
+        """Sync a provider with the latest models from LLM_MODEL_DETAILS"""
+        # Get available models for this provider type
+        available_models = [
+            model for model in LLM_MODEL_DETAILS 
+            if model["provider_type"] == provider.provider_type
+        ]
+
+        # Get existing model IDs for this provider
+        existing_models = await db.execute(
+            select(LLMModel.model_id)
+            .filter(LLMModel.provider_id == provider.id)
+        )
+        existing_model_ids = {model[0] for model in existing_models}
+
+        # Add any missing models
+        for model_data in available_models:
+            if model_data["model_id"] not in existing_model_ids:
+                model = LLMModel(
+                    name=model_data["name"],
+                    model_id=model_data["model_id"],
+                    is_preset=model_data["is_preset"],
+                    is_enabled=model_data["is_enabled"],
+                    provider=provider,
+                    organization_id=organization.id
+                )
+                db.add(model)
+
         

@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.151 (February 25, 2025)
+
+- Added Claude 3.7 Sonnet to LLM models
+- Added sync provider with latest models
+
 ## Version 0.0.15 (February 24, 2025)
 
 - Added active toggle to data source tables to hide from context

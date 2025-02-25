@@ -43,40 +43,8 @@
               <div v-if="fields.config" class="mb-6 bg-gray-50 p-5 rounded border">
                 <div class="flex justify-between items-center mb-4">
                   <h3 class="text-sm font-semibold">Configuration</h3>
-                  <button @click="showNatGateway = true" class="text-xs hidden text-blue-500 hover:text-blue-600">Network Settings</button>
                 </div>
-                <UModal v-model="showNatGateway">
-                  <div class="p-4 relative">
-                    <button @click="showNatGateway = false"
-                      class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
-                      <UIcon name="heroicons:x-mark" class="w-5 h-5" />
-                    </button>
-                    <h1 class="text-lg font-semibold">Network Settings</h1>
-                    <p class="text-sm text-gray-500">Configure network access for your integration</p>
-                    <hr class="my-4" />
-                    
-                    <div>
-                      <div class="mt-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">Incoming connections</label>
-                        <p class="text-sm text-gray-600">Make sure to allow incoming connections from the following IP address:</p>
-                        <div class="mt-2 p-3 bg-gray-50 rounded-md">
-                          <span class="font-mono">{{ nat_gateway_ip }}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="border-t border-gray-200 pt-4 mt-8">
-                      <div class="flex justify-end">
-                        <button 
-                          @click="showNatGateway = false"
-                          class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-                        >
-                          Close
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </UModal>
+  
                 <div v-for="field in configFields" :key="field.field_name" class="mb-4">
                   <label :for="field.field_name" class="block text-sm font-medium text-gray-700">
                     {{ field.title || field.field_name }}

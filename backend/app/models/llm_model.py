@@ -32,6 +32,13 @@ LLM_MODEL_DETAILS = [
         "is_enabled": True
     },
     {
+        "name": "Claude 3.7 Sonnet",
+        "model_id": "claude-3-7-sonnet-20250219",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True
+    },
+    {
         "name": "Claude 3.5 Sonnet",
         "model_id": "claude-3-sonnet-20240229",
         "provider_type": "anthropic",

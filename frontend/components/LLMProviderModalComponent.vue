@@ -119,7 +119,7 @@
                     <ul>
                         <li class="text-sm text-gray-500" v-for="model in filteredModels" :key="model.id">
                             <span class="flex items-center gap-2">
-                                <UCheckbox v-model="model.selected" /> {{ model.name }}
+                                 {{ model.name }}
                             </span>
                         </li>
                     </ul>
@@ -235,7 +235,7 @@ watch(providerModalOpen, (newValue) => {
 async function createProvider() {
     // Gather selected models
     const selectedModels = models.value
-        .filter(model => model.selected)
+        .filter(model => model.provider_type === providerForm.value.provider_type)
         .map(model => ({
             model_id: model.model_id,
             name: model.name,
