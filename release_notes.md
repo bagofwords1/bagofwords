@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.152 (March 16, 2025)
+
+- Added AWS Athena integration
+- Fixed bug when generating data source items
+- Fixed bug when deleting data sources
+
 ## Version 0.0.151 (February 25, 2025)
 
 - Added Claude 3.7 Sonnet to LLM models
