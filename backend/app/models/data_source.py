@@ -59,7 +59,14 @@ DATA_SOURCE_DETAILS = [
         "status": "active",
         "version": "1.0.0"
     },
-
+    {
+        "type": "aws_athena",
+        "title": "AWS Athena",
+        "description": "AWS Athena is a serverless query service that makes it easy to analyze data in Amazon S3 using standard SQL.",
+        "config": "AWSAthenaConfig",
+        "status": "active",
+        "version": "beta"
+    },
     {
         "type": "mariadb",
         "title": "Mariadb",

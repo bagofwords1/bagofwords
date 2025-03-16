@@ -64,7 +64,8 @@ class DataSourceCreate(DataSourceBase):
             'presto': PrestoCredentials,
             'GCP': GCPCredentials,
             'google_analytics': GoogleAnalyticsCredentials,
-            'aws_cost': AWSCostCredentials
+            'aws_cost': AWSCostCredentials,
+            'aws_athena': AWSAthenaCredentials
         }
         
         schema = credential_schemas.get(values['type'])
@@ -232,3 +233,15 @@ class AWSCostCredentials(AWSCredentials):
 
 class AWSCostConfig(BaseModel):
     region_name: str
+
+# AWS Athena
+class AWSAthenaCredentials(AWSCredentials):
+    pass
+
+class AWSAthenaConfig(BaseModel):
+    region: str
+    database: str
+    workgroup: str = "primary"
+    output_location: str  # S3 location where query results are stored
+    schema_name: str
+    
