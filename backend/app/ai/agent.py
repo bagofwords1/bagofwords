@@ -641,7 +641,7 @@ class Agent:
             context.append(await data_source.prompt_schema(self.db))
             context.append("</schema>\n")
             context.append(f"<data_source_context>: \n Use this context as business context and rules for the data source\n{data_source.context}\n</data_source_context>")
-
+        
         for file in self.files:
             context.append(file.prompt_schema())
         return "\n".join(context)

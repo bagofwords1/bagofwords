@@ -165,9 +165,18 @@ class DataSourceService:
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
         if data_source:
+            await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
             await db.delete(data_source)
             await db.commit()
         return {"message": "Data source deleted successfully"}
+    
+    async def delete_data_source_tables(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+        result = await db.execute(select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source_id))
+        tables = result.scalars().all()
+        for table in tables:
+            await db.delete(table)
+        await db.commit()
+        return {"message": "Data source tables deleted successfully"}
     
     async def test_data_source_connection(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         try:

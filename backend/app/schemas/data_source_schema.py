@@ -235,13 +235,14 @@ class AWSCostConfig(BaseModel):
     region_name: str
 
 # AWS Athena
-class AWSAthenaCredentials(AWSCredentials):
-    pass
+class AWSAthenaCredentials(BaseModel):
+    access_key: str
+    secret_key: str
 
 class AWSAthenaConfig(BaseModel):
     region: str
     database: str
     workgroup: str = "primary"
-    output_location: str  # S3 location where query results are stored
-    schema_name: str
-    
+    s3_output_location: str  # S3 location where query results are stored
+    catalog: str = "AwsDataCatalog"
+
