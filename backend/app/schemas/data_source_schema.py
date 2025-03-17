@@ -238,11 +238,13 @@ class AWSCostConfig(BaseModel):
 class AWSAthenaCredentials(BaseModel):
     access_key: str
     secret_key: str
+    role_arn: str
+
 
 class AWSAthenaConfig(BaseModel):
     region: str
     database: str
     workgroup: str = "primary"
     s3_output_location: str  # S3 location where query results are stored
-    catalog: str = "AwsDataCatalog"
+    data_source: str = "AwsDataCatalog"
 

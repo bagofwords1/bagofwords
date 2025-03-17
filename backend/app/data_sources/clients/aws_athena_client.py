@@ -21,10 +21,11 @@ class AwsAthenaClient(DataSourceClient):
         region: str,
         database: str,
         s3_output_location: str,
-        access_key: str,
-        secret_key: str,
+        access_key: str = None,
+        secret_key: str = None,
+        role_arn: str = None,
         workgroup: str = "primary",
-        catalog: str = "AwsDataCatalog",
+        data_source: str = "AwsDataCatalog",
         retry_wait_seconds: int = 0,
         retry_max_attempts: int = 0,
     ):
@@ -35,26 +36,44 @@ class AwsAthenaClient(DataSourceClient):
             region (str): AWS region
             database (str): The name of the database
             s3_output_location (str): S3 location for query results
-            access_key (str): AWS access key ID
-            secret_key (str): AWS secret access key
+            access_key (str, optional): AWS access key ID
+            secret_key (str, optional): AWS secret access key
+            role_arn (str, optional): AWS IAM Role ARN to assume
             workgroup (str): Athena workgroup to use
-            catalog (str): Athena catalog name
+            data_source (str): Athena data source name
             retry_wait_seconds (int): Seconds to wait before each retry
             retry_max_attempts (int): Maximum number of retry attempts
         """
         self.database = database
         self.s3_output_location = s3_output_location
         self.workgroup = workgroup
-        self.catalog = catalog
+        self.data_source = data_source
         self.retry_wait_seconds = retry_wait_seconds
         self.retry_max_attempts = retry_max_attempts
         
-        # Create boto3 session
-        self.boto3_session = boto3.Session(
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=region
-        )
+        # Create boto3 session based on authentication method
+        if role_arn:
+            # Create initial session with no credentials if using role
+            initial_session = boto3.Session(region_name=region)
+            sts_client = initial_session.client('sts')
+            
+            # Assume the specified role
+            assumed_role = sts_client.assume_role(RoleArn=role_arn, RoleSessionName='AthenaClientSession')
+            
+            # Create session with temporary credentials
+            self.boto3_session = boto3.Session(
+                aws_access_key_id=assumed_role['Credentials']['AccessKeyId'],
+                aws_secret_access_key=assumed_role['Credentials']['SecretAccessKey'],
+                aws_session_token=assumed_role['Credentials']['SessionToken'],
+                region_name=region
+            )
+        else:
+            # Create session with access/secret keys
+            self.boto3_session = boto3.Session(
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                region_name=region
+            )
 
         # Keep glue client for schema operations
         self.glue_client = self.boto3_session.client('glue')
@@ -83,7 +102,7 @@ class AwsAthenaClient(DataSourceClient):
                 s3_output=self.s3_output_location,
                 workgroup=self.workgroup,
                 boto3_session=self.boto3_session,
-                data_source=self.catalog
+                data_source=self.data_source
             )
             logger.info("Query executed successfully, returned %d rows", len(df))
             return df
@@ -93,16 +112,30 @@ class AwsAthenaClient(DataSourceClient):
 
     def test_connection(self) -> dict:
         """
-        Test the connection to Athena by running a simple query.
+        Test the connection to Athena by running both catalog and query operations.
 
         Returns:
             dict: Connection test result with success status and message.
         """
         try:
-            self.execute_query("SHOW TABLES")
-            return {"success": True, "message": "Successfully connected to Athena"}
+            # First test Glue catalog access
+            tables = self.get_tables()
+            logger.info(f"Successfully accessed Glue catalog, found {len(tables)} tables")
+
+            # Then test Athena query and S3 access with a minimal query
+            test_query = "SELECT 1"
+            self.execute_query(test_query)
+            
+            return {
+                "success": True,
+                "message": "Successfully connected to Athena and verified all permissions"
+            }
         except Exception as e:
-            logger.error("Error testing Athena connection: %s", str(e))
+            if "AccessDenied" in str(e) and "S3" in str(e):
+                return {
+                    "success": False,
+                    "message": f"Connected to Glue catalog but S3 access denied. Check S3 permissions for: {self.s3_output_location}"
+                }
             return {"success": False, "message": str(e)}
 
     @property
