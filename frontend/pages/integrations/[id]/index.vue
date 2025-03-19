@@ -45,6 +45,18 @@
                         Schema
                     </button>
                     <button 
+                        @click="activeTab = 'models'"
+                        class="px-4 py-1 text-sm"
+                        :class="{ 
+                            'border-b-2 border-blue-500 text-blue-600': activeTab === 'models', 
+                            'text-gray-500': activeTab !== 'models',
+                            'opacity-50 cursor-not-allowed': !testConnectionStatus?.success 
+                        }"
+                        :disabled="!testConnectionStatus?.success"
+                    >
+                        Data Models
+                    </button>
+                    <button 
                         @click="activeTab = 'context'"
                         class="px-4 py-1 text-sm"
                         :class="{ 
@@ -166,6 +178,44 @@ Create a table of all customers, show customer name, email, phone, address and c
                     <div v-else-if="testConnectionStatus?.success" class="flex justify-center items-center p-4">
                         <UIcon name="heroicons-arrow-path" class="animate-spin" />
                     </div>
+                </div>
+
+                <div v-if="activeTab === 'models'" class="mt-4">
+                    <div class="font-semibold text-lg mb-2">Data Models</div>
+                    <div>
+                        <p class="text-sm">
+                            Load data models by connecting your git repo to your data source.
+                        </p>
+                        <div v-if="integration.git_repository">
+                            <UButton 
+                                @click="showGitModal = true"
+                                icon="heroicons:code-bracket"
+                                :label="integration.git_repository.repo_url"
+                                class="mt-4 bg-white text-gray-500 border border-gray-300 px-2 py-1.5 text-xs rounded-md hover:bg-gray-50"
+                            />
+                            <p class="text-sm text-gray-500" v-if="integration.git_repository.status === 'pending'">
+                                Indexing...
+                            </p>
+                            <p class="text-sm text-gray-500" v-else-if="integration.git_repository.status === 'success'">
+                                Last indexed: {{ integration.git_repository.last_indexed }}
+                            </p>
+                        </div>
+                        <div v-else>
+                            <UButton 
+                                @click="showGitModal = true"
+                                icon="heroicons:plus"
+                                label="Connect Git Repository"
+                                class="mt-4 bg-blue-500 text-white px-2 py-1.5 text-xs rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+                            />
+                        </div>
+                    </div>
+                    
+                    <GitRepoModalComponent 
+                        v-model="showGitModal"
+                        :datasource-id="ds_id"
+                        :git-repository="integration.git_repository"
+                        @update:modelValue="handleGitModalClose"
+                    />
                 </div>
 
                 <div v-if="activeTab === 'context'" class="mt-4">
@@ -368,6 +418,8 @@ const configFormData = reactive({});
 const credentialsFormData = reactive({});
 
 const generatingItem = ref<string | null>(null);
+
+const showGitModal = ref(false);
 
 async function testConnection() {
     const response = await useMyFetch(`/data_sources/${ds_id}/test_connection`, {
@@ -643,6 +695,12 @@ async function handleConfigUpdate() {
             description: 'Failed to update integration',
             color: 'red'
         });
+    }
+}
+
+async function handleGitModalClose(value: boolean) {
+    if (!value) {  // When modal is closed
+        await fetchIntegration();
     }
 }
 

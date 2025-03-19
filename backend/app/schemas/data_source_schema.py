@@ -1,8 +1,9 @@
 from pydantic import BaseModel, Field, validator
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 import uuid
 from datetime import datetime
 import json
+from app.schemas.git_repository_schema import GitRepositorySchema
 
 
 class DataSourceBase(BaseModel):
@@ -22,7 +23,7 @@ class DataSourceSchema(DataSourceBase):
     conversation_starters: Optional[list]
     is_active: bool
     config: Dict[str, Any]
-    #credentials: Optional[str]
+    git_repository: Optional[GitRepositorySchema] = None  # Changed to GitRepositorySchema
 
     @validator('config', pre=True)
     def parse_config(cls, value):
@@ -32,6 +33,12 @@ class DataSourceSchema(DataSourceBase):
             except json.JSONDecodeError:
                 raise ValueError('Invalid JSON string for config')
         return value
+
+    @validator('git_repository', pre=True)
+    def validate_git_repository(cls, v):
+        if isinstance(v, list):
+            return v[-1] if v else None
+        return v
 
     class Config:
         from_attributes = True

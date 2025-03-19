@@ -19,6 +19,9 @@ from sqlalchemy import insert, delete
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 
+from typing import List
+from sqlalchemy.orm import selectinload
+
 class DataSourceService:
 
     def __init__(self):
@@ -98,31 +101,31 @@ class DataSourceService:
 
         return response
 
-    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
-        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization) -> DataSourceSchema:
+        query = (
+            select(DataSource)
+            .options(selectinload(DataSource.git_repository))  # Explicitly load the relationship
+            .filter(DataSource.id == data_source_id)
+            .filter(DataSource.organization_id == organization.id)
+        )
+        result = await db.execute(query)
         data_source = result.scalar_one_or_none()
         
         if not data_source:
-            return None
+            raise HTTPException(status_code=404, detail="Data source not found")
         
-        # Convert to schema
-        ds_schema = DataSourceSchema.from_orm(data_source)
-        
-        # Ensure config is properly parsed
-        if isinstance(ds_schema.config, str):
-            try:
-                ds_schema.config = json.loads(ds_schema.config)
-            except json.JSONDecodeError:
-                raise HTTPException(status_code=500, detail="Invalid config format in database")
-        
-        return ds_schema
+        return DataSourceSchema.from_orm(data_source)
 
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
         return [ds for ds in DATA_SOURCE_DETAILS if ds["status"] == "active"]
     
-    async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization):
-        result = await db.execute(select(DataSource).filter(DataSource.organization_id == organization.id))
-        ds = result.scalars().all()
+    async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization) -> List[DataSourceSchema]:
+        ds = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.git_repository))  # Explicitly load the relationship
+            .filter(DataSource.organization_id == organization.id)
+        )
+        ds = ds.scalars().all()
         return [DataSourceSchema.from_orm(d) for d in ds]
 
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization):

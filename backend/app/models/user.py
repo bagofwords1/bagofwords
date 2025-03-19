@@ -24,6 +24,7 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     #prompts = relationship("Prompt", back_populates="user", lazy="selectin")
     memories = relationship("Memory", back_populates="user", lazy="selectin")
     oauth_accounts: Mapped[list[OAuthAccount]] = relationship("OAuthAccount", back_populates="user", cascade="all, delete")
+    git_repositories = relationship("GitRepository", back_populates="user")
 
 
 

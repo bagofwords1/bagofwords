@@ -136,7 +136,8 @@ class DataSource(BaseSchema):
     reports = relationship(
         "Report", secondary="report_data_source_association", back_populates="data_sources")
     tables = relationship("DataSourceTable", back_populates="datasource")
-
+    git_repository = relationship("GitRepository", back_populates="data_source")
+    
     def get_client(self):
         try:
             module_name = f"app.data_sources.clients.{self.type.lower()}_client"
