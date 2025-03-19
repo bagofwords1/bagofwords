@@ -43,6 +43,9 @@ RUN apt-get update && apt-get install -y curl libpq-dev gcc && \
     apt-get install -y nodejs && \
     npm install --global yarn
 
+RUN mkdir -p /app/backend/db && \
+chown -R nobody:nogroup /app
+
 # Copy backend and frontend builds from their respective builder images
 COPY --from=backend-builder /app/backend /app/backend
 COPY --from=frontend-builder /app/frontend /app/frontend
