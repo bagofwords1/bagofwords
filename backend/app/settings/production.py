@@ -9,7 +9,7 @@ class Production(Settings):
     # POSTGRES_USER: str
     # POSTGRES_DB: str
     # POSTGRES_HOST: str
-    SENTRY_DSN: str = "https://14a9bcccd561da545af332cc7884ef5f@o4508181564620800.ingest.us.sentry.io/4508181564751872"
+    SENTRY_DSN: str = ""
 
     class Config:
         env_prefix = ""
