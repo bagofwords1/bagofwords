@@ -11,8 +11,13 @@ from app.models.data_source import DataSource
 from app.schemas.git_repository_schema import GitRepositoryCreate, GitRepositoryUpdate
 from app.models.user import User
 from app.models.organization import Organization
+from app.services.metadata_indexing_job_service import MetadataIndexingJobService
 
 class GitRepositoryService:
+
+    def __init__(self):
+        self.metadata_indexing_job_service = MetadataIndexingJobService()
+
     async def _verify_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
         """Verify data source exists and belongs to organization"""
         result = await db.execute(
@@ -108,14 +113,16 @@ class GitRepositoryService:
             data_source_id=data_source_id,
             status="pending"
         )
-
-
+    
         if git_repo.ssh_key:
             git_repository.encrypt_ssh_key(git_repo.ssh_key)
 
         db.add(git_repository)
         await db.commit()
         await db.refresh(git_repository)
+
+        await self.index_git_repository(db, git_repository.id, data_source_id, organization)
+
         return git_repository
 
     async def update_git_repository(
@@ -172,35 +179,54 @@ class GitRepositoryService:
         repository = await self._verify_repository(db, repository_id, data_source_id, organization)
 
         try:
+            # clone repo
             with tempfile.TemporaryDirectory() as temp_dir:
-                # Set up SSH if needed
-                if repository.ssh_key:
-                    ssh_key_path = os.path.join(temp_dir, 'id_rsa')
-                    ssh_key_data = repository.decrypt_ssh_key()
-                    with open(ssh_key_path, 'w') as f:
-                        f.write(ssh_key_data.get('private_key'))
-                    os.chmod(ssh_key_path, 0o600)
-                    
-                    git.Git().update_environment(
-                        GIT_SSH_COMMAND=f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
-                    )
+                repo = await self.clone_git_repo(repository, temp_dir)
+                
+                # start index
+                breakpoint()
+                job = await self.metadata_indexing_job_service.start_indexing(db, repo, temp_dir, data_source_id, organization)
 
-                # Clone and process repository
-                repo = git.Repo.clone_from(
-                    repository.repo_url,
-                    temp_dir,
-                    branch=repository.branch
-                )
+            # Update repository status
+            repository.status = "completed"
+            repository.last_indexed_at = datetime.utcnow()
+            await db.commit()
+            await db.refresh(repository)
 
-                # Update repository status
-                repository.status = "completed"
-                repository.last_indexed_at = datetime.utcnow()
-                await db.commit()
-                await db.refresh(repository)
-
-                return {"status": "success", "message": "Repository indexed successfully"}
+            return {"status": "success", "message": "Repository indexed successfully"}
 
         except Exception as e:
             repository.status = "failed"
             await db.commit()
             raise HTTPException(status_code=500, detail=f"Failed to index repository: {str(e)}")
+
+    async def clone_git_repo(
+        self,
+        repository: GitRepository,
+        temp_dir: str
+    ):
+        """Clone a git repository to a temporary directory and return the repo object"""
+        try:
+            # Set up SSH if needed
+            if repository.ssh_key:
+                ssh_key_path = os.path.join(temp_dir, 'id_rsa')
+                ssh_key_data = repository.decrypt_ssh_key()
+                with open(ssh_key_path, 'w') as f:
+                    f.write(ssh_key_data.get('private_key'))
+                os.chmod(ssh_key_path, 0o600)
+                
+                git.Git().update_environment(
+                    GIT_SSH_COMMAND=f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+                )
+
+            # Clone repository with depth=1 for shallow clone (only latest commit)
+            repo = git.Repo.clone_from(
+                repository.repo_url,
+                temp_dir,
+                branch=repository.branch,
+                depth=1  # Shallow clone - only get the latest commit
+            )
+            
+            return repo
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to clone repository: {str(e)}")

@@ -4,6 +4,7 @@ from app.models.base import BaseSchema
 from cryptography.fernet import Fernet
 from app.settings.config import settings
 import json
+from sqlalchemy.ext.declarative import declared_attr
 
 class GitRepository(BaseSchema):
     __tablename__ = "git_repositories"
@@ -24,6 +25,12 @@ class GitRepository(BaseSchema):
     user = relationship("User", back_populates="git_repositories")
     data_source = relationship("DataSource", back_populates="git_repository", uselist=False)
     organization = relationship("Organization", back_populates="git_repositories")
+    
+    # Use lambda for late binding to avoid circular imports
+    metadata_indexing_jobs = relationship(
+        lambda: MetadataIndexingJob,
+        back_populates="git_repository"
+    )
 
     def encrypt_ssh_key(self, ssh_key: dict):
         """Encrypt SSH key details before storing"""
@@ -36,3 +43,6 @@ class GitRepository(BaseSchema):
             return None
         fernet = Fernet(settings.bow_config.encryption_key)
         return json.loads(fernet.decrypt(self.ssh_key.encode()).decode())
+
+# Import at the end to avoid circular imports
+from app.models.metadata_indexing_job import MetadataIndexingJob
