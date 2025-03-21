@@ -1,15 +1,73 @@
 from app.data_sources.clients.base import DataSourceClient
 import pandas as pd
 from typing import List
-from app.ai.prompt_formatters import Table, TableColumn
+from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import logging
 import awswrangler as wr
 import boto3
 from tenacity import retry, stop_after_attempt, wait_fixed
+import threading
+from datetime import datetime, timedelta, timezone
+import os
 
 # Configure logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+class SessionManager:
+    """Handles AWS session management with role assumption as a thread-safe singleton."""
+
+    _instance = None
+    _lock = threading.Lock()  # For thread-safety
+
+    def __new__(cls, role_arn: str, region: str, *args, **kwargs):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(SessionManager, cls).__new__(cls)
+                cls._instance._initialized = False
+        return cls._instance
+
+    def __init__(self, role_arn: str, region: str) -> None:
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+        self.role_arn = role_arn
+        self.region = region
+        self._renew_session()
+        self._initialized = True
+
+    def _renew_session(self) -> None:
+        """Assume the role and create a new session."""
+        logger.info("Renewing AWS session.")
+        sts_client = boto3.client("sts", region_name=self.region)
+        role_arn = f"{self.role_arn}-{os.getenv('DEPLOYED_ENV', '').title()}" if os.getenv('DEPLOYED_ENV') else self.role_arn
+        assumed_role = sts_client.assume_role(
+            RoleArn=role_arn,
+            RoleSessionName="AthenaClientSession",
+        )
+        credentials = assumed_role["Credentials"]
+        self.credentials_expiration = credentials["Expiration"] - timedelta(minutes=5)
+        self.session = boto3.Session(
+            aws_access_key_id=credentials["AccessKeyId"],
+            aws_secret_access_key=credentials["SecretAccessKey"],
+            aws_session_token=credentials["SessionToken"],
+            region_name=self.region
+        )
+
+    def _ensure_session_valid(self) -> None:
+        """Ensure that the current AWS session is valid; renew if expired."""
+        current_time = datetime.now(timezone.utc)
+        if current_time >= self.credentials_expiration:
+            logger.info("AWS session has expired, renewing...")
+            self._renew_session()
+
+    def __enter__(self):
+        """Enter the context manager, ensuring the session is valid."""
+        self._ensure_session_valid()
+        return self.session
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        """Exit the context manager."""
+        pass
 
 def log_before_retry(retry_state) -> None:
     """Logs a message before each retry attempt."""
@@ -28,6 +86,10 @@ class AwsAthenaClient(DataSourceClient):
         data_source: str = "AwsDataCatalog",
         retry_wait_seconds: int = 0,
         retry_max_attempts: int = 0,
+        result_reuse_enable: bool = False,
+        result_reuse_minutes: int = 60,
+        encryption_option: str = None,
+        kms_key: str = None
     ):
         """
         Initialize the Athena client using AWS Wrangler.
@@ -43,6 +105,10 @@ class AwsAthenaClient(DataSourceClient):
             data_source (str): Athena data source name
             retry_wait_seconds (int): Seconds to wait before each retry
             retry_max_attempts (int): Maximum number of retry attempts
+            result_reuse_enable (bool): Whether to enable query result reuse
+            result_reuse_minutes (int): How long to reuse cached results
+            encryption_option (str): S3 encryption option
+            kms_key (str): KMS key for encryption
         """
         self.database = database
         self.s3_output_location = s3_output_location
@@ -50,39 +116,26 @@ class AwsAthenaClient(DataSourceClient):
         self.data_source = data_source
         self.retry_wait_seconds = retry_wait_seconds
         self.retry_max_attempts = retry_max_attempts
+        self.region = region
+        self.result_reuse_enable = result_reuse_enable
+        self.result_reuse_minutes = result_reuse_minutes
+        self.encryption_option = encryption_option
+        self.kms_key = kms_key
         
-        # Create boto3 session based on authentication method
         if role_arn:
-            # Create initial session with no credentials if using role
-            initial_session = boto3.Session(region_name=region)
-            sts_client = initial_session.client('sts')
-            
-            # Assume the specified role
-            assumed_role = sts_client.assume_role(RoleArn=role_arn, RoleSessionName='AthenaClientSession')
-            
-            # Create session with temporary credentials
-            self.boto3_session = boto3.Session(
-                aws_access_key_id=assumed_role['Credentials']['AccessKeyId'],
-                aws_secret_access_key=assumed_role['Credentials']['SecretAccessKey'],
-                aws_session_token=assumed_role['Credentials']['SessionToken'],
-                region_name=region
-            )
+            self.session_manager = SessionManager(role_arn, region)
+            # Initialize session for Glue client
+            with self.session_manager as session:
+                self.glue_client = session.client('glue', region_name=self.region)
         else:
-            # Create session with access/secret keys
+            # Create regular session with access/secret keys
             self.boto3_session = boto3.Session(
                 aws_access_key_id=access_key,
                 aws_secret_access_key=secret_key,
                 region_name=region
             )
+            self.glue_client = self.boto3_session.client('glue')
 
-        # Keep glue client for schema operations
-        self.glue_client = self.boto3_session.client('glue')
-
-    @retry(
-        wait=wait_fixed(0),
-        stop=stop_after_attempt(0),
-        before=log_before_retry,
-    )
     def execute_query(self, sql: str) -> pd.DataFrame:
         """
         Execute an SQL query and return the result as a DataFrame using AWS Wrangler.
@@ -95,24 +148,42 @@ class AwsAthenaClient(DataSourceClient):
         """
         try:
             logger.info("Executing query: %s", sql)
-            df = wr.athena.read_sql_query(
-                sql=sql,
-                database=self.database,
-                ctas_approach=False,  # Disable CREATE TABLE AS approach for better performance
-                s3_output=self.s3_output_location,
-                workgroup=self.workgroup,
-                boto3_session=self.boto3_session,
-                data_source=self.data_source
-            )
+            
+            # Common wrangler params
+            wrangler_params = {
+                'sql': sql,
+                'database': self.database,
+                'ctas_approach': False,
+                's3_output': self.s3_output_location,
+                'workgroup': self.workgroup,
+                'data_source': self.data_source,
+            }
+            
+            # Add optional parameters
+            if self.encryption_option:
+                wrangler_params['encryption'] = self.encryption_option
+            if self.kms_key:
+                wrangler_params['kms_key'] = self.kms_key
+            if self.result_reuse_enable:
+                wrangler_params['cache_seconds'] = self.result_reuse_minutes * 60
+            
+            # Use session manager if available, otherwise use regular session
+            if hasattr(self, 'session_manager'):
+                with self.session_manager as session:
+                    df = wr.athena.read_sql_query(**wrangler_params, boto3_session=session)
+            else:
+                df = wr.athena.read_sql_query(**wrangler_params, boto3_session=self.boto3_session)
+            
             logger.info("Query executed successfully, returned %d rows", len(df))
             return df
         except Exception as e:
             logger.error("Error executing SQL query: %s", str(e), exc_info=True)
-            raise RuntimeError(f"Query execution failed: {str(e)}")
+            raise Exception(f"Query execution failed: {str(e)}")
 
     def test_connection(self) -> dict:
         """
         Test the connection to Athena by running both catalog and query operations.
+        Tests specific permissions and access to the configured database.
 
         Returns:
             dict: Connection test result with success status and message.
@@ -122,19 +193,33 @@ class AwsAthenaClient(DataSourceClient):
             tables = self.get_tables()
             logger.info(f"Successfully accessed Glue catalog, found {len(tables)} tables")
 
-            # Then test Athena query and S3 access with a minimal query
-            test_query = "SELECT 1"
-            self.execute_query(test_query)
+            # Test database existence and permissions with a more specific query
+            test_query = f"""
+                SELECT 
+                    '{self.database}' as database,
+                    current_timestamp as timestamp,
+                    'test_connection' as test
+                FROM (SELECT 1) dummy
+            """
+            result = self.execute_query(test_query)
             
             return {
                 "success": True,
-                "message": "Successfully connected to Athena and verified all permissions"
+                "message": (
+                    f"Successfully connected to Athena database '{self.database}'. "
+                    f"Found {len(tables)} accessible tables."
+                )
             }
         except Exception as e:
             if "AccessDenied" in str(e) and "S3" in str(e):
                 return {
                     "success": False,
                     "message": f"Connected to Glue catalog but S3 access denied. Check S3 permissions for: {self.s3_output_location}"
+                }
+            elif "INVALID_INPUT" in str(e) and "database" in str(e).lower():
+                return {
+                    "success": False,
+                    "message": f"Database '{self.database}' does not exist or is not accessible"
                 }
             return {"success": False, "message": str(e)}
 
@@ -222,4 +307,4 @@ class AwsAthenaClient(DataSourceClient):
         Format the schema for display or prompting.
         """
         schemas = self.get_tables()
-        return TableFormatter(schemas).table_str
+        return ServiceFormatter(schemas).table_str
