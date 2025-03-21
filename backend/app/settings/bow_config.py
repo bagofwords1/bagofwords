@@ -49,7 +49,12 @@ class Stripe(BaseModel):
     webhook_secret: str = None
 
 class Database(BaseModel):
-    url: str = Field(default_factory=lambda: os.getenv("BOW_DATABASE_URL", "sqlite:///db/app.db"))
+    url: str = Field(
+        default_factory=lambda: os.getenv(
+            "BOW_DATABASE_URL", 
+            "sqlite:////app/backend/db/app.db"
+        )
+    )
 
 def generate_fernet_key():
     # Generate a valid Fernet-compatible key (32 url-safe base64-encoded bytes)
