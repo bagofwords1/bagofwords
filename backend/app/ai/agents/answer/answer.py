@@ -7,7 +7,6 @@ class Answer:
         self.llm = LLM(model)
 
     async def execute(self, schemas, prompt, widget, memories, previous_messages):
-
         text = f"""
 You are a data analyst. Your general capabilities are:
 - creating data tables from any data source: databses, APIs, files, etc
@@ -40,7 +39,7 @@ You have been given:
 2. Your answer should be based solely on the given schemas and widget sample data.
 3. If the question cannot be answered using the the context, respond nicely with something like "I don't know". Or ask for more information/clarification.
 4. Answer briefly and directly without repeating the question or referencing the context.
-5. Do not mention the widget sample data, schemas, previous messages, or your reasoning process—just answer the user’s question.
+5. Do not mention the widget sample data, schemas, previous messages, or your reasoning process—just answer the user's question.
 6. Do not provide code, SQL, or technical implementation details. Focus on a human-friendly, straightforward explanation.
 7. If the user asks about relationships between tables, give a brief, human-readable explanation (e.g., "invoice table (payment_id) and payment table (id)").
 8. If asked about a table's schema, provide a concise and human-readable summary (e.g., "invoice table has columns: id, amount, date, customer_id").
@@ -71,4 +70,4 @@ Now, provide your answer following these guidelines.
         # Yield any remaining chunks if they exist
         if chunk_buffer:
             yield chunk_buffer
-
+    

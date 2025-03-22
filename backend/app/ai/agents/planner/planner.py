@@ -78,6 +78,7 @@ class Planner:
 
 
         1. **Determine the Nature of the Request**:
+           Think step by step and reason through the user's request. 
            - If the user's message is a simple acknowledgment (like "thanks", "ok", "great") or greeting, 
              respond with a single `answer_question` action with a brief acknowledgment.
            - If the user's request can be answered directly from the given context (schemas, previous messages, memories), OR basic llm can answer the question (summarize, explain, etc.), 
@@ -104,7 +105,7 @@ class Planner:
            - Provide each action as a JSON object inside a "plan" array.
            - Each action must have:
              - "action": One of the defined actions.
-             - "prefix": A short, kind message (1-2 sentences) shown before execution. If you are creating a widget, explain how your building and modeling it.
+             - "prefix": A short, kind message (1-2 sentences) shown before execution. If you are creating a widget, explain how your building and modeling it. Also explain the reasoning behind the plan.
              - "execution_mode": Either "sequential" or "parallel". Use "parallel" if actions can be done independently. Otherwise, use "sequential".
              - "details": A dictionary of relevant details:
                * For "answer_question":
@@ -153,6 +154,7 @@ class Planner:
 
         Example 1 (answer_question):
         {{
+            "reasoning": "The user is asking for a chart of revenue by month. I will create a bar chart with the month and total revenue.",
             "plan": [
                 {{
                     "action": "answer_question",
@@ -167,7 +169,7 @@ class Planner:
         }}
 
         Example 2 (create_widget):
-        {{
+        {{  reasoning: "The user is asking for a chart of revenue by month. I will create a bar chart with the month and total revenue."
             "plan": [
                 {{
                     "action": "create_widget",
@@ -205,6 +207,7 @@ class Planner:
 
         Example 3 (modify_widget):
         {{
+            "reasoning": "The user is asking for a chart of revenue by month. I will create a bar chart with the month and total revenue.",
             "plan": [
                 {{
                     "action": "modify_widget",
@@ -244,6 +247,7 @@ class Planner:
 
         Example 4 (design_dashboard):
         {{
+            "reasoning": "The user is asking for a dashboard. I will create a dashboard with the widgets.",
             "plan": [
                 {{
                     "action": "design_dashboard",

@@ -205,8 +205,9 @@ class Agent:
                         
                     elif action_type == 'answer_question':
                         if not action['details'].get('extracted_question'):
-                            continue
-                        
+                            # Extract question from the prompt if not provided in details
+                            action['details']['extracted_question'] = head_completion.prompt['content']
+                            
                         # Create prefix completion if it doesn't exist (following pattern from other actions)
                         if action_results[action_id]['prefix_completion'] is None:
                             completion = await self.project_manager.create_message(
