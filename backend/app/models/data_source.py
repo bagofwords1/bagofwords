@@ -16,6 +16,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import object_session
+from app.ai.context.resource_context_builder import ResourceContextBuilder
 
 
 DATA_SOURCE_DETAILS = [
@@ -134,9 +135,19 @@ class DataSource(BaseSchema):
         'organizations.id'), nullable=False)
     organization = relationship("Organization", back_populates="data_sources")
     reports = relationship(
-        "Report", secondary="report_data_source_association", back_populates="data_sources")
+        "Report", 
+        secondary="report_data_source_association", 
+        back_populates="data_sources",
+        lazy="selectin"
+    )
     tables = relationship("DataSourceTable", back_populates="datasource")
-    git_repository = relationship("GitRepository", back_populates="data_source")
+    git_repository = relationship(
+        "GitRepository", 
+        back_populates="data_source", 
+        uselist=False,
+        lazy="selectin",
+        overlaps="reports,organization"
+    )
     dbt_resources = relationship("DBTResource", back_populates="data_source")
     metadata_indexing_jobs = relationship("MetadataIndexingJob", back_populates="data_source")
     
@@ -207,12 +218,30 @@ class DataSource(BaseSchema):
             
         return tables
 
-    async def prompt_schema(self, db: AsyncSession = None) -> str:
+    async def prompt_schema(self, db: AsyncSession = None, prompt_content = None) -> str:
         """
         Get the database schema information using TableFormatter.
         Returns a formatted string suitable for prompts.
+        
+        If prompt_content is provided, also includes relevant resources based on the prompt.
         """
         from app.ai.prompt_formatters import TableFormatter
         # Pass the session to get_schemas
         tables = await self.get_schemas(db=db)
-        return TableFormatter(tables).table_str
+        schema_str = TableFormatter(tables).table_str
+        
+        resource_context = await self.get_resources(db, prompt_content)
+        if resource_context:
+            schema_str += f"\n\n{resource_context}"
+                
+        return schema_str
+    
+    async def get_resources(self, db: AsyncSession, prompt_content) -> str:
+        """
+        Get relevant DBT resources associated with this data source based on the prompt.
+        Uses ResourceContextBuilder to extract and filter resources.
+        """
+        # Create a ResourceContextBuilder instance
+        context_builder = ResourceContextBuilder(db, prompt_content)
+        # Build context for just this data source
+        return await context_builder.build_context([self])

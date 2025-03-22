@@ -9,7 +9,6 @@ class Planner:
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages, widget=None, step=None):
         parser = JSONParser()
-
         text = f"""
         You are a data analyst specializing in data analytics, data engineering, data visualization, and data science.
 
@@ -33,9 +32,9 @@ class Planner:
 
         **Primary Task**:
         1. Identify if the user explicitly requests creating or modifying a widget. 
-        - If the user only asks a clarifying question like “What other tables can be used?”, do **not** modify or create a widget. 
+        - If the user only asks a clarifying question like "What other tables can be used?", do **not** modify or create a widget. 
             Instead, use only the 'answer_question' action.
-        - If the user explicitly says “modify the widget” or “add columns from another table,” then use 'modify_widget'.
+        - If the user explicitly says "modify the widget" or "add columns from another table," then use 'modify_widget'.
         2. If the user is just conversing or being friendly, respond with a single 'answer_question' action.
         3. If user is not specifically requesting a new chart, new table, or modification, do not create or modify widgets.
         4. If user only wants more information about existing data, respond with a single 'answer_question' action.
@@ -49,12 +48,12 @@ class Planner:
         - design_dashboard
 
         IMPORTANT PRE-CHECKS BEFORE CREATING A PLAN:
-        1. If the user’s message is simple greeting or thanks, just respond with a short 'answer_question' action. 
+        1. If the user's message is simple greeting or thanks, just respond with a short 'answer_question' action. 
         2. If the question can be answered from the schemas and context alone, respond with a single 'answer_question' action.
-        3. If a widget already exists that satisfies the user’s goal, do not create a new one or modify it unnecessarily.
-        4. Only create a new widget if it’s clearly required by the user’s request and there is no suitable existing widget.
+        3. If a widget already exists that satisfies the user's goal, do not create a new one or modify it unnecessarily.
+        4. Only create a new widget if it's clearly required by the user's request and there is no suitable existing widget.
         5. For metrics, create a widget per metric. Don't combine multiple metrics into a single widget.
-        6. For “design_dashboard,” do not recreate existing widgets. Combine them into a dashboard if they are relevant.
+        6. For "design_dashboard," do not recreate existing widgets. Combine them into a dashboard if they are relevant.
         7. Carefully verify all columns and data sources actually exist in the provided schemas.
 
 
@@ -228,7 +227,7 @@ class Planner:
             "plan": [
                 {{
                     "action": "design_dashboard",
-                    "prefix": "Finally, let’s combine all insights into a dashboard.",
+                    "prefix": "Finally, let's combine all insights into a dashboard.",
                     "execution_mode": "sequential",
                     "details": {{}},
                     "action_end": true
@@ -242,7 +241,7 @@ class Planner:
         full_result = ""
         buffer = ""
 
-        current_plan = {"plan": []}  # Initialize empty plan structure
+        current_plan = {"plan": [], "text": text}  # Initialize empty plan structure
 
         async for chunk in self.llm.inference_stream(text):
             buffer += chunk
@@ -443,3 +442,15 @@ class Planner:
 
             # Optionally, yield current_plan at the end of each chunk
             yield current_plan
+
+        # Add a final yield with a special flag or breakpoint here
+        print("DEBUG: Streaming completed")  # This will show in your console logs
+        
+        # You could also add a special flag to the final yield
+        final_plan = current_plan.copy()
+        final_plan["streaming_complete"] = True
+
+        yield final_plan
+        
+        # For debugging with breakpoints, you can add:
+        # import pdb; pdb.set_trace()  # This will pause execution here when reached

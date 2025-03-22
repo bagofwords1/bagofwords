@@ -42,19 +42,7 @@
                         }"
                         :disabled="!testConnectionStatus?.success"
                     >
-                        Schema
-                    </button>
-                    <button 
-                        @click="activeTab = 'models'"
-                        class="px-4 py-1 text-sm"
-                        :class="{ 
-                            'border-b-2 border-blue-500 text-blue-600': activeTab === 'models', 
-                            'text-gray-500': activeTab !== 'models',
-                            'opacity-50 cursor-not-allowed': !testConnectionStatus?.success 
-                        }"
-                        :disabled="!testConnectionStatus?.success"
-                    >
-                        Data Models
+                        Context
                     </button>
                     <button 
                         @click="activeTab = 'context'"
@@ -66,7 +54,7 @@
                         }"
                         :disabled="!testConnectionStatus?.success"
                     >
-                        AI Context
+                        AI Rules
                     </button>
                     <button 
                         @click="activeTab = 'configuration'"
@@ -132,81 +120,116 @@ Create a table of all customers, show customer name, email, phone, address and c
                 </div>
 
                 <div v-if="activeTab === 'schema'" class="mt-4">
-                    <div class="font-semibold mb-2">Schema</div>
-
                     <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
                         <div class="flex items-start">
                             <UIcon name="heroicons-light-bulb" class="w-5 h-5 text-blue-500 mt-0.5 mr-2" />
                             <div>
                                 <p class="text-sm text-blue-600">
-                                    You can toggle tables on/off to control which ones are included in AI queries. Inactive tables will be excluded from the schema provided to AI agents.
+                                    You can toggle tables and data models on/off to control which ones are included in AI queries. Inactive items will be excluded from the schema provided to AI agents.
                                 </p>
                             </div>
                         </div>
                     </div>
                     
-                    <div v-if="schema" class="mt-2">
-                        <div class="flex justify-between">
+                    <!-- Database Schema Section -->
+                    <div class="border rounded-md p-4 mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="font-semibold cursor-pointer flex items-center" @click="schemaExpanded = !schemaExpanded">
+                                <UIcon :name="schemaExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="p-1 mr-2" />
+                                Database Schema ({{ schema ? schema.length : 0 }} tables)
+                            </div>
                             <button @click="refreshSchema()"
                                 :disabled="isRefreshing"
-                                class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs mb-2 mt-2 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                                class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
                                 <UIcon v-if="isRefreshing" name="heroicons-arrow-path" class="animate-spin" />
                                 <UIcon v-else name="heroicons-arrow-path" />
                                 Refresh Schema
                             </button>
                         </div>
-                        <ul class="py-2 list-none list-inside">
-                            <li class="py-1" v-for="table in schema" :key="table.name">
-                                <UCheckbox v-model="table.is_active" class="float-left mr-2"/>
-                                <div @click="toggleTable(table)" class="font-semibold text-gray-500 cursor-pointer">
-                                    <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="p-1" />
-                                    {{ table.name }}
-                                </div>
-                                <ul v-if="expandedTables[table.name]" class="ml-4 mt-1 text-sm">
-                                    <li v-for="column in table.columns" :key="column.name" class="flex py-0.5">
-                                        <span class="text-gray-500 mr-2">{{ column.name }}</span>
-                                        <span class="text-gray-400">{{ column.dtype }}</span>
+                        
+                        <div v-if="schemaExpanded">
+                            <div v-if="schema" class="mt-2">
+                                <ul class="py-2 list-none list-inside">
+                                    <li class="py-1" v-for="table in schema" :key="table.name">
+                                        <UCheckbox v-model="table.is_active" class="float-left mr-2"/>
+                                        <div @click="toggleTable(table)" class="font-semibold text-gray-500 cursor-pointer">
+                                            <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="p-1" />
+                                            {{ table.name }}
+                                        </div>
+                                        <ul v-if="expandedTables[table.name]" class="ml-4 mt-1 text-sm">
+                                            <li v-for="column in table.columns" :key="column.name" class="flex py-0.5">
+                                                <span class="text-gray-500 mr-2">{{ column.name }}</span>
+                                                <span class="text-gray-400">{{ column.dtype }}</span>
+                                            </li>
+                                        </ul>
                                     </li>
                                 </ul>
-                            </li>
-                        </ul>
-
-                        <button @click="updateTableStatus()" class="bg-blue-500 text-white px-4 py-2 text-sm mt-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
-                            Save
-                        </button>
+                            </div>
+                            <div v-else-if="testConnectionStatus?.success" class="flex justify-center items-center p-4">
+                                <UIcon name="heroicons-arrow-path" class="animate-spin" />
+                            </div>
+                            <button @click="updateTableStatus()" class="bg-blue-500 text-white px-4 py-2 text-sm mt-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                                Save Schema Tables
+                            </button>
+                        </div>
                     </div>
-                    <div v-else-if="testConnectionStatus?.success" class="flex justify-center items-center p-4">
-                        <UIcon name="heroicons-arrow-path" class="animate-spin" />
-                    </div>
-                </div>
-
-                <div v-if="activeTab === 'models'" class="mt-4">
-                    <div class="font-semibold text-lg mb-2">Data Models</div>
-                    <div>
-                        <p class="text-sm">
-                            Load data models by connecting your git repo to your data source.
-                        </p>
-                        <div v-if="integration.git_repository">
+                    
+                    <!-- Data Models Section -->
+                    <div class="border rounded-md p-4 mb-4">
+                        <div class="flex justify-between items-center mb-2">
+                            <div class="font-semibold cursor-pointer flex items-center" @click="dataModelsExpanded = !dataModelsExpanded">
+                                <UIcon :name="dataModelsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="p-1 mr-2" />
+                                Data Models ({{ metadata_resources.resources ? metadata_resources.resources.length : 0 }} resources)
+                            </div>
                             <UButton 
                                 @click="showGitModal = true"
                                 icon="heroicons:code-bracket"
-                                :label="integration.git_repository.repo_url"
-                                class="mt-4 bg-white text-gray-500 border border-gray-300 px-2 py-1.5 text-xs rounded-md hover:bg-gray-50"
+                                :label="integration.git_repository ? integration.git_repository.repo_url : 'Connect Git Repository'"
+                                class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
                             />
-                            <p class="text-sm text-gray-500" v-if="integration.git_repository.status === 'pending'">
-                                Indexing...
-                            </p>
-                            <p class="text-sm text-gray-500" v-else-if="integration.git_repository.status === 'success'">
-                                Last indexed: {{ integration.git_repository.last_indexed }}
-                            </p>
                         </div>
-                        <div v-else>
-                            <UButton 
-                                @click="showGitModal = true"
-                                icon="heroicons:plus"
-                                label="Connect Git Repository"
-                                class="mt-4 bg-blue-500 text-white px-2 py-1.5 text-xs rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
-                            />
+                        
+                        <div v-if="dataModelsExpanded">
+                            <div>
+                                <p class="text-sm">
+                                    Load data models by connecting your git repo to your data source.
+                                </p>
+                                <div v-if="integration.git_repository">
+                                    <p class="text-sm text-gray-500 mt-4" v-if="integration.git_repository.status === 'pending'">
+                                        Indexing...
+                                    </p>
+                                    <p class="text-sm text-gray-500 mt-4" v-else-if="integration.git_repository.status === 'completed'">
+                                        Last indexed: {{ new Date(metadata_resources.completed_at).toLocaleString() }}
+                                    </p>
+                                    <p>
+                                        <ul class="py-2 list-none list-inside">
+                                            <li class="py-1" v-for="resource in metadata_resources.resources" :key="resource.id">
+                                                <UCheckbox v-model="resource.is_active" class="float-left mr-2"/>
+                                                <div @click="toggleResource(resource)" class="font-semibold text-gray-500 cursor-pointer">
+                                                    <UIcon :name="expandedResources[resource.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="p-1" />
+                                                    <UIcon name="heroicons:cube" class="w-4 h-4 inline-block" v-if="resource.resource_type === 'model' || resource.resource_type === 'model_config'"/>
+                                                    <UIcon name="heroicons:hashtag" class="w-4 h-4 inline-block" v-if="resource.resource_type === 'metric'"/>
+                                                    {{ resource.name }}
+                                                </div>
+                                                <ul v-if="expandedResources[resource.id]" class="ml-4 mt-1 text-sm">
+                                                    <li>Description: {{ resource.description }}</li>
+                                                    <li>
+                                                        <pre>{{ resource.raw_data }}</pre>
+                                                    </li>
+                                                </ul>
+                                            </li>
+                                        </ul>
+                                    </p>
+                                    <button @click="updateResourceStatus()" class="bg-blue-500 text-white px-4 py-2 text-sm mt-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                                        Save Resources
+                                    </button>
+                                </div>
+                                <div v-else>
+                                    <p class="text-sm text-gray-500 mt-4">
+                                        No git repository connected. Click the button above to connect one.
+                                    </p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     
@@ -214,6 +237,7 @@ Create a table of all customers, show customer name, email, phone, address and c
                         v-model="showGitModal"
                         :datasource-id="ds_id"
                         :git-repository="integration.git_repository"
+                        :metadata-resources="metadata_resources"
                         @update:modelValue="handleGitModalClose"
                     />
                 </div>
@@ -282,7 +306,6 @@ Create a table of all customers, show customer name, email, phone, address and c
                 <div v-if="activeTab === 'configuration'" class="mt-4">
                     <div class="mt-4">
                         <div class="font-semibold mb-2">Data Source Settings</div>
-                        
                         <form @submit.prevent="handleConfigUpdate" class="mb-8">
                             <div class="mb-4">
                                 <input 
@@ -421,6 +444,13 @@ const generatingItem = ref<string | null>(null);
 
 const showGitModal = ref(false);
 
+const metadata_resources = ref([]);
+
+const expandedResources = ref<Record<string, boolean>>({});
+
+const schemaExpanded = ref(true);
+const dataModelsExpanded = ref(true);
+
 async function testConnection() {
     const response = await useMyFetch(`/data_sources/${ds_id}/test_connection`, {
         method: 'GET',
@@ -449,6 +479,13 @@ async function refreshSchema() {
     } finally {
         isRefreshing.value = false;
     }
+}
+
+async function fetchMetadataResources() {
+    const response = await useMyFetch(`/data_sources/${ds_id}/metadata_resources`, {
+        method: 'GET',
+    });
+    metadata_resources.value = response.data.value;
 }
 
 async function fetchSchema() {
@@ -704,11 +741,123 @@ async function handleGitModalClose(value: boolean) {
     }
 }
 
+function toggleResource(resource: any) {
+    expandedResources.value[resource.id] = !expandedResources.value[resource.id];
+}
+
+async function updateResourceStatus() {
+    if (!metadata_resources.value.resources || metadata_resources.value.resources.length === 0) {
+        toast.add({
+            title: 'Error',
+            description: 'No resources available to update',
+            color: 'red'
+        });
+        return;
+    }
+
+    try {
+        const response = await useMyFetch(`/data_sources/${ds_id}/update_metadata_resources`, {
+            method: 'PUT',
+            body: metadata_resources.value.resources  // Send the resources array directly
+        });
+
+        if (response.status.value === "success") {
+            metadata_resources.value = response.data.value;
+            toast.add({
+                title: 'Success',
+                description: 'Resources updated successfully',
+                color: 'green'
+            });
+            
+            // Refresh the resources after update
+            await fetchMetadataResources();
+        } else {
+            throw new Error('Failed to update resources');
+        }
+    } catch (error) {
+        console.error('Failed to update resources:', error);
+        toast.add({
+            title: 'Error',
+            description: 'Failed to update resources',
+            color: 'red'
+        });
+    }
+}
+
+async function updateSchemaAndResources() {
+    // First update table status
+    if (schema.value && schema.value.length > 0) {
+        try {
+            // Add datasource_id and ensure pks/fks are arrays
+            const tablesWithDatasourceId = schema.value.map(table => ({
+                ...table,
+                datasource_id: ds_id,
+                pks: table.pks || [],
+                fks: table.fks || []
+            }));
+
+            const response = await useMyFetch(`/data_sources/${ds_id}/update_schema`, {
+                method: 'PUT',
+                body: tablesWithDatasourceId
+            });
+
+            if (response.status.value === "success") {
+                schema.value = response.data.value;
+            } else {
+                throw new Error('Failed to update table status');
+            }
+        } catch (error) {
+            console.error('Failed to update table status:', error);
+            toast.add({
+                title: 'Error',
+                description: 'Failed to update table status',
+                color: 'red'
+            });
+            return;
+        }
+    }
+
+    // Then update resources
+    if (metadata_resources.value && metadata_resources.value.resources && metadata_resources.value.resources.length > 0) {
+        try {
+            const response = await useMyFetch(`/data_sources/${ds_id}/update_metadata_resources`, {
+                method: 'PUT',
+                body: metadata_resources.value.resources  // Send the resources array directly
+            });
+
+            if (response.status.value === "success") {
+                metadata_resources.value.resources = response.data.value;
+            } else {
+                throw new Error('Failed to update resources');
+            }
+        } catch (error) {
+            console.error('Failed to update resources:', error);
+            toast.add({
+                title: 'Error',
+                description: 'Failed to update resources',
+                color: 'red'
+            });
+            return;
+        }
+    }
+
+    toast.add({
+        title: 'Success',
+        description: 'Schema and resources updated successfully',
+        color: 'green'
+    });
+    
+    // Refresh data after update
+    await fetchSchema();
+    await fetchMetadataResources();
+}
+
 onMounted(async () => {
     nextTick(async () => {
         await fetchIntegration();
         await testConnection();
         await fetchSchema();
+        await fetchMetadataResources();
         await getConfigFields();
     });
 });

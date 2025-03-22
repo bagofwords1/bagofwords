@@ -77,6 +77,7 @@ class DBTResourceExtractor:
                             'filters': metric.get('filters', []),
                             'meta': metric.get('meta', {}),
                             'model': metric.get('model', ''),
+                            'model_ref': metric.get('model_ref', ''),
                             'sql': metric.get('sql', ''),
                             'window': metric.get('window', {}),
                             'tags': metric.get('tags', []),

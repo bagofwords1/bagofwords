@@ -195,4 +195,6 @@ class ProjectManager:
 
         db.add(plan)
         await db.commit()
+        await db.refresh(plan)
+
         return plan

@@ -26,4 +26,10 @@ class Report(BaseSchema):
     text_widgets = relationship("TextWidget", back_populates="report", lazy="selectin")
     completions = relationship("Completion", back_populates="report", lazy="selectin")
     files = relationship("File", secondary="report_file_association", back_populates="reports", lazy="selectin")
-    data_sources = relationship("DataSource", secondary="report_data_source_association", back_populates="reports", lazy="selectin")
+    data_sources = relationship(
+        "DataSource", 
+        secondary="report_data_source_association", 
+        back_populates="reports", 
+        lazy="selectin", 
+        overlaps="git_repository,organization"
+    )

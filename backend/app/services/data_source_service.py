@@ -2,10 +2,13 @@ import importlib
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource, DATA_SOURCE_DETAILS
+from app.models.dbt_resource import DBTResource
+from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate
+from app.schemas.dbt_resource_schema import DBTResourceSchema
 
 from pydantic import BaseModel
 from app.ai.agents.data_source.data_source import DataSourceAgent
@@ -129,10 +132,39 @@ class DataSourceService:
         return [DataSourceSchema.from_orm(d) for d in ds]
 
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization):
-        result = await db.execute(select(DataSource).filter(DataSource.organization_id == organization.id, DataSource.is_active == True))
+        """Get all active data sources for an organization"""
+        stmt = select(DataSource).where(
+            DataSource.organization_id == organization.id,
+            DataSource.is_active == True
+        )
+        result = await db.execute(stmt)
         ds = result.scalars().all()
-
-        return [DataSourceSchema.from_orm(d) for d in ds]
+        
+        # Create schemas without trying to load git_repository
+        data_sources = []
+        for d in ds:
+            # Create a dict with all the fields except git_repository
+            data_source_dict = {
+                "id": d.id,
+                "name": d.name,
+                "type": d.type,
+                "config": d.config,
+                "organization_id": d.organization_id,
+                "created_at": d.created_at,
+                "updated_at": d.updated_at,
+                "context": d.context,
+                "description": d.description,
+                "summary": d.summary,
+                "conversation_starters": d.conversation_starters,
+                "is_active": d.is_active,
+                "git_repository": None  # Set to None initially
+            }
+            
+            # Create the schema from the dict
+            data_source_schema = DataSourceSchema(**data_source_dict)
+            data_sources.append(data_source_schema)
+        
+        return data_sources
     
     async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User):
         ds = next((ds for ds in DATA_SOURCE_DETAILS if ds["type"] == data_source_type), None)
@@ -373,3 +405,84 @@ class DataSourceService:
         
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False)
         return schemas
+    
+    async def get_metadata_resources(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
+        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+        
+        metadata_indexing_job = await db.execute(
+            select(MetadataIndexingJob)
+            .filter(
+                MetadataIndexingJob.data_source_id == data_source_id,
+                MetadataIndexingJob.status == IndexingJobStatus.COMPLETED.value,
+                MetadataIndexingJob.is_active == True
+            )
+            .order_by(MetadataIndexingJob.created_at.desc())
+            .limit(1)
+        )
+        metadata_indexing_job = metadata_indexing_job.scalar_one_or_none()
+
+        if not metadata_indexing_job:
+            raise HTTPException(status_code=404, detail="Metadata indexing job not found")
+        
+        resources = await db.execute(select(DBTResource).filter(DBTResource.data_source_id == data_source_id))
+        resources = resources.scalars().all()
+        
+        # Import the schema
+        from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema, JobStatus
+        
+        # Create a dict with all the job attributes
+        job_data = {
+            "id": metadata_indexing_job.id,
+            "name": f"Indexing job for {data_source.name}",
+            "description": f"Metadata indexing job for data source {data_source.name}",
+            "job_type": "dbt",
+            "status": JobStatus(metadata_indexing_job.status),
+            "error_message": metadata_indexing_job.error_message,
+            "resources_processed": metadata_indexing_job.processed_resources or 0,
+            "resources_failed": 0,
+            "started_at": metadata_indexing_job.started_at,
+            "completed_at": metadata_indexing_job.completed_at,
+            "data_source_id": metadata_indexing_job.data_source_id,
+            "created_at": metadata_indexing_job.created_at,
+            "updated_at": metadata_indexing_job.updated_at,
+            "resources": [DBTResourceSchema.from_orm(resource) for resource in resources],
+            "config": {}
+        }
+        
+        return MetadataIndexingJobSchema(**job_data)
+    
+    async def update_resources_status(self, db: AsyncSession, data_source_id: str, resources: list, organization: Organization, current_user: User = None):
+        """Update the active status of DBT resources for a data source"""
+        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        data_source = result.scalar_one_or_none()
+        
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+        
+        for resource in resources:
+            resource_object = await db.execute(
+                select(DBTResource).filter(
+                    DBTResource.id == resource.get('id'),
+                    DBTResource.data_source_id == data_source_id
+                )
+            )
+            resource_object = resource_object.scalar_one_or_none()
+            
+            if resource_object:
+                resource_object.is_active = resource.get('is_active', True)
+                await db.commit()
+                await db.refresh(resource_object)
+        
+        # Return updated resources
+        resources = await db.execute(select(DBTResource).filter(DBTResource.data_source_id == data_source_id))
+        resources = resources.scalars().all()
+
+        # Get the metadata indexing job
+
+        metadata_indexing_job = await self.get_metadata_resources(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+
+        return metadata_indexing_job
+

@@ -23,7 +23,7 @@ class DataSourceSchema(DataSourceBase):
     conversation_starters: Optional[list]
     is_active: bool
     config: Dict[str, Any]
-    git_repository: Optional[GitRepositorySchema] = None  # Changed to GitRepositorySchema
+    git_repository: Optional[GitRepositorySchema] = None
 
     @validator('config', pre=True)
     def parse_config(cls, value):
@@ -36,12 +36,18 @@ class DataSourceSchema(DataSourceBase):
 
     @validator('git_repository', pre=True)
     def validate_git_repository(cls, v):
-        if isinstance(v, list):
-            return v[-1] if v else None
-        return v
+        if v is None:
+            return None
+        try:
+            if isinstance(v, list):
+                return v[-1] if v else None
+            return v
+        except Exception:
+            return None
 
     class Config:
         from_attributes = True
+        arbitrary_types_allowed = True
 
 
 class DataSourceCreate(DataSourceBase):

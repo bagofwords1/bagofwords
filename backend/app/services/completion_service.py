@@ -3,6 +3,7 @@ from fastapi.responses import StreamingResponse
 import json
 import logging
 
+from app.models.plan import Plan
 from app.models.completion import Completion
 from app.models.report import Report
 from app.models.widget import Widget
@@ -205,3 +206,19 @@ class CompletionService:
         await db.commit()
         await db.refresh(error_completion)
         return error_completion
+    
+
+    async def get_completion_plan(self, db: AsyncSession, current_user: User, organization: Organization, completion_id: str):
+        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
+        completion = completion.scalars().first()
+
+        if not completion:
+            raise ValueError("Completion not found")
+
+        plan = await db.execute(select(Plan).where(Plan.completion_id == completion_id))
+        plan = plan.scalars().first()
+
+        if not plan:
+            raise ValueError("Plan not found")
+
+        return plan

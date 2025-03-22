@@ -179,21 +179,23 @@ class GitRepositoryService:
         repository = await self._verify_repository(db, repository_id, data_source_id, organization)
 
         try:
-            # clone repo
-            with tempfile.TemporaryDirectory() as temp_dir:
-                repo = await self.clone_git_repo(repository, temp_dir)
-                
-                # start index
-                breakpoint()
-                job = await self.metadata_indexing_job_service.start_indexing(db, repo, temp_dir, data_source_id, organization)
+            # Create temp directory without context manager so it persists
+            temp_dir = tempfile.mkdtemp()
+            
+            # Clone repo
+            repo = await self.clone_git_repo(repository, temp_dir)
+            
+            # Start index in background
+            job = await self.metadata_indexing_job_service.start_indexing_background(
+                db, repository.id, temp_dir, data_source_id, organization
+            )
 
             # Update repository status
-            repository.status = "completed"
-            repository.last_indexed_at = datetime.utcnow()
+            repository.status = "indexing"
             await db.commit()
             await db.refresh(repository)
 
-            return {"status": "success", "message": "Repository indexed successfully"}
+            return {"status": "success", "message": "Repository indexing started in background"}
 
         except Exception as e:
             repository.status = "failed"

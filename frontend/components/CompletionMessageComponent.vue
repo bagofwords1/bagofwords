@@ -12,8 +12,16 @@
             <div class="w-full ml-4">
                 <!-- User messages -->
                 <div v-if="localCompletion.prompt?.content.length > 0" class="pt-1">
+                    <div class="inline float-right" v-if="useCan('view_completion_plan')">
+                        <button @click="showPlan(localCompletion)" 
+                                class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded flex items-center">
+                            <Icon name="heroicons-eye" class="mr-1" />
+                        </button>
+                    </div>
                     <div class="markdown-wrapper">
+
                         <MDC :value="localCompletion.prompt?.content" class="markdown-content" />
+
                     </div>
                 </div>
 
@@ -24,6 +32,7 @@
                     <div class="markdown-wrapper">
                         <MDC :value="localCompletion.completion?.content" class="markdown-content" />
                     </div>
+
 
 
                         <div class="text-xs mt-2 w-full" v-if="localCompletion.widget">
@@ -121,10 +130,42 @@
             </div>
         </div>
     </div>
+
+    <!-- Add Plan Modal -->
+    <UModal v-model="showPlanModal" :ui="{ width: 'max-w-3xl' }">
+        <div class="p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold">X-ray View</h2>
+                <button @click="showPlanModal = false" class="text-gray-500 hover:text-gray-700">
+                    <Icon name="heroicons-x-mark" class="w-5 h-5" />
+                </button>
+            </div>
+            <div v-if="planLoading" class="flex justify-center items-center py-8">
+                <Icon name="heroicons-arrow-path" class="w-6 h-6 animate-spin text-blue-500" />
+            </div>
+            <div v-else-if="plan" class="markdown-wrapper max-h-[60vh] overflow-auto">
+                <div class="flex justify-between items-center cursor-pointer" @click="togglePromptCollapsed">
+                    <h3 class="text-lg font-bold mb-2">Prompt</h3>
+                    <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                </div>
+                <pre v-if="!promptCollapsed" class="text-xs">{{ plan_content.text }}</pre>
+                
+                <div class="flex justify-between items-center cursor-pointer mt-4" @click="togglePlanCollapsed">
+                    <h3 class="text-lg font-bold mb-2">Plan</h3>
+                    <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                </div>
+                <pre v-if="!planCollapsed" class="text-xs">{{ plan_content.plan }}</pre>
+            </div>
+            <div v-else class="text-gray-500 py-4 text-center">
+                No plan information available
+            </div>
+        </div>
+    </UModal>
 </template>
 
 <script lang="ts" setup>
 import { ref, watch } from 'vue';
+import { useCan } from '~/composables/usePermissions';
 
 const props = defineProps<{
     completion: Object,
@@ -149,6 +190,9 @@ function isSelected(widgetId: string, stepId: string) {
     return props.selectedWidgetId.widgetId === widgetId && props.selectedWidgetId.stepId === stepId;
 }
 
+const plan = ref(null);
+const plan_content = ref(null);
+
 const localCompletion = computed(() => ({
     ...props.completion,
 }));
@@ -167,6 +211,49 @@ const cancelSaveMemory = () => {
     showSaveMemoryPopup.value = false;
     memoryTitle.value = '';
     memoryDescription.value = '';
+}
+
+const showPlanModal = ref(false);
+const planLoading = ref(false);
+const promptCollapsed = ref(false);
+const planCollapsed = ref(false);
+
+const togglePromptCollapsed = () => {
+    promptCollapsed.value = !promptCollapsed.value;
+}
+
+const togglePlanCollapsed = () => {
+    planCollapsed.value = !planCollapsed.value;
+}
+
+const showPlan = async (completion: any) => {
+    showPlanModal.value = true;
+    planLoading.value = true;
+    
+    try {
+        if (completion.id) {
+            await getPlan(completion.id);
+        } else {
+            console.error('Completion ID not available');
+            plan.value = { content: "Plan information not available" };
+        }
+    } catch (error) {
+        console.error('Error fetching plan:', error);
+        plan.value = { content: "Error loading plan information" };
+    } finally {
+        planLoading.value = false;
+    }
+}
+
+const getPlan = async (completionId: string) => {
+    try {
+        const response = await useMyFetch(`/api/completions/${completionId}/plan`);
+        plan.value = response.data.value;
+        plan_content.value = JSON.parse(response.data.value.content);
+    } catch (error) {
+        console.error('Error fetching plan:', error);
+        throw error;
+    }
 }
 
 const saveMemory = async (completion: any) => {

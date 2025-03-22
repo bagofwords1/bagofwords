@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from typing import Optional
@@ -9,6 +9,8 @@ from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from app.services.data_source_service import DataSourceService
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate
+from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
+
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.core.permissions_decorator import requires_permission
 from app.models.data_source import DataSource
@@ -156,3 +158,31 @@ async def refresh_data_source_schema(
     current_user: User = Depends(current_user)
 ):
     return await data_source_service.refresh_data_source_schema(db, data_source_id, organization, current_user)
+
+@router.get("/data_sources/{data_source_id}/metadata_resources", response_model=MetadataIndexingJobSchema)
+@requires_permission('view_data_source', model=DataSource)
+async def get_metadata_resources(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    return await data_source_service.get_metadata_resources(db, data_source_id, organization, current_user)
+
+@router.put("/data_sources/{data_source_id}/update_metadata_resources", response_model=MetadataIndexingJobSchema)
+@requires_permission('update_data_source', model=DataSource)
+async def update_metadata_resources(
+    data_source_id: str,
+    resources: list = Body(...),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Update the active status of metadata resources for a data source"""
+    return await data_source_service.update_resources_status(
+        db=db,
+        data_source_id=data_source_id,
+        resources=resources,
+        organization=organization,
+        current_user=current_user
+    )

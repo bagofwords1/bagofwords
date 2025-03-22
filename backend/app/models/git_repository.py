@@ -23,7 +23,13 @@ class GitRepository(BaseSchema):
 
     # Relationships
     user = relationship("User", back_populates="git_repositories")
-    data_source = relationship("DataSource", back_populates="git_repository", uselist=False)
+    data_source = relationship(
+        "DataSource", 
+        back_populates="git_repository", 
+        uselist=False, 
+        lazy="selectin",
+        overlaps="organization,reports"
+    )
     organization = relationship("Organization", back_populates="git_repositories")
     
     # Use lambda for late binding to avoid circular imports

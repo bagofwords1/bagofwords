@@ -1,9 +1,11 @@
 from fastapi import HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, update
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 import tempfile
+import asyncio
+import shutil
 
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.dbt_resource import DBTResource
@@ -63,6 +65,7 @@ class MetadataIndexingJobService:
         job = MetadataIndexingJob(
             data_source_id=data_source_id,
             organization_id=organization.id,
+            git_repository_id=git_repository.id,
             status="running",
             started_at=datetime.utcnow()
         )
@@ -70,7 +73,8 @@ class MetadataIndexingJobService:
         db.add(job)
         await db.commit()
         await db.refresh(job)
-        
+
+        breakpoint()
         try:
             # Parse DBT resources
             resources = await self._parse_dbt_resources(
@@ -79,12 +83,17 @@ class MetadataIndexingJobService:
                 data_source_id=data_source_id,
                 job_id=job.id
             )
-            
             # Update job status
-            job.status = "completed"
-            job.completed_at = datetime.utcnow()
-            job.resource_count = len(resources)
+            await db.execute(
+                update(MetadataIndexingJob)
+                .where(MetadataIndexingJob.id == job.id)
+                .values(
+                    status="completed",
+                    completed_at=datetime.utcnow()
+                )
+            )
             await db.commit()
+            await db.refresh(job)
             
             return job
         except Exception as e:
@@ -104,11 +113,9 @@ class MetadataIndexingJobService:
     ):
         """Parse DBT resources from a cloned repository"""
         created_resources = []
-        
         # Parse DBT resources using the updated extractor
         extractor = DBTResourceExtractor(temp_dir)
         resources_dict = extractor.extract_all_resources()
-        
         # Convert the dictionary to a DBTResourcesSchema object
         resources_schema = DBTResourcesSchema(
             metrics=resources_dict.get('metrics', []),
@@ -136,9 +143,6 @@ class MetadataIndexingJobService:
         for resource_type, resource_list in resource_types.items():
             for item in resource_list:
                 # Get columns for this resource
-
-                breakpoint()
-
                 resource_key = f"{resource_type[:-1]}.{item.name}"  # Convert plural to singular
                 columns = resources_schema.columns_by_resource.get(resource_key, []) if hasattr(resources_schema, 'columns_by_resource') else []
                 
@@ -297,3 +301,79 @@ class MetadataIndexingJobService:
         jobs = result.scalars().all()
         
         return {"items": jobs, "total": total}
+    
+    async def start_indexing_background(
+        self,
+        db: AsyncSession,
+        repository_id: str,
+        repo_path: str,
+        data_source_id: str,
+        organization
+    ):
+        """Start indexing a Git repository in the background"""
+        # Create a task that runs in the background
+        asyncio.create_task(
+            self._run_indexing_job(db, repository_id, repo_path, data_source_id, organization)
+        )
+        
+        return {"status": "started", "message": "Indexing job started in background"}
+    
+    async def _run_indexing_job(
+        self,
+        db: AsyncSession,
+        repository_id: str,
+        repo_path: str,
+        data_source_id: str,
+        organization
+    ):
+        """Run the actual indexing job and update repository status when complete"""
+        try:
+            # Create a new session for this background task
+            # We need to create a new session factory rather than reusing the existing session
+            async_session = AsyncSession(bind=db.bind, expire_on_commit=False)
+            
+            try:
+                # Perform the indexing work
+                await self.start_indexing(
+                    db=async_session, 
+                    repo=None, 
+                    temp_dir=repo_path, 
+                    data_source_id=data_source_id, 
+                    organization=organization
+                )
+                
+                # Update repository status to completed
+                await async_session.execute(
+                    update(GitRepository)
+                    .where(GitRepository.id == repository_id)
+                    .values(status="completed")
+                )
+                await async_session.commit()
+            finally:
+                # Always close the session
+                await async_session.close()
+                
+        except Exception as e:
+            # Handle any errors and update repository status to failed
+            try:
+                # Create a new session for error handling
+                async_session = AsyncSession(bind=db.bind, expire_on_commit=False)
+                try:
+                    await async_session.execute(
+                        update(GitRepository)
+                        .where(GitRepository.id == repository_id)
+                        .values(status="failed", error_message=str(e))
+                    )
+                    await async_session.commit()
+                finally:
+                    await async_session.close()
+            except Exception as inner_e:
+                # Log the error if we can't update the database
+                print(f"Error updating repository status: {str(e)}")
+                print(f"Inner exception: {str(inner_e)}")
+        finally:
+            # Clean up the temporary directory
+            try:
+                shutil.rmtree(repo_path)
+            except Exception as e:
+                print(f"Error cleaning up temporary directory: {str(e)}")

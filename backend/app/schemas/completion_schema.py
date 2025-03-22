@@ -38,3 +38,11 @@ class CompletionSchema(CompletionBase):
 
     class Config:
         from_attributes = True
+
+
+class CompletionPlanSchema(BaseModel):
+    id: str
+    completion_id: str
+    content: dict
+    created_at: datetime
+    updated_at: datetime

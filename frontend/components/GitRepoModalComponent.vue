@@ -37,14 +37,41 @@
                                 <p class="text-gray-500">Custom Host</p>
                                 <p class="font-medium">{{ connectedRepo.custom_host }}</p>
                             </div>
-                            <div v-if="connectedRepo.last_indexed">
+                            <div v-if="metadata_resources.completed_at">
                                 <p class="text-gray-500">Last Indexed</p>
-                                <p class="font-medium">{{ new Date(connectedRepo.last_indexed).toLocaleString() }}</p>
+                                <p class="font-medium">{{ new Date(metadata_resources.completed_at).toLocaleString() }}</p>
                             </div>
                             <div v-if="connectedRepo.last_commit">
                                 <p class="text-gray-500">Last Commit</p>
                                 <p class="font-medium">{{ connectedRepo.last_commit }}</p>
                             </div>
+                            <div v-if="metadata_resources.status">
+                                <p class="text-gray-500">Status</p>
+                                <p class="font-medium">{{ metadata_resources.status }}</p>
+                            </div>
+                            <div v-if="metadata_resources.error_message">
+                                <p class="text-gray-500">Error</p>
+                                <p class="font-medium">{{ metadata_resources.error_message }}</p>
+                            </div>
+                            <div v-if="connectedRepo.is_active">
+                                <p class="text-gray-500">Active</p>
+                                <p class="font-medium">{{ connectedRepo.is_active ? 'Yes' : 'No' }}</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Reindex Button -->
+                        <div class="mt-4 flex">
+                            <UButton
+                                @click="reindexRepository"
+                                :loading="isReindexing"
+                                :disabled="isReindexing"
+                                icon="heroicons:arrow-path"
+                                color="blue"
+                                class="bg-gray-50 text-sm text-blue-500  hover:bg-gray-100 border border-gray-300 p-2 text-xs rounded-lg flex items-center gap-2"
+                                size="sm"
+                            >
+                                Reindex Repository
+                            </UButton>
                         </div>
                     </div>
                 </div>
@@ -168,7 +195,8 @@ const props = defineProps<{
         custom_host?: string;
         last_indexed?: string;
         last_commit?: string;
-    };
+    },
+    metadataResources?: any;
 }>();
 
 const emit = defineEmits(['update:modelValue']);
@@ -181,6 +209,7 @@ const gitModalOpen = computed({
 const toast = useToast();
 const isLoading = ref(false);
 const connectionStatus = ref(null);
+const isReindexing = ref(false);
 
 const gitProviders = [
     { type: 'github', name: 'GitHub', icon: 'logos:github-icon' },
@@ -316,6 +345,7 @@ async function handleSubmit() {
 
 // Update the connectedRepo ref to use the prop
 const connectedRepo = computed(() => props.gitRepository);
+const metadata_resources = computed(() => props.metadataResources || {});
 
 // Helper function to get provider icon
 function getProviderIcon(provider: string) {
@@ -347,6 +377,33 @@ async function confirmDelete() {
         });
     } finally {
         isLoading.value = false;
+    }
+}
+
+async function reindexRepository() {
+    if (!connectedRepo.value || !connectedRepo.value.id) return;
+    
+    isReindexing.value = true;
+    try {
+        const response = await useMyFetch(`/data_sources/${props.datasourceId}/git_repository/${connectedRepo.value.id}/index`, {
+            method: 'POST'
+        });
+        
+        if (response.status.value === 'success') {
+            toast.add({
+                title: 'Success',
+                description: 'Repository reindexing started',
+                color: 'green'
+            });
+        }
+    } catch (error) {
+        toast.add({
+            title: 'Error',
+            description: 'Failed to reindex repository',
+            color: 'red'
+        });
+    } finally {
+        isReindexing.value = false;
     }
 }
 </script>

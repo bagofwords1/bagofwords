@@ -64,6 +64,7 @@ function getPermissionsForRole(role: string): string[] {
       'rerun_memory_step',
       'view_organizations',
       'manage_llm_settings',
+      'view_completion_plan'
     ],
     member: [
       'view_data_source',

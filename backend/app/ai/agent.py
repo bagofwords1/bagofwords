@@ -356,7 +356,7 @@ class Agent:
                 title = await self.reporter.generate_report_title(previous_messages, json_result['plan'])
                 await self.project_manager.update_report_title(self.db, self.report, title)
             # Return all results at once
-            plan_json = { "plan": json_result['plan'] }
+            plan_json = { "plan": json_result['plan'] , "streaming_complete": json_result['streaming_complete'], "text": json_result['text']}
             plan_json = json.dumps(plan_json)
             plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)
 
@@ -638,14 +638,14 @@ class Agent:
         context = []
         for data_source in self.data_sources:
             context.append(f"<data_source>: {data_source.name}</data_source>\n<data_source_type>: {data_source.type}</data_source_type>\n\n<schema>:")
-            context.append(await data_source.prompt_schema(self.db))
+            context.append(await data_source.prompt_schema(self.db, self.head_completion.prompt))
             context.append("</schema>\n")
             context.append(f"<data_source_context>: \n Use this context as business context and rules for the data source\n{data_source.context}\n</data_source_context>")
         
         for file in self.files:
             context.append(file.prompt_schema())
         return "\n".join(context)
-
+    
     async def _build_messages_context(self):
         context = []
         report_completions = await self.db.execute(select(Completion).filter(Completion.report_id == self.report.id).order_by(Completion.created_at.asc()))
