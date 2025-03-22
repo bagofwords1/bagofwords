@@ -356,7 +356,7 @@ class Agent:
                 title = await self.reporter.generate_report_title(previous_messages, json_result['plan'])
                 await self.project_manager.update_report_title(self.db, self.report, title)
             # Return all results at once
-            plan_json = { "plan": json_result['plan'] , "streaming_complete": json_result['streaming_complete'], "text": json_result['text']}
+            plan_json = { "plan": json_result['plan'] , "streaming_complete": json_result['streaming_complete'], "text": json_result['text'], "token_usage": json_result['token_usage']}
             plan_json = json.dumps(plan_json)
             plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)
 

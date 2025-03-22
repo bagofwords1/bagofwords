@@ -1,11 +1,31 @@
 from partialjson.json_parser import JSONParser
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
+import tiktoken  # Add this import for token counting
 
 class Planner:
 
     def __init__(self, model: LLMModel) -> None:
         self.llm = LLM(model)
+
+        # Handle tokenizer selection with better fallback logic
+        try:
+            if hasattr(model, 'name'):
+                # Try to get encoding for the model
+                self.tokenizer = tiktoken.encoding_for_model(model.name)
+            else:
+                # Fallback to cl100k_base
+                self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        except KeyError:
+            # If model name isn't recognized (like GPT-4o), use cl100k_base
+            print(f"Warning: Could not find tokenizer for {model.name if hasattr(model, 'name') else 'unknown model'}. Using cl100k_base instead.")
+            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+
+    def count_tokens(self, text):
+        """Count the number of tokens in a text string."""
+        if not text:
+            return 0
+        return len(self.tokenizer.encode(text))
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages, widget=None, step=None):
         parser = JSONParser()
@@ -84,7 +104,7 @@ class Planner:
            - Provide each action as a JSON object inside a "plan" array.
            - Each action must have:
              - "action": One of the defined actions.
-             - "prefix": A short, kind message (1-2 sentences) shown before execution.
+             - "prefix": A short, kind message (1-2 sentences) shown before execution. If you are creating a widget, explain how your building and modeling it.
              - "execution_mode": Either "sequential" or "parallel". Use "parallel" if actions can be done independently. Otherwise, use "sequential".
              - "details": A dictionary of relevant details:
                * For "answer_question":
@@ -238,14 +258,20 @@ class Planner:
         Now, based on the user's request and context, produce the final plan. Remember: no markdown, no code fences in your final output. 
         """
 
+        # Count tokens in the prompt
+        prompt_tokens = self.count_tokens(text)
+        print(f"Prompt tokens: {prompt_tokens}")
+        
         full_result = ""
         buffer = ""
+        completion_tokens = 0
 
         current_plan = {"plan": [], "text": text}  # Initialize empty plan structure
 
         async for chunk in self.llm.inference_stream(text):
             buffer += chunk
             full_result += chunk
+            completion_tokens += self.count_tokens(chunk)
 
             try:
                 json_result = parser.parse(full_result)
@@ -446,9 +472,18 @@ class Planner:
         # Add a final yield with a special flag or breakpoint here
         print("DEBUG: Streaming completed")  # This will show in your console logs
         
-        # You could also add a special flag to the final yield
+        # Final token counts
+        print(f"Completion tokens: {completion_tokens}")
+        print(f"Total tokens: {prompt_tokens + completion_tokens}")
+        
+        # Add token counts to the final plan
         final_plan = current_plan.copy()
         final_plan["streaming_complete"] = True
+        final_plan["token_usage"] = {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens
+        }
 
         yield final_plan
         

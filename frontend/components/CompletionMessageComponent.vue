@@ -140,21 +140,44 @@
                     <Icon name="heroicons-x-mark" class="w-5 h-5" />
                 </button>
             </div>
+
+                <hr class="w-full mb-4 mt-4" />
             <div v-if="planLoading" class="flex justify-center items-center py-8">
                 <Icon name="heroicons-arrow-path" class="w-6 h-6 animate-spin text-blue-500" />
             </div>
             <div v-else-if="plan" class="markdown-wrapper max-h-[60vh] overflow-auto">
                 <div class="flex justify-between items-center cursor-pointer" @click="togglePromptCollapsed">
-                    <h3 class="text-lg font-bold mb-2">Prompt</h3>
+                    <h3 class="text-md font-bold mb-2">Prompt</h3>
                     <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
                 </div>
                 <pre v-if="!promptCollapsed" class="text-xs">{{ plan_content.text }}</pre>
                 
                 <div class="flex justify-between items-center cursor-pointer mt-4" @click="togglePlanCollapsed">
-                    <h3 class="text-lg font-bold mb-2">Plan</h3>
+                    <h3 class="text-md font-bold mb-2">Plan</h3>
                     <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
                 </div>
                 <pre v-if="!planCollapsed" class="text-xs">{{ plan_content.plan }}</pre>
+
+                <!-- Add token usage section -->
+                <div class="flex justify-between items-center cursor-pointer mt-4" @click="toggleTokensCollapsed">
+                    <h3 class="text-md font-bold mb-2">Token Usage</h3>
+                    <Icon :name="tokensCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                </div>
+                <div v-if="!tokensCollapsed" class="text-xs bg-gray-50 p-3 rounded">
+                    <div v-if="plan_content.token_usage">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>Prompt Tokens:</div>
+                            <div class="font-mono">{{ plan_content.token_usage.prompt_tokens }}</div>
+                            <div>Completion Tokens:</div>
+                            <div class="font-mono">{{ plan_content.token_usage.completion_tokens }}</div>
+                            <div class="font-bold">Total Tokens:</div>
+                            <div class="font-mono font-bold">{{ plan_content.token_usage.total_tokens }}</div>
+                        </div>
+                    </div>
+                    <div v-else class="text-gray-500">
+                        Token usage information not available
+                    </div>
+                </div>
             </div>
             <div v-else class="text-gray-500 py-4 text-center">
                 No plan information available
@@ -215,8 +238,9 @@ const cancelSaveMemory = () => {
 
 const showPlanModal = ref(false);
 const planLoading = ref(false);
-const promptCollapsed = ref(false);
-const planCollapsed = ref(false);
+const promptCollapsed = ref(true);
+const planCollapsed = ref(true);
+const tokensCollapsed = ref(true);
 
 const togglePromptCollapsed = () => {
     promptCollapsed.value = !promptCollapsed.value;
@@ -224,6 +248,10 @@ const togglePromptCollapsed = () => {
 
 const togglePlanCollapsed = () => {
     planCollapsed.value = !planCollapsed.value;
+}
+
+const toggleTokensCollapsed = () => {
+    tokensCollapsed.value = !tokensCollapsed.value;
 }
 
 const showPlan = async (completion: any) => {
