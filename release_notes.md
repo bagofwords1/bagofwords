@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.153 (March 22, 2025)
+
+- Added support with dbt (via git repo) models and metrics
+- Added context building for dbt models
+- Added token usage to plan
+- Added x-ray view for completions for admin roles
+
 ## Version 0.0.152 (March 16, 2025)
 
 - Added AWS Athena integration
