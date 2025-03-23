@@ -38,7 +38,7 @@ RUN yarn build
 FROM python:3.12.2-slim
 
 # Install Node.js and Yarn in the final image
-RUN apt-get update && apt-get install -y curl libpq-dev gcc && \
+RUN apt-get update && apt-get install -y curl libpq-dev gcc git && \
     curl -sL https://deb.nodesource.com/setup_21.x | bash - && \
     apt-get install -y nodejs && \
     npm install --global yarn
