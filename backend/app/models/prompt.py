@@ -10,5 +10,5 @@ class Prompt(BaseSchema):
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=True)
 
-    #user = relationship("User", back_populates="prompts")
+    # Keep the relationship, but reference Organization by string to avoid circular imports
     organization = relationship("Organization", back_populates="prompts")

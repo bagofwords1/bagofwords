@@ -1,77 +1,37 @@
 import asyncio
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Generator, AsyncGenerator
+from fastapi.testclient import TestClient
+from alembic.config import Config
+from alembic import command
 
 from app.models.base import Base
-
 from app.settings.config import settings
-from app.settings.database import create_async_session_factory
+from app.settings.database import create_async_database_engine, create_async_session_factory
 
-# Override the database URL for testing
-settings.TESTING = True
-TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+from tests.fixtures.client import test_client
+from tests.fixtures.user import create_user
+from tests.fixtures.auth import login_user
 
-# Create async engine for testing
-test_async_engine = create_async_engine(
-    TEST_DATABASE_URL,
-    echo=True,
-    future=True
-)
-
-# Create async session factory
-test_async_session_factory = create_async_session_factory()
+from main import app
 
 @pytest.fixture(scope="session")
-def event_loop() -> Generator:
-    """Create an instance of the default event loop for each test case."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+def alembic_config():
+    """Create Alembic configuration object."""
+    print(f"Using test database URL: {settings.TEST_DATABASE_URL}")
+    alembic_cfg = Config("alembic.ini")
+    # Convert aiosqlite to sqlite for alembic
+    sync_url = settings.TEST_DATABASE_URL.replace('sqlite+aiosqlite:', 'sqlite:')
+    alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
+    return alembic_cfg
 
-@pytest.fixture(scope="session")
-async def async_session() -> AsyncGenerator[AsyncSession, None]:
-    """Fixture that creates a new database session for each test session."""
-    async with test_async_engine.connect() as conn:
-        await conn.run_sync(Base.metadata.create_all)  # Create all tables
-        
-        session_factory = test_async_session_factory
-        async_session = session_factory()
-        try:
-            yield async_session
-        finally:
-            await async_session.close()
-            
-        # Drop all tables after tests
-        await conn.run_sync(Base.metadata.drop_all)
-    
-    await test_async_engine.dispose()
-
-@pytest.fixture(scope="function")
-async def db_session():
-    """Create a database session for a test."""
-    # Use in-memory database for tests
-    engine = create_async_engine(
-        "sqlite+aiosqlite:///:memory:",
-        echo=True
-    )
-    
-    # Create all tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    # Create session
-    async_session_maker = create_async_session_factory()
-    session = async_session_maker()
-    
-    try:
-        yield session
-    finally:
-        await session.close()
-        
-        # Drop all tables
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.drop_all)
-        await engine.dispose() 
+@pytest.fixture(scope="session", autouse=True)
+def run_migrations(alembic_config):
+    """Run migrations before tests and downgrade after."""
+    print("Starting migrations...")
+    command.upgrade(alembic_config, "head")
+    print("Migrations completed!")
+    yield
+    print("Downgrading migrations...")
+    command.downgrade(alembic_config, "base")

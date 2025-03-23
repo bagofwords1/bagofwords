@@ -48,7 +48,7 @@ config = context.config
 
 def get_db_url():
     if settings.TESTING:
-        return "sqlite:///./test.db"
+        return settings.TEST_DATABASE_URL
     else:
         url = make_url(settings.bow_config.database.url)
         if url.drivername.startswith('postgres'):

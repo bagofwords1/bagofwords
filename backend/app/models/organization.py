@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from app.models.report import Report
 from app.models.git_repository import GitRepository
+from app.models.prompt import Prompt
 
 class Organization(BaseSchema):
     __tablename__ = "organizations"
@@ -21,6 +22,7 @@ class Organization(BaseSchema):
     llm_providers = relationship("LLMProvider", back_populates="organization")
     llm_models = relationship("LLMModel", back_populates="organization")
     git_repositories = relationship("GitRepository", back_populates="organization")
+    prompts = relationship("Prompt", back_populates="organization")
     
     async def get_default_llm_model(self, db):
         """Get the default LLM model for the organization.
