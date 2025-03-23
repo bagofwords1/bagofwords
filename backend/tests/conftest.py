@@ -35,3 +35,8 @@ def run_migrations(alembic_config):
     yield
     print("Downgrading migrations...")
     command.downgrade(alembic_config, "base")
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "e2e: marks tests as end-to-end tests"
+    )
