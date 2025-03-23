@@ -31,8 +31,7 @@ jobs:
       env:
         TESTING: "true"
       run: |
-      pytest -m e2e --disable-warnings
-      continue-on-error: true
+        pytest -m e2e --disable-warnings
 
     - name: Trigger Docker build workflow
       if: steps.tests.outcome == 'success' && github.ref == 'refs/heads/main'
