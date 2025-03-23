@@ -30,6 +30,7 @@ jobs:
       working-directory: ./backend
       env:
         TESTING: "true"
+        ENVIRONMENT: "production"
       run: |
         pytest -m e2e --disable-warnings
 
