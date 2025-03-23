@@ -2,10 +2,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from app.settings.config import settings
+import os
 
 def create_database_engine():
     if settings.TESTING:
-        database_url = settings.bow_config.database.url  # Use SQLite for testing or as fallback
+        database_url = settings.TEST_DATABASE_URL
     else:
         if "postgres" in settings.bow_config.database.url:
             database_url = settings.bow_config.database.url.replace("postgres://", "postgresql://")
@@ -23,8 +24,15 @@ def create_session_factory():
 
 def create_async_database_engine():
     if settings.TESTING:
-        database_url = "sqlite+aiosqlite:///./app.db"  # Use async SQLite for testing or as fallback
-        engine = create_async_engine(database_url, echo=True)
+        database_url = settings.TEST_DATABASE_URL.replace('sqlite:', 'sqlite+aiosqlite:')
+        engine = create_async_engine(
+            database_url,
+            echo=True,
+            future=True,
+            # Required for SQLite to handle concurrent requests
+            connect_args={"check_same_thread": False}
+        )
+        print("✅ Test database engine created")
     else:
         if "postgres" in settings.bow_config.database.url:
             database_url = settings.bow_config.database.url.replace(
@@ -32,15 +40,17 @@ def create_async_database_engine():
             ).replace(
                 "postgresql://", "postgresql+asyncpg://"
             )
-            engine = create_async_engine(database_url, pool_size=50, max_overflow=20, echo=True)
+            print(f"🔍 Using PostgreSQL database: {database_url}")
         elif "sqlite" in settings.bow_config.database.url:
             database_url = settings.bow_config.database.url.replace(
                 "sqlite://", "sqlite+aiosqlite://"
             )
-            engine = create_async_engine(database_url, echo=True)
+            print(f"🔍 Using SQLite database: {database_url}")
         else:
             database_url = "sqlite+aiosqlite:///./app.db"
-            engine = create_async_engine(database_url, echo=True)
+            print(f"🔍 Using default SQLite database: {database_url}")
+        
+        engine = create_async_engine(database_url, echo=True)
 
     return engine
 

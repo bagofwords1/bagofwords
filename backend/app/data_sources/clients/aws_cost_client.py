@@ -5,7 +5,7 @@ import pandas as pd
 from contextlib import contextmanager
 
 
-class AwsCostClient(DataSourceClient):
+class AWSCostClient(DataSourceClient):
     def __init__(self, access_key: str, secret_key: str, region_name: str = "us-east-1"):
         self.access_key = access_key
         self.secret_key = secret_key

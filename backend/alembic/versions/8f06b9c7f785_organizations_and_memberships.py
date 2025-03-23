@@ -88,7 +88,6 @@ def downgrade() -> None:
     if dialect == 'sqlite':
         # SQLite path
         with op.batch_alter_table('reports') as batch_op:
-            batch_op.drop_constraint('fk_reports_user_id', type_='foreignkey')
             batch_op.drop_constraint('fk_reports_organization_id', type_='foreignkey')
             batch_op.drop_index('ix_reports_organization_id')
             batch_op.drop_index('ix_reports_id')
@@ -106,7 +105,6 @@ def downgrade() -> None:
 
     else:
         # PostgreSQL path
-        op.drop_constraint('fk_reports_user_id', 'reports', type_='foreignkey')
         op.drop_index('ix_reports_organization_id', table_name='reports')
         op.drop_index('ix_reports_id', table_name='reports')
         op.drop_column('reports', 'organization_id')
