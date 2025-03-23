@@ -32,30 +32,46 @@ def event_loop() -> Generator:
     loop.close()
 
 @pytest.fixture(scope="session")
-async def async_session_factory() -> AsyncGenerator:
-    """Fixture that creates a session factory for the test session."""
+async def async_session() -> AsyncGenerator[AsyncSession, None]:
+    """Fixture that creates a new database session for each test session."""
     async with test_async_engine.connect() as conn:
         await conn.run_sync(Base.metadata.create_all)  # Create all tables
         
+        session_factory = test_async_session_factory
+        async_session = session_factory()
         try:
-            # Yield the factory itself
-            yield test_async_session_factory
+            yield async_session
         finally:
-            # Drop all tables after tests
-            await conn.run_sync(Base.metadata.drop_all)
+            await async_session.close()
+            
+        # Drop all tables after tests
+        await conn.run_sync(Base.metadata.drop_all)
     
     await test_async_engine.dispose()
 
 @pytest.fixture(scope="function")
-async def db_session(async_session_factory) -> AsyncGenerator[AsyncSession, None]:
-    """Fixture that creates a new database session for each test function."""
-    # Create a new session using the factory
-    async_session = async_session_factory()
+async def db_session():
+    """Create a database session for a test."""
+    # Use in-memory database for tests
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        echo=True
+    )
+    
+    # Create all tables
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    # Create session
+    async_session_maker = create_async_session_factory()
+    session = async_session_maker()
+    
     try:
-        yield async_session
-        await async_session.commit()
-    except Exception:
-        await async_session.rollback()
-        raise
+        yield session
     finally:
-        await async_session.close() 
+        await session.close()
+        
+        # Drop all tables
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose() 

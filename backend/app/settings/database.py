@@ -23,7 +23,8 @@ def create_session_factory():
 
 def create_async_database_engine():
     if settings.TESTING:
-        database_url = "sqlite+aiosqlite:///./app.db"  # Use async SQLite for testing or as fallback
+        # Use in-memory database for tests
+        database_url = "sqlite+aiosqlite:///:memory:"
         engine = create_async_engine(database_url, echo=True)
     else:
         if "postgres" in settings.bow_config.database.url:
