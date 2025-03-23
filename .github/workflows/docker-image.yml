@@ -1,10 +1,9 @@
 name: Build and Push Docker Image
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+  repository_dispatch:
+    types: [e2e-tests-passed]
 
 jobs:
   build-and-push:

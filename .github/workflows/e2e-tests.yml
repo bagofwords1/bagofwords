@@ -38,5 +38,5 @@ jobs:
       if: steps.tests.outcome == 'success' && github.ref == 'refs/heads/main'
       uses: peter-evans/repository-dispatch@v2
       with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.PAT_TOKEN }}
         event-type: e2e-tests-passed
