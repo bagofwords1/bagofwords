@@ -3,6 +3,9 @@ import json
 import uvicorn
 import sentry_sdk
 import argparse
+import uuid
+import time
+
 # Add this before app initialization
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, help='Path to custom config file')
@@ -20,6 +23,7 @@ from app.core.auth import get_user_manager, auth_backend, create_fastapi_users, 
 from app.dependencies import get_async_session
 from app.schemas.user_schema import UserCreate, UserRead, UserUpdate
 from app.settings.config import settings
+from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler
 from app.models.user import User
@@ -37,6 +41,10 @@ from app.routes import (
     llm,
     git_repository
 )
+
+# Initialize logging
+loggers = setup_logging()
+logger = get_logger(__name__)
 
 sentry_sdk.init(
     dsn=settings.SENTRY_DSN,
@@ -128,8 +136,69 @@ app.include_router(memory.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
 
+# Add request context middleware
+#@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    pass
+    # Generate request ID
+ #   request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    
+    ## Get the request logger
+    #request_logger = get_logger("app.request")
+    
+    #request_logger.info(
+        #"Request started",
+        #extra={
+            #"request_id": request_id,
+            #"method": request.method,
+            #"path": request.url.path,
+            #"client_ip": request.client.host if request.client else None,
+        #}
+    #)
+    
+    #start_time = time.time()
+    
+    #try:
+        #response = await call_next(request)
+        #process_time = time.time() - start_time
+        
+        #request_logger.info(
+            #"Request completed",
+            #extra={
+                #"request_id": request_id,
+                #"status_code": response.status_code,
+                #"duration_ms": round(process_time * 1000)
+            #}
+        #)
+        
+        ## Add request ID to response headers for traceability
+        #response.headers["X-Request-ID"] = request_id
+        #return response
+    #except Exception as exc:
+        #process_time = time.time() - start_time
+        #request_logger.exception(
+            #f"Request failed: {str(exc)}",
+            #extra={
+                #"request_id": request_id,
+                #"duration_ms": round(process_time * 1000)
+            #}
+        #)
+        #raise
+
 @app.on_event("startup")
 async def startup_event():
+    logger.info(
+        "Application starting",
+        extra={
+            "environment": settings.ENVIRONMENT,
+            "debug_mode": settings.DEBUG,
+            "google_oauth": enable_google_oauth,
+            "email_verification": settings.bow_config.features.verify_emails,
+            "deployment_type": settings.bow_config.deployment.type,
+            "version": settings.PROJECT_VERSION
+        }
+    )
+    
     scheduler.start()
     print(f"""
    ____                       __                         _     

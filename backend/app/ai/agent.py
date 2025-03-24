@@ -27,6 +27,9 @@ from app.ai.agents.reporter.reporter import Reporter
 
 from sqlalchemy import select
 
+from app.settings.logging_config import get_logger
+logger = get_logger("app.agent")
+
 
 class Agent:
 
@@ -70,7 +73,7 @@ class Agent:
             # should be last
 
     async def main_execution(self):
-
+        logger.info("Starting main execution")
         try:
             results = []
             action_results = {}
@@ -360,7 +363,7 @@ class Agent:
             plan_json = { "plan": json_result['plan'] , "streaming_complete": json_result['streaming_complete'], "text": json_result['text'], "token_usage": json_result['token_usage']}
             plan_json = json.dumps(plan_json)
             plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)
-
+            logger.info("Main execution completed")
             return action_results
 
         except Exception as e:
