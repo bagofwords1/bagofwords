@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.154 (March 24, 2025)
+
+- Added advanced logging infrastructure
+- Added e2e tests infrastructure and created first e2e test for user onboarding
+- Improved ci/cd to run tests before building image
+
 ## Version 0.0.153 (March 22, 2025)
 
 - Added support with dbt (via git repo) models and metrics
