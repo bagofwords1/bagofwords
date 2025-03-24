@@ -13,7 +13,7 @@ from app.models.organization import Organization
 from app.core.permissions_decorator import requires_permission
 from app.models.report import Report
 
-router = APIRouter()
+router = APIRouter(tags=["reports"])
 report_service = ReportService()
 
 @router.post("/reports", response_model=ReportSchema)

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from app.models.report import Report
 
-router = APIRouter()
+router = APIRouter(tags=["files"])
 file_service = FileService()
 
 @router.post("/files", response_model=FileSchema)

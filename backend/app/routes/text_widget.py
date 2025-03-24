@@ -14,7 +14,7 @@ from app.models.organization import Organization
 from app.core.permissions_decorator import requires_permission
 from app.models.report import Report
 
-router = APIRouter()
+router = APIRouter(tags=["text widgets"])
 text_widget_service = TextWidgetService()
 
 @router.post("/reports/{report_id}/text_widgets", response_model=TextWidgetSchema)

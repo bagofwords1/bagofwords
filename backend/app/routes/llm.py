@@ -18,7 +18,7 @@ from app.schemas.llm_schema import (
     LLMModelSchemaWithProvider
 )
 
-router = APIRouter()
+router = APIRouter(tags=["llm"])
 llm_service = LLMService()
 
 @router.get("/llm/available_providers", response_model=list[dict])

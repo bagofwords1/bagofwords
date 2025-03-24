@@ -15,7 +15,7 @@ from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.core.permissions_decorator import requires_permission
 from app.models.data_source import DataSource
 
-router = APIRouter()
+router = APIRouter(tags=["data_sources"])
 data_source_service = DataSourceService()
 
 @router.get("/available_data_sources", response_model=list[dict])

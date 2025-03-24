@@ -12,7 +12,7 @@ from app.models.organization import Organization
 from app.schemas.widget_schema import WidgetSchema
 from app.core.permissions_decorator import requires_permission
 from app.models.memory import Memory
-router = APIRouter()
+router = APIRouter(tags=["memories"])
 memory_service = MemoryService()
 
 @router.post("/memories", response_model=MemorySchema)

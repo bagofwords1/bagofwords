@@ -20,7 +20,7 @@ from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from app.models.report import Report
 
-router = APIRouter()
+router = APIRouter(tags=["completions"])
 
 completion_service = CompletionService()
 

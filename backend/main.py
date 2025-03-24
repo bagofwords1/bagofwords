@@ -60,7 +60,24 @@ google_client_secret = settings.bow_config.google_oauth.client_secret
 
 
 # Initialize FastAPI app
-app = FastAPI(title=settings.PROJECT_NAME, debug=settings.DEBUG)
+app = FastAPI(
+    title=settings.PROJECT_NAME, 
+    debug=settings.DEBUG,
+    openapi_tags=[
+        {"name": "auth", "description": "Authentication operations"},
+        {"name": "reports", "description": "Report management"},
+        {"name": "widgets", "description": "Widget operations"},
+        {"name": "data_sources", "description": "Data source management"},
+        {"name": "organizations", "description": "Organization management"},
+        {"name": "users", "description": "User management"},
+        {"name": "files", "description": "File operations"},
+        {"name": "completions", "description": "AI completions"},
+        {"name": "llm", "description": "LLM and their providers settings"},
+        {"name": "memories", "description": "Memory management"},
+        {"name": "git", "description": "Git repository and data source integration"},
+    ]
+)
+
 init_cors(app)
 
 oauth_providers = []
@@ -135,55 +152,6 @@ app.include_router(text_widget.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
-
-# Add request context middleware
-#@app.middleware("http")
-async def logging_middleware(request: Request, call_next):
-    pass
-    # Generate request ID
- #   request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-    
-    ## Get the request logger
-    #request_logger = get_logger("app.request")
-    
-    #request_logger.info(
-        #"Request started",
-        #extra={
-            #"request_id": request_id,
-            #"method": request.method,
-            #"path": request.url.path,
-            #"client_ip": request.client.host if request.client else None,
-        #}
-    #)
-    
-    #start_time = time.time()
-    
-    #try:
-        #response = await call_next(request)
-        #process_time = time.time() - start_time
-        
-        #request_logger.info(
-            #"Request completed",
-            #extra={
-                #"request_id": request_id,
-                #"status_code": response.status_code,
-                #"duration_ms": round(process_time * 1000)
-            #}
-        #)
-        
-        ## Add request ID to response headers for traceability
-        #response.headers["X-Request-ID"] = request_id
-        #return response
-    #except Exception as exc:
-        #process_time = time.time() - start_time
-        #request_logger.exception(
-            #f"Request failed: {str(exc)}",
-            #extra={
-                #"request_id": request_id,
-                #"duration_ms": round(process_time * 1000)
-            #}
-        #)
-        #raise
 
 @app.on_event("startup")
 async def startup_event():

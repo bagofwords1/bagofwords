@@ -12,7 +12,7 @@ from typing import List
 from app.dependencies import get_current_organization
 from app.core.permissions_decorator import requires_permission
 
-router = APIRouter()
+router = APIRouter(tags=["organizations"])
 organization_service = OrganizationService()
 
 @router.post("/organizations", response_model=OrganizationSchema)

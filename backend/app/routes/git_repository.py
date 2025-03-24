@@ -9,7 +9,7 @@ from app.models.organization import Organization
 from app.core.permissions_decorator import requires_permission
 from app.models.data_source import DataSource
 
-router = APIRouter()
+router = APIRouter(tags=["git"])
 git_repository_service = GitRepositoryService()
 
 @router.get("/data_sources/{data_source_id}/git_repository")

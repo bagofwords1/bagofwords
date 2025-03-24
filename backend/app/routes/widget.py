@@ -13,7 +13,7 @@ import io
 from app.core.permissions_decorator import requires_permission
 from app.models.report import Report
 
-router = APIRouter()
+router = APIRouter(tags=["widgets"])
 widget_service = WidgetService()
 
 #@router.post("/reports/{report_slug}/widgets", response_model=WidgetSchema)

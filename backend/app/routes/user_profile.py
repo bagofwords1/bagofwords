@@ -10,7 +10,7 @@ from app.schemas.user_profile_schema import UserProfileSchema
 from app.schemas.organization_schema import OrganizationAndRoleSchema
 from app.services.organization_service import OrganizationService
 
-router = APIRouter()
+router = APIRouter(tags=["users"])
 organization_service = OrganizationService()
 
 @router.get("/users/whoami", response_model=UserProfileSchema)
