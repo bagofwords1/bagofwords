@@ -105,7 +105,7 @@ class Planner:
            - Provide each action as a JSON object inside a "plan" array.
            - Each action must have:
              - "action": One of the defined actions.
-             - "prefix": A short, kind message (1-2 sentences) shown before execution. If you are creating a widget, explain how your building and modeling it. Also explain the reasoning behind the plan.
+             - "prefix": A short message that validates the user's request, and explains the thinking and the plan before execution. If you are creating a widget, explain how your building and modeling it. Also explain the reasoning behind the plan.
              - "execution_mode": Either "sequential" or "parallel". Use "parallel" if actions can be done independently. Otherwise, use "sequential".
              - "details": A dictionary of relevant details:
                * For "answer_question":
@@ -154,11 +154,10 @@ class Planner:
 
         Example 1 (answer_question):
         {{
-            "reasoning": "The user is asking for a chart of revenue by month. I will create a bar chart with the month and total revenue.",
             "plan": [
                 {{
                     "action": "answer_question",
-                    "prefix": "", // always keep empty for answer_question
+                    "prefix": "The type of column `X` is a string.", // always keep empty for answer_question
                     "execution_mode": "sequential",
                     "details": {{
                         "extracted_question": "What is the data type of column X?$."
@@ -169,11 +168,11 @@ class Planner:
         }}
 
         Example 2 (create_widget):
-        {{  reasoning: "The user is asking for a chart of revenue by month. I will create a bar chart with the month and total revenue."
+        {{  
             "plan": [
                 {{
                     "action": "create_widget",
-                    "prefix": "Let me prepare a chart for you.",
+                    "prefix": "Let me prepare a chart for you. I will create a bar chart with the month and total revenue coming from `sales` table joined with `payment` table and aggregate the data by month.",
                     "execution_mode": "sequential",
                     "details": {{
                         "title": "Revenue by Month$.",
@@ -207,11 +206,10 @@ class Planner:
 
         Example 3 (modify_widget):
         {{
-            "reasoning": "The user is asking for a chart of revenue by month. I will create a bar chart with the month and total revenue.",
             "plan": [
                 {{
                     "action": "modify_widget",
-                    "prefix": "Let me modify this widget for you.",
+                    "prefix": "Let me modify this widget for you. I will remove `old_column` and add `new_column_name` that shows the total revenue per month and come from the `sales` table. I will also transform the `month` column to show the month as a number.",
                     "execution_mode": "sequential",
                     "details": {{
                         "remove_columns": ["old_column"],
@@ -247,11 +245,10 @@ class Planner:
 
         Example 4 (design_dashboard):
         {{
-            "reasoning": "The user is asking for a dashboard. I will create a dashboard with the widgets.",
             "plan": [
                 {{
                     "action": "design_dashboard",
-                    "prefix": "Finally, let's combine all insights into a dashboard.",
+                    "prefix": "Finally, let's combine all insights into a dashboard. I will place the bar chart of revenue by month and the line chart of revenue by year in the same dashboard. Will also add a few descriptions and titles to make it more informative.",
                     "execution_mode": "sequential",
                     "details": {{}},
                     "action_end": true
