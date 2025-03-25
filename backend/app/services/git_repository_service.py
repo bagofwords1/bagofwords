@@ -69,9 +69,8 @@ class GitRepositoryService:
                 if git_repo.ssh_key:
                     ssh_key_path = os.path.join(temp_dir, 'id_rsa')
                     with open(ssh_key_path, 'w') as f:
-                        f.write(git_repo.ssh_key.get('private_key', ''))
+                        f.write(git_repo.ssh_key)  
                     os.chmod(ssh_key_path, 0o600)
-                    
                     git.Git().update_environment(
                         GIT_SSH_COMMAND=f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
                     )
@@ -82,9 +81,9 @@ class GitRepositoryService:
                 return {"success": True, "message": "Connection successful"}
 
         except git.GitCommandError as e:
-            return {"success": False, "message": f"Git error: {str(e)}"}
+            raise HTTPException(status_code=400, detail=f"Git error: {str(e)}")
         except Exception as e:
-            return {"success": False, "message": f"Connection failed: {str(e)}"}
+            raise HTTPException(status_code=400, detail=f"Connection failed: {str(e)}")
 
     async def create_git_repository(
         self, 

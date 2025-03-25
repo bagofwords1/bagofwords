@@ -237,30 +237,6 @@ function selectProvider(provider) {
     selectedProvider.value = provider.type;
 }
 
-watch(() => formData.value.privateKey, async (newKey) => {
-    if (!newKey) {
-        formData.value.publicKey = '';
-        return;
-    }
-
-    try {
-        const response = await useMyFetch('/api/git/generate_public_key', {
-            method: 'POST',
-            body: { private_key: newKey }
-        });
-
-        if (response.data.value?.public_key) {
-            formData.value.publicKey = response.data.value.public_key;
-        }
-    } catch (error) {
-        toast.add({
-            title: 'Error',
-            description: 'Failed to generate public key',
-            color: 'red'
-        });
-    }
-}, { immediate: true });
-
 async function copyPublicKey() {
     try {
         await navigator.clipboard.writeText(formData.value.publicKey);

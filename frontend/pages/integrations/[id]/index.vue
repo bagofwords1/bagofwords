@@ -179,7 +179,7 @@ Create a table of all customers, show customer name, email, phone, address and c
                         <div class="flex justify-between items-center mb-2">
                             <div class="font-semibold cursor-pointer flex items-center" @click="dataModelsExpanded = !dataModelsExpanded">
                                 <UIcon :name="dataModelsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="p-1 mr-2" />
-                                Data Models ({{ metadata_resources.resources ? metadata_resources.resources.length : 0 }} resources)
+                                Data Models ({{ metadata_resources?.resources ? metadata_resources.resources.length : 0 }} resources)
                             </div>
                             <UButton 
                                 @click="showGitModal = true"
@@ -202,7 +202,7 @@ Create a table of all customers, show customer name, email, phone, address and c
                                         Last indexed: {{ new Date(metadata_resources.completed_at).toLocaleString() }}
                                     </p>
                                     <p>
-                                        <ul class="py-2 list-none list-inside">
+                                        <ul class="py-2 list-none list-inside" v-if="metadata_resources.resources">
                                             <li class="py-1" v-for="resource in metadata_resources.resources" :key="resource.id">
                                                 <UCheckbox v-model="resource.is_active" class="float-left mr-2"/>
                                                 <div @click="toggleResource(resource)" class="font-semibold text-gray-500 cursor-pointer">
