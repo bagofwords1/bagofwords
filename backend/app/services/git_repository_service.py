@@ -67,16 +67,43 @@ class GitRepositoryService:
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Set up SSH command if SSH key is provided
                 if git_repo.ssh_key:
-                    ssh_key_path = os.path.join(temp_dir, 'id_rsa')
-                    with open(ssh_key_path, 'w') as f:
-                        f.write(git_repo.ssh_key)  
-                    os.chmod(ssh_key_path, 0o600)
-                    git.Git().update_environment(
-                        GIT_SSH_COMMAND=f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
-                    )
-
-                # Test connection using ls-remote
-                git.cmd.Git().ls_remote(git_repo.repo_url)
+                    # Create a persistent temporary directory
+                    temp_dir = tempfile.mkdtemp()
+                    try:
+                        ssh_key_path = os.path.join(temp_dir, 'id_rsa')
+                        
+                        # Split the key into lines and write them with proper line endings
+                        key_lines = git_repo.ssh_key.strip().split('\n')
+                        with open(ssh_key_path, 'w') as f:
+                            for line in key_lines:
+                                f.write(line.strip() + '\n')
+                        
+                        # Set correct permissions (600)
+                        os.chmod(ssh_key_path, 0o600)
+                        
+                        git_env = os.environ.copy()
+                        git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+                        
+                        # Validate key format
+                        import subprocess
+                        try:
+                            subprocess.run(
+                                ['ssh-keygen', '-y', '-f', ssh_key_path],
+                                check=True,
+                                capture_output=True,
+                                text=True
+                            )
+                        except subprocess.CalledProcessError as e:
+                            raise HTTPException(status_code=400, detail=f"Invalid SSH key format: {e.stderr}")
+                        
+                        git.cmd.Git().ls_remote(git_repo.repo_url, env=git_env)
+                    finally:
+                        # Clean up
+                        import shutil
+                        shutil.rmtree(temp_dir, ignore_errors=True)
+                else:
+                    # If no SSH key, use regular ls-remote
+                    git.cmd.Git().ls_remote(git_repo.repo_url)
 
                 return {"success": True, "message": "Connection successful"}
 
@@ -204,30 +231,65 @@ class GitRepositoryService:
     async def clone_git_repo(
         self,
         repository: GitRepository,
-        temp_dir: str
+        clone_dir: str
     ):
         """Clone a git repository to a temporary directory and return the repo object"""
         try:
             # Set up SSH if needed
             if repository.ssh_key:
-                ssh_key_path = os.path.join(temp_dir, 'id_rsa')
-                ssh_key_data = repository.decrypt_ssh_key()
-                with open(ssh_key_path, 'w') as f:
-                    f.write(ssh_key_data.get('private_key'))
-                os.chmod(ssh_key_path, 0o600)
-                
-                git.Git().update_environment(
-                    GIT_SSH_COMMAND=f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+                # Create a temporary directory for SSH files
+                ssh_dir = tempfile.mkdtemp()
+                try:
+                    ssh_key_path = os.path.join(ssh_dir, 'id_rsa')
+                    ssh_key_data = repository.decrypt_ssh_key()
+                    
+                    # Split the key into lines and write them with proper line endings
+                    key_lines = ssh_key_data.strip().split('\n')
+                    with open(ssh_key_path, 'w') as f:
+                        for line in key_lines:
+                            f.write(line.strip() + '\n')
+                    
+                    os.chmod(ssh_key_path, 0o600)
+                    
+                    # Set up Git environment with SSH command
+                    git_env = os.environ.copy()
+                    git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
+                    
+                    # Validate key format
+                    import subprocess
+                    try:
+                        subprocess.run(
+                            ['ssh-keygen', '-y', '-f', ssh_key_path],
+                            check=True,
+                            capture_output=True,
+                            text=True
+                        )
+                    except subprocess.CalledProcessError as e:
+                        raise HTTPException(status_code=400, detail=f"Invalid SSH key format: {e.stderr}")
+                    
+                    # Clone repository with depth=1 for shallow clone
+                    repo = git.Repo.clone_from(
+                        repository.repo_url,
+                        clone_dir,
+                        branch=repository.branch,
+                        depth=1,
+                        env=git_env
+                    )
+                finally:
+                    # Clean up SSH directory
+                    import shutil
+                    shutil.rmtree(ssh_dir, ignore_errors=True)
+            else:
+                # Clone without SSH key
+                repo = git.Repo.clone_from(
+                    repository.repo_url,
+                    clone_dir,
+                    branch=repository.branch,
+                    depth=1
                 )
-
-            # Clone repository with depth=1 for shallow clone (only latest commit)
-            repo = git.Repo.clone_from(
-                repository.repo_url,
-                temp_dir,
-                branch=repository.branch,
-                depth=1  # Shallow clone - only get the latest commit
-            )
             
             return repo
+        except git.GitCommandError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to clone repository: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to clone repository: {str(e)}")

@@ -42,6 +42,7 @@ class MetadataIndexingJobService:
             )
         )
         git_repository = result.scalar_one_or_none()
+        
         if not git_repository:
             raise HTTPException(status_code=404, detail="Git repository not found for this data source")
         return git_repository
@@ -49,7 +50,7 @@ class MetadataIndexingJobService:
     async def start_indexing(
         self,
         db: AsyncSession,
-        repo,
+        repo_id: str,
         temp_dir: str,
         data_source_id: str,
         organization: Organization
@@ -57,10 +58,16 @@ class MetadataIndexingJobService:
         """Start a metadata indexing job for a data source"""
         # Verify data source exists
         await self._verify_data_source(db, data_source_id, organization)
-        
+
+        git_repository = await db.execute(
+            select(GitRepository).where(
+                GitRepository.data_source_id == data_source_id,
+                GitRepository.organization_id == organization.id,
+                GitRepository.id == repo_id
+            )
+        )
+        git_repository = git_repository.scalar_one_or_none()
         # Get git repository
-        git_repository = await self._get_git_repository(db, data_source_id, organization)
-        
         # Create a new indexing job
         job = MetadataIndexingJob(
             data_source_id=data_source_id,
@@ -74,13 +81,14 @@ class MetadataIndexingJobService:
         await db.commit()
         await db.refresh(job)
 
+
         try:
             # Parse DBT resources
             resources = await self._parse_dbt_resources(
                 db=db,
                 temp_dir=temp_dir,
                 data_source_id=data_source_id,
-                job_id=job.id
+                job_id=job.id,
             )
             # Update job status
             await db.execute(
@@ -108,7 +116,7 @@ class MetadataIndexingJobService:
         db: AsyncSession,
         temp_dir: str,
         data_source_id: str,
-        job_id: str
+        job_id: str,
     ):
         """Parse DBT resources from a cloned repository"""
         created_resources = []
@@ -147,6 +155,10 @@ class MetadataIndexingJobService:
                 
                 # Convert item to dict if it's a Pydantic model
                 item_dict = item.dict() if hasattr(item, 'dict') else item
+                # Clean up the path - remove temp directory
+                if temp_dir and 'path' in item_dict:
+                    item_dict['path'] = item_dict['path'].replace(temp_dir, '').lstrip('/')
+                
                 # Create or update DBT resource
                 resource = await self._create_or_update_dbt_resource(
                     db=db,
@@ -154,7 +166,8 @@ class MetadataIndexingJobService:
                     resource_type=resource_type,
                     data_source_id=data_source_id,
                     job_id=job_id,
-                    columns=[col.dict() if hasattr(col, 'dict') else col for col in columns]
+                    columns=[col.dict() if hasattr(col, 'dict') else col for col in columns],
+                    temp_dir=temp_dir
                 )
                 created_resources.append(resource)
         
@@ -177,7 +190,8 @@ class MetadataIndexingJobService:
         resource_type: str,
         data_source_id: str,
         job_id: str,
-        columns: List[Dict[str, Any]] = None
+        columns: List[Dict[str, Any]] = None,
+        temp_dir: str = None
     ):
         
         """Create or update a DBT resource"""
@@ -191,7 +205,7 @@ class MetadataIndexingJobService:
             resource_type=resource_type.rstrip('s'),  # Convert plural to singular
             path=item.get('path', ''),
             description=item.get('description', ''),
-            raw_data=item,
+            raw_data=item,  # item already has the cleaned path
             sql_content=item.get('sql_content', ''),
             source_name=source_name,
             database=item.get('database', ''),
@@ -329,46 +343,59 @@ class MetadataIndexingJobService:
         """Run the actual indexing job and update repository status when complete"""
         try:
             # Create a new session for this background task
-            # We need to create a new session factory rather than reusing the existing session
             async_session = AsyncSession(bind=db.bind, expire_on_commit=False)
             
             try:
                 # Perform the indexing work
                 await self.start_indexing(
                     db=async_session, 
-                    repo=None, 
+                    repo_id=repository_id, 
                     temp_dir=repo_path, 
                     data_source_id=data_source_id, 
                     organization=organization
                 )
                 
-                # Update repository status to completed
-                await async_session.execute(
-                    update(GitRepository)
-                    .where(GitRepository.id == repository_id)
-                    .values(status="completed")
+                # Get the specific repository first
+                result = await async_session.execute(
+                    select(GitRepository).where(
+                        GitRepository.id == repository_id,
+                        GitRepository.data_source_id == data_source_id,
+                        GitRepository.organization_id == organization.id
+                    )
                 )
-                await async_session.commit()
+                repo = result.scalar_one_or_none()
+                
+                if repo:
+                    repo.status = "completed"
+                    repo.updated_at = datetime.utcnow()
+                    await async_session.commit()
+
             finally:
-                # Always close the session
                 await async_session.close()
                 
         except Exception as e:
-            # Handle any errors and update repository status to failed
             try:
                 # Create a new session for error handling
                 async_session = AsyncSession(bind=db.bind, expire_on_commit=False)
                 try:
-                    await async_session.execute(
-                        update(GitRepository)
-                        .where(GitRepository.id == repository_id)
-                        .values(status="failed", error_message=str(e))
+                    # Get the specific repository first
+                    result = await async_session.execute(
+                        select(GitRepository).where(
+                            GitRepository.id == repository_id,
+                            GitRepository.data_source_id == data_source_id,
+                            GitRepository.organization_id == organization.id
+                        )
                     )
-                    await async_session.commit()
+                    repo = result.scalar_one_or_none()
+                    
+                    if repo:
+                        repo.status = "failed"
+                        repo.error_message = str(e)
+                        repo.updated_at = datetime.utcnow()
+                        await async_session.commit()
                 finally:
                     await async_session.close()
             except Exception as inner_e:
-                # Log the error if we can't update the database
                 print(f"Error updating repository status: {str(e)}")
                 print(f"Inner exception: {str(inner_e)}")
         finally:

@@ -269,10 +269,12 @@ async function testConnection() {
                 ssh_key: formData.value.privateKey,
             }
         });
-
+        
         connectionStatus.value = {
             success: response.data.value?.success,
-            message: response.data.value?.message || 'Connection successful'
+            message: response.data.value?.success 
+                ? (response.data.value?.message || 'Connection successful')
+                : (response.data.value?.message || 'Connection failed')
         };
     } catch (error) {
         connectionStatus.value = {
