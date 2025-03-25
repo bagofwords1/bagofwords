@@ -214,7 +214,7 @@ Create a table of all customers, show customer name, email, phone, address and c
                                                 <ul v-if="expandedResources[resource.id]" class="ml-4 mt-1 text-sm">
                                                     <li>Description: {{ resource.description }}</li>
                                                     <li>
-                                                        <pre>{{ resource.raw_data }}</pre>
+                                                        <pre class="whitespace-pre-wrap overflow-x-auto max-w-full">{{ resource.raw_data }}</pre>
                                                     </li>
                                                 </ul>
                                             </li>

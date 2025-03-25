@@ -69,7 +69,6 @@ async def broadcast_step_insert(data):
             json.dumps(data)
         )
     except Exception as e:
-        breakpoint()
         print(f"Error broadcasting step insert: {e}")
 
 def after_insert_step(mapper, connection, target):
@@ -103,7 +102,6 @@ def after_insert_step(mapper, connection, target):
         }
         asyncio.create_task(broadcast_step_insert(data))
     except Exception as e:
-        breakpoint()
         print(f"Error in after_insert_step: {e}")
 
 # Register the event listener

@@ -27,6 +27,7 @@ class DBTResourceExtractor:
         self._parse_sql_models()
         self._find_macros()
         self._find_seeds()
+
         return self.resources
     
     def _parse_yaml_files(self):
@@ -204,9 +205,18 @@ class DBTResourceExtractor:
         
         for sql_file in sql_files:
             model_name = sql_file.stem
+            sql_content = self._extract_sql_content(sql_file)
             
-            # Check if this model was already found in YAML
-            if not any(m['name'] == model_name and m['type'] == 'model_config' for m in self.resources['models']):
+            # Find existing model in resources
+            existing_model = next(
+                (m for m in self.resources['models'] if m['name'] == model_name),
+                None
+            )
+            
+            if existing_model:
+                # Update existing model with SQL content
+                existing_model['sql_content'] = sql_content
+            else:
                 # If not found in YAML, add from SQL file
                 description = self._extract_sql_description(sql_file)
                 self.resources['models'].append({
@@ -214,13 +224,13 @@ class DBTResourceExtractor:
                     'path': str(sql_file),
                     'type': 'model_sql',
                     'description': description,
-                    'sql_content': self._extract_sql_content(sql_file)
+                    'sql_content': sql_content
                 })
                 
                 # Store documentation for this model
                 if description:
                     self.docs_by_resource[f"model.{model_name}"] = description
-                
+
             # Check for tests in SQL files (singular tests)
             if 'tests' in str(sql_file) and not any(t['name'] == model_name for t in self.resources['tests']):
                 description = self._extract_sql_description(sql_file)
@@ -231,7 +241,9 @@ class DBTResourceExtractor:
                     'description': description,
                     'sql_content': self._extract_sql_content(sql_file)
                 })
-    
+        return self.resources
+
+
     def _extract_sql_content(self, sql_file):
         """Extract the SQL content from a file"""
         try:

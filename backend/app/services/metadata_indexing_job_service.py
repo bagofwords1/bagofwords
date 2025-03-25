@@ -74,7 +74,6 @@ class MetadataIndexingJobService:
         await db.commit()
         await db.refresh(job)
 
-        breakpoint()
         try:
             # Parse DBT resources
             resources = await self._parse_dbt_resources(
@@ -143,13 +142,15 @@ class MetadataIndexingJobService:
         for resource_type, resource_list in resource_types.items():
             for item in resource_list:
                 # Get columns for this resource
-                resource_key = f"{resource_type[:-1]}.{item.name}"  # Convert plural to singular
+                resource_key = f"{resource_type[:-1]}.{item.name if hasattr(item, 'name') else item['name']}"
                 columns = resources_schema.columns_by_resource.get(resource_key, []) if hasattr(resources_schema, 'columns_by_resource') else []
                 
+                # Convert item to dict if it's a Pydantic model
+                item_dict = item.dict() if hasattr(item, 'dict') else item
                 # Create or update DBT resource
                 resource = await self._create_or_update_dbt_resource(
                     db=db,
-                    item=item.dict() if hasattr(item, 'dict') else item,
+                    item=item_dict,
                     resource_type=resource_type,
                     data_source_id=data_source_id,
                     job_id=job_id,
@@ -184,7 +185,6 @@ class MetadataIndexingJobService:
         source_name = None
         if resource_type == 'sources' and '.' in item.get('name', ''):
             source_name = item['name'].split('.')[0]
-        
         # Prepare resource data
         resource_data = DBTResourceCreate(
             name=item.get('name', ''),

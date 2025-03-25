@@ -470,7 +470,6 @@ class Planner:
             # Optionally, yield current_plan at the end of each chunk
             yield current_plan
 
-        # Add a final yield with a special flag or breakpoint here
         print("DEBUG: Streaming completed")  # This will show in your console logs
         
         # Final token counts
