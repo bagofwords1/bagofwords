@@ -1,8 +1,10 @@
 import pytest
+from tests.utils.user_creds import main_user
+
 
 @pytest.fixture
 def login_user(test_client, create_user):
-    def _login_user(email="testuser1@example.com", password="testpass"):
+    def _login_user(email=main_user["email"], password=main_user["password"]):
         response = test_client.post(
             "/api/auth/jwt/login",
             data={"username": email, "password": password}

@@ -80,10 +80,12 @@ def remove_organization_member(test_client):
 @pytest.fixture
 def get_user_organizations(test_client):
     def _get_organizations(token):
+        breakpoint()
         response = test_client.get(
-            "/organizations",
+            "/api/organizations",
             headers={"Authorization": f"Bearer {token}"}
         )
+        breakpoint()
         
         assert response.status_code == 200, response.json()
         return response.json()
