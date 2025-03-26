@@ -31,6 +31,7 @@ jobs:
       env:
         TESTING: "true"
         ENVIRONMENT: "production"
+        OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
       run: |
         pytest -m e2e --disable-warnings
 
