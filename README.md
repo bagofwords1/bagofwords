@@ -4,6 +4,7 @@
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/bagofwords/bagofwords)
+[![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
 ---
 
 Bag of words is an AI-powered platform to enables users to create comprehensive dashboards with a single prompt and refine them iteratively. It integrates seamlessly with various data sources, including databases, APIs, and business systems, allowing for effective data utilization.

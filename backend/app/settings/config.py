@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     API_PREFIX: str = "/api"
     DEBUG: bool = True
     TESTING: bool = False
-    TEST_DATABASE_URL: str = "sqlite:///db/test.db"
+    TEST_DATABASE_URL: str = "sqlite:///db/test_{}.db".format(os.getpid())
     ENVIRONMENT: str = os.environ.get("ENVIRONMENT", "development")
     bow_config: BowConfig | None = None
     email_client: FastMail | None = None

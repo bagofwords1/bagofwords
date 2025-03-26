@@ -13,6 +13,8 @@ def test_llm_providers(create_llm_provider_and_models, get_models, set_llm_provi
     models = get_models(user_token, org_id)
     
     assert len(models) > 0
+
+    # should have one default model
     default_model = [model for model in models if model['is_default']]
     assert len(default_model) == 1
 

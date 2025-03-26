@@ -286,7 +286,15 @@ class LLMService:
             db_model.organization_id = organization.id
             db_model.provider = provider
             db_model.is_enabled = True
-            db_model.is_default = False
+            # Use the is_default from the model details if it exists
+            model_details = next(
+                (m for m in LLM_MODEL_DETAILS if m["model_id"] == model["model_id"]),
+                None
+            )
+            if model_details:
+                db_model.is_default = model_details.get("is_default", False)
+            else:
+                db_model.is_default = False
             db.add(db_model)
 
         await db.commit()

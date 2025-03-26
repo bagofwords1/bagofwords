@@ -8,7 +8,8 @@ LLM_MODEL_DETAILS = [
         "model_id": "gpt-4o",
         "provider_type": "openai",
         "is_preset": True,
-        "is_enabled": True
+        "is_enabled": True,
+        "is_default": True
     },
     {
         "name": "GPT-4o Mini",
@@ -43,7 +44,8 @@ LLM_MODEL_DETAILS = [
         "model_id": "claude-3-sonnet-20240229",
         "provider_type": "anthropic",
         "is_preset": False,
-        "is_enabled": False
+        "is_enabled": False,
+        "is_default": True
     },
     {
         "name": "Claude 3 Haiku",

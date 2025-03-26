@@ -32,18 +32,24 @@ def alembic_config():
     alembic_cfg = Config("alembic.ini")
     # Convert aiosqlite to sqlite for alembic
     sync_url = settings.TEST_DATABASE_URL.replace('sqlite+aiosqlite:', 'sqlite:')
+    # Add unique test database for each test file
+    sync_url = sync_url.replace('test.db', f'test_{os.getpid()}.db')
     alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
     return alembic_cfg
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def run_migrations(alembic_config):
-    """Run migrations before tests and downgrade after."""
+    """Run migrations before each test and downgrade after."""
     print("Starting migrations...")
     command.upgrade(alembic_config, "head")
     print("Migrations completed!")
     yield
     print("Downgrading migrations...")
     command.downgrade(alembic_config, "base")
+    # Clean up test database file
+    db_file = alembic_config.get_main_option("sqlalchemy.url").replace('sqlite:///', '')
+    if os.path.exists(db_file):
+        os.remove(db_file)
 
 def pytest_configure(config):
     config.addinivalue_line(
