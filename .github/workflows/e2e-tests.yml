@@ -30,7 +30,7 @@ jobs:
       working-directory: ./backend
       env:
         TESTING: "true"
-        ENVIRONMENT: "development"
+        ENVIRONMENT: "production"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
       run: |
         pytest -s -m e2e --disable-warnings
