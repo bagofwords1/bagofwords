@@ -30,10 +30,10 @@ jobs:
       working-directory: ./backend
       env:
         TESTING: "true"
-        ENVIRONMENT: "production"
+        ENVIRONMENT: "development"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
       run: |
-        pytest -m e2e --disable-warnings
+        pytest -s -m e2e --disable-warnings
 
     - name: Trigger Docker build workflow
       if: steps.tests.outcome == 'success' && github.ref == 'refs/heads/main'
