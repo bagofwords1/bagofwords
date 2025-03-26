@@ -409,7 +409,7 @@ class Agent:
                 )
                 # Execute the generated code
                 df = self.execute_code_and_return_df(code)
-                if df is not None and not df.empty:
+                if df is not None:
                     await self.project_manager.update_step_status(self.db, step, "success")
                     break
 
@@ -441,12 +441,11 @@ class Agent:
                     continue
                 
 
-        # Formatting
+        # Format the output even if DataFrame is empty
         columns = [{"headerName": col, "field": col} for col in df.columns]
-        rows = df.to_dict(orient='records')
+        rows = df.to_dict(orient='records')  # Will be empty list if df is empty
 
-        widget = {"rows": rows[:1000],
-                  "columns": columns, "loadingColumn": False}
+        widget = {"rows": rows[:1000], "columns": columns, "loadingColumn": False}
         cleaned_data = self.postprocess_df(widget)
         await self.project_manager.update_step_with_code(self.db, step, code)
         await self.project_manager.update_step_with_data(self.db, step, cleaned_data)
@@ -497,7 +496,7 @@ class Agent:
                 )
                 # Execute the generated code
                 df = self.execute_code_and_return_df(code)
-                if df is not None and not df.empty:
+                if df is not None:
                     await self.project_manager.update_step_status(self.db, step, "success")
                     break
 

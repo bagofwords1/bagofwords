@@ -1,5 +1,5 @@
 <template>
-    <div v-if="step?.data?.rows?.length > 0" class="h-full">
+    <div v-if="step?.data?.columns?.length > 0" class="h-full">
         <AgGridComponent class="text-[9px]" :columnDefs="columnDefs" :rowData="rowData" />
     </div>
     <div v-else>

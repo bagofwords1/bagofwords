@@ -67,7 +67,7 @@
 
                 <div v-if="activeTab === 'main'" class="mt-4 w-full">
                     <div class="text-sm text-black">
-                        <span class="font-medium">Description</span>
+                        <span class="font-medium"></span>
                         <button @click="generateItem('description')" class=" float-right mb-2 text-blue-500 bg-white hover:bg-gray-100 border border-gray-300 rounded-md px-2 py-1 text-xs hover:text-blue-600">
                             <UIcon v-if="generatingItem === 'description'" name="heroicons-arrow-path" class="w-4 h-4 animate-spin inline-block" />
                             <span v-else>✨ Generate</span>
