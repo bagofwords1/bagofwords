@@ -86,4 +86,4 @@ class MemoryService:
     
     async def get_widget_by_memory(self, db: AsyncSession, memory_id: str, current_user: User, organization: Organization) -> WidgetSchema:
         memory = await self.get_memory(db, memory_id, current_user, organization)
-        return await self.widget_service.get_widget_by_id_and_step(db, memory.widget_id, memory.step_id)
+        return await self.widget_service.get_widget_by_id_and_step(db, memory.widget_id, memory.step_id, current_user, organization)

@@ -27,7 +27,6 @@
                             {{ column.generated_column_name }}
                         </th>
                         <td class="border border-gray-200 px-2 py-1">
-                            <DataSourceIcon :type="column.source.data_source.type" class="w-3 h-3 inline" />
                             {{ column.description }}
                         </td>
                     </tr>
@@ -39,8 +38,9 @@
                     <Icon :name="showData ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" />
                     Data Explorer
                 </h2>
-                <AgGridComponent v-if="showData && !isLoading" :columnDefs="widget?.last_step?.data?.columns"
-                        :rowData="widget?.last_step?.data?.rows" />
+                <div v-if="showData" class="h-[500px]">
+                    <RenderTable :widget="widget" :step="widget.last_step" />
+                </div>
             </div>
 
             <div>
@@ -55,6 +55,7 @@
 
 <script setup lang="ts">
 import AgGridComponent from '~/components/AgGridComponent.vue'
+import RenderTable from '~/components/RenderTable.vue'
 
 definePageMeta({ auth: true })
 
