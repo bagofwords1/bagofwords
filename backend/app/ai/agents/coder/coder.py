@@ -3,6 +3,9 @@ from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 import re
 import json
+
+enable_llm_see_data = True
+
 class Coder:
     def __init__(self, model: LLMModel) -> None:
         self.llm = LLM(model)
@@ -65,6 +68,9 @@ class Coder:
             excel_files_description.append(f"{index}: {file.description}")
         excel_files_section = "\n".join(excel_files_description)
 
+        # Define data preview instruction based on enable_llm_see_data flag
+        data_preview_instruction = "df.head()" if enable_llm_see_data else "df.columns"
+        
         # The final prompt text
         # Improvements made:
         # 1. Clear, step-by-step instructions.
@@ -140,11 +146,11 @@ class Coder:
 
         2. **Data Source Usage**:
            - Use `ds_clients[data_source_name].execute_query("SOME QUERY")` to query non-Excel data sources.
-           - After each query or DataFrame creation, print the columns using: print("df Columns:", df.columns)
+           - After each query or DataFrame creation, print the data using: print("df Preview:", {data_preview_instruction})
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
-           - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Columns:", df.columns)
+           - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Preview:", {data_preview_instruction})
            - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
 
         3. **Schema and Data Model Adherence**:
@@ -176,7 +182,7 @@ class Coder:
            - Do not wrap code in triple backticks or any markup.
         
         8. **End of code**:
-           - At the end of the function, before returning the df — print the df.columns last time
+           - At the end of the function, before returning the df — print the df preview last time using: print("Final df Preview:", {data_preview_instruction})
 
         **Approach**:
         - Start from scratch or modify the existing code if `prev_data_model_code_pair` is provided.

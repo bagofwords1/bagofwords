@@ -7,8 +7,7 @@
 - Enabled code review for user's own code
 - Fixed memory bug
 - Added reasoning for planner agent
-
-
+- Added data preview for LLM to achieve ReAct like flow with code generation
 
 ## Version 0.0.154 (March 24, 2025)
 
