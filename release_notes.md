@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.0.155 (March 30, 2025)
+
+- Added code validation for generated code
+- Added safeguards for planner and coder agents
+- Enabled code review for user's own code
+- Fixed memory bug
+- Added reasoning for planner agent
+
+
+
 ## Version 0.0.154 (March 24, 2025)
 
 - Added advanced logging infrastructure
