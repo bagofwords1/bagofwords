@@ -156,7 +156,10 @@
                     <h3 class="text-md font-bold mb-2">Plan</h3>
                     <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
                 </div>
-                <pre v-if="!planCollapsed" class="text-xs">{{ plan_content.plan }}</pre>
+                <pre v-if="!planCollapsed" class="text-xs">
+                    <div class="text-xs">{{ plan_reasoning }}</div>
+                    <div class="text-xs">{{ plan_content.plan }}</div>
+                </pre>
 
                 <!-- Add token usage section -->
                 <div class="flex justify-between items-center cursor-pointer mt-4" @click="toggleTokensCollapsed">
@@ -215,6 +218,7 @@ function isSelected(widgetId: string, stepId: string) {
 
 const plan = ref(null);
 const plan_content = ref(null);
+const plan_reasoning = ref(null);
 
 const localCompletion = computed(() => ({
     ...props.completion,
@@ -238,9 +242,9 @@ const cancelSaveMemory = () => {
 
 const showPlanModal = ref(false);
 const planLoading = ref(false);
-const promptCollapsed = ref(true);
-const planCollapsed = ref(true);
-const tokensCollapsed = ref(true);
+const promptCollapsed = ref(false);
+const planCollapsed = ref(false);
+const tokensCollapsed = ref(false);
 
 const togglePromptCollapsed = () => {
     promptCollapsed.value = !promptCollapsed.value;
@@ -278,6 +282,7 @@ const getPlan = async (completionId: string) => {
         const response = await useMyFetch(`/api/completions/${completionId}/plan`);
         plan.value = response.data.value;
         plan_content.value = JSON.parse(response.data.value.content);
+        plan_reasoning.value = plan_content.value.reasoning;
     } catch (error) {
         console.error('Error fetching plan:', error);
         throw error;

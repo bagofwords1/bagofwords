@@ -41,6 +41,7 @@ class ResourceContextBuilder:
             dbt_resources = await self.db.execute(
                 select(DBTResource)
                 .where(DBTResource.metadata_indexing_job_id == latest_index_job.id)
+                .where(DBTResource.is_active == True)
             )
             dbt_resources = dbt_resources.scalars().all()
             

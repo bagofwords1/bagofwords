@@ -2,7 +2,7 @@ from partialjson.json_parser import JSONParser
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 import re
-
+import json
 class Coder:
     def __init__(self, model: LLMModel) -> None:
         self.llm = LLM(model)
@@ -144,8 +144,8 @@ class Coder:
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
-             * Convert all columns to strings.
            - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Columns:", df.columns)
+           - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
 
         3. **Schema and Data Model Adherence**:
            - Use only columns and relationships that exist in the provided schemas.
@@ -165,12 +165,10 @@ class Coder:
              * If it's a time or date column, sort descending.
              * If it's a count or sum, also sort descending.
              * Otherwise, sort ascending.
-           - Ensure all final columns in the DataFrame are strings (convert if needed).
 
         6. **Data Formatting**:
            - Make sure the DataFrame is two-dimensional, with well-defined rows and columns.
            - Handle missing values gracefully.
-           - All columns should end up as strings, even numeric fields.
 
         7. **No Extra Formatting**:
            - Return the code for the `generate_df` function as plain text only.
@@ -197,87 +195,42 @@ class Coder:
         result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
 
         return result
-            
+    
+    async def validate_code(self, code, data_model):
+        text = f"""
+        You are a highly skilled data engineer and data scientist.
 
+        Your goal: Given a data model, content and a generated code, validate the code.
 
-# # UNUSED FOR NOW
-#     async def update_widget_code(self, data_model, code):
-# 
-#         You need to generate a Python function that creates the dataframe based on the preivous data model, but updated with the new data model changes.
-#         You have the previous code as a baseline. At the end, you will need to provide changes to the original code
-# 
-#         Please follow these steps:
-# 
-#         1. Generate a Python function named `generate_df` that receives two arguments: a `db_clients` list and an `excel_files` list.
-#         2. Inside the function, you can use `db_clients[INDEX].execute_query("YOUR SQL CODE")` to query the database and return a dataframe.
-#         - Ensure to use the correct index for the database client.
-#         - Use the EXACT column names from the ground truth schema and adhere to the relationships mentioned in the data model. Ignore the generated column names in the data model if they do not exist in the schema.
-#         3. For reading spreadsheets, use the `excel_files` list.
-#         - Based on the user prompt, decide which Excel file and sheet index to use.
-#         - To read an Excel file, use `pd.read_excel(excel_files[RELEVANT_INDEX].path, sheet_name=RELEVANT_SHEET_INDEX, header=None)`. Always use `header=None`.
-#         - Ensure to use the correct index for the Excel file and the appropriate sheet index.
-#         - Ensure to use the correct data types based on the Excel schema when reading data.
-#         4. Generate code to create a dataframe based on the data model.
-#         5. Ensure the dataframe is two-dimensional, with columns and rows.
-#         6. Every column in the data model should be present in the dataframe. Regardless of user prompt.
-#         7. If retries is 1 or more, make sure to read the error and previous code - carefully
-#         8. if retries is 2 or more, and the error is related to a specific column/measure -- remove it from code and deliver the code without it
-#         9. If retries is 2 or more, do anything you can to have something outputted!! reaching to max retries (3) and not delivering is horrible
-# 
-# 
-#         Guidelines:
-#         - Make sure to use the sources correctly: for Excel, use the file name, and for databases, use the database client.
-#         - Use database clients efficiently.
-#         - Available libraries: pandas, numpy.
-#         - When reading from the database, use the EXACT column names from the schema.
-#         - When reading from Excel, use ONLY indices and cell addresses, not names.
-#         - Ensure the function is generic and can be applied to similar data models.
-#         - Ensure the function can handle dataframes with empty or missing values.
-#         - Ensure the function can handle dataframes with missing or additional columns.
-#         - All columns should be strings (even if they represent numbers, booleans, etc.).
-#         - If there are errors in the code and specified in context, make sure you understand the error, and think step-by-step about the solution and implement the code
-# 
-#         Respond with the list of replaces to the original code only. Format should with the following guidelines:
-#         - Use the exact identation as required per line
-#         - For removing a line, use "\\n"
-#         - When removing a line, make sure to update lines before/after as needed in case of commas, strings, trailing spaces, etc
-#         - For adding a line, use the exact identation as required per line
-#         - if adding multiple lines -- make sure to add each line as a separate change
-#         - dont use line numbers in the replace string
-#         - If the error repeats, make sure to understand the error and fix it
-#         - If the error repeats more than once, provide changes for more code lines (+-2 lines per change)
-#         [
-#             {{
-#                 "replace": "  df['column_X'] = df['column_X'] * 2\na = 5 \n b=5\nx=55 \n \n", (SPECIFY THE EXACT IDENTATION REQUIRED)
-#                 "line_start": 1  (POSITION IS THE LINE NUMBER, START FROM 1)
-#                 "line_end": 5 (IF ADDING MULTIPLE LINES- SPECIFY THE LAST LINE NUMBER, OTHERWISE SAME AS POSITION)
-#             }},
-#             {{
-#                 "replace": "    db_clients[0].execute_query("SELECT * FROM table_X")",
-#                 "line_start": 23,
-#                 "line_end": 23
-#             }}
-#             {{
-#                 "replace": "\\n" # for removing line, use new line
-#                 "line_start": 14,
-#                 "line_end": 14
-#             }},
-#             {{
-#                 "replace": "df['column_Z'] = df['column_Z'] / 10",
-#                 "line_start": 23,
-#                 "line_end": 23
-#             }}
-#         ]
-# 
-#         Respond with the diff only, no markdown, no prefix no ``` or anything. just the diff as raw text.
-# 
-#         ### Important Guidelines for JSON Output:
-#         - If you are generating multi-line code, ensure all newlines are escaped using `\\n`.
-#         - Make sure all quotes inside strings are escaped using a backslash (`\\`).
-#         - Ensure that the JSON output is properly formatted, with correct commas and brackets.
-#         - Avoid any extra text, and make sure the output is valid JSON.
-#         - Keep the identation as required per line
-#         - No markdown, no prefix no ``` or anything. just the diff as raw text.
-#         - Never start the answer wiwth ```json.
-#         - always return the list ONLY. no prefix or anything.
-#         """
+        **Context and Inputs**:
+        - Data Model:
+        <data_model>
+        {data_model}
+        </data_model>
+
+        - Generated Code:
+        <generated_code>
+        {code}
+        </generated_code>
+
+        **Guidelines and Requirements**:
+
+        1. Validate only read operations on the data sources. No insert/delete/add/update/put/drop.
+        2. Validate the code is correct and does not leak client names into queries.
+        3. Validate no weird things are happening in the code.
+        4. Validate code is close enough to the data model.
+
+        Response format:
+        {{
+            "valid": true,
+            "reasoning": "Reasoning for the failed validation" (if valid is false)
+        }}
+
+        Now produce ONLY the JSON response as described. Do not output anything else besides the JSON response. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
+        """
+
+        result = self.llm.inference(text)
+        result = re.sub(r'^```json\n|^```\n|```$', '', result.strip())
+        result = json.loads(result)
+
+        return result

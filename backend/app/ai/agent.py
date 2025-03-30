@@ -360,7 +360,7 @@ class Agent:
                 title = await self.reporter.generate_report_title(previous_messages, json_result['plan'])
                 await self.project_manager.update_report_title(self.db, self.report, title)
             # Return all results at once
-            plan_json = { "plan": json_result['plan'] , "streaming_complete": json_result['streaming_complete'], "text": json_result['text'], "token_usage": json_result['token_usage']}
+            plan_json = { "reasoning": json_result['reasoning'], "plan": json_result['plan'] , "streaming_complete": json_result['streaming_complete'], "text": json_result['text'], "token_usage": json_result['token_usage']}
             plan_json = json.dumps(plan_json)
             plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)
             logger.info("Main execution completed")
@@ -408,6 +408,17 @@ class Agent:
                     prev_data_model_code_pair=None
                 )
                 # Execute the generated code
+                validation_result = await self.coder.validate_code(code, data_model)
+                if validation_result['valid'] == False:
+                    await self.project_manager.create_message(
+                        report=self.report,
+                        db=self.db,
+                        message=validation_result['reasoning'],
+                        completion=self.head_completion,
+                    )
+                    code_and_error_messages.append((code, validation_result['reasoning']))
+                    continue
+
                 df = self.execute_code_and_return_df(code)
                 if df is not None:
                     await self.project_manager.update_step_status(self.db, step, "success")

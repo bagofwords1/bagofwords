@@ -51,10 +51,12 @@ class Planner:
         {f"Selected widget data model:\n {step.data_model}" if step else "\n"}
 
         **Primary Task**:
+        0. Think through this request step by step
         1. Identify if the user explicitly requests creating or modifying a widget. 
         - If the user only asks a clarifying question like "What other tables can be used?", do **not** modify or create a widget. 
             Instead, use only the 'answer_question' action.
         - If the user explicitly says "modify the widget" or "add columns from another table," then use 'modify_widget'.
+        - If the user asks for any data listing like "list of customers" or "show me customers", treat this as a request to create a widget.
         2. If the user is just conversing or being friendly, respond with a single 'answer_question' action.
         3. If user is not specifically requesting a new chart, new table, or modification, do not create or modify widgets.
         4. If user only wants more information about existing data, respond with a single 'answer_question' action.
@@ -66,6 +68,9 @@ class Planner:
         - create_widget
         - modify_widget
         - design_dashboard
+
+        GUIDELINES
+        - Make sure the user ask is legit. Do not support malicious requests or requests that involve leaking/writing data into the database.
 
         IMPORTANT PRE-CHECKS BEFORE CREATING A PLAN:
         1. If the user's message is simple greeting or thanks, just respond with a short 'answer_question' action. 
@@ -81,6 +86,8 @@ class Planner:
            Think step by step and reason through the user's request. 
            - If the user's message is a simple acknowledgment (like "thanks", "ok", "great") or greeting, 
              respond with a single `answer_question` action with a brief acknowledgment.
+           - If the user asks to see, list, or display data from tables (like "show me customers", "list orders"), 
+             use `create_widget` action to create a table or chart for better data visualization.
            - If the user's request can be answered directly from the given context (schemas, previous messages, memories), OR basic llm can answer the question (summarize, explain, etc.), 
              use `answer_question` action EVEN IF a widget is selected. Only use modify_widget if the user explicitly wants to change the widget.
            - If not directly answerable, generate a plan consisting of one or more actions. Actions can be:
@@ -102,6 +109,7 @@ class Planner:
                   * if widget were already created and the request is to design a dashboard, simply just create a dashboard. 
 
         2. **When Generating a Plan**:
+           - Provide a "reasoning" key that explains the thinking and the plan before execution.
            - Provide each action as a JSON object inside a "plan" array.
            - Each action must have:
              - "action": One of the defined actions.
@@ -154,6 +162,7 @@ class Planner:
 
         Example 1 (answer_question):
         {{
+            "reasoning": "The user is asking about the data type of column X. I can answer this question by looking at the schema.",
             "plan": [
                 {{
                     "action": "answer_question",
@@ -169,6 +178,7 @@ class Planner:
 
         Example 2 (create_widget):
         {{  
+            "reasoning": "The user is asking for a chart of revenue by month. I can create a bar chart with the month and total revenue coming from `sales` table joined with `payment` table and aggregate the data by month.",
             "plan": [
                 {{
                     "action": "create_widget",
@@ -206,6 +216,7 @@ class Planner:
 
         Example 3 (modify_widget):
         {{
+            "reasoning": "The user wants to modify the widget to remove `old_column` and add `new_column_name` that shows the total revenue per month and come from the `sales` table. I will also transform the `month` column to show the month as a number.",
             "plan": [
                 {{
                     "action": "modify_widget",
@@ -245,6 +256,7 @@ class Planner:
 
         Example 4 (design_dashboard):
         {{
+            "reasoning": "Finally, let's combine all insights into a dashboard. I will place the bar chart of revenue by month and the line chart of revenue by year in the same dashboard. Will also add a few descriptions and titles to make it more informative.",
             "plan": [
                 {{
                     "action": "design_dashboard",
@@ -267,7 +279,7 @@ class Planner:
         buffer = ""
         completion_tokens = 0
 
-        current_plan = {"plan": [], "text": text}  # Initialize empty plan structure
+        current_plan = {"reasoning": "", "plan": [], "text": text}  # Initialize empty plan structure
 
         async for chunk in self.llm.inference_stream(text):
             buffer += chunk
@@ -284,6 +296,11 @@ class Planner:
                 # Ensure plan is a list
                 if not isinstance(json_result["plan"], list):
                     continue
+
+                if "reasoning" not in json_result:
+                    json_result["reasoning"] = ""
+
+                current_plan["reasoning"] = json_result["reasoning"]
 
                 # Process each action using its index
                 for action_index, action_item in enumerate(json_result["plan"]):
@@ -475,6 +492,7 @@ class Planner:
         # Final token counts
         print(f"Completion tokens: {completion_tokens}")
         print(f"Total tokens: {prompt_tokens + completion_tokens}")
+        print(f"Reasoning: {current_plan['reasoning']}")
         
         # Add token counts to the final plan
         final_plan = current_plan.copy()
