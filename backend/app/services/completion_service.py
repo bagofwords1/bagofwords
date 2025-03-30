@@ -94,7 +94,8 @@ class CompletionService:
                 raise ValueError("No default model found")
 
             mentions = await self.mention_service.create_completion_mentions(db, completion)
-            agent = Agent(db=db, model=default_model, report=report, messages=[], head_completion=completion, widget=widget, step=step)
+            org_settings = await organization.get_settings(db)
+            agent = Agent(db=db, organization_settings=org_settings, model=default_model, report=report, messages=[], head_completion=completion, widget=widget, step=step)
             
             background_tasks.add_task(agent.main_execution)
             return None

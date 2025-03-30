@@ -39,7 +39,8 @@ from app.routes import (
     text_widget,
     user_profile,
     llm,
-    git_repository
+    git_repository,
+    organization_settings
 )
 
 # Initialize logging
@@ -152,6 +153,7 @@ app.include_router(text_widget.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
+app.include_router(organization_settings.router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():

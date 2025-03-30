@@ -5,8 +5,9 @@ import tiktoken  # Add this import for token counting
 
 class Planner:
 
-    def __init__(self, model: LLMModel) -> None:
+    def __init__(self, model: LLMModel, organization_settings: dict) -> None:
         self.llm = LLM(model)
+        self.organization_settings = organization_settings
 
         # Handle tokenizer selection with better fallback logic
         try:
@@ -28,6 +29,23 @@ class Planner:
         return len(self.tokenizer.encode(text))
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages, widget=None, step=None):
+
+        design_dashboard_example = """
+        Example 4 (design_dashboard):
+        {{
+            "reasoning": "Finally, let's combine all insights into a dashboard. I will place the bar chart of revenue by month and the line chart of revenue by year in the same dashboard. Will also add a few descriptions and titles to make it more informative.",
+            "plan": [
+                {{
+                    "action": "design_dashboard",
+                    "prefix": "Finally, let's combine all insights into a dashboard. I will place the bar chart of revenue by month and the line chart of revenue by year in the same dashboard. Will also add a few descriptions and titles to make it more informative.",
+                    "execution_mode": "sequential",
+                    "details": {{}},
+                    "action_end": true
+                }}
+            ]
+        }}"""
+
+
         parser = JSONParser()
         text = f"""
         You are a data analyst specializing in data analytics, data engineering, data visualization, and data science.
@@ -67,7 +85,7 @@ class Planner:
         - answer_question
         - create_widget
         - modify_widget
-        - design_dashboard
+        { "- design_dashboard" if self.organization_settings.get("ai_features", {}).get("dashboard_designer", {}).get("enabled", False) else "" }
 
         GUIDELINES
         - Make sure the user ask is legit. Do not support malicious requests or requests that involve leaking/writing data into the database.
@@ -254,19 +272,7 @@ class Planner:
             ]
         }}
 
-        Example 4 (design_dashboard):
-        {{
-            "reasoning": "Finally, let's combine all insights into a dashboard. I will place the bar chart of revenue by month and the line chart of revenue by year in the same dashboard. Will also add a few descriptions and titles to make it more informative.",
-            "plan": [
-                {{
-                    "action": "design_dashboard",
-                    "prefix": "Finally, let's combine all insights into a dashboard. I will place the bar chart of revenue by month and the line chart of revenue by year in the same dashboard. Will also add a few descriptions and titles to make it more informative.",
-                    "execution_mode": "sequential",
-                    "details": {{}},
-                    "action_end": true
-                }}
-            ]
-        }}
+        {design_dashboard_example if self.organization_settings.get("ai_features", {}).get("dashboard_designer", {}).get("enabled", False) else ""}
 
         Now, based on the user's request and context, produce the final plan. Remember: no markdown, no code fences in your final output. 
         """

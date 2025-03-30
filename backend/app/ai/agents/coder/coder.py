@@ -4,11 +4,11 @@ from app.models.llm_model import LLMModel
 import re
 import json
 
-enable_llm_see_data = True
-
 class Coder:
-    def __init__(self, model: LLMModel) -> None:
+    def __init__(self, model: LLMModel, organization_settings: dict) -> None:
         self.llm = LLM(model)
+        self.organization_settings = organization_settings
+        self.enable_llm_see_data = organization_settings.get("allow_llm_see_data", {}).get("enabled", True)
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages):
         # Implementation left out as not requested.
@@ -69,7 +69,7 @@ class Coder:
         excel_files_section = "\n".join(excel_files_description)
 
         # Define data preview instruction based on enable_llm_see_data flag
-        data_preview_instruction = "df.head()" if enable_llm_see_data else "df.columns"
+        data_preview_instruction = "df.head()" if self.enable_llm_see_data else "df.columns"
         
         # The final prompt text
         # Improvements made:
@@ -199,7 +199,7 @@ class Coder:
         result = re.sub(r'^```python\n|^```\n|```$', '', result.strip())
         # Remove any code after return df
         result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
-
+        
         return result
     
     async def validate_code(self, code, data_model):

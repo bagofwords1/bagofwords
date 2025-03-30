@@ -23,6 +23,7 @@ class Organization(BaseSchema):
     llm_models = relationship("LLMModel", back_populates="organization")
     git_repositories = relationship("GitRepository", back_populates="organization")
     prompts = relationship("Prompt", back_populates="organization")
+    settings = relationship("OrganizationSettings", uselist=False, back_populates="organization", cascade="all, delete-orphan")
     
     async def get_default_llm_model(self, db):
         """Get the default LLM model for the organization.
@@ -68,6 +69,30 @@ class Organization(BaseSchema):
         result = await db.execute(stmt)
         return result.scalars().all()
 
+    async def get_settings(self, db):
+        """Get organization settings, creating them if they don't exist.
+        
+        Args:
+            db: AsyncSession instance
+        
+        Returns:
+            OrganizationSettings: The organization settings object
+        """
+        from app.models.organization_settings import OrganizationSettings
+        
+        # Try to load settings from the database
+        stmt = select(OrganizationSettings).filter(OrganizationSettings.organization_id == self.id)
+        result = await db.execute(stmt)
+        settings = result.scalar_one_or_none()
+        # If no settings exist, create them
+        if settings is None:
+            settings = OrganizationSettings(organization_id=self.id)
+            db.add(settings)
+            await db.flush()
+            self.settings = settings
+        
+        return settings
 
 from app.models.membership import Membership
 from app.models.memory import Memory
+from app.models.organization_settings import OrganizationSettings

@@ -40,6 +40,8 @@ const route = useRoute()
 let tabs = [
     { name: 'members', label: 'Members' },
     { name: 'models', label: 'Models' },
+    { name: 'configuration', label: 'Configuration' },
+    { name: "ai_agents", label: "AI Agents" }
 ]
 
 </script> 

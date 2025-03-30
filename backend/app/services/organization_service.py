@@ -4,6 +4,8 @@ from app.models.organization import Organization
 from app.models.membership import Membership
 from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema
 from app.schemas.organization_schema import MembershipCreate, MembershipSchema, MembershipUpdate
+from app.schemas.organization_settings_schema import OrganizationSettingsCreate
+from app.services.organization_settings_service import OrganizationSettingsService
 from uuid import UUID
 from app.models.user import User
 from typing import List
@@ -21,7 +23,7 @@ class OrganizationService:
 
     def __init__(self):
         self.llm_service = LLMService()
-
+        self.organization_settings_service = OrganizationSettingsService()
     async def create_organization(self, db: AsyncSession, organization_data: OrganizationCreate, current_user: User) -> OrganizationSchema:
 
         total_orgs = await db.execute(select(Organization))
@@ -34,6 +36,7 @@ class OrganizationService:
         await db.commit()
         await db.refresh(organization)
 
+        await self.organization_settings_service.create_default_settings(db, organization, current_user)
         await self.add_member(db, MembershipCreate(role="admin", user_id=current_user.id, organization_id=organization.id), current_user)
         await self.llm_service.set_default_models_from_config(db, organization, current_user)
 

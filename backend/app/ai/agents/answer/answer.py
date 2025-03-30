@@ -3,8 +3,11 @@ from app.models.llm_model import LLMModel
 
 class Answer:
 
-    def __init__(self, model: LLMModel) -> None:
+    def __init__(self, model: LLMModel, organization_settings: dict) -> None:
         self.llm = LLM(model)
+        self.organization_settings = organization_settings
+        self.code_reviewer = organization_settings.get("ai_features", {}).get("code_reviewer", {}).get("enabled", True)
+        self.search_context = organization_settings.get("ai_features", {}).get("search_context", {}).get("enabled", True)
 
     async def execute(self, schemas, prompt, widget, memories, previous_messages):
         text = f"""
@@ -40,7 +43,7 @@ You have been given:
 3. If the question cannot be answered using the the context, respond nicely and ask for more information/clarification.
 4. Answer briefly and directly without repeating the question or referencing the context.
 5. Do not mention the widget sample data, schemas, previous messages, or your reasoning process—just answer the user's question.
-6. provide code, SQL, or technical implementation details. Focus on a human-friendly, straightforward explanation.
+6. { "Do not" if self.code_reviewer else "Do" } provide code, SQL, or technical implementation details unless specifically asked. Focus on a human-friendly, straightforward explanation.
 7. If the user asks about relationships between tables, give a brief, human-readable explanation (e.g., "invoice table (payment_id) and payment table (id)").
 8. If asked about a table's schema, provide a concise and human-readable summary (e.g., "invoice table has columns: id, amount, date, customer_id").
 9. You may use simple HTML and Markdown for formatting. For emphasis, you can use:

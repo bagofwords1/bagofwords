@@ -33,15 +33,16 @@ logger = get_logger("app.agent")
 
 class Agent:
 
-    def __init__(self, db=None, report=None, model=None, head_completion=None, widget=None, step=None, messages=[], main_router="table"):
+    def __init__(self, db=None, organization_settings=None, report=None, model=None, head_completion=None, widget=None, step=None, messages=[], main_router="table"):
 
         self.llm = LLM(model=model)
+        self.organization_settings = organization_settings.config
 
-        self.planner = Planner(model=model)
-        self.answer = Answer(model=model)
+        self.planner = Planner(model=model, organization_settings=organization_settings.config)
+        self.answer = Answer(model=model, organization_settings=organization_settings.config)
         self.dashboard_designer = DashboardDesigner(model=model)
         self.project_manager = ProjectManager()
-        self.coder = Coder(model=model)
+        self.coder = Coder(model=model, organization_settings=organization_settings.config)
         self.reporter = Reporter(model=model)
 
         if db:
@@ -408,16 +409,29 @@ class Agent:
                     prev_data_model_code_pair=None
                 )
                 # Execute the generated code
-                validation_result = await self.coder.validate_code(code, data_model)
-                if validation_result['valid'] == False:
-                    await self.project_manager.create_message(
-                        report=self.report,
-                        db=self.db,
-                        message=validation_result['reasoning'],
-                        completion=self.head_completion,
-                    )
-                    code_and_error_messages.append((code, validation_result['reasoning']))
-                    continue
+                if self.organization_settings.get("ai_features", {}).get("validator", {}).get("enabled", True):
+                    validation_result = await self.coder.validate_code(code, data_model)
+                    if validation_result['valid'] == False:
+                        await self.project_manager.create_message(
+                            report=self.report,
+                            db=self.db,
+                            message=validation_result['reasoning'],
+                            completion=self.head_completion,
+                            widget=self.widget,
+                            role="ai_agent"
+                        )
+                        code_and_error_messages.append((code, validation_result['reasoning']))
+                        continue
+                    else:
+                        await self.project_manager.create_message(
+                            report=self.report,
+                            db=self.db,
+                            message="Validated code successfully",
+                            completion=self.head_completion,
+                            widget=self.widget,
+                            role="ai_agent"
+                        )
+                        
 
                 df = self.execute_code_and_return_df(code)
                 if df is not None:

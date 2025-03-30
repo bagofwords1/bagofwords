@@ -46,7 +46,9 @@ ADMIN_PERMISSIONS = {
     'remove_organization_members',
     'view_organization_members',
     'manage_llm_settings',
-    'view_data_source_full_schema'
+    'view_data_source_full_schema',
+    'manage_organization_settings',
+    'view_organization_settings'
 }
 
 # Combine permissions for roles
