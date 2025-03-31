@@ -470,7 +470,16 @@ class Agent:
         columns = [{"headerName": col, "field": col} for col in df.columns]
         rows = df.to_dict(orient='records')  # Will be empty list if df is empty
 
-        widget = {"rows": rows[:1000], "columns": columns, "loadingColumn": False}
+       
+
+        df_info = self._get_df_info_as_dict(df)
+
+        widget = {
+            "rows": rows[:1000], 
+            "columns": columns, 
+            "loadingColumn": False, 
+            "info": df_info, 
+        }
         cleaned_data = self.postprocess_df(widget)
         await self.project_manager.update_step_with_code(self.db, step, code)
         await self.project_manager.update_step_with_data(self.db, step, cleaned_data)
@@ -557,7 +566,17 @@ class Agent:
         columns = [{"headerName": col, "field": col} for col in df.columns]
         rows = df.to_dict(orient='records')
 
-        widget = {"rows": rows[:1000], "columns": columns, "loadingColumn": False}
+        # Convert DataFrame info to structured dictionary
+        df_info = self._get_df_info_as_dict(df)
+
+        widget = {
+            "rows": rows[:1000], 
+            "columns": columns, 
+            "loadingColumn": False, 
+            "info": df_info, 
+        }
+
+
         cleaned_data = self.postprocess_df(widget)
         await self.project_manager.update_step_with_code(self.db, step, code)
         await self.project_manager.update_step_with_data(self.db, step, cleaned_data)
@@ -899,3 +918,70 @@ class Agent:
         response = self.llm.inference(prompt)
 
         return response
+    
+    def _get_df_info_as_dict(self, df):
+        buffer = io.StringIO()
+        df.info(buf=buffer, memory_usage='deep')
+        
+        # Get basic info
+        info_dict = {
+            "total_rows": int(len(df)),
+            "total_columns": int(len(df.columns)),
+            "column_info": {},
+            "memory_usage": int(df.memory_usage(deep=True).sum()),
+            "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().to_dict().items()}
+        }
+        
+        # Get statistical description for all types
+        desc_dict = df.describe(include='all').to_dict()
+        
+        # Parse column information
+        for column in df.columns:
+            # Basic column info
+            column_info = {
+                "dtype": str(df[column].dtype),
+                "non_null_count": int(df[column].count()),
+                "memory_usage": int(df[column].memory_usage(deep=True)),
+                "null_count": int(df[column].isna().sum()),
+                "unique_count": int(df[column].nunique())
+            }
+            
+            # Merge statistical description if available
+            if column in desc_dict:
+                stats = {}
+                for stat, value in desc_dict[column].items():
+                    if pd.notna(value):
+                        # Skip 'unique' as we already have unique_count
+                        if stat == 'unique':
+                            continue
+                            
+                        # Convert numeric values
+                        if isinstance(value, (np.integer, np.floating, float, int)):
+                            if stat in ['count', 'freq']:
+                                stats[stat] = int(value)
+                            else:
+                                stats[stat] = float(value)
+                        # Handle datetime values
+                        elif isinstance(value, (pd.Timestamp, datetime.datetime, datetime.date)):
+                            stats[stat] = value.isoformat()
+                        # Handle strings
+                        elif isinstance(value, str):
+                            stats[stat] = value
+                        else:
+                            stats[stat] = str(value)
+                
+                # Handle string/object columns
+                if str(df[column].dtype) == 'object':
+                    # Only include frequency stats for non-unique columns
+                    if column_info["unique_count"] < len(df):
+                        stats['top'] = f"<{column}_value>"
+                        stats['freq'] = int(stats.get('freq', 0))
+                    else:
+                        stats.pop('top', None)
+                        stats.pop('freq', None)
+                
+                column_info.update(stats)
+            
+            info_dict["column_info"][column] = column_info
+        
+        return info_dict

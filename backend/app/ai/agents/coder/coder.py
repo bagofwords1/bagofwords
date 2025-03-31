@@ -69,7 +69,7 @@ class Coder:
         excel_files_section = "\n".join(excel_files_description)
 
         # Define data preview instruction based on enable_llm_see_data flag
-        data_preview_instruction = "df.head()" if self.enable_llm_see_data else "df.columns"
+        data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
         
         # The final prompt text
         # Improvements made:
@@ -146,7 +146,8 @@ class Coder:
 
         2. **Data Source Usage**:
            - Use `ds_clients[data_source_name].execute_query("SOME QUERY")` to query non-Excel data sources.
-           - After each query or DataFrame creation, print the data using: print("df Preview:", {data_preview_instruction})
+           - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
+           {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
