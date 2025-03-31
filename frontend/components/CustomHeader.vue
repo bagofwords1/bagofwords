@@ -1,13 +1,17 @@
 <!-- CustomHeader.vue -->
 <template>
-  <div class="custom-header" @mouseenter="showTooltip" @mouseleave="hideTooltip">
-    <div>
-      {{ params.displayName }}
-
+  <div class="custom-header">
+    <div class="flex items-center gap-1">
+      {{ params.displayName || params.column?.colDef?.headerName }}
+      <span v-if="headerStats" 
+         class="text-gray-500 cursor-help relative"
+         @mouseenter="showTooltip"
+         @mouseleave="hideTooltip">
+         ...
+      </span>
     </div>
     <div v-if="tooltipVisible" :style="tooltipStyles" class="tooltip2">
-      {{ params.description || "No description"}} 
-      <a v-if="params.description" class='text-gray-200 block hover:underline text-xs mt-3' href="#">&times; Not relevant</a>
+      <pre class="whitespace-pre-line text-gray-700">{{ headerStats }}</pre>
     </div>
   </div>
 </template>
@@ -21,14 +25,25 @@ export default {
       tooltipStyles: {},
     };
   },
+  computed: {
+    headerStats() {
+      // Try different possible locations of the stats text in the params
+      return this.params.statsText || 
+             this.params.column?.colDef?.headerComponentParams?.statsText ||
+             this.params.column?.colDef?.headerTooltip;
+    }
+  },
   methods: {
     showTooltip(event) {
-      const rect = event.target.getBoundingClientRect();
+      const iconContainer = event.currentTarget;
+      const rect = iconContainer.getBoundingClientRect();
+      
       this.tooltipStyles = {
-        top: `${rect.bottom}px`,
-        left: `${rect.left + rect.width / 2}px`,
+        top: `${rect.bottom + 5}px`,
+        left: `${rect.left + (rect.width / 2)}px`,
         position: 'fixed',
         transform: 'translateX(-50%)',
+        zIndex: 9999,
       };
       this.tooltipVisible = true;
     },

@@ -5,6 +5,7 @@ from datetime import datetime
 
 class FeatureConfig(BaseModel):
     enabled: bool = True
+    value: Optional[Any] = None
     name: str
     description: str
     is_lab: bool = False
@@ -14,6 +15,8 @@ class OrganizationSettingsConfig(BaseModel):
     allow_llm_see_data: FeatureConfig = FeatureConfig(enabled=False, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
     allow_file_upload: FeatureConfig = FeatureConfig(enabled=True, name="Allow file upload", description="Allow users to upload spreadsheets and docuemnts (xls/pdf) and push their content to the LLM", is_lab=False, editable=False)
     allow_code_editing: FeatureConfig = FeatureConfig(enabled=False, name="Allow users to edit and execute the LLM generated code", description="Allow users to edit and execute the LLM generated code", is_lab=False, editable=False)
+    #limit_row_count: FeatureConfig = FeatureConfig(enabled=True, value=1000, name="Limit row count", description="Limit the number of rows that can be showed in the table or stored in the database cache", is_lab=False, editable=False)
+
     ai_features: Dict[str, FeatureConfig] = {
         "planner": FeatureConfig(enabled=True, name="Planner", description="Orchestrates analysis by breaking down user requests into actionable steps", is_lab=False, editable=False),
         "coder": FeatureConfig(enabled=True, name="Coder", description="Translates data models into executable Python code for data processing", is_lab=False, editable=False),

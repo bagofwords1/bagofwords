@@ -920,16 +920,28 @@ class Agent:
         return response
     
     def _get_df_info_as_dict(self, df):
-        buffer = io.StringIO()
-        df.info(buf=buffer, memory_usage='deep')
-        
-        # Get basic info
+        # Convert NumPy types to Python native types
+        def convert_to_native(obj):
+            if isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
+                return int(obj)
+            if isinstance(obj, (np.float64, np.float32, np.float16)):
+                return float(obj)
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+            if isinstance(obj, np.datetime64):
+                return pd.Timestamp(obj).isoformat()
+            if isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+            if isinstance(obj, np.ndarray):
+                return obj.tolist()
+            return obj
+
         info_dict = {
-            "total_rows": int(len(df)),
-            "total_columns": int(len(df.columns)),
+            "total_rows": int(len(df)),  # Convert to native int
+            "total_columns": int(len(df.columns)),  # Convert to native int
             "column_info": {},
-            "memory_usage": int(df.memory_usage(deep=True).sum()),
-            "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().to_dict().items()}
+            "memory_usage": int(df.memory_usage(deep=True).sum()),  # Convert to native int
+            "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().items()}  # Convert keys and values
         }
         
         # Get statistical description for all types
@@ -937,49 +949,21 @@ class Agent:
         
         # Parse column information
         for column in df.columns:
-            # Basic column info
             column_info = {
                 "dtype": str(df[column].dtype),
                 "non_null_count": int(df[column].count()),
                 "memory_usage": int(df[column].memory_usage(deep=True)),
                 "null_count": int(df[column].isna().sum()),
-                "unique_count": int(df[column].nunique())
+                "unique_count": int(df[column].nunique()),
             }
             
             # Merge statistical description if available
             if column in desc_dict:
-                stats = {}
-                for stat, value in desc_dict[column].items():
-                    if pd.notna(value):
-                        # Skip 'unique' as we already have unique_count
-                        if stat == 'unique':
-                            continue
-                            
-                        # Convert numeric values
-                        if isinstance(value, (np.integer, np.floating, float, int)):
-                            if stat in ['count', 'freq']:
-                                stats[stat] = int(value)
-                            else:
-                                stats[stat] = float(value)
-                        # Handle datetime values
-                        elif isinstance(value, (pd.Timestamp, datetime.datetime, datetime.date)):
-                            stats[stat] = value.isoformat()
-                        # Handle strings
-                        elif isinstance(value, str):
-                            stats[stat] = value
-                        else:
-                            stats[stat] = str(value)
-                
-                # Handle string/object columns
-                if str(df[column].dtype) == 'object':
-                    # Only include frequency stats for non-unique columns
-                    if column_info["unique_count"] < len(df):
-                        stats['top'] = f"<{column}_value>"
-                        stats['freq'] = int(stats.get('freq', 0))
-                    else:
-                        stats.pop('top', None)
-                        stats.pop('freq', None)
-                
+                stats = {
+                    stat: convert_to_native(value)
+                    for stat, value in desc_dict[column].items()
+                    if pd.notna(value)
+                }
                 column_info.update(stats)
             
             info_dict["column_info"][column] = column_info
