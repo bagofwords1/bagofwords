@@ -70,17 +70,6 @@ class Coder:
 
         # Define data preview instruction based on enable_llm_see_data flag
         data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
-        
-        # The final prompt text
-        # Improvements made:
-        # 1. Clear, step-by-step instructions.
-        # 2. Strong emphasis on using the exact schema columns and correct data source queries.
-        # 3. Detailed instructions on how to handle retries and errors.
-        # 4. Clear instructions on sorting, data types, and final DataFrame structure.
-        # 5. Emphasis on reading previous code if provided and adapting it.
-        # 6. Explicit instructions to not leak client names into queries and to handle them through ds_clients keys only.
-        # 7. Stress the importance of providing output even if some columns fail after multiple retries.
-        # 8. Organized sections for clarity.
 
         text = f"""
         You are a highly skilled data engineer and data scientist.
@@ -142,7 +131,8 @@ class Coder:
         **Guidelines and Requirements**:
 
         1. **Function Signature**: Implement exactly:
-           def generate_df(ds_clients, excel_files):
+           `def generate_df(ds_clients, excel_files):`
+           - The function should return the main dataframe that will answer the user prompt.
 
         2. **Data Source Usage**:
            - Use `ds_clients[data_source_name].execute_query("SOME QUERY")` to query non-Excel data sources.
@@ -220,12 +210,12 @@ class Coder:
         {code}
         </generated_code>
 
-        **Guidelines and Requirements**:
-
-        1. Validate only read operations on the data sources. No insert/delete/add/update/put/drop.
-        2. Validate the code is correct and does not leak client names into queries.
-        3. Validate no weird things are happening in the code.
-        4. Validate code is close enough to the data model.
+        **Guidelines**:
+        1. There can be multiple dataframes as transformations steps
+        2. There should only be one final dataframe as output
+        3. Validate only read operations on the data sources. No insert/delete/add/update/put/drop.
+        4. Validate the code is close enough to the data model. It doesnt need to be exactly the same.
+        5. Do not be strict around code style.
 
         Response format:
         {{

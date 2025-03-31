@@ -9,6 +9,8 @@
 - Added reasoning for planner agent
 - Added data preview for LLM to achieve ReAct like flow with code generation
 - Added organization settings to control AI features (specific agent skills) and additional settings (LLM viewing data, etc)
+- Added df summary for tables
+- Refactored code execution to be more robust and handle edge cases better
 
 ## Version 0.0.154 (March 24, 2025)
 

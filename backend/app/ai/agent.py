@@ -30,6 +30,8 @@ from sqlalchemy import select
 from app.settings.logging_config import get_logger
 logger = get_logger("app.agent")
 
+from app.ai.code_execution.code_execution import CodeExecutionManager
+
 
 class Agent:
 
@@ -71,7 +73,16 @@ class Agent:
             self.clients = { data_source.name: data_source.get_client() for data_source in self.data_sources }
             self.files = self.report.files
 
-            # should be last
+        # Create code execution manager with all required dependencies
+        self.code_execution_manager = CodeExecutionManager(
+            logger=logger,
+            project_manager=self.project_manager,
+            db=self.db,
+            report=self.report,
+            head_completion=self.head_completion if 'head_completion' in locals() else None,
+            widget=self.widget,
+            step=self.step
+        )
 
     async def main_execution(self):
         logger.info("Starting main execution")
@@ -381,305 +392,136 @@ class Agent:
             self.db.add(step)
             await self.db.commit()
             await self.db.refresh(step)
+            
         # Check if data model is complete before starting code generation
         if not action.get('action_end', False):
             return False
 
-        code_and_error_messages = []
-        retries = 0
+        # Prepare context for code generation
         schemas = await self._build_schemas_context()
         memories = await self._build_memories_context()
         previous_messages = await self._build_messages_context()
-        code = ""
 
-        # Start code generation and execution only when data model is complete
-        while retries < 3:
-            try:
-                # Generate code using the data model if this is first try or previous attempt failed
-                code = await self.coder.data_model_to_code(
-                    data_model, 
-                    prompt=prompt, 
-                    schemas=schemas, 
-                    ds_clients=self.clients, 
-                    excel_files=self.files,
-                    code_and_error_messages=code_and_error_messages,
-                    memories=memories,
-                    previous_messages=previous_messages,
-                    retries=retries,
-                    prev_data_model_code_pair=None
-                )
-                # Execute the generated code
-                if self.organization_settings.get("ai_features", {}).get("validator", {}).get("enabled", True):
-                    validation_result = await self.coder.validate_code(code, data_model)
-                    if validation_result['valid'] == False:
-                        await self.project_manager.create_message(
-                            report=self.report,
-                            db=self.db,
-                            message=validation_result['reasoning'],
-                            completion=self.head_completion,
-                            widget=self.widget,
-                            role="ai_agent"
-                        )
-                        code_and_error_messages.append((code, validation_result['reasoning']))
-                        continue
-                    else:
-                        await self.project_manager.create_message(
-                            report=self.report,
-                            db=self.db,
-                            message="Validated code successfully",
-                            completion=self.head_completion,
-                            widget=self.widget,
-                            role="ai_agent"
-                        )
-                        
-
-                df = self.execute_code_and_return_df(code)
-                if df is not None:
-                    await self.project_manager.update_step_status(self.db, step, "success")
-                    break
-
-            except Exception as e:
-                retries += 1
+        # Setup validator function if enabled
+        validator_fn = None
+        if self.organization_settings.get("ai_features", {}).get("validator", {}).get("enabled", True):
+            validator_fn = self.coder.validate_code
+        
+        # Execute the full process: generate -> validate -> execute with retries
+        df, final_code, code_and_error_messages = await self.code_execution_manager.generate_and_execute_with_retries(
+            data_model=data_model,
+            code_generator_fn=self.coder.data_model_to_code,
+            validator_fn=validator_fn,
+            max_retries=3,
+            db_clients=self.clients,
+            excel_files=self.files,
+            prompt=prompt,
+            schemas=schemas,
+            ds_clients=self.clients,
+            memories=memories,
+            previous_messages=previous_messages,
+            prev_data_model_code_pair=None
+        )
+        
+        # Handle validation and execution messages
+        for code, error_msg in code_and_error_messages:
+            if "Validation failed" in error_msg:
                 await self.project_manager.create_message(
                     report=self.report,
                     db=self.db,
-                    message=f"Self-healing and optimizing code (attempt {
-                        retries}/3)",
+                    message=error_msg,
                     completion=self.head_completion,
                     widget=self.widget,
-                    role="ai_agent")
-
-                print(f"Retry: {retries}, Error: {e}")
-                code_and_error_messages.append((code, str(e)))
-
-                if retries >= 3:
-                    await self.project_manager.update_step_status(self.db, step, "error")
-                    await self.project_manager.create_message(
-                        report=self.report,
-                        db=self.db,
-                        message="I faced some issues while generating data. Can you try explaining again? Error: " + str(e),
-                        completion=self.head_completion,
-                        widget=self.widget,
-                        role="ai_agent"
-                    )
-                    df = pd.DataFrame()  # empty dataframe
-                    continue
-                
-
-        # Format the output even if DataFrame is empty
-        columns = [{"headerName": col, "field": col} for col in df.columns]
-        rows = df.to_dict(orient='records')  # Will be empty list if df is empty
-
-       
-
-        df_info = self._get_df_info_as_dict(df)
-
-        widget = {
-            "rows": rows[:1000], 
-            "columns": columns, 
-            "loadingColumn": False, 
-            "info": df_info, 
-        }
-        cleaned_data = self.postprocess_df(widget)
-        await self.project_manager.update_step_with_code(self.db, step, code)
-        await self.project_manager.update_step_with_data(self.db, step, cleaned_data)
+                    role="ai_agent"
+                )
         
-
+        # Handle the final outcome
+        if df.empty and code_and_error_messages:
+            await self.project_manager.update_step_status(self.db, step, "error")
+            await self.project_manager.create_message(
+                report=self.report,
+                db=self.db,
+                message="I faced some issues while generating data. Can you try explaining again?",
+                completion=self.head_completion,
+                widget=self.widget,
+                role="ai_agent"
+            )
+        else:
+            await self.project_manager.update_step_status(self.db, step, "success")
+        
+        # Format data and update step
+        widget_data = self.code_execution_manager.format_df_for_widget(df)
+        await self.project_manager.update_step_with_code(self.db, step, final_code)
+        await self.project_manager.update_step_with_data(self.db, step, widget_data)
+        
         return True
 
     async def _handle_modify_widget(self, prompt, widget, action):
+        # Similar approach as _handle_generate_widget_data
         if not action.get('action_end', False):
             return False
-        
+            
         data_model_diff = action['details']
-        code_and_error_messages = []
-        retries = 0
-        schemas = await self._build_schemas_context()
-        memories = await self._build_memories_context()
-        previous_messages = await self._build_messages_context()
         previous_step = await self._get_last_step()
-
+        
         step = await self.project_manager.create_step(self.db, 
-                                                      widget.title, 
-                                                      widget, 
-                                                      "table")
+                                                  widget.title, 
+                                                  widget, 
+                                                  "table")
         
         updated_data_model = await self._apply_data_model_diff(previous_step.data_model, data_model_diff)
-
         step.data_model = updated_data_model
-
+        
         prev_data_model_code_pair = {
             'data_model': previous_step.data_model,
             'code': previous_step.code
         }
 
-        while retries < 3:
-            try:
-                # Generate code using the data model if this is first try or previous attempt failed
-                code = await self.coder.data_model_to_code(
-                    updated_data_model, 
-                    prompt=prompt, 
-                    schemas=schemas, 
-                    ds_clients=self.clients, 
-                    excel_files=self.files,
-                    code_and_error_messages=code_and_error_messages,
-                    memories=memories,
-                    previous_messages=previous_messages,
-                    retries=retries,
-                    prev_data_model_code_pair=prev_data_model_code_pair
-                )
-                # Execute the generated code
-                df = self.execute_code_and_return_df(code)
-                if df is not None:
-                    await self.project_manager.update_step_status(self.db, step, "success")
-                    break
-
-            except Exception as e:
-                retries += 1
-                await self.project_manager.create_message(
-                    report=self.report,
-                    db=self.db,
-                    message=f"Self-healing and optimizing code (attempt {
-                        retries}/3)",
-                    completion=self.head_completion,
-                    widget=self.widget,
-                    role="ai_agent")
-
-                print(f"Retry: {retries}, Error: {e}")
-                code_and_error_messages.append((code, str(e)))
-
-                if retries >= 3:
-                    await self.project_manager.create_message(
-                        report=self.report,
-                        db=self.db,
-                        message="Failed to generate data after 3 retries.",
-                        completion=self.head_completion,
-                        widget=self.widget,
-                        role="ai_agent"
-                    )
-                    await self.project_manager.update_step_status(self.db, step, "error")
-                    df = pd.DataFrame()  # empty dataframe
-                    continue
-                
-
-        # Formatting
-        columns = [{"headerName": col, "field": col} for col in df.columns]
-        rows = df.to_dict(orient='records')
-
-        # Convert DataFrame info to structured dictionary
-        df_info = self._get_df_info_as_dict(df)
-
-        widget = {
-            "rows": rows[:1000], 
-            "columns": columns, 
-            "loadingColumn": False, 
-            "info": df_info, 
-        }
-
-
-        cleaned_data = self.postprocess_df(widget)
-        await self.project_manager.update_step_with_code(self.db, step, code)
-        await self.project_manager.update_step_with_data(self.db, step, cleaned_data)
-
-        return True
-
-    def execute_code_and_return_df(self, code):
-        db_clients = self.clients
-        excel_files = self.files
-        stdout_capture = io.StringIO()
-        output_log = ""
+        # Prepare context 
+        schemas = await self._build_schemas_context()
+        memories = await self._build_memories_context()
+        previous_messages = await self._build_messages_context()
         
-        try:
-            generate_df = self._code_runner(code, db_clients, excel_files)
-            if generate_df:
-                try:
-                    with redirect_stdout(stdout_capture):
-                        df = generate_df(db_clients, excel_files)
-                    output_log = stdout_capture.getvalue()
-                    print(f"Code execution output: {output_log}")  # Log captured output
-                    return df
-                except Exception as e:
-                    import traceback
-                    trace = traceback.format_exc()
-                    print(f"Error executing code: {e}")
-                    print(f"Traceback: {trace}")
-                    print(f"Code execution output before error: {output_log}")
-                    raise Exception(f"Error executing code: {e}\nTraceback: {trace}\nExecution output: {output_log}")
-            else:
-                raise Exception("No generate_df function found in code")
-        except Exception as e:
-            import traceback
-            trace = traceback.format_exc()
-            print(f"Error in code runner: {e}")
-            print(f"Traceback: {trace}")
-            print(f"Code execution output before error: {output_log}")
-            raise Exception(f"Error in code runner: {e}\nTraceback: {trace}\nExecution output: {output_log}")
-
-    def _format_df(self, df):
-        columns = [{"headerName": col, "field": col} for col in df.columns]
-        rows = df.to_dict(orient='records')
-
-        widget = {"rows": rows[:1000],
-                  "columns": columns, "loadingColumn": False}
-        cleaned_data = self.postprocess_df(widget)
-
-        return cleaned_data
-
-#
-    def _code_runner(self, code, db_clients, excel_files):
-        print(code)
-        local_namespace = {'pd': pd, 'np': np,
-                           'db_clients': db_clients, 'excel_files': excel_files}
-        exec(code, local_namespace)
-
-        generate_df = local_namespace.get('generate_df')
-        if generate_df:
-            return generate_df
+        # Setup validator function if enabled
+        validator_fn = None
+        if self.organization_settings.get("ai_features", {}).get("validator", {}).get("enabled", True):
+            validator_fn = self.coder.validate_code
+        # Execute the full process
+        df, final_code, code_and_error_messages = await self.code_execution_manager.generate_and_execute_with_retries(
+            data_model=updated_data_model,
+            code_generator_fn=self.coder.data_model_to_code,
+            validator_fn=validator_fn,
+            max_retries=3,
+            db_clients=self.clients,
+            excel_files=self.files,
+            prompt=prompt,
+            schemas=schemas,
+            ds_clients=self.clients,
+            memories=memories,
+            previous_messages=previous_messages,
+            prev_data_model_code_pair=prev_data_model_code_pair
+        )
+        
+        # Handle errors and success similar to _handle_generate_widget_data
+        if df.empty and code_and_error_messages:
+            await self.project_manager.update_step_status(self.db, step, "error")
+            await self.project_manager.create_message(
+                report=self.report,
+                db=self.db,
+                message="I faced some issues while modifying the widget. Can you try explaining again?",
+                completion=self.head_completion,
+                widget=self.widget,
+                role="ai_agent"
+            )
         else:
-            return None
-
-    def validate_and_clean_code(self, code):
-        # Replace triple single quotes with escaped double quotes
-        code = code.replace("'''", '"""')
-        # Escape backslashes and newlines if necessary
-        code = code.replace("\\n", "\\\\n").replace("\\", "\\\\")
-
-        # strip leading and trailing whitespace
-        code = code.strip()
-
-        return code
-
-    def clean_data(self, data):
-        if isinstance(data, dict):
-            return {k: self.clean_data(v) for k, v in data.items()}
-        elif isinstance(data, list):
-            return [self.clean_data(item) for item in data]
-        # Handle both pd.Timestamp and datetime.date
-        elif isinstance(data, (pd.Timestamp, datetime.date)):
-            return data.isoformat()
-        elif isinstance(data, pd.Series):
-            return data.tolist()
-        elif pd.api.types.is_list_like(data):
-            return list(data)
-        elif pd.isna(data):
-            return None
-        else:
-            return data
-
-    def postprocess_df(self, widget):
-        def clean_value(value):
-            if isinstance(value, (pd.Timestamp, datetime.date)):
-                return value.isoformat()
-            elif isinstance(value, (uuid.UUID)):  # Add UUID handling
-                return str(value)
-            elif pd.isna(value):
-                return None
-            return value
-
-        if 'rows' in widget:
-            widget['rows'] = [{k: clean_value(v) for k, v in row.items()} 
-                             for row in widget['rows']]
-        return widget
+            await self.project_manager.update_step_status(self.db, step, "success")
+            
+        # Format and update
+        widget_data = self.code_execution_manager.format_df_for_widget(df)
+        await self.project_manager.update_step_with_code(self.db, step, final_code)
+        await self.project_manager.update_step_with_data(self.db, step, widget_data)
+        
+        return True
 
     async def _build_schemas_context(self):
         context = []
@@ -918,54 +760,3 @@ class Agent:
         response = self.llm.inference(prompt)
 
         return response
-    
-    def _get_df_info_as_dict(self, df):
-        # Convert NumPy types to Python native types
-        def convert_to_native(obj):
-            if isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
-                return int(obj)
-            if isinstance(obj, (np.float64, np.float32, np.float16)):
-                return float(obj)
-            if isinstance(obj, np.bool_):
-                return bool(obj)
-            if isinstance(obj, np.datetime64):
-                return pd.Timestamp(obj).isoformat()
-            if isinstance(obj, pd.Timestamp):
-                return obj.isoformat()
-            if isinstance(obj, np.ndarray):
-                return obj.tolist()
-            return obj
-
-        info_dict = {
-            "total_rows": int(len(df)),  # Convert to native int
-            "total_columns": int(len(df.columns)),  # Convert to native int
-            "column_info": {},
-            "memory_usage": int(df.memory_usage(deep=True).sum()),  # Convert to native int
-            "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().items()}  # Convert keys and values
-        }
-        
-        # Get statistical description for all types
-        desc_dict = df.describe(include='all').to_dict()
-        
-        # Parse column information
-        for column in df.columns:
-            column_info = {
-                "dtype": str(df[column].dtype),
-                "non_null_count": int(df[column].count()),
-                "memory_usage": int(df[column].memory_usage(deep=True)),
-                "null_count": int(df[column].isna().sum()),
-                "unique_count": int(df[column].nunique()),
-            }
-            
-            # Merge statistical description if available
-            if column in desc_dict:
-                stats = {
-                    stat: convert_to_native(value)
-                    for stat, value in desc_dict[column].items()
-                    if pd.notna(value)
-                }
-                column_info.update(stats)
-            
-            info_dict["column_info"][column] = column_info
-        
-        return info_dict
