@@ -174,6 +174,8 @@ class Planner:
 
         **Output Format**:
         - Return as a JSON object with a top-level "plan" key, containing a list of actions.
+        - Return ONLY a valid JSON object with no explanatory text before or after. The response must begin with '{{' and end with '}}'."
+        - Do not include any natural language explanations outside the JSON structure.
         - No markdown, no code fences in the final output.
 
         **Examples**:
@@ -284,14 +286,13 @@ class Planner:
         full_result = ""
         buffer = ""
         completion_tokens = 0
-
         current_plan = {"reasoning": "", "plan": [], "text": text}  # Initialize empty plan structure
 
         async for chunk in self.llm.inference_stream(text):
+            
             buffer += chunk
             full_result += chunk
             completion_tokens += self.count_tokens(chunk)
-
             try:
                 json_result = parser.parse(full_result)
 
@@ -384,7 +385,7 @@ class Planner:
                                     is_complete = (
                                         all(key in column for key in ['generated_column_name', 'source', 'description']) and
                                         isinstance(column['description'], str) and
-                                        len(column['description'].strip()) > 10 and
+                                        len(column['description'].strip()) > 0 and
                                         column['description'].strip().endswith('.') and
                                         not any(
                                             existing['generated_column_name'] == column['generated_column_name']

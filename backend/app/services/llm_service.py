@@ -281,20 +281,34 @@ class LLMService:
         current_user: User,
         models: list[dict]
     ):
+        # First check if org already has a default model
+        existing_default = await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.is_default == True)
+        )
+        has_default_model = existing_default.scalar_one_or_none() is not None
+
         for model in models:
             db_model = LLMModel(**model)
             db_model.organization_id = organization.id
             db_model.provider = provider
             db_model.is_enabled = True
-            # Use the is_default from the model details if it exists
+            
+            # Check if this model would be default according to config
             model_details = next(
                 (m for m in LLM_MODEL_DETAILS if m["model_id"] == model["model_id"]),
                 None
             )
-            if model_details:
-                db_model.is_default = model_details.get("is_default", False)
+            
+            # Only set as default if there's no existing default and this model should be default
+            if model_details and model_details.get("is_default", False) and not has_default_model:
+                db_model.is_default = True
+                # Only allow one default model
+                has_default_model = True
             else:
                 db_model.is_default = False
+                
             db.add(db_model)
 
         await db.commit()
