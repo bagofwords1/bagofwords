@@ -88,7 +88,6 @@ class CodeExecutionManager:
                     excel_files=excel_files,
                     **generator_kwargs
                 )
-
                 
                 # Validate if enabled
                 if validator_fn:

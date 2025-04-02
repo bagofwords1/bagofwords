@@ -2,6 +2,7 @@ from partialjson.json_parser import JSONParser
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 import tiktoken  # Add this import for token counting
+import json
 
 class Planner:
 
@@ -28,12 +29,127 @@ class Planner:
             return 0
         return len(self.tokenizer.encode(text))
 
-    async def execute(self, schemas, persona, prompt, memories, previous_messages, widget=None, step=None):
+    async def execute(self, schemas, persona, prompt, memories, previous_messages, observation_data=None, widget=None, step=None):
+        # Generate observation context if observation_data is provided
+        observation_context = ""
+        if observation_data and "widgets" in observation_data and observation_data["widgets"]:
+            # Create summaries for all widgets
+            widget_summaries = []
+            
+            for widget_data in observation_data["widgets"]:
+                # Extract metadata
+                widget_title = widget_data.get('widget_title', 'N/A')
+                widget_type = widget_data.get('widget_type', 'unknown')
+                row_count = widget_data.get('row_count', 'unknown')
+                column_names = widget_data.get('column_names', [])
+                
+                # Build data preview section
+                data_preview_section = ""
+                if "data_preview" in widget_data:
+                    data_preview_section = f"""
+                    **Data Preview**:
+                    {widget_data['data_preview']}
+                    """
+                else:
+                    data_preview_section = """
+                    **Data Preview**:
+                    Data preview is not available
+                    """
+                
+                # Build statistics summary
+                stats_summary = "No statistics available"
+                if widget_data.get('stats'):
+                    stats = widget_data.get('stats')
+                    if isinstance(stats, dict):
+                        # Format stats into a more readable form
+                        stats_summary = f"""
+                        Total Rows: {stats.get('total_rows', 'N/A')}
+                        Total Columns: {stats.get('total_columns', 'N/A')}
+                        Column Details: {', '.join(stats.get('column_names', []))}
+                        """
+                
+                # Create summary for this widget
+                widget_summary = f"""
+                **Widget: {widget_title}**
+                Widget Type: {widget_type}
+                Total Rows: {row_count}
+                Columns: {', '.join(column_names)}
+                
+                {data_preview_section}
+                
+                **Data Statistics**:
+                {stats_summary}
+                """
+                widget_summaries.append(widget_summary)
+            
+            # Combine all widget summaries
+            all_widgets_summary = "\n\n".join(widget_summaries)
+            
+            # Build the complete observation context
+            observation_context = f"""
+            **ANALYSIS RESULTS FROM ALL WIDGETS**:
+            
+            {all_widgets_summary}
+            
+            **Observation Instructions**:
+            Based on ALL the widget results above:
+            1. FIRST, check if the widgets match what the user originally requested
+            2. If ALL of the requested widgets have been created successfully, you MUST set "analysis_complete" to TRUE
+            3. Only set "analysis_complete" to FALSE if some part of the original request is missing/lacking and still unaddressed
+            4. If analysis_complete is FALSE, provide an explanation of what is missing/lacking and still unaddressed in the reasoning section
+
+            DIRECT INSTRUCTION: When the user's request is fully satisfied by the existing widgets, 
+            set "analysis_complete" to TRUE and do NOT include any create_widget actions in your plan.
+            """
+        elif observation_data:
+            # Fallback for legacy format (single widget)
+            # Extract metadata
+            widget_title = observation_data.get('widget_title', 'N/A')
+            widget_type = observation_data.get('widget_type', 'unknown')
+            row_count = observation_data.get('row_count', 'unknown')
+            column_names = observation_data.get('column_names', [])
+            
+            # Build data preview section
+            data_preview_section = ""
+            if "data_preview" in observation_data:
+                data_preview_section = f"""
+                **Data Preview**:
+                {observation_data['data_preview']}
+                """
+            else:
+                data_preview_section = """
+                **Data Preview**:
+                Data preview is not available
+                """
+            
+            # Build statistics summary
+            stats_summary = "No statistics available"
+            if observation_data.get('stats'):
+                stats = observation_data.get('stats')
+                if isinstance(stats, dict):
+                    stats_summary = "Statistics available in info section"
+            
+            observation_context = f"""
+            **Widget Information**:
+            Widget: {widget_title}
+            Widget Type: {widget_type}
+            Total Rows: {row_count}
+            Columns: {', '.join(column_names)}
+            
+            {data_preview_section}
+            
+            **Data Statistics**:
+            {stats_summary}
+            
+            **Observation Instructions**:
+            Based on the information above, determine if the analysis is complete...
+            """
 
         design_dashboard_example = """
         Example 4 (design_dashboard):
         {{
-            "reasoning": "Finally, let's combine all insights into a dashboard. I will place the bar chart of revenue by month and the line chart of revenue by year in the same dashboard. Will also add a few descriptions and titles to make it more informative.",
+            "analysis_complete": true,
+            "reasoning": "I've analyzed all the widgets and found no further analysis needed. Setting analysis_complete to true.",
             "plan": [
                 {{
                     "action": "design_dashboard",
@@ -45,8 +161,8 @@ class Planner:
             ]
         }}"""
 
-
         parser = JSONParser()
+
         text = f"""
         You are a data analyst specializing in data analytics, data engineering, data visualization, and data science.
 
@@ -67,6 +183,8 @@ class Planner:
         {f"{widget.id}\\n{widget.title}" if widget else "No widget selected"}
 
         {f"Selected widget data model:\n {step.data_model}" if step else "\n"}
+
+        {observation_context}
 
         **Primary Task**:
         0. Think through this request step by step
@@ -99,6 +217,11 @@ class Planner:
         6. For "design_dashboard," do not recreate existing widgets. Combine them into a dashboard if they are relevant.
         7. Carefully verify all columns and data sources actually exist in the provided schemas.
 
+        If you are responding after observing previous results:
+        1. Analyze what was discovered in the previous step
+        2. Determine if additional actions are needed
+        3. If no further actions are needed, respond with an empty plan list and set "analysis_complete" to true
+        4. If more actions are needed, provide them and set "requires_observation" to true for actions that require feedback
 
         1. **Determine the Nature of the Request**:
            Think step by step and reason through the user's request. 
@@ -127,6 +250,7 @@ class Planner:
                   * if widget were already created and the request is to design a dashboard, simply just create a dashboard. 
 
         2. **When Generating a Plan**:
+           - Begin your JSON output with the "analysis_complete" field to indicate whether the observation is finished and analysis complete, and no more actions are needed.
            - Provide a "reasoning" key that explains the thinking and the plan before execution.
            - Provide each action as a JSON object inside a "plan" array.
            - Each action must have:
@@ -173,7 +297,14 @@ class Planner:
         - No invented columns that aren't in schemas.
 
         **Output Format**:
-        - Return as a JSON object with a top-level "plan" key, containing a list of actions.
+        Begin your JSON output with the "analysis_complete" field to indicate whether the analysis is finished:
+        {{
+            "analysis_complete": false, // or true if analysis is complete
+            "reasoning": "Your reasoning about the decision...",
+            "plan": [
+                // Your plan actions here
+            ]
+        }}
         - Return ONLY a valid JSON object with no explanatory text before or after. The response must begin with '{{' and end with '}}'."
         - Do not include any natural language explanations outside the JSON structure.
         - No markdown, no code fences in the final output.
@@ -182,7 +313,8 @@ class Planner:
 
         Example 1 (answer_question):
         {{
-            "reasoning": "The user is asking about the data type of column X. I can answer this question by looking at the schema.",
+            "analysis_complete": true,
+            "reasoning": "The user is asking about the data type of column X. I can answer this question by looking at the schema. Setting analysis_complete to true.",
             "plan": [
                 {{
                     "action": "answer_question",
@@ -198,6 +330,7 @@ class Planner:
 
         Example 2 (create_widget):
         {{  
+            "analysis_complete": false,
             "reasoning": "The user is asking for a chart of revenue by month. I can create a bar chart with the month and total revenue coming from `sales` table joined with `payment` table and aggregate the data by month.",
             "plan": [
                 {{
@@ -234,8 +367,9 @@ class Planner:
             ]
         }}
 
-        Example 3 (modify_widget):
+        Example 3 (modify_widget ):
         {{
+            "analysis_complete": false,
             "reasoning": "The user wants to modify the widget to remove `old_column` and add `new_column_name` that shows the total revenue per month and come from the `sales` table. I will also transform the `month` column to show the month as a number.",
             "plan": [
                 {{
@@ -276,9 +410,67 @@ class Planner:
 
         {design_dashboard_example if self.organization_settings.get("ai_features", {}).get("dashboard_designer", {}).get("enabled", False) else ""}
 
+        {{
+            "analysis_complete": true,
+            "reasoning": "I've analyzed all the widgets and found no further analysis needed. Setting analysis_complete to true.",
+            "plan": []
+        }}
+
         Now, based on the user's request and context, produce the final plan. Remember: no markdown, no code fences in your final output. 
+
+        **CRITICAL INSTRUCTION**:
+        Before creating any widgets, you MUST check if the widgets requested by the user ALREADY EXIST in the observation data.
+        - If the requested widgets already exist → Set "analysis_complete" to TRUE and provide minimal actions
+        - If any requested widget is missing → Set "analysis_complete" to FALSE and only create what's missing
         """
 
+        # Example of completed analysis in prompt
+        example_complete_analysis = """
+        Example 5 (completed analysis):
+        {
+            "analysis_complete": true,
+            "reasoning": "After analyzing the customer data, I've found that there are no duplicate customer records and all values are within expected ranges. No further investigation is needed.",
+            "plan": [
+                {
+                    "action": "answer_question",
+                    "prefix": "I've completed the analysis of the customer data and found no anomalies. All customer records are valid with an average age of 42 and an even distribution across regions.",
+                    "execution_mode": "sequential",
+                    "details": {
+                        "extracted_question": "What did we learn from the customer data analysis?"
+                    },
+                    "action_end": true
+                }
+            ]
+        }
+        """
+
+        # Example of continuing analysis in prompt
+        example_continue_analysis = """
+        Example 6 (continuing analysis):
+        {
+            "analysis_complete": false,
+            "reasoning": "I've found an unusual pattern in customer spending. Several customers have identical purchase amounts on the same date, which might indicate duplicate transactions or a system error.",
+            "plan": [
+                {
+                    "action": "create_widget",
+                    "prefix": "I noticed an unusual pattern in the data. Let me investigate the transaction dates more closely.",
+                    "execution_mode": "sequential",
+                    "requires_observation": true,
+                    "details": {
+                        "title": "Duplicate Transaction Analysis",
+                        "data_model": {
+                            // Data model details here
+                        }
+                    },
+                    "action_end": true
+                }
+            ]
+        }
+        """
+
+        # Add examples to the prompt
+        text += "\n" + example_complete_analysis + "\n" + example_continue_analysis
+        
         # Count tokens in the prompt
         prompt_tokens = self.count_tokens(text)
         print(f"Prompt tokens: {prompt_tokens}")
@@ -286,7 +478,7 @@ class Planner:
         full_result = ""
         buffer = ""
         completion_tokens = 0
-        current_plan = {"reasoning": "", "plan": [], "text": text}  # Initialize empty plan structure
+        current_plan = {"reasoning": "", "analysis_complete": False, "plan": [], "text": text}  # Initialize empty plan structure
 
         async for chunk in self.llm.inference_stream(text):
             
@@ -300,10 +492,13 @@ class Planner:
                 if not json_result or not isinstance(json_result, dict) or "plan" not in json_result:
                     continue
 
-                # Ensure plan is a list
-                if not isinstance(json_result["plan"], list):
-                    continue
+                # IMPORTANT FIX: Explicitly extract and preserve analysis_complete flag
+                if "analysis_complete" in json_result:
+                    current_plan["analysis_complete"] = json_result["analysis_complete"]
+                    
+                    yield current_plan
 
+                # Ensure reasoning is present
                 if "reasoning" not in json_result:
                     json_result["reasoning"] = ""
 
@@ -501,7 +696,7 @@ class Planner:
         print(f"Total tokens: {prompt_tokens + completion_tokens}")
         print(f"Reasoning: {current_plan['reasoning']}")
         
-        # Add token counts to the final plan
+        # Modify the plan structure to include new fields
         final_plan = current_plan.copy()
         final_plan["streaming_complete"] = True
         final_plan["token_usage"] = {
@@ -509,8 +704,4 @@ class Planner:
             "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens
         }
-
         yield final_plan
-        
-        # For debugging with breakpoints, you can add:
-        # import pdb; pdb.set_trace()  # This will pause execution here when reached

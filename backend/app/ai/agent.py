@@ -97,282 +97,337 @@ class Agent:
             memories = await self._build_memories_context()
             previous_messages = await self._build_messages_context()
             head_completion = self.head_completion
-
-            async for json_result in self.planner.execute(schemas, self.persona, head_completion.prompt, memories, previous_messages, self.widget, self.step):
-                if not json_result or 'plan' not in json_result:
-                    continue
-
-                if not isinstance(json_result['plan'], list):
-                    continue
-
-                # Create action_results entries for any new actions
-                for i, action in enumerate(json_result['plan']):
-                    if not isinstance(action, dict) or 'action' not in action:
+            
+            # Initialize observation data
+            observation_data = None
+            analysis_complete = False
+            
+            # ReAct loop: Plan → Execute → Observe → Plan? 
+            while not analysis_complete:
+                # 1. PLAN: Get actions from planner
+                plan_generator = self.planner.execute(
+                    schemas, 
+                    self.persona, 
+                    head_completion.prompt, 
+                    memories, 
+                    previous_messages,
+                    observation_data,  # Pass current observations
+                    self.widget, 
+                    self.step
+                )
+                
+                current_plan = None
+                async for json_result in plan_generator:
+                    if not json_result or 'plan' not in json_result:
                         continue
-
-                    action_id = f"action_{i}"
-                    if action_id not in action_results:
-                        action_results[action_id] = {
-                            "prefix_completion": None,
-                            "widget": None,
-                            "step": None,
-                            "completed": False
-                        }
-
-                # Process each action in the plan
-                for i, action in enumerate(json_result['plan']):
-                    if not isinstance(action, dict):
-                        continue
-
-                    action_id = f"action_{i}"
-
-                    # Skip if action is already completed
-                    if action_results[action_id]["completed"]:
-                        continue
-
-                    # Safely check for action type
-                    action_type = action.get('action')
-                    if not action_type:
-                        continue
-
-                    # Handle different action types
-                    if action_type == 'create_widget':
-                        if action_results[action_id]['widget'] is None and action['details'].get('title'):
-                            widget = await self.project_manager.create_widget(
-                                self.db,
-                                self.report,
-                                action['details']['title']
-                            )
-                            action_results[action_id]['widget'] = widget
                         
-                            await self.project_manager.update_completion_with_widget(
-                                self.db,
-                                action_results[action_id]['prefix_completion'],
-                                action_results[action_id]['widget']
-                            )
-
-                        if action_results[action_id]['step'] is None and action['details'].get('title'):
-                            step = await self.project_manager.create_step(
-                                self.db,
-                                action['details']['title'],
-                                action_results[action_id]['widget'],
-                                "table"
-                            )
-                            action_results[action_id]['step'] = step
-                            await self.project_manager.update_completion_with_step(
-                                self.db,
-                                action_results[action_id]['prefix_completion'],
-                                action_results[action_id]['step']
-                            )
-
-                        if action_results[action_id]['widget'] is not None and action_results[action_id]['step'] is not None:
-                            action_completed = await self._handle_generate_widget_data(
-                                head_completion.prompt,
-                                action,
-                                action_results[action_id]['widget'],
-                                action_results[action_id]['step']
-                            )
-                            if action_completed:
-                                action_results[action_id]['completed'] = True
-
-                    elif action_type == 'modify_widget':
-                        # Add this block before attempting updates
-                        if action_results[action_id]['prefix_completion'] is None:
-                            completion = await self.project_manager.create_message(
-                                report=self.report,
-                                db=self.db,
-                                message=action['prefix'],
-                                completion=self.head_completion,
-                                widget=self.widget,
-                                role="system"
-                            )
-                            action_results[action_id]['prefix_completion'] = completion
-
-                        # Get widget data using modify supertable
-                        if not self.widget:
+                    current_plan = json_result
+                    
+                    # Process actions similar to existing code...
+                    if not isinstance(json_result['plan'], list):
+                        continue
+                        
+                    # Process each action in the plan
+                    for i, action in enumerate(json_result['plan']):
+                        if not isinstance(action, dict) or 'action' not in action:
                             continue
 
-                        if action.get('action_end', True): 
-                            action_completed = await self._handle_modify_widget(
-                                head_completion.prompt,
-                                self.widget,
-                                action
-                            )
-                        else:
+                        action_id = f"action_{i}"
+                        if action_id not in action_results:
+                            action_results[action_id] = {
+                                "prefix_completion": None,
+                                "widget": None,
+                                "step": None,
+                                "completed": False
+                            }
+
+                        # Skip if action is already completed
+                        if action_results[action_id]["completed"]:
                             continue
 
-                        if action_completed:
-                            last_step = await self._get_last_step()
-                            action_results[action_id]['widget'] = self.widget
-                            action_results[action_id]['step'] = last_step
-                            action_results[action_id]['completed'] = True
+                        # Safely check for action type
+                        action_type = action.get('action')
+                        if not action_type:
+                            continue
 
-                            await self.project_manager.update_completion_with_widget(
-                                self.db,
-                                action_results[action_id]['prefix_completion'],
-                                action_results[action_id]['widget']
-                            )
-                            await self.project_manager.update_completion_with_step(
-                                self.db,
-                                action_results[action_id]['prefix_completion'],
-                                action_results[action_id]['step']
-                            )
-                        
-                    elif action_type == 'answer_question':
-                        if not action['details'].get('extracted_question'):
-                            # Extract question from the prompt if not provided in details
-                            action['details']['extracted_question'] = head_completion.prompt['content']
-                            
-                        # Create prefix completion if it doesn't exist (following pattern from other actions)
-                        if action_results[action_id]['prefix_completion'] is None:
-                            completion = await self.project_manager.create_message(
-                            report=self.report,
-                                db=self.db,
-                                message=action['prefix'],
-                                completion=self.head_completion,
-                                widget=None,
-                                role="system"
-                            )
-                            action_results[action_id]['prefix_completion'] = completion
+                        # Handle different action types
+                        if action_type == 'create_widget':
+                            if action_results[action_id]['widget'] is None and action['details'].get('title'):
+                                widget = await self.project_manager.create_widget(
+                                    self.db,
+                                    self.report,
+                                    action['details']['title']
+                                )
+                                action_results[action_id]['widget'] = widget
+                                
+                                # Create a message for the prefix if not done yet
+                                if action_results[action_id]['prefix_completion'] is None and action.get('prefix'):
+                                    action_results[action_id]['prefix_completion'] = await self.project_manager.create_message(
+                                        report=self.report,
+                                        db=self.db,
+                                        message=action['prefix'],
+                                        completion=self.head_completion,
+                                        widget=None,  # Don't set widget yet
+                                        role="system"
+                                    )
+                                
+                                # Only update completion with widget if the completion exists
+                                if action_results[action_id]['prefix_completion'] is not None:
+                                    await self.project_manager.update_completion_with_widget(
+                                        self.db,
+                                        action_results[action_id]['prefix_completion'],
+                                        action_results[action_id]['widget']
+                                    )
 
-                        try:
-                            question = action['details']['extracted_question']
-                            full_answer = action['prefix'] + " "
-
-                            async for chunk in self.answer.execute(
-                                prompt=self.head_completion.prompt,
-                                schemas=schemas,
-                                memories=memories,
-                                previous_messages=previous_messages,
-                                widget=self.widget,
-                            ):
-                                full_answer += chunk
-                                # Update message with progress
-                                await self.project_manager.update_message(
+                            if action_results[action_id]['step'] is None and action['details'].get('title'):
+                                step = await self.project_manager.create_step(
+                                    self.db,
+                                    action['details']['title'],
+                                    action_results[action_id]['widget'],
+                                    "table"
+                                )
+                                action_results[action_id]['step'] = step
+                                await self.project_manager.update_completion_with_step(
                                     self.db,
                                     action_results[action_id]['prefix_completion'],
-                                    full_answer
+                                    action_results[action_id]['step']
                                 )
 
-                            # Mark as completed only if we get here without errors
-                            action_results[action_id].update({
-                                "answer": full_answer,
-                                "completed": True
-                            })
+                            if action_results[action_id]['widget'] is not None and action_results[action_id]['step'] is not None:
+                                action_completed = await self._handle_generate_widget_data(
+                                    head_completion.prompt,
+                                    action,
+                                    action_results[action_id]['widget'],
+                                    action_results[action_id]['step']
+                                )
+                                if action_completed:
+                                    action_results[action_id]['completed'] = True
 
-                        except Exception as e:
-                            await self.project_manager.create_message(
-                                report=self.report,
-                                db=self.db,
-                                message=f"I encountered an error while answering: {str(e)}",
-                                completion=self.head_completion,
-                                widget=self.widget,
-                                role="ai_agent"
-                            )
-                            # Don't mark as completed if there was an error
-                            continue
+                        elif action_type == 'modify_widget':
+                            # Add this block before attempting updates
+                            if action_results[action_id]['prefix_completion'] is None:
+                                completion = await self.project_manager.create_message(
+                                    report=self.report,
+                                    db=self.db,
+                                    message=action['prefix'],
+                                    completion=self.head_completion,
+                                    widget=self.widget,
+                                    role="system"
+                                )
+                                action_results[action_id]['prefix_completion'] = completion
 
-                    elif action_type == 'design_dashboard':
-                        widgets = [x['widget']
-                                for x in action_results.values() if x['widget'] is not None]
-                        steps = [x['step']
-                                for x in action_results.values() if x['step'] is not None]
-                        if not widgets or not steps:
-                            print("design_dashboard action has no widgets or steps")
-                            continue
+                            # Get widget data using modify supertable
+                            if not self.widget:
+                                continue
 
-                        if action_results[action_id]['prefix_completion'] is None:
-                            dashboard_completion = await self.project_manager.create_message(
-                                report=self.report,
-                                db=self.db,
-                                message="Now putting it together and creating a dashboard..",
-                                completion=self.head_completion,
-                                widget=self.widget,
-                                role="system"
-                            )
-                            action_results[action_id]['prefix_completion'] = dashboard_completion
+                            if action.get('action_end', True): 
+                                action_completed = await self._handle_modify_widget(
+                                    head_completion.prompt,
+                                    self.widget,
+                                    action
+                                )
+                            else:
+                                continue
 
-                        async for dashboard_design in self.dashboard_designer.execute(
-                            prompt=head_completion.prompt,
-                            widgets=widgets,
-                            steps=steps,
-                            previous_messages=previous_messages
-                        ):
+                            if action_completed:
+                                last_step = await self._get_last_step()
+                                action_results[action_id]['widget'] = self.widget
+                                action_results[action_id]['step'] = last_step
+                                action_results[action_id]['completed'] = True
 
-                            if dashboard_design.get('widgets'):
-                                for widget in dashboard_design['widgets']:
-                                    if not widget['id'] in [x['id'] for x in dashboard_widgets['widgets']]:
-                                        dashboard_widgets['widgets'].append(widget)
-                                        await self.project_manager.update_widget_position_and_size(
-                                            self.db,
-                                            widget['id'],
-                                            widget['x'],
-                                            widget['y'],
-                                            widget['width'],
-                                            widget['height']
-                                        )
-                            # Handle each dashboard design update
-                            if dashboard_design.get('text_widgets'):
-                                for i, text_widget in enumerate(dashboard_design['text_widgets']):
-                                    if i not in [x.get('index') for x in dashboard_widgets['text_widgets']]:
-                                        # Add index to track the text widget
-                                        text_widget['index'] = i
-                                        dashboard_widgets['text_widgets'].append(
-                                            text_widget)
-                                        await self.project_manager.create_text_widget(
-                                            self.db,
-                                            text_widget['content'],
-                                            text_widget['x'],
-                                            text_widget['y'],
-                                            text_widget['width'],
-                                            text_widget['height'],
-                                            self.report.id
-                                        )
+                                await self.project_manager.update_completion_with_widget(
+                                    self.db,
+                                    action_results[action_id]['prefix_completion'],
+                                    action_results[action_id]['widget']
+                                )
+                                await self.project_manager.update_completion_with_step(
+                                    self.db,
+                                    action_results[action_id]['prefix_completion'],
+                                    action_results[action_id]['step']
+                                )
                             
-                        await self.project_manager.update_message(
-                            self.db,
-                            action_results[action_id]['prefix_completion'],
-                            "Now putting it together and creating a dashboard.. and it's ready!"
-                        )
-
-                        action_results[action_id] = {
-                            "dashboard_design": dashboard_design,
-                            "completed": True
-                        }
-                                # Create message for action prefix if it exists and has changed
-                    if action.get('prefix'):
-                        # Skip if this is a completed answer action
-                        if action.get('action') == 'answer_question' and action_results[action_id].get('completed'):
-                            continue
-                            
-                        if action_results[action_id]['prefix_completion'] is None:
-                            completion = await self.project_manager.create_message(
+                        elif action_type == 'answer_question':
+                            if not action['details'].get('extracted_question'):
+                                # Extract question from the prompt if not provided in details
+                                action['details']['extracted_question'] = head_completion.prompt['content']
+                                
+                            # Create prefix completion if it doesn't exist (following pattern from other actions)
+                            if action_results[action_id]['prefix_completion'] is None:
+                                completion = await self.project_manager.create_message(
                                 report=self.report,
-                                db=self.db,
-                                message=action['prefix'],
-                                completion=self.head_completion,
-                                widget=self.widget,
-                                role="system"
-                            )
-                            action_results[action_id]['prefix_completion'] = completion
-                        elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
-                            completion_obj = await self.project_manager.update_message(
+                                    db=self.db,
+                                    message=action['prefix'],
+                                    completion=self.head_completion,
+                                    widget=None,
+                                    role="system"
+                                )
+                                action_results[action_id]['prefix_completion'] = completion
+
+                            try:
+                                question = action['details']['extracted_question']
+                                full_answer = action['prefix'] + " "
+
+                                async for chunk in self.answer.execute(
+                                    prompt=self.head_completion.prompt,
+                                    schemas=schemas,
+                                    memories=memories,
+                                    previous_messages=previous_messages,
+                                    widget=self.widget,
+                                ):
+                                    full_answer += chunk
+                                    # Update message with progress
+                                    await self.project_manager.update_message(
+                                        self.db,
+                                        action_results[action_id]['prefix_completion'],
+                                        full_answer
+                                    )
+
+                                # Mark as completed only if we get here without errors
+                                action_results[action_id].update({
+                                    "answer": full_answer,
+                                    "completed": True
+                                })
+
+                            except Exception as e:
+                                await self.project_manager.create_message(
+                                    report=self.report,
+                                    db=self.db,
+                                    message=f"I encountered an error while answering: {str(e)}",
+                                    completion=self.head_completion,
+                                    widget=self.widget,
+                                    role="ai_agent"
+                                )
+                                # Don't mark as completed if there was an error
+                                continue
+
+                        elif action_type == 'design_dashboard':
+                            widgets = [x['widget']
+                                    for x in action_results.values() if x['widget'] is not None]
+                            steps = [x['step']
+                                    for x in action_results.values() if x['step'] is not None]
+                            if not widgets or not steps:
+                                print("design_dashboard action has no widgets or steps")
+                                continue
+
+                            if action_results[action_id]['prefix_completion'] is None:
+                                dashboard_completion = await self.project_manager.create_message(
+                                    report=self.report,
+                                    db=self.db,
+                                    message="Now putting it together and creating a dashboard..",
+                                    completion=self.head_completion,
+                                    widget=self.widget,
+                                    role="system"
+                                )
+                                action_results[action_id]['prefix_completion'] = dashboard_completion
+
+                            async for dashboard_design in self.dashboard_designer.execute(
+                                prompt=head_completion.prompt,
+                                widgets=widgets,
+                                steps=steps,
+                                previous_messages=previous_messages
+                            ):
+
+                                if dashboard_design.get('widgets'):
+                                    for widget in dashboard_design['widgets']:
+                                        if not widget['id'] in [x['id'] for x in dashboard_widgets['widgets']]:
+                                            dashboard_widgets['widgets'].append(widget)
+                                            await self.project_manager.update_widget_position_and_size(
+                                                self.db,
+                                                widget['id'],
+                                                widget['x'],
+                                                widget['y'],
+                                                widget['width'],
+                                                widget['height']
+                                            )
+                                # Handle each dashboard design update
+                                if dashboard_design.get('text_widgets'):
+                                    for i, text_widget in enumerate(dashboard_design['text_widgets']):
+                                        if i not in [x.get('index') for x in dashboard_widgets['text_widgets']]:
+                                            # Add index to track the text widget
+                                            text_widget['index'] = i
+                                            dashboard_widgets['text_widgets'].append(
+                                                text_widget)
+                                            await self.project_manager.create_text_widget(
+                                                self.db,
+                                                text_widget['content'],
+                                                text_widget['x'],
+                                                text_widget['y'],
+                                                text_widget['width'],
+                                                text_widget['height'],
+                                                self.report.id
+                                            )
+                            
+                            await self.project_manager.update_message(
                                 self.db,
                                 action_results[action_id]['prefix_completion'],
-                                action['prefix']
+                                "Now putting it together and creating a dashboard.. and it's ready!"
                             )
-                            action_results[action_id]['prefix_completion'] = completion_obj
 
+                            action_results[action_id] = {
+                                "dashboard_design": dashboard_design,
+                                "completed": True
+                            }
+                                    # Create message for action prefix if it exists and has changed
+                            if action.get('prefix'):
+                                # Skip if this is a completed answer action
+                                if action.get('action') == 'answer_question' and action_results[action_id].get('completed'):
+                                    continue
+                                    
+                                if action_results[action_id]['prefix_completion'] is None:
+                                    completion = await self.project_manager.create_message(
+                                        report=self.report,
+                                        db=self.db,
+                                        message=action['prefix'],
+                                        completion=self.head_completion,
+                                        widget=self.widget,
+                                        role="system"
+                                    )
+                                    action_results[action_id]['prefix_completion'] = completion
+                                elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
+                                    completion_obj = await self.project_manager.update_message(
+                                        self.db,
+                                        action_results[action_id]['prefix_completion'],
+                                        action['prefix']
+                                    )
+                                    action_results[action_id]['prefix_completion'] = completion_obj
 
-
+                        # Check if we need to observe after this action
+                        requires_observation = action.get('requires_observation', False)
+                        if requires_observation and action_results[action_id]["completed"]:
+                            # Stop processing more actions if observation is required
+                            break
+                
+                # Check if analysis is complete
+                if current_plan.get("analysis_complete", False) or not current_plan['plan']:
+                    analysis_complete = True
+                    break
+                
+                # OBSERVE: Build observation data for ALL widgets, not just the last one
+                observation_data = {
+                    "widgets": []
+                }
+                
+                # Find all completed actions with widgets
+                for action_id, result in sorted(action_results.items(), key=lambda x: x[0]):
+                    if result["completed"] and result.get("widget") and result.get("step"):
+                        widget_data = await self._build_observation_data(result["widget"], result["step"])
+                        observation_data["widgets"].append(widget_data)
+                
+                if observation_data["widgets"]:
+                    # Create an observation message
+                    pass
+                else:
+                    # If no widget/step was created, end the loop
+                    analysis_complete = True
+            
             first_completion = await self.db.execute(select(Completion).filter(Completion.report_id == self.report.id).order_by(Completion.created_at.asc()).limit(1))
             first_completion = first_completion.scalar_one_or_none()
 
             if self.head_completion.id == first_completion.id:
-                title = await self.reporter.generate_report_title(previous_messages, json_result['plan'])
+                title = await self.reporter.generate_report_title(previous_messages, current_plan['plan'])
                 await self.project_manager.update_report_title(self.db, self.report, title)
             # Return all results at once
-            plan_json = { "reasoning": json_result['reasoning'], "plan": json_result['plan'] , "streaming_complete": json_result['streaming_complete'], "text": json_result['text'], "token_usage": json_result['token_usage']}
+            plan_json = { "reasoning": current_plan['reasoning'], "plan": current_plan['plan'] , "streaming_complete": current_plan['streaming_complete'], "text": current_plan['text'], "token_usage": current_plan['token_usage']}
             plan_json = json.dumps(plan_json)
             plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)
             logger.info("Main execution completed")
@@ -760,3 +815,63 @@ class Agent:
         response = self.llm.inference(prompt)
 
         return response
+
+    async def _build_observation_data(self, widget, step):
+        """Build structured observation data from widget and step results"""
+        if not widget or not step:
+            logger.warning("Cannot build observation data: widget or step is None")
+            return {
+                "widget_title": "N/A",
+                "widget_type": "unknown",
+                "data_preview": "No data available",
+                "stats": {}
+            }
+        
+        # Check if we're allowed to share data with LLM
+        allow_llm_see_data = self.organization_settings.get("allow_llm_see_data", {}).get("enabled", True)
+        
+        observation_data = {
+            "widget_id": widget.id,
+            "widget_title": widget.title,
+            "widget_type": "unknown",
+            "step_id": step.id,
+            "step_title": step.title,
+        }
+        
+        # Safely get data model type
+        if step.data_model and isinstance(step.data_model, dict):
+            observation_data["widget_type"] = step.data_model.get("type", "unknown")
+            observation_data["data_model"] = step.data_model
+        
+        # Always include metadata about the data
+        if step.data and isinstance(step.data, dict):
+            # Add metadata
+            if "info" in step.data:
+                observation_data["stats"] = step.data["info"]
+            
+            if "columns" in step.data:
+                observation_data["column_names"] = [col["field"] for col in step.data["columns"]]
+            
+            if "rows" in step.data:
+                observation_data["row_count"] = len(step.data["rows"])
+            
+            # Only include actual data preview if allowed
+            if allow_llm_see_data and "rows" in step.data and "columns" in step.data:
+                try:
+                    # Create data preview with limited rows
+                    columns = [col["field"] for col in step.data["columns"]]
+                    preview_rows = step.data["rows"][:5]  # First 5 rows
+                    
+                    # Format preview as table
+                    preview_lines = []
+                    preview_lines.append(" | ".join(columns))
+                    preview_lines.append("-" * (sum(len(col) for col in columns) + 3 * len(columns)))
+                    
+                    for row in preview_rows:
+                        preview_lines.append(" | ".join(str(row.get(col, "N/A")) for col in columns))
+                    
+                    observation_data["data_preview"] = "\n".join(preview_lines)
+                except Exception as e:
+                    logger.error(f"Error building data preview: {e}")
+        
+        return observation_data
