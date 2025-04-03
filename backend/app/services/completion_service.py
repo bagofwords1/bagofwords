@@ -93,9 +93,28 @@ class CompletionService:
             if not default_model:
                 raise ValueError("No default model found")
 
+            # After creating the user completion but before background task
+            system_completion = Completion(
+                prompt=None,
+                completion={"content": ""},
+                model=default_model.model_id,
+                widget_id=prompt_dict['widget_id'],
+                report_id=report.id,
+                parent_id=completion.id,
+                turn_index=completion.turn_index + 1,
+                message_type="table",
+                role="system",
+                status="in_progress"
+            )
+            db.add(system_completion)
+            await db.commit()
+            await db.refresh(system_completion)
+
             mentions = await self.mention_service.create_completion_mentions(db, completion)
             org_settings = await organization.get_settings(db)
-            agent = Agent(db=db, organization_settings=org_settings, model=default_model, report=report, messages=[], head_completion=completion, widget=widget, step=step)
+            agent = Agent(db=db, organization_settings=org_settings, model=default_model, 
+                          report=report, messages=[], head_completion=completion, 
+                          system_completion=system_completion, widget=widget, step=step)
             
             background_tasks.add_task(agent.main_execution)
             return None

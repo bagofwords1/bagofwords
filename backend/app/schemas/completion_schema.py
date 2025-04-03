@@ -6,6 +6,7 @@ from .step_schema import StepSchema
 
 class PromptSchema(BaseModel):
     content: str = ""  # Default to an empty string
+    reasoning: Optional[str] = None  # Default to None
     widget_id: Optional[str] = None  # Default to None
     step_id: Optional[str] = None  # Default to None
     mentions: Optional[List[dict]] = None  # Default to None

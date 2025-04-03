@@ -211,11 +211,12 @@ class Planner:
         IMPORTANT PRE-CHECKS BEFORE CREATING A PLAN:
         1. If the user's message is simple greeting or thanks, just respond with a short 'answer_question' action. 
         2. If the question can be answered from the schemas and context alone, respond with a single 'answer_question' action.
-        3. If a widget already exists that satisfies the user's goal, do not create a new one or modify it unnecessarily.
+        3. If a widget already exists that satisfies the user's goal, do not create a new one or modify it unnecessarily, but do create an answer_question action that will be useful for the next step.
         4. Only create a new widget if it's clearly required by the user's request and there is no suitable existing widget.
         5. For metrics, create a widget per metric. Don't combine multiple metrics into a single widget.
         6. For "design_dashboard," do not recreate existing widgets. Combine them into a dashboard if they are relevant.
         7. Carefully verify all columns and data sources actually exist in the provided schemas.
+        8. If the user requested something, always create at least one action - even if it's an answer_question action.
 
         If you are responding after observing previous results:
         1. Analyze what was discovered in the previous step
@@ -261,7 +262,7 @@ class Planner:
                * For "answer_question":
                  - "extracted_question": The question being answered (end with "$.")
                * For "create_widget":
-                 - "title": The widget title, must end with "$."
+                 - "title": The widget title, must end with "$." REQUIRED
                  - "data_model": A dictionary describing how to query and present the data.
                      - "type": The type of response ("table", "bar_chart", "line_chart", "pie_chart", "area_chart", "count", etc.)
                      - "columns": A list of columns in the data model. Each column is a dictionary with:
@@ -493,11 +494,11 @@ class Planner:
                     continue
 
                 # IMPORTANT FIX: Explicitly extract and preserve analysis_complete flag
-                if "analysis_complete" in json_result:
-                    current_plan["analysis_complete"] = json_result["analysis_complete"]
-                    
-                    yield current_plan
+                if "analysis_complete" not in json_result:
+                    json_result["analysis_complete"] = False
 
+                current_plan["analysis_complete"] = json_result["analysis_complete"]
+                    
                 # Ensure reasoning is present
                 if "reasoning" not in json_result:
                     json_result["reasoning"] = ""
@@ -704,4 +705,5 @@ class Planner:
             "completion_tokens": completion_tokens,
             "total_tokens": prompt_tokens + completion_tokens
         }
+
         yield final_plan

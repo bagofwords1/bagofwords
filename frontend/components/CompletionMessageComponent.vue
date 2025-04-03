@@ -26,10 +26,14 @@
                 </div>
 
                 <!-- System messages -->
+
                 <div v-if="localCompletion.role == 'system'">
                     <div class="dots" v-if="localCompletion.completion?.content.length == 0"></div>
                 <div v-else>
                     <div class="markdown-wrapper">
+                        <div class="text-xs">
+                            {{ localCompletion.completion?.reasoning }}
+                        </div>
                         <MDC :value="localCompletion.completion?.content" class="markdown-content" />
                     </div>
 
@@ -157,7 +161,8 @@
                     <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
                 </div>
                 <pre v-if="!planCollapsed" class="text-xs">
-                    <div class="text-xs">{{ plan_reasoning }}</div>
+                    <div class="text-xs">Analysis Complete: {{ plan_analysis_complete }}</div>
+                    <div class="text-xs">Reasoning: {{ plan_reasoning }}</div>
                     <div class="text-xs">{{ plan_content.plan }}</div>
                 </pre>
 
@@ -219,6 +224,7 @@ function isSelected(widgetId: string, stepId: string) {
 const plan = ref(null);
 const plan_content = ref(null);
 const plan_reasoning = ref(null);
+const plan_analysis_complete = ref(null);
 
 const localCompletion = computed(() => ({
     ...props.completion,
@@ -283,6 +289,8 @@ const getPlan = async (completionId: string) => {
         plan.value = response.data.value;
         plan_content.value = JSON.parse(response.data.value.content);
         plan_reasoning.value = plan_content.value.reasoning;
+        plan_analysis_complete.value = plan_content.value.analysis_complete;
+
     } catch (error) {
         console.error('Error fetching plan:', error);
         throw error;

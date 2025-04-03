@@ -67,18 +67,18 @@ class ProjectManager:
         await db.refresh(completion)
         return completion
     
-    async def update_message(self, db, completion, message):
+    async def update_message(self, db, completion, message=None, reasoning=None):
         # Handle the case where completion.completion might be a string
         if isinstance(completion.completion, str):
-            completion.completion = {'content': message}
+            completion.completion = {'content': message, 'reasoning': reasoning}
         else:
             # Create a new dictionary to ensure SQLAlchemy detects the change
             completion.completion = {
                 **completion.completion,  # Spread existing completion data
-                'content': message        # Update content
+                'content': message,
+                'reasoning': reasoning
             }
-        
-        # Mark as modified to ensure SQLAlchemy picks up the change
+        #  Mark as modified to ensure SQLAlchemy picks up the change
         db.add(completion)
         await db.commit()
         await db.refresh(completion)
@@ -197,4 +197,11 @@ class ProjectManager:
         await db.commit()
         await db.refresh(plan)
 
+        return plan
+    
+    async def update_plan(self, db, plan, content):
+        plan.content = content
+        db.add(plan)
+        await db.commit()
+        await db.refresh(plan)
         return plan
