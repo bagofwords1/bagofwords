@@ -338,13 +338,13 @@ async function updateCompletion(updated: any) {
     loadCompletions();
     return;
   }
-
   // Update in place
   completions.value[index] = {
     ...completions.value[index],
     completion: {
       ...completions.value[index].completion,
-      content: updated.completion?.content || ''
+      content: updated.completion?.content || '',
+      reasoning: updated.completion?.reasoning || ''
     }
   };
 }
@@ -390,7 +390,7 @@ function connectWebSocket() {
                 newCompletion.value = {
                     id: data.id,
                     role: role.value, 
-                    completion: { content: data.completion.content || "" }
+                    completion: { content: data.completion.content || "", reasoning: data.completion.reasoning || "" }
                 }
                 // if last completion id is prefix system, dont add
                 if (completions.value.length > 0 && completions.value[completions.value.length - 1].id.startsWith("system-") && completions.value[completions.value.length - 1].completion.content.length == 0) {

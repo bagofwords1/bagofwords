@@ -24,76 +24,92 @@
 
                     </div>
                 </div>
-
                 <!-- System messages -->
-
                 <div v-if="localCompletion.role == 'system'">
-                    <div class="dots" v-if="localCompletion.completion?.content.length == 0"></div>
-                <div v-else>
-                    <div class="markdown-wrapper">
-                        <div class="text-xs">
+                    <!-- Show thinking dots when reasoning is empty -->
+                    <div class="dots" v-if="!localCompletion.completion?.reasoning || localCompletion.completion?.reasoning.length == 0"></div>
+                    
+                    <!-- Collapsible reasoning section -->
+                    <div v-if="localCompletion.completion?.reasoning && localCompletion.completion?.reasoning.length > 0">
+                        <div class="flex justify-between items-center cursor-pointer" 
+                             @click="reasoningCollapsed = !reasoningCollapsed">
+                            <div class="font-medium text-sm text-gray-600">
+                                <!-- Always show "Thought Process" when content is available -->
+                                <span v-if="localCompletion.completion?.content && localCompletion.completion?.content.length > 0">
+                                    Thought Process
+                                </span>
+                                <!-- Show "Thinking" when no content is available -->
+                                <span v-else>
+                                    <div class="dots" />
+                                </span>
+                            </div>
+                            <Icon :name="reasoningCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" 
+                                 class="w-4 h-4 text-gray-500" />
+                        </div>
+                        <div v-if="!reasoningCollapsed" class="text-xs mt-2 leading-relaxed text-gray-500">
                             {{ localCompletion.completion?.reasoning }}
                         </div>
+                    </div>
+                    
+                    <!-- Always show content when available -->
+                    <div v-if="localCompletion.completion?.content" class="markdown-wrapper">
                         <MDC :value="localCompletion.completion?.content" class="markdown-content" />
                     </div>
+                    
+                    <div class="text-xs mt-2 w-full" v-if="localCompletion.widget">
+                        <div class="border-2 text-gray-600 bg-white rounded-lg overflow-hidden" :class="{
+                            'border-blue-500': isSelected(localCompletion.widget.id, localCompletion.step?.id),
+                            'border-gray-200': !isSelected(localCompletion.widget.id, localCompletion.step?.id)
+                        }">
+                            <div class="p-2 flex justify-between items-center">
+                                <h3 class="text-md font-bold text-gray-600">
+                                    {{ localCompletion.widget.title }}
+                                    <span v-if="localCompletion.step?.id" class="text-xs font-normal text-gray-400">
+                                        Version: {{ localCompletion.step?.id.split('-')[1] }}
+                                    </span>
+                                </h3>
+                                <button @click="localCompletion.isCollapsed = !localCompletion.isCollapsed"
+                                    class="cursor-pointer text-xs text-gray-400 hover:text-gray-600">
+                                    <Icon
+                                        :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" />
+                                </button>
+                            </div>
+                            <hr />
+                            <div v-if="!localCompletion.isCollapsed">
+                                <WidgetTabsComponent :widget="localCompletion.widget"
+                                    :step="localCompletion.step" />
 
-
-
-                        <div class="text-xs mt-2 w-full" v-if="localCompletion.widget">
-                            <div class="border-2 text-gray-600 bg-white rounded-lg overflow-hidden" :class="{
-                                'border-blue-500': isSelected(localCompletion.widget.id, localCompletion.step?.id),
-                                'border-gray-200': !isSelected(localCompletion.widget.id, localCompletion.step?.id)
-                            }">
-                                <div class="p-2 flex justify-between items-center">
-                                    <h3 class="text-md font-bold text-gray-600">
-                                        {{ localCompletion.widget.title }}
-                                        <span v-if="localCompletion.step?.id" class="text-xs font-normal text-gray-400">
-                                            Version: {{ localCompletion.step?.id.split('-')[1] }}
-                                        </span>
-                                    </h3>
-                                    <button @click="localCompletion.isCollapsed = !localCompletion.isCollapsed"
-                                        class="cursor-pointer text-xs text-gray-400 hover:text-gray-600">
-                                        <Icon
-                                            :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" />
+                                <div class="pr-2 pl-2 mt-1.5 pb-1.5 flex justify-between items-center">
+                                    <button @click="handleAddClick(localCompletion)"
+                                        class="text-xs rounded text-blue-800 hover:text-blue-400"
+                                        v-if="localCompletion.step?.status == 'success'">
+                                        <Icon name="heroicons-play" />
+                                        Add
                                     </button>
-                                </div>
-                                <hr />
-                                <div v-if="!localCompletion.isCollapsed">
-                                    <WidgetTabsComponent :widget="localCompletion.widget"
-                                        :step="localCompletion.step" />
-
-                                    <div class="pr-2 pl-2 mt-1.5 pb-1.5 flex justify-between items-center">
-                                        <button @click="handleAddClick(localCompletion)"
-                                            class="text-xs rounded text-blue-800 hover:text-blue-400"
-                                            v-if="localCompletion.step?.status == 'success'">
-                                            <Icon name="heroicons-play" />
-                                            Add
+                                    <button v-else-if="localCompletion.step?.status == 'error'" class="text-xs rounded text-blue-800">
+                                        <Icon name="heroicons-x-mark"
+                                            class="w-3 h-3 inline-block" />
+                                        {{  localCompletion.step?.status }}
+                                    </button>
+                                    <button v-else class="text-xs rounded text-blue-800">
+                                        <Icon name="heroicons-arrow-path"
+                                            class="w-3 h-3 animate-spin inline-block" />
+                                        Generating
+                                    </button>
+                                    <div>
+                                        <button class="mr-1.5 text-xs"
+                                            @click="selectWidget(localCompletion.widget.id, localCompletion.step?.id, localCompletion.widget.title)">
+                                            <Icon name="heroicons-arrow-turn-down-right" />
+                                            Follow up
+                                            <span
+                                                v-if="isSelected(localCompletion.widget.id, localCompletion.step?.id)">
+                                                (selected)
+                                            </span>
                                         </button>
-                                        <button v-else-if="localCompletion.step?.status == 'error'" class="text-xs rounded text-blue-800">
-                                            <Icon name="heroicons-x-mark"
-                                                class="w-3 h-3 inline-block" />
-                                            {{  localCompletion.step?.status }}
+                                        <button @click="openSaveMemoryPopup(localCompletion)" class="text-xs">
+                                            <Icon name="heroicons-bookmark" />
+                                            Save
                                         </button>
-                                        <button v-else class="text-xs rounded text-blue-800">
-                                            <Icon name="heroicons-arrow-path"
-                                                class="w-3 h-3 animate-spin inline-block" />
-                                            Generating
-                                        </button>
-                                        <div>
-                                            <button class="mr-1.5 text-xs"
-                                                @click="selectWidget(localCompletion.widget.id, localCompletion.step?.id, localCompletion.widget.title)">
-                                                <Icon name="heroicons-arrow-turn-down-right" />
-                                                Follow up
-                                                <span
-                                                    v-if="isSelected(localCompletion.widget.id, localCompletion.step?.id)">
-                                                    (selected)
-                                                </span>
-                                            </button>
-                                            <button @click="openSaveMemoryPopup(localCompletion)" class="text-xs">
-                                                <Icon name="heroicons-bookmark" />
-                                                Save
-                                            </button>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -195,7 +211,7 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { useCan } from '~/composables/usePermissions';
 
 const props = defineProps<{
@@ -234,6 +250,18 @@ const showSaveMemoryPopup = ref(false);
 const memoryTitle = ref('');
 const memoryDescription = ref('');
 
+const reasoningCollapsed = ref(false);
+
+// Add this with your other watchers
+watch(() => localCompletion.value?.completion?.content, (newContent) => {
+    // Collapse reasoning when content becomes available
+    if (newContent && newContent.length > 0) {
+        reasoningCollapsed.value = true;
+    } else {
+        reasoningCollapsed.value = false;
+    }
+}, { immediate: true });
+
 const openSaveMemoryPopup = (completion: any) => {
     showSaveMemoryPopup.value = true;
     memoryTitle.value = completion.widget?.title || '';
@@ -251,6 +279,7 @@ const planLoading = ref(false);
 const promptCollapsed = ref(false);
 const planCollapsed = ref(false);
 const tokensCollapsed = ref(false);
+
 
 const togglePromptCollapsed = () => {
     promptCollapsed.value = !promptCollapsed.value;
@@ -362,6 +391,13 @@ watch(() => localCompletion.value?.step?.data_model?.type, (newType) => {
     if (newType === 'pie_chart' || newType === 'line_chart' || newType === 'bar_chart' || newType === 'count') {
         activeTab.value = 'visual';
     }
+}, { immediate: true });
+
+// Initialize reasoningCollapsed based on content availability
+watch(() => localCompletion.value?.completion?.content, (newContent) => {
+    // When content is available (not empty), collapse the reasoning
+    // When content is empty, keep reasoning open
+    reasoningCollapsed.value = !!(newContent && newContent.length > 0);
 }, { immediate: true });
 
 </script>

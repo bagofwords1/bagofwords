@@ -103,7 +103,8 @@ class Agent:
             observation_data = None
             analysis_complete = False
             system_completion_used = False  # Flag to track if we've used system_completion
-            first_reasoning_captured = False  # Flag to track if we've captured the first reasoning
+            first_reasoning_captured = ""
+            analysis_step = 0
             
             # ReAct loop: Plan → Execute → Observe → Plan? 
             while not analysis_complete:
@@ -123,11 +124,9 @@ class Agent:
                 async for json_result in plan_generator:
                     if not json_result:
                         continue
-                    
                     # Update reasoning only on first iteration
-                    if 'reasoning' in json_result and self.system_completion and not first_reasoning_captured:
+                    if 'reasoning' in json_result and self.system_completion and first_reasoning_captured != json_result['reasoning'] and analysis_step == 0:
                         # Keep existing content but update reasoning
-                        print(json_result['reasoning']  )
                         existing_content = self.system_completion.completion.get('content')
                         await self.project_manager.update_message(
                             self.db,
@@ -135,7 +134,7 @@ class Agent:
                             message=existing_content,  # Preserve existing content
                             reasoning=json_result['reasoning']  # Update reasoning
                         )
-                        first_reasoning_captured = True  # Mark reasoning as captured
+                        first_reasoning_captured = json_result['reasoning']  # Mark reasoning as captured
                     
                     if 'plan' not in json_result or not isinstance(json_result['plan'], list):
                         continue
@@ -166,7 +165,7 @@ class Agent:
                             continue
                         
                         # Use system_completion only on first pass
-                        if i == 0 and self.system_completion and not system_completion_used and not action_results[action_id]['prefix_completion']:
+                        if analysis_step == 0 and self.system_completion and not system_completion_used and not action_results[action_id]['prefix_completion']:
                             # Update existing system completion with action prefix
                             if action.get('prefix') is not None:
                                 current_reasoning = self.system_completion.completion.get('reasoning')

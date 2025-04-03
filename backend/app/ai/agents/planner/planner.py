@@ -252,7 +252,7 @@ class Planner:
 
         2. **When Generating a Plan**:
            - Begin your JSON output with the "analysis_complete" field to indicate whether the observation is finished and analysis complete, and no more actions are needed.
-           - Provide a "reasoning" key that explains the thinking and the plan before execution.
+           - Provide a "reasoning" key that explains the thinking and the plan before execution. make it 100 words.
            - Provide each action as a JSON object inside a "plan" array.
            - Each action must have:
              - "action": One of the defined actions.
@@ -482,12 +482,15 @@ class Planner:
         current_plan = {"reasoning": "", "analysis_complete": False, "plan": [], "text": text}  # Initialize empty plan structure
 
         async for chunk in self.llm.inference_stream(text):
-            
             buffer += chunk
             full_result += chunk
             completion_tokens += self.count_tokens(chunk)
             try:
                 json_result = parser.parse(full_result)
+
+                if "reasoning" in json_result and current_plan["reasoning"] != json_result["reasoning"]:
+                    current_plan["reasoning"] = json_result["reasoning"]
+                    yield current_plan
 
                 # Skip iteration if parsing failed or plan is missing
                 if not json_result or not isinstance(json_result, dict) or "plan" not in json_result:
@@ -499,11 +502,7 @@ class Planner:
 
                 current_plan["analysis_complete"] = json_result["analysis_complete"]
                     
-                # Ensure reasoning is present
-                if "reasoning" not in json_result:
-                    json_result["reasoning"] = ""
 
-                current_plan["reasoning"] = json_result["reasoning"]
 
                 # Process each action using its index
                 for action_index, action_item in enumerate(json_result["plan"]):
