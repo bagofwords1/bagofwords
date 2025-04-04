@@ -480,90 +480,124 @@ class Agent:
             plan_json = { "reasoning": current_plan['reasoning'], "analysis_complete": current_plan['analysis_complete'], "plan": current_plan['plan'] , "streaming_complete": current_plan['streaming_complete'], "text": current_plan['text'], "token_usage": current_plan['token_usage']}
             plan_json = json.dumps(plan_json)
             plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)  # Use head_completion instead of undefined 'completion'
+
             logger.info("Main execution completed")
             return action_results
         
         except Exception as e:
-            breakpoint()
             error = await self.project_manager.create_error_completion(self.db, self.head_completion, str(e))
             print(f"Error in main_execution: {e}")
             raise e
 
 
     async def _handle_generate_widget_data(self, prompt, action, widget, step):
-        # First condition - save data model as soon as it's available
-        if action['details'].get('data_model') and action['details']['data_model'].get('columns'):
-            data_model = action['details']['data_model']
-
-            step.data_model = data_model
-            self.db.add(step)
-            await self.db.commit()
-            await self.db.refresh(step)
+        try:
+            # Initialize data_model at the start
+            data_model = None
             
-        # Check if data model is complete before starting code generation
-        if not action.get('action_end', False):
-            return False
+            # First condition - save data model as soon as it's available
+            if action['details'].get('data_model') and action['details']['data_model'].get('columns'):
+                data_model = action['details']['data_model']
+                step.data_model = data_model
+                self.db.add(step)
+                await self.db.commit()
+                await self.db.refresh(step)
+                
+            # Check if data model is complete before starting code generation
+            if not action.get('action_end', False):
+                return False
 
-        # Prepare context for code generation
-        schemas = await self._build_schemas_context()
-        memories = await self._build_memories_context()
-        previous_messages = await self._build_messages_context()
-
-        # Setup validator function if enabled
-        validator_fn = None
-        if self.organization_settings.get_config("validator").value:
-            validator_fn = self.coder.validate_code
-        
-        # Execute the full process: generate -> validate -> execute with retries
-        df, final_code, code_and_error_messages = await self.code_execution_manager.generate_and_execute_with_retries(
-            data_model=data_model,
-            code_generator_fn=self.coder.data_model_to_code,
-            validator_fn=validator_fn,
-            max_retries=3,
-            db_clients=self.clients,
-            excel_files=self.files,
-            prompt=prompt,
-            schemas=schemas,
-            ds_clients=self.clients,
-            memories=memories,
-            previous_messages=previous_messages,
-            prev_data_model_code_pair=None
-        )
-
-        await self.project_manager.update_step_with_code(self.db, step, final_code)
-        
-        # Handle validation and execution messages
-        for code, error_msg in code_and_error_messages:
-            if "Validation failed" in error_msg:
+            # Ensure we have a data model before proceeding
+            if not data_model:
+                await self.project_manager.update_step_status(self.db, step, "error")
                 await self.project_manager.create_message(
                     report=self.report,
                     db=self.db,
-                    message=error_msg,
+                    message="Failed to generate data model",
                     completion=self.head_completion,
                     widget=self.widget,
                     role="ai_agent"
                 )
-        
-        # Handle the final outcome
-        if df.empty and code_and_error_messages:
+                return False  # Return False to continue the loop
+
+            # Prepare context for code generation
+            schemas = await self._build_schemas_context()
+            memories = await self._build_memories_context()
+            previous_messages = await self._build_messages_context()
+
+            # Setup validator function if enabled
+            validator_fn = None
+            if self.organization_settings.get_config("validator").value:
+                validator_fn = self.coder.validate_code
+            
+            # Execute the full process: generate -> validate -> execute with retries
+            df, final_code, code_and_error_messages = await self.code_execution_manager.generate_and_execute_with_retries(
+                data_model=data_model,
+                code_generator_fn=self.coder.data_model_to_code,
+                validator_fn=validator_fn,
+                max_retries=3,
+                db_clients=self.clients,
+                excel_files=self.files,
+                prompt=prompt,
+                schemas=schemas,
+                ds_clients=self.clients,
+                memories=memories,
+                previous_messages=previous_messages,
+                prev_data_model_code_pair=None
+            )
+
+            await self.project_manager.update_step_with_code(self.db, step, final_code)
+            
+            # Handle validation and execution messages
+            for code, error_msg in code_and_error_messages:
+                if "Validation failed" in error_msg:
+                    await self.project_manager.create_message(
+                        report=self.report,
+                        db=self.db,
+                        message=error_msg,
+                        completion=self.head_completion,
+                        widget=self.widget,
+                        role="ai_agent"
+                    )
+            
+            # Handle the final outcome
+            if df.empty and code_and_error_messages:
+                await self.project_manager.update_step_status(self.db, step, "error")
+                await self.project_manager.create_message(
+                    report=self.report,
+                    db=self.db,
+                    message="I faced some issues while generating data. Can you try explaining again?",
+                    completion=self.head_completion,
+                    widget=self.widget,
+                    role="ai_agent"
+                )
+            else:
+                await self.project_manager.update_step_status(self.db, step, "success")
+            
+            # Format data and update step
+            widget_data = self.code_execution_manager.format_df_for_widget(df)
+            
+            await self.project_manager.update_step_with_data(self.db, step, widget_data)
+            
+            return True
+
+        except Exception as e:
+            # Log the error
+            print(f"Error in _handle_generate_widget_data: {e}")
+            
+            # Update step status and create error message
             await self.project_manager.update_step_status(self.db, step, "error")
             await self.project_manager.create_message(
                 report=self.report,
                 db=self.db,
-                message="I faced some issues while generating data. Can you try explaining again?",
+                message=f"An error occurred while generating data: {str(e)}",
                 completion=self.head_completion,
                 widget=self.widget,
                 role="ai_agent"
             )
-        else:
-            await self.project_manager.update_step_status(self.db, step, "success")
-        
-        # Format data and update step
-        widget_data = self.code_execution_manager.format_df_for_widget(df)
-        
-        await self.project_manager.update_step_with_data(self.db, step, widget_data)
-        
-        return True
+            
+            # Return False to continue the loop
+            return False
 
     async def _handle_modify_widget(self, prompt, widget, action):
         # Similar approach as _handle_generate_widget_data

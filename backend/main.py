@@ -18,6 +18,7 @@ if args.config:
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
+from fastapi.openapi.utils import get_openapi
 
 from app.core.auth import get_user_manager, auth_backend, create_fastapi_users, SECRET
 from app.dependencies import get_async_session
@@ -76,7 +77,8 @@ app = FastAPI(
         {"name": "llm", "description": "LLM and their providers settings"},
         {"name": "memories", "description": "Memory management"},
         {"name": "git", "description": "Git repository and data source integration"},
-    ]
+    ],
+    swagger_ui_oauth2_redirect_url="/api/auth/jwt/login"
 )
 
 init_cors(app)
@@ -154,6 +156,66 @@ app.include_router(memory.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
+
+# Remove the direct assignment of app.openapi_schema and replace with this function
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=settings.PROJECT_NAME,
+        version=settings.PROJECT_VERSION,
+        description="Bag of Words API",
+        routes=app.routes,
+    )
+
+    # Add security schemes
+    openapi_schema["components"]["securitySchemes"] = {
+        "OAuth2PasswordBearer": {
+            "type": "oauth2",
+            "flows": {
+                "password": {
+                    "tokenUrl": "/api/auth/jwt/login",
+                    "scopes": {}
+                }
+            }
+        },
+        "OrganizationHeader": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Organization-ID",
+            "description": "Organization ID header"
+        }
+    }
+
+    # Add global security requirements
+    openapi_schema["security"] = [
+        {
+            "OAuth2PasswordBearer": [],
+            "OrganizationHeader": []
+        }
+    ]
+
+    # Add global parameters
+    if "parameters" not in openapi_schema["components"]:
+        openapi_schema["components"]["parameters"] = {}
+    
+    openapi_schema["components"]["parameters"]["OrganizationHeader"] = {
+        "name": "X-Organization-ID",
+        "in": "header",
+        "required": True,
+        "schema": {
+            "type": "string",
+            "format": "uuid"
+        },
+        "description": "Organization ID header"
+    }
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+# Assign the custom function to app.openapi
+app.openapi = custom_openapi
 
 @app.on_event("startup")
 async def startup_event():

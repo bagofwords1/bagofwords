@@ -42,7 +42,16 @@ class CompletionService:
         self.memory_service = MemoryService()
         self.mention_service = MentionService()
 
-    async def create_completion(self, db: AsyncSession, report_id: str, completion_data: CompletionCreate, current_user: User, organization: Organization, background_tasks: BackgroundTasks):
+    async def create_completion(
+        self, 
+        db: AsyncSession, 
+        report_id: str, 
+        completion_data: CompletionCreate, 
+        current_user: User, 
+        organization: Organization, 
+        background_tasks: BackgroundTasks,
+        background: bool = True
+    ):
         try:
             print("CompletionService: Starting create_completion")
 
@@ -116,14 +125,18 @@ class CompletionService:
                           report=report, messages=[], head_completion=completion, 
                           system_completion=system_completion, widget=widget, step=step)
             
-            background_tasks.add_task(agent.main_execution)
-            return None
+            if background:
+                background_tasks.add_task(agent.main_execution)
+                return None
+            else:
+                # Execute synchronously and return the result
+                await agent.main_execution()
+                return system_completion
 
         except Exception as e:
             logging.error(f"Error in create_completion: {str(e)}")
             error_completion = await self._create_error_completion(db, completion, str(e))
-
-        return None
+            return None
 
 
 

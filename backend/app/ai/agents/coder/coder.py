@@ -76,7 +76,8 @@ class Coder:
         You are a highly skilled data engineer and data scientist.
 
         Your goal: Given a data model and context, generate a Python function named `generate_df(ds_clients, excel_files)`
-        that produces a Pandas DataFrame according to the data model specifications.
+        that produces a Pandas DataFrame according to the data model specifications only.
+        Use the previous messages to understand the user's intent/context and the data model to generate the correct dataframe.
 
         **Context and Inputs**:
         - Data Model (newly generated):
@@ -142,6 +143,7 @@ class Coder:
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
+             * Print the dict/df preview to help the LLM ensure indices and positions are correct.
            - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Preview:", {data_preview_instruction})
            - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
 
@@ -175,10 +177,11 @@ class Coder:
         
         8. **End of code**:
            - At the end of the function, before returning the df — print the df preview last time using: print("Final df Preview:", {data_preview_instruction})
+           - Return the df as the final output. Make sure the df name is the right one and reflects the main dataframe.
 
         **Approach**:
         - Start from scratch or modify the existing code if `prev_data_model_code_pair` is provided.
-        - Integrate data from `ds_clients` and `excel_files` as needed.
+        - Integrate data from `ds_clients` and `excel_files` as needed. Print the dict/df preview to help the LLM ensure indices and positions are correct.
         - Carefully build queries.
         - Test logic in your mind to avoid errors.
         - If error hints are provided (from previous retries), address them directly.

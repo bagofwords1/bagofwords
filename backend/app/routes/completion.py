@@ -26,13 +26,24 @@ completion_service = CompletionService()
 
 @router.post("/api/reports/{report_id}/completions")
 @requires_permission('create_reports')
-async def create_completion(report_id: str, 
-                             completion: CompletionCreate, 
-                             background_tasks: BackgroundTasks,
-                             current_user: User = Depends(current_user),
-                             organization: Organization = Depends(get_current_organization),
-                             db: AsyncSession = Depends(get_async_db)):
-    return await completion_service.create_completion(db, report_id, completion, current_user, organization, background_tasks)
+async def create_completion(
+    report_id: str, 
+    completion: CompletionCreate, 
+    background_tasks: BackgroundTasks,
+    background: bool = True,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    return await completion_service.create_completion(
+        db, 
+        report_id, 
+        completion, 
+        current_user, 
+        organization, 
+        background_tasks,
+        background=background
+    )
 
 @router.get("/api/reports/{report_id}/completions")
 @requires_permission('view_reports', model=Report)
