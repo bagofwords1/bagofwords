@@ -38,13 +38,14 @@ class Agent:
     def __init__(self, db=None, organization_settings=None, report=None, model=None, head_completion=None, system_completion=None, widget=None, step=None, messages=[], main_router="table"):
 
         self.llm = LLM(model=model)
-        self.organization_settings = organization_settings.config
+        self.organization_settings = organization_settings
+        breakpoint()
 
-        self.planner = Planner(model=model, organization_settings=organization_settings.config)
-        self.answer = Answer(model=model, organization_settings=organization_settings.config)
+        self.planner = Planner(model=model, organization_settings=self.organization_settings)
+        self.answer = Answer(model=model, organization_settings=self.organization_settings)
         self.dashboard_designer = DashboardDesigner(model=model)
         self.project_manager = ProjectManager()
-        self.coder = Coder(model=model, organization_settings=organization_settings.config)
+        self.coder = Coder(model=model, organization_settings=self.organization_settings)
         self.reporter = Reporter(model=model)
 
         if db:
@@ -108,7 +109,7 @@ class Agent:
             analysis_step = 0
             
             # ReAct loop: Plan → Execute → Observe → Plan? 
-            while not analysis_complete or analysis_step < self.organization_settings.config.limit_analysis_steps.value:
+            while not analysis_complete or analysis_step < self.organization_settings.get_config("limit_analysis_steps").value:
                 # 1. PLAN: Get actions from planner
                 plan_generator = self.planner.execute(
                     schemas, 
@@ -478,17 +479,17 @@ class Agent:
                 title = await self.reporter.generate_report_title(previous_messages, current_plan['plan'])
                 await self.project_manager.update_report_title(self.db, self.report, title)
 
-            # Return all results at once
+        except Exception as e:
+            error = await self.project_manager.create_error_completion(self.db, self.head_completion, str(e))
+            print(f"Error in main_execution: {e}")
+            raise e
+
+        finally:
             plan_json = { "reasoning": current_plan['reasoning'], "analysis_complete": current_plan['analysis_complete'], "plan": current_plan['plan'] , "streaming_complete": current_plan['streaming_complete'], "text": current_plan['text'], "token_usage": current_plan['token_usage']}
             plan_json = json.dumps(plan_json)
             plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)  # Use head_completion instead of undefined 'completion'
             logger.info("Main execution completed")
             return action_results
-
-        except Exception as e:
-            error = await self.project_manager.create_error_completion(self.db, self.head_completion, str(e))
-            print(f"Error in main_execution: {e}")
-            raise e
 
     async def _handle_generate_widget_data(self, prompt, action, widget, step):
         # First condition - save data model as soon as it's available

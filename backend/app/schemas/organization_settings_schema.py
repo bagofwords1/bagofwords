@@ -2,14 +2,71 @@ from pydantic import BaseModel, validator, Field
 from typing import Dict, Any, Optional, Union, List
 import json
 from datetime import datetime
+from enum import Enum
+
+class FeatureState(str, Enum):
+    """Explicit states for features"""
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+    LOCKED = "locked"
 
 class FeatureConfig(BaseModel):
-    enabled: bool = True
+    enabled: bool = True  # Keep for backward compatibility
     value: Optional[Any] = None
     name: str
     description: str
     is_lab: bool = False
     editable: bool = True
+    state: FeatureState = FeatureState.ENABLED
+
+    @validator('state', pre=True)
+    def set_state_from_enabled(cls, v, values):
+        """Set state based on enabled field if state is not provided"""
+        if v is None and 'enabled' in values:
+            return FeatureState.ENABLED if values['enabled'] else FeatureState.DISABLED
+        return v
+
+    @validator('enabled', pre=True)
+    def set_enabled_from_state(cls, v, values):
+        """Set enabled based on state if enabled is not provided"""
+        if v is None and 'state' in values:
+            return values['state'] == FeatureState.ENABLED
+        return v
+
+    def dict(self, *args, **kwargs) -> Dict[str, Any]:
+        """Ensure both state and enabled are included in dict output"""
+        d = super().dict(*args, **kwargs)
+        d['enabled'] = self.enabled  # Ensure enabled is always set based on state
+        return d
+
+    class Config:
+        validate_assignment = True
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FeatureConfig":
+        """Create a FeatureConfig from a dictionary, with proper defaults."""
+        return cls(**data)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return self.model_dump()
+
+    def merge(self, other: Union[Dict[str, Any], "FeatureConfig"]) -> "FeatureConfig":
+        """Merge with another FeatureConfig or dict, preserving existing values."""
+        if isinstance(other, dict):
+            other_dict = other
+        else:
+            other_dict = other.to_dict()
+        
+        current = self.to_dict()
+        current.update(other_dict)
+        return FeatureConfig(**current)
+
+    @validator('value')
+    def validate_value(cls, v, values):
+        """Validate that value is appropriate for the feature."""
+        # Add any specific validation rules here
+        return v
 
 class OrganizationSettingsConfig(BaseModel):
     allow_llm_see_data: FeatureConfig = FeatureConfig(enabled=False, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)

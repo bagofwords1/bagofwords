@@ -24,6 +24,7 @@ class CodeExecutionManager:
             head_completion: Parent completion object
             widget: Current widget object
             step: Current step object
+            organization_settings: Organization settings (dict)
         """
         self.logger = logger
         

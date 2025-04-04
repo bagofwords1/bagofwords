@@ -27,7 +27,7 @@
                 <!-- System messages -->
                 <div v-if="localCompletion.role == 'system'">
                     <!-- Show thinking dots when reasoning is empty -->
-                    <div v-if="!localCompletion.completion?.reasoning || localCompletion.completion?.reasoning.length == 0">
+                    <div v-if="(!localCompletion.completion?.reasoning || localCompletion.completion?.reasoning.length == 0) && !localCompletion.completion?.content">
                         <div class="simple-dots"></div>
                     </div>
                     <!-- Collapsible reasoning section -->

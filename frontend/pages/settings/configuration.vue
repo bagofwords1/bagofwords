@@ -19,7 +19,7 @@
         <!-- Configuration content -->
         <div v-if="!loading && !error" class="space-y-5">
             <!-- General Features -->
-            <div v-for="(feature, key) in configFeatures" :key="key" class="flex flex-col md:w-2/3  ">
+            <div v-for="(feature, key) in configFeatures" :key="key" class="flex flex-col md:w-2/3">
                 <div class="flex items-center justify-between">
                     <div class="font-medium flex items-center">
                         {{ feature.name }}
@@ -27,8 +27,11 @@
                             <Icon name="heroicons:beaker" class="ml-2 w-4 h-4" />
                         </UTooltip>
                     </div>
-                    <UToggle v-model="feature.enabled" :disabled="!feature.editable"
-                        @change="updateFeature(key)" />
+                    <UToggle 
+                        v-model="feature.enabled" 
+                        :disabled="!feature.editable"
+                        @change="updateFeature(key, feature)" 
+                    />
                 </div>
                 <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
             </div>
@@ -59,12 +62,14 @@ const fetchSettings = async () => {
             allow_file_upload: data.config.allow_file_upload,
             allow_code_editing: data.config.allow_code_editing
         }
+
     } catch (err) {
         error.value = err.message || 'An error occurred while fetching settings'
         toast.add({
             title: 'Error',
             description: error.value,
-            color: 'danger'
+            color: 'red',
+            timeout: 5000
         })
     } finally {
         loading.value = false
@@ -72,7 +77,7 @@ const fetchSettings = async () => {
 }
 
 // Update feature setting
-const updateFeature = async (featureKey) => {
+const updateFeature = async (featureKey: string, feature: any) => {
     try {
         const payload = { config: {} }
         payload.config[featureKey] = {
@@ -88,17 +93,32 @@ const updateFeature = async (featureKey) => {
         })
 
         if (response.status.value !== 'success') throw new Error('Failed to update settings')
+        
+        // Show success toast
+        toast.add({
+            title: 'Success',
+            description: `${feature.name} has been ${feature.enabled ? 'enabled' : 'disabled'}`,
+            color: 'green',
+            timeout: 3000
+        })
     } catch (err) {
-        error.value = err.message || 'An error occurred while updating settings'
         // Revert the toggle if there was an error
         configFeatures.value[featureKey].enabled = !configFeatures.value[featureKey].enabled
+        
+        // Show error toast
+        error.value = err.message || 'An error occurred while updating settings'
+        toast.add({
+            title: 'Error',
+            description: error.value,
+            color: 'red',
+            timeout: 5000,
+            icon: 'i-heroicons-exclamation-circle'
+        })
     }
 }
 
 // Fetch settings when the component is mounted
-onMounted(
-    async () => {
-        await fetchSettings()
-    }
-)
+onMounted(async () => {
+    await fetchSettings()
+})
 </script> 

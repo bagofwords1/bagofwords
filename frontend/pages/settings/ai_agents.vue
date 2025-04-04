@@ -27,8 +27,11 @@
                             <Icon name="heroicons:beaker" class="ml-2 w-4 h-4" />
                         </UTooltip>
                     </div>
-                    <UToggle v-model="feature.enabled" :disabled="!feature.editable"
-                        @change="updateFeature(key)" />
+                    <UToggle 
+                        v-model="feature.enabled" 
+                        :disabled="!feature.editable"
+                        @change="updateFeature(key, feature)" 
+                    />
                 </div>
                 <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
             </div>
@@ -39,9 +42,17 @@
 <script setup lang="ts">
 definePageMeta({ auth: true, permissions: ['modify_settings'], layout: 'settings' })
 
+interface AIFeature {
+    name: string
+    description: string
+    enabled: boolean
+    editable: boolean
+    is_lab: boolean
+}
+
 const loading = ref(true)
 const error = ref('')
-const aiFeatures = ref({})
+const aiFeatures = ref<Record<string, AIFeature>>({})
 
 const toast = useToast()
 
@@ -61,7 +72,9 @@ const fetchSettings = async () => {
         toast.add({
             title: 'Error',
             description: error.value,
-            color: 'danger'
+            color: 'red',
+            timeout: 5000,
+            icon: 'i-heroicons-exclamation-circle'
         })
     } finally {
         loading.value = false
@@ -69,7 +82,7 @@ const fetchSettings = async () => {
 }
 
 // Update feature setting
-const updateFeature = async (featureKey) => {
+const updateFeature = async (featureKey: string, feature: AIFeature) => {
     try {
         const payload = { config: {} }
         payload.config.ai_features = {
@@ -87,17 +100,32 @@ const updateFeature = async (featureKey) => {
         })
 
         if (response.status.value !== 'success') throw new Error('Failed to update settings')
+
+        // Show success toast
+        toast.add({
+            title: 'Success',
+            description: `${feature.name} has been ${feature.enabled ? 'enabled' : 'disabled'}`,
+            color: 'green',
+            timeout: 3000
+        })
     } catch (err) {
-        error.value = err.message || 'An error occurred while updating settings'
         // Revert the toggle if there was an error
         aiFeatures.value[featureKey].enabled = !aiFeatures.value[featureKey].enabled
+        
+        // Show error toast
+        error.value = err.message || 'An error occurred while updating settings'
+        toast.add({
+            title: 'Error',
+            description: error.value,
+            color: 'red',
+            timeout: 5000,
+            icon: 'i-heroicons-exclamation-circle'
+        })
     }
 }
 
 // Fetch settings when the component is mounted
-onMounted(
-    async () => {
-        await fetchSettings()
-    }
-)
+onMounted(async () => {
+    await fetchSettings()
+})
 </script> 
