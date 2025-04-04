@@ -421,17 +421,14 @@ class Agent:
                                 )
                                 action_results[action_id]['prefix_completion'] = self.system_completion
                             elif action_results[action_id]['prefix_completion'] is None:
-                                if self.system_completion:
-                                    completion = self.system_completion
-                                else:
-                                    completion = await self.project_manager.create_message(
-                                        report=self.report,
-                                        db=self.db,
-                                        message=action['prefix'],
-                                        completion=self.head_completion,
-                                        widget=self.widget,
-                                        role="system"
-                                )
+                                completion = await self.project_manager.create_message(
+                                    report=self.report,
+                                    db=self.db,
+                                    message=action['prefix'],
+                                    completion=self.head_completion,
+                                    widget=self.widget,
+                                    role="system"
+                            )
                                 
                                 action_results[action_id]['prefix_completion'] = completion
                             elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
@@ -532,6 +529,8 @@ class Agent:
             previous_messages=previous_messages,
             prev_data_model_code_pair=None
         )
+
+        await self.project_manager.update_step_with_code(self.db, step, final_code)
         
         # Handle validation and execution messages
         for code, error_msg in code_and_error_messages:
@@ -561,7 +560,7 @@ class Agent:
         
         # Format data and update step
         widget_data = self.code_execution_manager.format_df_for_widget(df)
-        await self.project_manager.update_step_with_code(self.db, step, final_code)
+        
         await self.project_manager.update_step_with_data(self.db, step, widget_data)
         
         return True

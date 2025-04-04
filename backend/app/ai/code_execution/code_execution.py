@@ -89,7 +89,7 @@ class CodeExecutionManager:
                     excel_files=excel_files,
                     **generator_kwargs
                 )
-                
+
                 # Validate if enabled
                 if validator_fn:
                     validation_result = await validator_fn(code, data_model)
@@ -336,7 +336,7 @@ class CodeExecutionManager:
             if self.logger:
                 self.logger.error("No step provided for execute_and_update_step")
             return False
-            
+        
         df, final_code, code_and_error_messages = await self.generate_and_execute_with_retries(
             data_model=data_model,
             code_generator_fn=code_generator_fn,
