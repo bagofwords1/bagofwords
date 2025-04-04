@@ -39,7 +39,7 @@ const sendFeedback = async (completionId: string, vote: number) => {
     const toast = useToast();
     toast.add({
       title: 'Success',
-      description: vote > 0 ? 'Thanks for the positive feedback!' : 'Thanks for your feedback',
+      description: vote > 0 ? 'Successfully upvoted AI response' : 'Successfully downvoted AI response',
       color: 'green',
       timeout: 3000
     });
