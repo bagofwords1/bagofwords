@@ -6,13 +6,14 @@ import datetime
 import uuid
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
+from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 
 class CodeExecutionManager:
     """
     Manages the entire code generation, validation, and execution process with retries.
     """
     
-    def __init__(self, logger=None, project_manager=None, db=None, report=None, head_completion=None, widget=None, step=None, organization_settings=None):
+    def __init__(self, logger=None, project_manager=None, db=None, report=None, head_completion=None, widget=None, step=None, organization_settings: OrganizationSettingsConfig = None):
         """
         Initialize the CodeExecutionManager with all required dependencies.
         
@@ -345,7 +346,7 @@ class CodeExecutionManager:
             db_clients=db_clients,
             excel_files=excel_files,
             step=current_step,
-            max_retries=self.organization_settings.get("limit_code_retries", {}).get("value", 3),
+            max_retries=self.organization_settings.get_config("limit_code_retries").value,
             **generator_kwargs
         )
         

@@ -1,13 +1,14 @@
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
+from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 
 class Answer:
 
-    def __init__(self, model: LLMModel, organization_settings: dict) -> None:
+    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
-        self.code_reviewer = organization_settings.get("ai_features", {}).get("code_reviewer", {}).get("enabled", True)
-        self.search_context = organization_settings.get("ai_features", {}).get("search_context", {}).get("enabled", True)
+        self.code_reviewer = organization_settings.get_config("code_reviewer").value
+        self.search_context = organization_settings.get_config("search_context").value
 
     async def execute(self, schemas, prompt, widget, memories, previous_messages):
         text = f"""

@@ -3,12 +3,13 @@ from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 import re
 import json
+from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 
 class Coder:
-    def __init__(self, model: LLMModel, organization_settings: dict) -> None:
+    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
-        self.enable_llm_see_data = organization_settings.get("allow_llm_see_data", {}).get("enabled", True)
+        self.enable_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages):
         # Implementation left out as not requested.

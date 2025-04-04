@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 from functools import wraps
 import re
-from partialjson.json_parser import JSONParser
 import uuid
 import io
 import sys
@@ -39,7 +38,6 @@ class Agent:
 
         self.llm = LLM(model=model)
         self.organization_settings = organization_settings
-        breakpoint()
 
         self.planner = Planner(model=model, organization_settings=self.organization_settings)
         self.answer = Answer(model=model, organization_settings=self.organization_settings)
@@ -479,17 +477,18 @@ class Agent:
                 title = await self.reporter.generate_report_title(previous_messages, current_plan['plan'])
                 await self.project_manager.update_report_title(self.db, self.report, title)
 
-        except Exception as e:
-            error = await self.project_manager.create_error_completion(self.db, self.head_completion, str(e))
-            print(f"Error in main_execution: {e}")
-            raise e
-
-        finally:
             plan_json = { "reasoning": current_plan['reasoning'], "analysis_complete": current_plan['analysis_complete'], "plan": current_plan['plan'] , "streaming_complete": current_plan['streaming_complete'], "text": current_plan['text'], "token_usage": current_plan['token_usage']}
             plan_json = json.dumps(plan_json)
             plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)  # Use head_completion instead of undefined 'completion'
             logger.info("Main execution completed")
             return action_results
+        
+        except Exception as e:
+            breakpoint()
+            error = await self.project_manager.create_error_completion(self.db, self.head_completion, str(e))
+            print(f"Error in main_execution: {e}")
+            raise e
+
 
     async def _handle_generate_widget_data(self, prompt, action, widget, step):
         # First condition - save data model as soon as it's available
@@ -512,7 +511,7 @@ class Agent:
 
         # Setup validator function if enabled
         validator_fn = None
-        if self.organization_settings.get("ai_features", {}).get("validator", {}).get("enabled", True):
+        if self.organization_settings.get_config("validator").value:
             validator_fn = self.coder.validate_code
         
         # Execute the full process: generate -> validate -> execute with retries
@@ -594,7 +593,7 @@ class Agent:
         
         # Setup validator function if enabled
         validator_fn = None
-        if self.organization_settings.get("ai_features", {}).get("validator", {}).get("enabled", True):
+        if self.organization_settings.get_config("validator").value:
             validator_fn = self.coder.validate_code
         # Execute the full process
         df, final_code, code_and_error_messages = await self.code_execution_manager.generate_and_execute_with_retries(
@@ -883,7 +882,7 @@ class Agent:
             }
         
         # Check if we're allowed to share data with LLM
-        allow_llm_see_data = self.organization_settings.get("allow_llm_see_data", {}).get("enabled", True)
+        allow_llm_see_data = self.organization_settings.get_config("allow_llm_see_data").value
         
         observation_data = {
             "widget_id": widget.id,

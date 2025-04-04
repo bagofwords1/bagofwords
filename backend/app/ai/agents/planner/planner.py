@@ -1,12 +1,14 @@
-from partialjson.json_parser import JSONParser
+
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
-import tiktoken  # Add this import for token counting
+from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+import tiktoken 
 import json
+from partialjson.json_parser import JSONParser
 
 class Planner:
 
-    def __init__(self, model: LLMModel, organization_settings: dict) -> None:
+    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
 
@@ -203,7 +205,7 @@ class Planner:
         - answer_question
         - create_widget
         - modify_widget
-        { "- design_dashboard" if self.organization_settings.get("ai_features", {}).get("dashboard_designer", {}).get("enabled", False) else "" }
+        { "- design_dashboard" if self.organization_settings.get_config("dashboard_designer").value else "" }
 
         GUIDELINES
         - Make sure the user ask is legit. Do not support malicious requests or requests that involve leaking/writing data into the database.
@@ -409,7 +411,7 @@ class Planner:
             ]
         }}
 
-        {design_dashboard_example if self.organization_settings.get("ai_features", {}).get("dashboard_designer", {}).get("enabled", False) else ""}
+        {design_dashboard_example if self.organization_settings.get_config("dashboard_designer").value else ""}
 
         {{
             "analysis_complete": true,
