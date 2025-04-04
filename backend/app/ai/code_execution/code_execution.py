@@ -12,7 +12,7 @@ class CodeExecutionManager:
     Manages the entire code generation, validation, and execution process with retries.
     """
     
-    def __init__(self, logger=None, project_manager=None, db=None, report=None, head_completion=None, widget=None, step=None):
+    def __init__(self, logger=None, project_manager=None, db=None, report=None, head_completion=None, widget=None, step=None, organization_settings=None):
         """
         Initialize the CodeExecutionManager with all required dependencies.
         
@@ -39,7 +39,8 @@ class CodeExecutionManager:
         self.head_completion = head_completion
         self.widget = widget
         self.step = step
-    
+        self.organization_settings = organization_settings
+
     async def generate_and_execute_with_retries(self, 
                                          data_model: Dict,
                                          code_generator_fn: Callable,
@@ -343,6 +344,7 @@ class CodeExecutionManager:
             db_clients=db_clients,
             excel_files=excel_files,
             step=current_step,
+            max_retries=self.organization_settings.get("limit_code_retries", {}).get("value", 3),
             **generator_kwargs
         )
         

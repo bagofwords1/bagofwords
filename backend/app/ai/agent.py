@@ -82,7 +82,8 @@ class Agent:
             report=self.report,
             head_completion=self.head_completion if 'head_completion' in locals() else None,
             widget=self.widget,
-            step=self.step
+            step=self.step,
+            organization_settings=self.organization_settings
         )
 
     async def main_execution(self):
@@ -107,7 +108,7 @@ class Agent:
             analysis_step = 0
             
             # ReAct loop: Plan → Execute → Observe → Plan? 
-            while not analysis_complete:
+            while not analysis_complete or analysis_step < self.organization_settings.config.limit_analysis_steps.value:
                 # 1. PLAN: Get actions from planner
                 plan_generator = self.planner.execute(
                     schemas, 
@@ -470,7 +471,9 @@ class Agent:
                 else:
                     # If no widget/step was created, end the loop
                     analysis_complete = True
-            
+
+                analysis_step += 1
+
             first_completion = await self.db.execute(select(Completion).filter(Completion.report_id == self.report.id).order_by(Completion.created_at.asc()).limit(1))
             first_completion = first_completion.scalar_one_or_none()
 

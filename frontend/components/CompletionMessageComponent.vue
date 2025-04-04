@@ -27,28 +27,35 @@
                 <!-- System messages -->
                 <div v-if="localCompletion.role == 'system'">
                     <!-- Show thinking dots when reasoning is empty -->
-                    <div class="dots" v-if="!localCompletion.completion?.reasoning || localCompletion.completion?.reasoning.length == 0"></div>
-                    
+                    <div v-if="!localCompletion.completion?.reasoning || localCompletion.completion?.reasoning.length == 0">
+                        <div class="simple-dots"></div>
+                    </div>
                     <!-- Collapsible reasoning section -->
-                    <div v-if="localCompletion.completion?.reasoning && localCompletion.completion?.reasoning.length > 0">
-                        <div class="flex justify-between items-center cursor-pointer" 
-                             @click="reasoningCollapsed = !reasoningCollapsed">
-                            <div class="font-medium text-sm text-gray-600">
+                        <div v-if="localCompletion.completion?.reasoning && localCompletion.completion?.reasoning.length > 0">
+                            <div class="flex justify-between items-center cursor-pointer" 
+                                @click="reasoningCollapsed = !reasoningCollapsed">
+                            <div class="font-medium text-sm text-gray-400 mb-2">
                                 <!-- Always show "Thought Process" when content is available -->
-                                <span v-if="localCompletion.completion?.content && localCompletion.completion?.content.length > 0">
-                                    Thought Process
-                                </span>
-                                <!-- Show "Thinking" when no content is available -->
-                                <span v-else>
-                                    <div class="dots" />
-                                </span>
+                                <div class="flex items-center">
+                                    <Icon :name="reasoningCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" 
+                                         class="w-4 h-4 text-gray-500" />
+                                    <span v-if="localCompletion.completion?.content && localCompletion.completion?.content.length > 0" class="ml-1">
+                                        Thought Process
+                                    </span>
+                                    <!-- Show "Thinking" when no content is available -->
+                                    <span v-else class="ml-1">
+                                        <div class="dots" />
+                                    </span>
+                                </div>
                             </div>
-                            <Icon :name="reasoningCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" 
-                                 class="w-4 h-4 text-gray-500" />
+                            
                         </div>
-                        <div v-if="!reasoningCollapsed" class="text-xs mt-2 leading-relaxed text-gray-500">
-                            {{ localCompletion.completion?.reasoning }}
-                        </div>
+                        <Transition name="fade">
+                            <div v-if="!reasoningCollapsed" 
+                                 class="text-sm mt-2 leading-relaxed text-gray-500 mb-3 reasoning-content">
+                                <MDC :value="localCompletion.completion?.reasoning" class="markdown-content" />
+                            </div>
+                        </Transition>
                     </div>
                     
                     <!-- Always show content when available -->
@@ -469,6 +476,22 @@ watch(() => localCompletion.value?.completion?.content, (newContent) => {
     animation: spin-three-times 1.5s ease-in-out forwards;
 }
 
+@keyframes simple-ellipsis {
+    0% { content: '.'; }
+    33% { content: '..'; }
+    66% { content: '...'; }
+}
+
+.simple-dots::after {
+    content: '.';
+    display: inline-block;
+    margin-top: 5px;
+    animation: simple-ellipsis 1.5s infinite;
+    font-weight: 400;
+    font-size: 14px;
+    color: #888;
+}
+
 ol,
 ul {
     @apply list-none;
@@ -561,5 +584,25 @@ ul {
     img {
         @apply max-w-full h-auto rounded-lg;
     }
+}
+
+/* Add these new transition styles */
+.fade-enter-active,
+.fade-leave-active {
+    transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+    opacity: 0;
+}
+
+.reasoning-content {
+    opacity: 0.75;
+    transition: opacity 0.2s ease;
+}
+
+.reasoning-content:hover {
+    opacity: 1;
 }
 </style>
