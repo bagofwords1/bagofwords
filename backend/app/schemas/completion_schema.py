@@ -26,6 +26,8 @@ class CompletionSchema(CompletionBase):
     model: str = "gpt4o"
     status: str = "success"
     turn_index: int = 0
+    feedback_score: int = 0
+    sigkill: Optional[datetime] = None
     parent_id: Optional[str]
     message_type: str = "ai_completion"
     role: str = "system"

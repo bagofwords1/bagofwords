@@ -242,3 +242,16 @@ class CompletionService:
             raise ValueError("Plan not found")
 
         return plan
+
+    async def update_completion_feedback(self, db: AsyncSession, completion_id: str, vote: int):
+        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
+        completion = completion.scalars().first()
+
+        if not completion:
+            raise ValueError("Completion not found")
+
+        completion.feedback_score = completion.feedback_score + vote
+        await db.commit()
+        await db.refresh(completion)
+
+        return completion

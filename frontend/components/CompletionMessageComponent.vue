@@ -121,7 +121,15 @@
                                 </div>
                             </div>
                         </div>
+
+
                     </div>
+                        <div class="flex mt-3">
+                                <CompletionItemFeedback 
+                                    :completion="localCompletion" 
+                                    :feedbackScore="localCompletion.feedback_score || 0" 
+                                />
+                        </div>
                 </div>
 
 

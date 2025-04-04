@@ -1,10 +1,10 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Text, JSON, event, UUID
+from sqlalchemy import Column, Integer, String, ForeignKey, Text, JSON, event, UUID, DateTime
 from sqlalchemy.orm import relationship, selectinload
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import sessionmaker
-
-
+from sqlalchemy import DateTime
+from datetime import datetime
 from .base import BaseSchema
 import asyncio
 from app.websocket_manager import websocket_manager
@@ -21,6 +21,8 @@ class Completion(BaseSchema):
     status = Column(String, nullable=False, default='success')
     model = Column(String, nullable=False, default='gpt4o')
     turn_index = Column(Integer, nullable=False, default=0)
+    feedback_score = Column(Integer, nullable=False, default=0)
+    sigkill = Column(DateTime, nullable=False, default=None)
 
     parent_id = Column(String(36), ForeignKey('completions.id'), nullable=True)
 
