@@ -12,11 +12,13 @@ class MentionService:
     async def create_completion_mentions(self, db: AsyncSession, completion: Completion) -> Mention:
 
         # todo - parse mention content to extract all ids and data
-
         mentions = completion.prompt["mentions"]
         db_mentions = []
 
-        for memory_mention in mentions[0]['items']:
+        if not mentions[0] or not mentions[1] or not mentions[2]:
+            return db_mentions
+
+        for memory_mention in mentions[0].get("items", []):
             m = MentionCreate(completion_id=completion.id,
                               report_id=completion.report_id,
                               type="MEMORY",
@@ -26,7 +28,7 @@ class MentionService:
             db_mention = await self.create_mention(db, m, completion)
             db_mentions.append(db_mention)
 
-        for file_mention in mentions[1]['items']:
+        for file_mention in mentions[1].get("items", []):
             m = MentionCreate(completion_id=completion.id,
                               report_id=completion.report_id,
                               type="FILE",
@@ -36,7 +38,7 @@ class MentionService:
             db_mention = await self.create_mention(db, m, completion)
             db_mentions.append(db_mention)
 
-        for data_source_mention in mentions[2]['items']:
+        for data_source_mention in mentions[2].get("items", []):
             m = MentionCreate(completion_id=completion.id,
                               report_id=completion.report_id,
                               type="DATA_SOURCE",

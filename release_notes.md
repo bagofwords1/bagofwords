@@ -1,5 +1,15 @@
 # Release Notes
 
+## Version 0.0.16
+
+- Refactored main_execution to use ReAct and advanced planning
+- Added human feedback (upvote/downvote) to score AI completions 
+- Added reasoning for AI completions (UI/Backend)
+- Improved organization settings key management
+- OpenAPI support for global auth and org ID
+- Added support for Completion API for non-background jobs 
+
+
 ## Version 0.0.155 (March 30, 2025)
 
 - Added code validation for generated code

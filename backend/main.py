@@ -180,7 +180,7 @@ def custom_openapi():
                 }
             }
         },
-        "OrganizationHeader": {
+        "X-Organization-ID": {
             "type": "apiKey",
             "in": "header",
             "name": "X-Organization-ID",
@@ -192,24 +192,19 @@ def custom_openapi():
     openapi_schema["security"] = [
         {
             "OAuth2PasswordBearer": [],
-            "OrganizationHeader": []
+            "X-Organization-ID": []
         }
     ]
 
-    # Add global parameters
-    if "parameters" not in openapi_schema["components"]:
-        openapi_schema["components"]["parameters"] = {}
-    
-    openapi_schema["components"]["parameters"]["OrganizationHeader"] = {
-        "name": "X-Organization-ID",
-        "in": "header",
-        "required": True,
-        "schema": {
-            "type": "string",
-            "format": "uuid"
-        },
-        "description": "Organization ID header"
-    }
+    # Make sure the security requirement is applied to all paths
+    for path in openapi_schema["paths"].values():
+        for operation in path.values():
+            operation["security"] = [
+                {
+                    "OAuth2PasswordBearer": [],
+                    "X-Organization-ID": []
+                }
+            ]
 
     app.openapi_schema = openapi_schema
     return app.openapi_schema

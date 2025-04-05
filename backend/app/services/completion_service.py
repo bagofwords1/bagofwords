@@ -42,6 +42,45 @@ class CompletionService:
         self.memory_service = MemoryService()
         self.mention_service = MentionService()
 
+    async def _serialize_completion(self, db: AsyncSession, completion: Completion, current_user: User = None, organization: Organization = None) -> CompletionSchema:
+        """Serialize a completion model to a schema following get_completions format"""
+        if completion.role == "user":
+            prompt = PromptSchema.from_orm(completion.prompt)
+            completion_prompt = None
+        else: # ai_agent or system
+            completion_prompt = PromptSchema.from_orm(completion.completion)
+            prompt = None
+
+        if completion.widget_id and current_user and organization:
+            widget = await self.widget_service.get_widget_by_id(db, str(completion.widget_id), current_user, organization)
+        else:
+            widget = None
+
+        if completion.step_id:
+            step = await self.step_service.get_step_by_id(db, completion.step_id)
+        else:
+            step = None
+
+        return CompletionSchema(
+            id=completion.id,
+            prompt=prompt,
+            completion=completion_prompt,
+            model=completion.model,
+            status=completion.status,
+            turn_index=completion.turn_index,
+            parent_id=completion.parent_id,
+            message_type=completion.message_type,
+            role=completion.role,
+            report_id=completion.report_id,
+            created_at=completion.created_at,
+            updated_at=completion.updated_at,
+            step_id=completion.step_id,
+            step=StepSchema.from_orm(step) if step else None,
+            widget=WidgetSchema.from_orm(widget).copy(
+                update={"last_step": await self.widget_service._get_last_step(db, widget.id)}
+            ) if completion.role == "system" and widget else None
+        )
+
     async def create_completion(
         self, 
         db: AsyncSession, 
@@ -121,17 +160,15 @@ class CompletionService:
 
             mentions = await self.mention_service.create_completion_mentions(db, completion)
             org_settings = await organization.get_settings(db)
-            agent = Agent(db=db, organization_settings=org_settings, model=default_model, 
-                          report=report, messages=[], head_completion=completion, 
-                          system_completion=system_completion, widget=widget, step=step)
+
+            agent = Agent(db=db, organization_settings=org_settings, model=default_model, report=report, messages=[], head_completion=completion, system_completion=system_completion, widget=widget, step=step)
             
             if background:
                 background_tasks.add_task(agent.main_execution)
                 return None
             else:
-                # Execute synchronously and return the result
                 await agent.main_execution()
-                return system_completion
+                return await self._serialize_completion(db, system_completion, current_user, organization)
 
         except Exception as e:
             logging.error(f"Error in create_completion: {str(e)}")
@@ -166,42 +203,8 @@ class CompletionService:
         
         response = []
         for completion in completions:
-            if completion.role == "user":
-                prompt = PromptSchema.from_orm(completion.prompt)
-                completion_prompt = None
-            else: # ai_agent or system
-                completion_prompt = PromptSchema.from_orm(completion.completion)
-                prompt = None
-
-            if completion.widget_id:
-                widget = await self.widget_service.get_widget_by_id(db, str(completion.widget_id), current_user, organization)
-            else:
-                widget = None
-
-            if completion.step_id:
-                step = await self.step_service.get_step_by_id(db, completion.step_id)
-            else:
-                step = None
-
-            completion_schema = CompletionSchema(
-                id=completion.id,
-                prompt=prompt,
-                completion=completion_prompt,
-                model=completion.model,
-                status=completion.status,
-                turn_index=completion.turn_index,
-                parent_id=completion.parent_id,
-                message_type=completion.message_type,
-                role=completion.role,
-                report_id=report_id,
-                created_at=completion.created_at,
-                updated_at=completion.updated_at,
-                step_id=completion.step_id,
-                step=StepSchema.from_orm(step) if step else None,
-
-                widget=WidgetSchema.from_orm(widget).copy(update={"last_step": await self.widget_service._get_last_step(db, widget.id)}) if completion.role == "system" and widget else None
-            )
-            response.append(completion_schema)
+            serialized_completion = await self._serialize_completion(db, completion, current_user, organization)
+            response.append(serialized_completion)
 
         return response
 

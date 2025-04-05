@@ -231,6 +231,8 @@ class Agent:
                                 )
                                 if action_completed:
                                     action_results[action_id]['completed'] = True
+                                else:
+                                    continue
 
                         elif action_type == 'modify_widget':
                             # Add this block before attempting updates
