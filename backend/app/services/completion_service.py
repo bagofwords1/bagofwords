@@ -27,7 +27,7 @@ from app.websocket_manager import websocket_manager
 
 from sqlalchemy import select, update
 
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 
 from app.ai.agent import Agent
 
@@ -94,54 +94,69 @@ class CompletionService:
         try:
             print("CompletionService: Starting create_completion")
 
+            # Validate report exists
             result = await db.execute(select(Report).filter(Report.id == report_id))
             report = result.scalar_one_or_none()
             if not report:
-                raise ValueError("Report not found")
+                raise HTTPException(status_code=404, detail="Report not found")
+
+            # Validate widget if provided
             if completion_data.prompt.widget_id:
                 result = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
                 widget = result.scalar_one_or_none()
                 if not widget:
-                    raise ValueError("Widget not found")
+                    raise HTTPException(status_code=404, detail="Widget not found")
             else:
                 widget = None
             
+            # Validate step if provided
             if completion_data.prompt.step_id:
                 step = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
                 step = step.scalar_one_or_none()
                 if not step:
-                    raise ValueError("Step not found")
+                    raise HTTPException(status_code=404, detail="Step not found")
             else:
                 step = None
 
+            # Get default model - this is critical
+            default_model = await organization.get_default_llm_model(db)
+            if not default_model:
+                raise HTTPException(
+                    status_code=400, 
+                    detail="No default LLM model configured. Please configure a default model in organization settings."
+                )
+
+            # Create user completion
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
             
             last_completion = await self.get_last_completion(db, report.id)
-            default_model = await organization.get_default_llm_model(db)
-   
-
+            
             completion = Completion(
-                    prompt=prompt_dict,
-                    model=default_model.model_id if default_model else "none",
-                    widget_id=str(widget.id) if widget else None,
-                    report_id=report.id,
-                    parent_id=last_completion.id if last_completion else None,
-                    turn_index=last_completion.turn_index + 1 if last_completion else 0,
-                    message_type="table",
-                    role="user",
-                    status="success",
-                    user_id=current_user.id
+                prompt=prompt_dict,
+                model=default_model.model_id,  # We know this exists now
+                widget_id=str(widget.id) if widget else None,
+                report_id=report.id,
+                parent_id=last_completion.id if last_completion else None,
+                turn_index=last_completion.turn_index + 1 if last_completion else 0,
+                message_type="table",
+                role="user",
+                status="success",
+                user_id=current_user.id
+            )
+
+            try:
+                db.add(completion)
+                await db.commit()
+                await db.refresh(completion)
+            except Exception as e:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to save user completion: {str(e)}"
                 )
 
-            db.add(completion)
-            await db.commit()
-            await db.refresh(completion)
-
-            if not default_model:
-                raise ValueError("No default model found")
-
-            # After creating the user completion but before background task
+            # Create system completion
             system_completion = Completion(
                 prompt=None,
                 completion={"content": ""},
@@ -154,36 +169,72 @@ class CompletionService:
                 role="system",
                 status="in_progress"
             )
-            db.add(system_completion)
-            await db.commit()
-            await db.refresh(system_completion)
 
-            mentions = await self.mention_service.create_completion_mentions(db, completion)
-            org_settings = await organization.get_settings(db)
+            try:
+                db.add(system_completion)
+                await db.commit()
+                await db.refresh(system_completion)
+            except Exception as e:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to save system completion: {str(e)}"
+                )
 
-            agent = Agent(db=db, organization_settings=org_settings, model=default_model, report=report, messages=[], head_completion=completion, system_completion=system_completion, widget=widget, step=step)
-            
+            # Setup agent
+            try:
+                org_settings = await organization.get_settings(db)
+                mentions = await self.mention_service.create_completion_mentions(db, completion)
+                agent = Agent(
+                    db=db,
+                    organization_settings=org_settings,
+                    model=default_model,
+                    report=report,
+                    messages=[],
+                    head_completion=completion,
+                    system_completion=system_completion,
+                    widget=widget,
+                    step=step
+                )
+            except Exception as e:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to initialize agent: {str(e)}"
+                )
+
             if background:
                 background_tasks.add_task(agent.main_execution)
                 return None
             else:
-                await agent.main_execution()
-                return await self._serialize_completion(db, system_completion, current_user, organization)
+                try:
+                    await agent.main_execution()
+                    return await self._serialize_completion(db, system_completion, current_user, organization)
+                except Exception as e:
+                    # Create error completion and raise exception
+                    await self._create_error_completion(db, completion, str(e))
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Agent execution failed: {str(e)}"
+                    )
 
+        except HTTPException as he:
+            # Log the error and re-raise HTTP exceptions
+            logging.error(f"HTTP Exception in create_completion: {str(he)}")
+            raise he
         except Exception as e:
-            logging.error(f"Error in create_completion: {str(e)}")
-            error_completion = await self._create_error_completion(db, completion, str(e))
-            return None
-
-
-
+            # Log and convert unexpected errors to HTTP exceptions
+            logging.error(f"Unexpected error in create_completion: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error: {str(e)}"
+            )
 
     async def get_completion_stream(self, db: AsyncSession, completion_id: str, report_id: str):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()
 
         if not completion:
-            raise ValueError("Completion not found")
+            raise HTTPException(status_code=404, detail="Completion not found")
         
         return completion
 
@@ -196,7 +247,7 @@ class CompletionService:
         report = await self.report_service.get_report(db, report_id, current_user, organization)
 
         if not report:
-            raise ValueError("Report not found")
+            raise HTTPException(status_code=404, detail="Report not found")
         
         completions = await db.execute(select(Completion).where(Completion.report_id == report_id).order_by(Completion.created_at.asc()))
         completions = completions.scalars().all()
@@ -249,13 +300,13 @@ class CompletionService:
         completion = completion.scalars().first()
 
         if not completion:
-            raise ValueError("Completion not found")
+            raise HTTPException(status_code=404, detail="Completion not found")
 
         plan = await db.execute(select(Plan).where(Plan.completion_id == completion_id))
         plan = plan.scalars().first()
 
         if not plan:
-            raise ValueError("Plan not found")
+            raise HTTPException(status_code=404, detail="Plan not found")
 
         return plan
 
@@ -264,7 +315,7 @@ class CompletionService:
         completion = completion.scalars().first()
 
         if not completion:
-            raise ValueError("Completion not found")
+            raise HTTPException(status_code=404, detail="Completion not found")
 
         completion.feedback_score = completion.feedback_score + vote
         await db.commit()

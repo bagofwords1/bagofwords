@@ -59,6 +59,17 @@ def get_models(test_client):
     return _get_models
 
 @pytest.fixture
+def get_default_model(test_client):
+    def _get_default_model(user_token=None, org_id=None):
+        response = test_client.get(
+            "/api/llm/models",
+            headers={"Authorization": f"Bearer {user_token}", "X-Organization-Id": org_id}
+        )
+        return [model for model in response.json() if model['is_default']]
+    
+    return _get_default_model
+
+@pytest.fixture
 def set_llm_provider_as_default(test_client):
     def _set_llm_provider_as_default(provider_id, user_token=None, org_id=None):
         response = test_client.post(
