@@ -147,6 +147,7 @@ class Agent:
                             continue
 
                         action_id = f"action_{i}"
+                        # Initialize the action_results dictionary for this action_id if it doesn't exist
                         if action_id not in action_results:
                             action_results[action_id] = {
                                 "prefix_completion": None,
@@ -154,6 +155,41 @@ class Agent:
                                 "step": None,
                                 "completed": False
                             }
+
+                        # Now we can safely access prefix_completion
+                        if action.get('prefix') is not None:
+                            # Skip if this is a completed answer action
+                            if action.get('action') == 'answer_question' and action_results[action_id].get('completed'):
+                                continue
+                            
+                            # For first action: use system_completion if available
+                            if i == 0 and self.system_completion and not action_results[action_id]['prefix_completion']:
+                                await self.project_manager.update_message(
+                                    self.db,
+                                    self.system_completion,
+                                    action['prefix'],
+                                    json_result['reasoning']
+                                )
+                                action_results[action_id]['prefix_completion'] = self.system_completion
+                            elif action_results[action_id]['prefix_completion'] is None:
+                                completion = await self.project_manager.create_message(
+                                    report=self.report,
+                                    db=self.db,
+                                    message=action['prefix'],
+                                    completion=self.head_completion,
+                                    widget=self.widget,
+                                    role="system"
+                                )
+                                
+                                action_results[action_id]['prefix_completion'] = completion
+                            elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
+                                completion_obj = await self.project_manager.update_message(
+                                    self.db,
+                                    action_results[action_id]['prefix_completion'],
+                                    action['prefix'],
+                                    json_result['reasoning']
+                                )
+                                action_results[action_id]['prefix_completion'] = completion_obj
 
                         # Skip if action is already completed
                         if action_results[action_id]["completed"]:
@@ -304,12 +340,22 @@ class Agent:
                                 question = action['details']['extracted_question']
                                 full_answer = action['prefix'] + " "
 
+                                # Build observation data for the answer
+                                current_observation_data = {
+                                    "widgets": []
+                                }
+                                
+                                # Include all completed widgets in observation data
+                                report_widgets_context = await self._built_report_widgets_context()
+                                current_observation_data["widgets"] = report_widgets_context
+
                                 async for chunk in self.answer.execute(
                                     prompt=self.head_completion.prompt,
                                     schemas=schemas,
                                     memories=memories,
                                     previous_messages=previous_messages,
                                     widget=self.widget,
+                                    observation_data=current_observation_data
                                 ):
                                     full_answer += chunk
                                     # Update message with progress
@@ -407,39 +453,6 @@ class Agent:
                                 "dashboard_design": dashboard_design,
                                 "completed": True
                             }
-                        if action.get('prefix') is not None:
-                            # Skip if this is a completed answer action
-                            if action.get('action') == 'answer_question' and action_results[action_id].get('completed'):
-                                continue
-                            
-                            # For first action: use system_completion if available
-                            if i == 0 and self.system_completion and not action_results[action_id]['prefix_completion']:
-                                await self.project_manager.update_message(
-                                    self.db,
-                                    self.system_completion,
-                                    action['prefix'],
-                                    json_result['reasoning']
-                                )
-                                action_results[action_id]['prefix_completion'] = self.system_completion
-                            elif action_results[action_id]['prefix_completion'] is None:
-                                completion = await self.project_manager.create_message(
-                                    report=self.report,
-                                    db=self.db,
-                                    message=action['prefix'],
-                                    completion=self.head_completion,
-                                    widget=self.widget,
-                                    role="system"
-                            )
-                                
-                                action_results[action_id]['prefix_completion'] = completion
-                            elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
-                                completion_obj = await self.project_manager.update_message(
-                                    self.db,
-                                    action_results[action_id]['prefix_completion'],
-                                    action['prefix'],
-                                    json_result['reasoning']
-                                )
-                                action_results[action_id]['prefix_completion'] = completion_obj
 
                         # Check if we need to observe after this action
                         requires_observation = action.get('requires_observation', False)
@@ -827,67 +840,6 @@ class Agent:
 
         return updated_data_model
 
-    async def _format_code_with_line_numbers(self, code):
-        # line numbers start from 1
-        # create a dict with line numbers as keys and lines as values
-
-        code_lines = code.split("\n")
-        code_dict = {index + 1: line for index, line in enumerate(code_lines)}
-
-        return code_dict
-    
-    async def new_message_router(self, new_message):
-        historical_messages = await self._build_messages_context()
-
-        prompt = f"""
-        Given this historical messages:
-        {historical_messages}
-
-        and this latest message:
-        {new_message}
-
-        Respond with the next step to take, among the following options
-        * table - for requests like that require building a data model. charts, graphs, tables.
-            examples:
-            - list of all X
-            - show me all Y
-            - show me @mention
-            -  what is the average of Z
-            - how many customers are there
-            - what is the revenue
-            - create a chart of all X
-            - show me a chart of Y
-            - show me a chart of @mention
-
-        * modify - for modifying the current table/chart/data model.
-            examples:
-            - transform column X to Y
-            - remove column X
-            - add column Y
-            - add a new column Z
-            - change to pie chart
-            - change to line chart
-            - change to bar chart
-            - change to area chart
-            - change to revenue not amount
-            - i meant for customers not clients
-
-        * question - for any question that can be answered based on the schema of files and database, for example about memories, mentions, columns, relationships, data types, etc
-            examples:
-            - what is the data type of column X
-            - what is the relationship between table A and table B
-            - what is the meaning of @mention
-            - what is the meaning of tag X
-            - what are the implicit relationships in the data
-            - how should i model this question
-            - what is the best way to model this
-
-        Respond in one word only, no markdown
-        """
-        response = self.llm.inference(prompt)
-
-        return response
-
     def create_title_from_prompt(self, prompt):
         prompt = f"""
         Given this prompt:
@@ -905,6 +857,14 @@ class Agent:
         response = self.llm.inference(prompt)
 
         return response
+
+    async def _built_report_widgets_context(self):
+        widgets = await self.db.execute(select(Widget).where(Widget.report_id == self.report.id))
+        widgets = widgets.scalars().all()
+        context = []
+        for widget in widgets:
+            context.append(await self._build_observation_data(widget, None))
+        return context
 
     async def _build_observation_data(self, widget, step):
         """Build structured observation data from widget and step results"""
@@ -944,8 +904,10 @@ class Agent:
             
             if "rows" in step.data:
                 observation_data["row_count"] = len(step.data["rows"])
+                # Include the actual data rows
+                observation_data["data"] = step.data["rows"]
             
-            # Only include actual data preview if allowed
+            # Only include formatted preview if allowed
             if allow_llm_see_data and "rows" in step.data and "columns" in step.data:
                 try:
                     # Create data preview with limited rows
