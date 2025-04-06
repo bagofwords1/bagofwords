@@ -9,7 +9,8 @@ def test_data_source_creation(
     get_data_sources,
     create_user,
     login_user,
-    create_organization
+    create_organization,
+    test_connection
 ):
     # Setup user and organization
     user = create_user()
@@ -44,6 +45,15 @@ def test_data_source_creation(
     assert "created_at" in data_source
     assert "updated_at" in data_source
     assert data_source["is_active"] is not None
+
+    data_source_id = data_source["id"]
+    test_connection = test_connection(data_source_id=data_source_id, user_token=user_token, org_id=org_id)
+
+    breakpoint()
+    assert test_connection is not None
+    assert test_connection["status"] == "success"
+
+
 
     # Verify data source appears in list
     data_sources = get_data_sources(

@@ -13,7 +13,9 @@ def test_basic_eval(
     login_user,
     create_organization,
     create_llm_provider_and_models,
-    get_default_model
+    get_default_model,
+    create_data_source,
+    get_data_sources
 ):
     # Setup user and organization
     user = create_user()
@@ -29,6 +31,26 @@ def test_basic_eval(
 
     assert len(default_model) == 1
 
+    data_source = create_data_source(
+        name="Test PostgreSQL DB",
+        type="postgresql",
+        config={
+            "host": "localhost",
+            "port": 5432,
+            "database": "dvdrental"
+        },
+        credentials={
+            "user": "yochze",
+            "password": "yochze"
+        },
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    assert data_source is not None
+    assert data_source["name"] == "Test PostgreSQL DB"
+    assert data_source["is_active"] is not None
+
     # Create a report first (needed for completions)
     report = create_report(
         title="Test Report",
@@ -38,8 +60,7 @@ def test_basic_eval(
     )
 
     # Create a completion
-    completion = create_completion(report_id=report["id"], prompt="Tell me about this report", user_token=user_token, org_id=org_id)
-
+    completion = create_completion(report_id=report["id"], prompt="List of customers in dvdrental", user_token=user_token, org_id=org_id)
     # Verify completion structure
     assert completion is not None
     assert "id" in completion

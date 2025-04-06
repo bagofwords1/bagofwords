@@ -18,7 +18,7 @@ from tests.fixtures.organization import create_organization, add_organization_me
 from tests.fixtures.llm import create_llm_provider_and_models, get_models, get_default_model, set_llm_provider_as_default, toggle_llm_active_status, delete_llm_provider
 from tests.fixtures.report import create_report, get_reports, get_report, update_report, delete_report, publish_report, rerun_report, schedule_report, get_public_report
 from tests.fixtures.completion import create_completion, get_completions
-from tests.fixtures.data_source import create_data_source, get_data_sources
+from tests.fixtures.data_source import create_data_source, get_data_sources, test_connection
 
 from main import app
 

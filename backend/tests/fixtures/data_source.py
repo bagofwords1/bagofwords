@@ -56,3 +56,25 @@ def get_data_sources(test_client):
         return response.json()
     
     return _get_data_sources
+
+
+@pytest.fixture
+def test_connection(test_client):
+    def _test_connection(*, data_source_id: str, user_token: str = None, org_id: str = None):
+        if user_token is None:
+            pytest.fail("User token is required for test_connection")
+        if org_id is None:
+            pytest.fail("Organization ID is required for test_connection")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+
+        response = test_client.get(
+            f"/api/data_sources/{data_source_id}/test_connection",
+            headers=headers
+        )
+
+        assert response.status_code == 200, response.json()
+        return response.json()
