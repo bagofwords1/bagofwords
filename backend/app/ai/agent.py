@@ -397,10 +397,10 @@ class Agent:
                                 continue
 
                         elif action_type == 'design_dashboard':
-                            widgets = [x['widget']
-                                    for x in action_results.values() if x['widget'] is not None]
-                            steps = [x['step']
-                                    for x in action_results.values() if x['step'] is not None]
+                            widgets_steps = await self._get_report_widgeets_and_steps(self.report.id)
+                            widgets = [x[0] for x in widgets_steps if x[0] is not None]
+                            steps = [x[1] for x in widgets_steps if x[1] is not None]
+
                             if not widgets or not steps:
                                 print("design_dashboard action has no widgets or steps")
                                 continue
@@ -418,7 +418,7 @@ class Agent:
                                         role="system"
                                 )
                                 action_results[action_id]['prefix_completion'] = dashboard_completion
-
+                            
                             async for dashboard_design in self.dashboard_designer.execute(
                                 prompt=head_completion.prompt,
                                 widgets=widgets,
@@ -851,13 +851,13 @@ class Agent:
         response = self.llm.inference(prompt)
 
         return response
-
-    async def _built_report_widgets_context(self):
-        # Get all widgets for the report
-        widgets = await self.db.execute(select(Widget).where(Widget.report_id == self.report.id))
+    
+    async def _get_report_widgeets_and_steps(self, report_id):
+    
+        result = []
+        widgets = await self.db.execute(select(Widget).where(Widget.report_id == report_id))
         widgets = widgets.scalars().all()
         
-        context = []
         for widget in widgets:
             # Get the latest step for each widget
             latest_step = await self.db.execute(
@@ -870,7 +870,18 @@ class Agent:
             
             if latest_step:
                 # Only add to context if we have both widget and step
-                context.append(await self._build_observation_data(widget, latest_step))
+                result.append([widget, latest_step])
+
+        return result
+
+    async def _built_report_widgets_context(self):
+        # Get all widgets for the report
+        widgets = await self._get_report_widgeets_and_steps(self.report.id)
+
+        # Only add to context if we have both widget and step
+        context = []
+        for widget, latest_step in widgets:
+            context.append(await self._build_observation_data(widget, latest_step))
         
         return context
 
