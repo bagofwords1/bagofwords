@@ -5,7 +5,6 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 import tiktoken 
 import json
 from partialjson.json_parser import JSONParser
-
 class Planner:
 
     def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig) -> None:

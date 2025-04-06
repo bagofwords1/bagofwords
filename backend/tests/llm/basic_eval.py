@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 from main import app
 from tests.utils.user_creds import main_user
 import os
+import time
 
 @pytest.mark.llm
 def test_basic_eval(
@@ -15,7 +16,7 @@ def test_basic_eval(
     create_llm_provider_and_models,
     get_default_model,
     create_data_source,
-    get_data_sources
+    test_connection
 ):
     # Setup user and organization
     user = create_user()
@@ -31,17 +32,27 @@ def test_basic_eval(
 
     assert len(default_model) == 1
 
+    if not all([
+        os.getenv("TEST_POSTGRES_DB"),
+        os.getenv("TEST_POSTGRES_HOST"),
+        os.getenv("TEST_POSTGRES_PORT"),
+        os.getenv("TEST_POSTGRES_USER"),
+        os.getenv("TEST_POSTGRES_PASSWORD")
+    ]):
+        pytest.skip("Required TEST_POSTGRES_* environment variables are not set")
+    
+    # Create a basic PostgreSQL data source
     data_source = create_data_source(
         name="Test PostgreSQL DB",
         type="postgresql",
         config={
-            "host": "localhost",
-            "port": 5432,
-            "database": "dvdrental"
+            "host": os.getenv("TEST_POSTGRES_HOST"),
+            "port": int(os.getenv("TEST_POSTGRES_PORT")),
+            "database": os.getenv("TEST_POSTGRES_DB")
         },
         credentials={
-            "user": "yochze",
-            "password": "yochze"
+            "user": os.getenv("TEST_POSTGRES_USER"),
+            "password": os.getenv("TEST_POSTGRES_PASSWORD")
         },
         user_token=user_token,
         org_id=org_id
@@ -49,34 +60,64 @@ def test_basic_eval(
 
     assert data_source is not None
     assert data_source["name"] == "Test PostgreSQL DB"
+    assert data_source["type"] == "postgresql"
+    assert "id" in data_source
+    assert "created_at" in data_source
+    assert "updated_at" in data_source
     assert data_source["is_active"] is not None
+
+    # Test connection
+    connection_result = test_connection(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id
+    )
+    assert connection_result is not None
+    assert connection_result["success"] is True
 
     # Create a report first (needed for completions)
     report = create_report(
         title="Test Report",
         user_token=user_token,
         org_id=org_id,
-        data_sources=[]
+        data_sources=[data_source["id"]]
     )
 
+    time_start = time.time()
     # Create a completion
     completion = create_completion(report_id=report["id"], prompt="List of customers in dvdrental", user_token=user_token, org_id=org_id)
     # Verify completion structure
     assert completion is not None
     assert "id" in completion
     assert "status" in completion
-    assert completion["role"] == "system"  # The response should be from the system
-    assert completion["report_id"] == report["id"]
-    assert "model" in completion
+    assert completion["role"] == "system"
+    assert len(completion['completion']['content']) > 0
+    assert len(completion['completion']['reasoning']) > 0
 
-    # Get all completions for the report
-    completions = get_completions(
-        report_id=report["id"],
-        user_token=user_token,
-        org_id=org_id
-    )
+    # Widget validation
+    assert completion['widget']['title'] is not None
 
-    # Verify completions list
-    assert isinstance(completions, list)
-    assert len(completions) >= 1  # Should have at least our created completion
-    assert any(c["id"] == completion["id"] for c in completions) 
+    # Step validation
+    assert completion['step']['data_model'] is not None
+    assert len(completion['step']['data_model']['columns']) > 0
+    assert len(completion['step']['code']) > 10
+
+
+    completion_bar_chart = create_completion(report_id=report["id"], prompt="Top 10 films by revenue, bar chart", user_token=user_token, org_id=org_id)
+    assert completion_bar_chart is not None
+    assert "id" in completion_bar_chart
+    assert "status" in completion_bar_chart
+    assert completion_bar_chart["role"] == "system"
+    assert len(completion_bar_chart['completion']['content']) > 0
+    assert len(completion_bar_chart['completion']['reasoning']) > 0
+
+    # Widget validation
+    assert completion_bar_chart['widget']['title'] is not None
+
+    # Step validation
+    assert completion_bar_chart['step']['data_model'] is not None
+    assert len(completion_bar_chart['step']['data_model']['columns']) > 0
+    assert len(completion_bar_chart['step']['code']) > 10
+
+    time_end = time.time()
+    print(f"Time taken: {time_end - time_start} seconds")
