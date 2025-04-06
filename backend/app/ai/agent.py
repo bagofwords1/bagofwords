@@ -108,6 +108,8 @@ class Agent:
             
             # ReAct loop: Plan → Execute → Observe → Plan? 
             while not analysis_complete or analysis_step < self.organization_settings.get_config("limit_analysis_steps").value:
+                action_results = {}  # Reset action results for each analysis step
+
                 # 1. PLAN: Get actions from planner
                 plan_generator = self.planner.execute(
                     schemas, 
@@ -142,7 +144,7 @@ class Agent:
                         continue
                         
                     current_plan = json_result
-
+                    
                     # Only store plan when streaming is complete
                     if current_plan.get('streaming_complete', False) and not plan_complete:
                         plan_json = {
@@ -161,7 +163,7 @@ class Agent:
                             self.head_completion
                         )
                         plan_complete = True
-
+                    
                     # Process each action in the plan
                     for i, action in enumerate(json_result['plan']):
                         if not isinstance(action, dict) or 'action' not in action:
@@ -183,32 +185,37 @@ class Agent:
                             if action.get('action') == 'answer_question' and action_results[action_id].get('completed'):
                                 continue
                             
-                            # For first action: use system_completion if available
-                            if i == 0 and self.system_completion and not action_results[action_id]['prefix_completion']:
-                                await self.project_manager.update_message(
-                                    self.db,
-                                    self.system_completion,
-                                    action['prefix'],
-                                    json_result['reasoning']
-                                )
-                                action_results[action_id]['prefix_completion'] = self.system_completion
-                            elif action_results[action_id]['prefix_completion'] is None:
-                                completion = await self.project_manager.create_message(
-                                    report=self.report,
-                                    db=self.db,
-                                    message=action['prefix'],
-                                    completion=self.head_completion,
-                                    widget=self.widget,
-                                    role="system"
-                                )
-                                
-                                action_results[action_id]['prefix_completion'] = completion
+                            # Handle completion creation/update
+                            if action_results[action_id]['prefix_completion'] is None:
+                                # Use system completion for first action in first analysis step
+                                if i == 0 and analysis_step == 0 and self.system_completion and not system_completion_used:
+                                    await self.project_manager.update_message(
+                                        self.db,
+                                        self.system_completion,
+                                        action['prefix'],
+                                        json_result['reasoning']
+                                    )
+                                    action_results[action_id]['prefix_completion'] = self.system_completion
+                                    system_completion_used = True
+                                else:
+                                    # Create new completion for all other cases
+                                    completion = await self.project_manager.create_message(
+                                        report=self.report,
+                                        db=self.db,
+                                        message=action['prefix'],
+                                        completion=self.head_completion,
+                                        widget=self.widget,
+                                        role="system",
+                                        reasoning=json_result.get('reasoning')
+                                    )
+                                    action_results[action_id]['prefix_completion'] = completion
                             elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
+                                # Update existing completion if content changed
                                 completion_obj = await self.project_manager.update_message(
                                     self.db,
                                     action_results[action_id]['prefix_completion'],
                                     action['prefix'],
-                                    json_result['reasoning']
+                                    json_result.get('reasoning')
                                 )
                                 action_results[action_id]['prefix_completion'] = completion_obj
 
@@ -220,20 +227,6 @@ class Agent:
                         action_type = action.get('action')
                         if not action_type:
                             continue
-                        
-                        # Use system_completion only on first pass
-                        if analysis_step == 0 and self.system_completion and not system_completion_used and not action_results[action_id]['prefix_completion']:
-                            # Update existing system completion with action prefix
-                            if action.get('prefix') is not None:
-                                current_reasoning = self.system_completion.completion.get('reasoning')
-                                await self.project_manager.update_message(
-                                    self.db,
-                                    self.system_completion,
-                                    message=action['prefix'],
-                                    reasoning=current_reasoning  # Preserve reasoning
-                                )
-                            action_results[action_id]['prefix_completion'] = self.system_completion
-                            system_completion_used = True  # Mark as used
                         
                         # Handle different action types
                         if action_type == 'create_widget':
@@ -369,7 +362,6 @@ class Agent:
                                 # Include all completed widgets in observation data
                                 report_widgets_context = await self._built_report_widgets_context()
                                 current_observation_data["widgets"] = report_widgets_context
-
                                 async for chunk in self.answer.execute(
                                     prompt=self.head_completion.prompt,
                                     schemas=schemas,
@@ -861,11 +853,25 @@ class Agent:
         return response
 
     async def _built_report_widgets_context(self):
+        # Get all widgets for the report
         widgets = await self.db.execute(select(Widget).where(Widget.report_id == self.report.id))
         widgets = widgets.scalars().all()
+        
         context = []
         for widget in widgets:
-            context.append(await self._build_observation_data(widget, None))
+            # Get the latest step for each widget
+            latest_step = await self.db.execute(
+                select(Step)
+                .filter(Step.widget_id == widget.id)
+                .order_by(Step.created_at.desc())
+                .limit(1)
+            )
+            latest_step = latest_step.scalar_one_or_none()
+            
+            if latest_step:
+                # Only add to context if we have both widget and step
+                context.append(await self._build_observation_data(widget, latest_step))
+        
         return context
 
     async def _build_observation_data(self, widget, step):

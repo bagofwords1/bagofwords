@@ -76,9 +76,9 @@ async def websocket_endpoint(websocket: WebSocket, report_id: str):
             keep_alive_task.cancel()
 
 @requires_permission('modify_settings')
-@router.get("/api/completions/{completion_id}/plan")
-async def get_completion_plan(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
-    return await completion_service.get_completion_plan(db, current_user, organization, completion_id)
+@router.get("/api/completions/{completion_id}/plans")
+async def get_completion_plans(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
+    return await completion_service.get_completion_plans(db, current_user, organization, completion_id)
 
 @requires_permission('view_reports', model=Report)
 @router.post("/api/completions/{completion_id}/feedback")

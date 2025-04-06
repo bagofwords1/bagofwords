@@ -180,41 +180,60 @@
             <div v-if="planLoading" class="flex justify-center items-center py-8">
                 <Icon name="heroicons-arrow-path" class="w-6 h-6 animate-spin text-blue-500" />
             </div>
-            <div v-else-if="plan" class="markdown-wrapper max-h-[60vh] overflow-auto">
-                <div class="flex justify-between items-center cursor-pointer" @click="togglePromptCollapsed">
-                    <h3 class="text-md font-bold mb-2">Prompt</h3>
-                    <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+            <div v-else-if="plans.length > 0" class="markdown-wrapper max-h-[60vh] overflow-auto">
+                <!-- Plans Navigation -->
+                <div class="mb-4 flex space-x-2">
+                    <button 
+                        v-for="(p, index) in plans" 
+                        :key="index"
+                        @click="switchPlan(index)"
+                        class="px-3 py-1 rounded text-sm"
+                        :class="{
+                            'bg-blue-500 text-white': activePlanIndex === index,
+                            'bg-gray-100 hover:bg-gray-200': activePlanIndex !== index
+                        }"
+                    >
+                        Plan {{ index + 1 }}
+                    </button>
                 </div>
-                <pre v-if="!promptCollapsed" class="text-xs">{{ plan_content.text }}</pre>
-                
-                <div class="flex justify-between items-center cursor-pointer mt-4" @click="togglePlanCollapsed">
-                    <h3 class="text-md font-bold mb-2">Plan</h3>
-                    <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
-                </div>
-                <pre v-if="!planCollapsed" class="text-xs">
-                    <div class="text-xs">Analysis Complete: {{ plan_analysis_complete }}</div>
-                    <div class="text-xs">Reasoning: {{ plan_reasoning }}</div>
-                    <div class="text-xs">{{ plan_content.plan }}</div>
-                </pre>
 
-                <!-- Add token usage section -->
-                <div class="flex justify-between items-center cursor-pointer mt-4" @click="toggleTokensCollapsed">
-                    <h3 class="text-md font-bold mb-2">Token Usage</h3>
-                    <Icon :name="tokensCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
-                </div>
-                <div v-if="!tokensCollapsed" class="text-xs bg-gray-50 p-3 rounded">
-                    <div v-if="plan_content.token_usage">
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>Prompt Tokens:</div>
-                            <div class="font-mono">{{ plan_content.token_usage.prompt_tokens }}</div>
-                            <div>Completion Tokens:</div>
-                            <div class="font-mono">{{ plan_content.token_usage.completion_tokens }}</div>
-                            <div class="font-bold">Total Tokens:</div>
-                            <div class="font-mono font-bold">{{ plan_content.token_usage.total_tokens }}</div>
-                        </div>
+                <!-- Plan Content -->
+                <div v-if="plan">
+                    <div class="flex justify-between items-center cursor-pointer" @click="togglePromptCollapsed">
+                        <h3 class="text-md font-bold mb-2">Prompt</h3>
+                        <Icon :name="promptCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
                     </div>
-                    <div v-else class="text-gray-500">
-                        Token usage information not available
+                    <pre v-if="!promptCollapsed" class="text-xs">{{ plan_content.text }}</pre>
+                    
+                    <div class="flex justify-between items-center cursor-pointer mt-4" @click="togglePlanCollapsed">
+                        <h3 class="text-md font-bold mb-2">Plan</h3>
+                        <Icon :name="planCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                    </div>
+                    <pre v-if="!planCollapsed" class="text-xs">
+                        <div class="text-xs">Analysis Complete: {{ plan_analysis_complete }}</div>
+                        <div class="text-xs">Reasoning: {{ plan_reasoning }}</div>
+                        <div class="text-xs">{{ plan_content.plan }}</div>
+                    </pre>
+
+                    <!-- Add token usage section -->
+                    <div class="flex justify-between items-center cursor-pointer mt-4" @click="toggleTokensCollapsed">
+                        <h3 class="text-md font-bold mb-2">Token Usage</h3>
+                        <Icon :name="tokensCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-5 h-5" />
+                    </div>
+                    <div v-if="!tokensCollapsed" class="text-xs bg-gray-50 p-3 rounded">
+                        <div v-if="plan_content.token_usage">
+                            <div class="grid grid-cols-2 gap-2">
+                                <div>Prompt Tokens:</div>
+                                <div class="font-mono">{{ plan_content.token_usage.prompt_tokens }}</div>
+                                <div>Completion Tokens:</div>
+                                <div class="font-mono">{{ plan_content.token_usage.completion_tokens }}</div>
+                                <div class="font-bold">Total Tokens:</div>
+                                <div class="font-mono font-bold">{{ plan_content.token_usage.total_tokens }}</div>
+                            </div>
+                        </div>
+                        <div v-else class="text-gray-500">
+                            Token usage information not available
+                        </div>
                     </div>
                 </div>
             </div>
@@ -329,14 +348,18 @@ const showPlan = async (completion: any) => {
 
 const getPlan = async (completionId: string) => {
     try {
-        const response = await useMyFetch(`/api/completions/${completionId}/plan`);
-        plan.value = response.data.value;
-        plan_content.value = JSON.parse(response.data.value.content);
-        plan_reasoning.value = plan_content.value.reasoning;
-        plan_analysis_complete.value = plan_content.value.analysis_complete;
-
+        const response = await useMyFetch(`/api/completions/${completionId}/plans`);
+        plans.value = response.data.value || [];
+        
+        // If there are plans, set the first one as active
+        if (plans.value.length > 0) {
+            plan.value = plans.value[0];
+            plan_content.value = JSON.parse(plans.value[0].content);
+            plan_reasoning.value = plan_content.value.reasoning;
+            plan_analysis_complete.value = plan_content.value.analysis_complete;
+        }
     } catch (error) {
-        console.error('Error fetching plan:', error);
+        console.error('Error fetching plans:', error);
         throw error;
     }
 }
@@ -414,6 +437,19 @@ watch(() => localCompletion.value?.completion?.content, (newContent) => {
     // When content is empty, keep reasoning open
     reasoningCollapsed.value = !!(newContent && newContent.length > 0);
 }, { immediate: true });
+
+const plans = ref([]);
+const activePlanIndex = ref(0);
+
+const switchPlan = (index) => {
+    if (index >= 0 && index < plans.value.length) {
+        activePlanIndex.value = index;
+        plan.value = plans.value[index];
+        plan_content.value = JSON.parse(plans.value[index].content);
+        plan_reasoning.value = plan_content.value.reasoning;
+        plan_analysis_complete.value = plan_content.value.analysis_complete;
+    }
+}
 
 </script>
 

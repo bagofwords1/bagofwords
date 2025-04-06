@@ -295,20 +295,20 @@ class CompletionService:
         return error_completion
     
 
-    async def get_completion_plan(self, db: AsyncSession, current_user: User, organization: Organization, completion_id: str):
+    async def get_completion_plans(self, db: AsyncSession, current_user: User, organization: Organization, completion_id: str):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()
 
         if not completion:
             raise HTTPException(status_code=404, detail="Completion not found")
 
-        plan = await db.execute(select(Plan).where(Plan.completion_id == completion_id))
-        plan = plan.scalars().first()
+        plans = await db.execute(select(Plan).where(Plan.completion_id == completion_id))
+        plans = plans.scalars().all()
 
-        if not plan:
-            raise HTTPException(status_code=404, detail="Plan not found")
+        if not plans:
+            raise HTTPException(status_code=404, detail="Plans not found")
 
-        return plan
+        return plans
 
     async def update_completion_feedback(self, db: AsyncSession, completion_id: str, vote: int):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
