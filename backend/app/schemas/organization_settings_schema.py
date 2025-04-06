@@ -69,21 +69,21 @@ class FeatureConfig(BaseModel):
         return v
 
 class OrganizationSettingsConfig(BaseModel):
-    allow_llm_see_data: FeatureConfig = FeatureConfig(enabled=False, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
-    allow_file_upload: FeatureConfig = FeatureConfig(enabled=True, name="Allow file upload", description="Allow users to upload spreadsheets and docuemnts (xls/pdf) and push their content to the LLM", is_lab=False, editable=False)
-    allow_code_editing: FeatureConfig = FeatureConfig(enabled=False, name="Allow users to edit and execute the LLM generated code", description="Allow users to edit and execute the LLM generated code", is_lab=False, editable=False)
+    allow_llm_see_data: FeatureConfig = FeatureConfig(enabled=True, value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
+    allow_file_upload: FeatureConfig = FeatureConfig(enabled=True, value=True, name="Allow file upload", description="Allow users to upload spreadsheets and docuemnts (xls/pdf) and push their content to the LLM", is_lab=False, editable=False)
+    allow_code_editing: FeatureConfig = FeatureConfig(enabled=True, value=False, name="Allow users to edit and execute the LLM generated code", description="Allow users to edit and execute the LLM generated code", is_lab=False, editable=False)
     #limit_row_count: FeatureConfig = FeatureConfig(enabled=True, value=1000, name="Limit row count", description="Limit the number of rows that can be showed in the table or stored in the database cache", is_lab=False, editable=False)
     limit_analysis_steps: FeatureConfig = FeatureConfig(enabled=True, value=7, name="Limit analysis steps", description="Limit the number of analysis steps that can be used in the analysis", is_lab=False, editable=False)
     limit_code_retries: FeatureConfig = FeatureConfig(enabled=True, value=3, name="Limit code retries", description="Limit the number of times the LLM can retry code generation", is_lab=False, editable=False)
 
     ai_features: Dict[str, FeatureConfig] = {
-        "planner": FeatureConfig(enabled=True, name="Planner", description="Orchestrates analysis by breaking down user requests into actionable steps", is_lab=False, editable=False),
-        "coder": FeatureConfig(enabled=True, name="Coder", description="Translates data models into executable Python code for data processing", is_lab=False, editable=False),
-        "validator": FeatureConfig(enabled=True, name="Validator", description="Validates code safety and integrity and its data model compatibility", is_lab=False, editable=True),
-        "dashboard_designer": FeatureConfig(enabled=True, name="Dashboard Designer", description="Creates layout and organization of dashboard elements", is_lab=False),
-        "analyze_data": FeatureConfig(enabled=False, name="Analyze Data", description="Provides natural language responses to user questions about their data", is_lab=False, editable=False),
-        "code_reviewer": FeatureConfig(enabled=True, name="Code Reviewer", description="Allow users to get feedback on their code", is_lab=False),
-        "search_context": FeatureConfig(enabled=True, name="Search Context", description="Allow users to search through metadata, context, and data models", is_lab=False),
+        "planner": FeatureConfig(enabled=True, value=True, name="Planner", description="Orchestrates analysis by breaking down user requests into actionable steps", is_lab=False, editable=False),
+        "coder": FeatureConfig(enabled=True, value=True, name="Coder", description="Translates data models into executable Python code for data processing", is_lab=False, editable=False),
+        "validator": FeatureConfig(enabled=True, value=True, name="Validator", description="Validates code safety and integrity and its data model compatibility", is_lab=False, editable=True),
+        "dashboard_designer": FeatureConfig(enabled=True, value=True, name="Dashboard Designer", description="Creates layout and organization of dashboard elements", is_lab=False),
+        "analyze_data": FeatureConfig(enabled=False, value=False, name="Analyze Data", description="Provides natural language responses to user questions about their data", is_lab=False, editable=False),
+        "code_reviewer": FeatureConfig(enabled=True, value=False, name="Code Reviewer", description="Allow users to get feedback on their code", is_lab=False),
+        "search_context": FeatureConfig(enabled=True, value=True, name="Search Context", description="Allow users to search through metadata, context, and data models", is_lab=False),
     }
 
 

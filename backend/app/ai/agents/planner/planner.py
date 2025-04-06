@@ -194,9 +194,11 @@ class Planner:
             Instead, use only the 'answer_question' action.
         - If the user explicitly says "modify the widget" or "add columns from another table," then use 'modify_widget'.
         - If the user asks for any data listing like "list of customers" or "show me customers", treat this as a request to create a widget.
-        2. If the user is just conversing or being friendly, respond with a single 'answer_question' action.
-        3. If user is not specifically requesting a new chart, new table, or modification, do not create or modify widgets.
-        4. If user only wants more information about existing data, respond with a single 'answer_question' action.
+        2. Sometimes the user will ask an answer to a question that requires multiple steps. Make sure to break it down, and create all the data required and then trigger the answer_question action.
+          - If the user asks "Is Gina the top customer?" -> create a widget to get the top customer, and then answer the question. etc.
+        3. If the user is just conversing or being friendly, respond with a single 'answer_question' action.
+        4. If user is not specifically requesting a new chart, new table, or modification, do not create or modify widgets.
+        5. If user only wants more information about existing data, respond with a single 'answer_question' action.
         5. Provide your plan as JSON with 'plan' as the top-level key, containing a list of actions.
         6. No code fences or markdown in the final output JSON.
 
@@ -222,7 +224,7 @@ class Planner:
         If you are responding after observing previous results:
         1. Analyze what was discovered in the previous step
         2. Determine if additional actions are needed
-        3. If no further actions are needed, respond with an empty plan list and set "analysis_complete" to true
+        3. If no further actions are needed, respond with with a simple answer_question action to provide brief info to the user, and set "analysis_complete" to true
         4. If more actions are needed, provide them and set "requires_observation" to true for actions that require feedback
 
         1. **Determine the Nature of the Request**:

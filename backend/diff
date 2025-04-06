@@ -1,0 +1,213 @@
+diff --git a/backend/app/ai/agent.py b/backend/app/ai/agent.py
+index abf542e..b19a0e9 100644
+--- a/backend/app/ai/agent.py
++++ b/backend/app/ai/agent.py
+@@ -108,6 +108,16 @@ class Agent:
+             
+             # ReAct loop: Plan → Execute → Observe → Plan? 
+             while not analysis_complete or analysis_step < self.organization_settings.get_config("limit_analysis_steps").value:
++                # Track the plan's completion for this iteration
++                plan_completion = None  # Will hold the completion for current plan
++                
++                # If first analysis step, use system_completion for plan
++                if analysis_step == 0:
++                    plan_completion = self.system_completion
++                else:
++                    # For subsequent plans, create a new system completion
++                    plan_completion = None  # Will be created when we get reasoning
++                
+                 # 1. PLAN: Get actions from planner
+                 plan_generator = self.planner.execute(
+                     schemas, 
+@@ -121,33 +131,56 @@ class Agent:
+                 )
+                 
+                 current_plan = None
++                plan_complete = False
++                
+                 async for json_result in plan_generator:
+                     if not json_result:
+                         continue
+-                    # Update reasoning only on first iteration
++                    
++                    # Update reasoning on first iteration
+                     if 'reasoning' in json_result and self.system_completion and first_reasoning_captured != json_result['reasoning'] and analysis_step == 0:
+                         # Keep existing content but update reasoning
+                         existing_content = self.system_completion.completion.get('content')
+                         await self.project_manager.update_message(
+                             self.db,
+                             self.system_completion,
+-                            message=existing_content,  # Preserve existing content
+-                            reasoning=json_result['reasoning']  # Update reasoning
++                            message=existing_content,
++                            reasoning=json_result['reasoning']
+                         )
+-                        first_reasoning_captured = json_result['reasoning']  # Mark reasoning as captured
++                        first_reasoning_captured = json_result['reasoning']
+                     
+                     if 'plan' not in json_result or not isinstance(json_result['plan'], list):
+                         continue
+                         
+                     current_plan = json_result
+-                    
++
++                    # Only store plan when streaming is complete
++                    if current_plan.get('streaming_complete', False) and not plan_complete:
++                        plan_json = {
++                            "reasoning": current_plan.get('reasoning', ''),
++                            "analysis_complete": current_plan.get('analysis_complete', False),
++                            "plan": current_plan.get('plan', []),
++                            "streaming_complete": current_plan.get('streaming_complete', True),
++                            "text": current_plan.get('text', ''),
++                            "token_usage": current_plan.get('token_usage', {})
++                        }
++                        plan_json_str = json.dumps(plan_json)
++                        # Store plan with report_id and current completion
++                        await self.project_manager.create_plan(
++                            self.db, 
++                            self.report, 
++                            plan_json_str, 
++                            plan_completion or self.head_completion  # Use current completion if available
++                        )
++                        plan_complete = True
++
+                     # Process each action in the plan
+                     for i, action in enumerate(json_result['plan']):
+                         if not isinstance(action, dict) or 'action' not in action:
+                             continue
+ 
+                         action_id = f"action_{i}"
+-                        # Initialize the action_results dictionary for this action_id if it doesn't exist
++                        # Init action results if needed
+                         if action_id not in action_results:
+                             action_results[action_id] = {
+                                 "prefix_completion": None,
+@@ -156,40 +189,30 @@ class Agent:
+                                 "completed": False
+                             }
+ 
+-                        # Now we can safely access prefix_completion
++                        # Handle action prefixes with our pattern:
+                         if action.get('prefix') is not None:
+-                            # Skip if this is a completed answer action
+-                            if action.get('action') == 'answer_question' and action_results[action_id].get('completed'):
+-                                continue
+-                            
+-                            # For first action: use system_completion if available
+-                            if i == 0 and self.system_completion and not action_results[action_id]['prefix_completion']:
+-                                await self.project_manager.update_message(
+-                                    self.db,
+-                                    self.system_completion,
+-                                    action['prefix'],
+-                                    json_result['reasoning']
+-                                )
+-                                action_results[action_id]['prefix_completion'] = self.system_completion
+-                            elif action_results[action_id]['prefix_completion'] is None:
+-                                completion = await self.project_manager.create_message(
+-                                    report=self.report,
+-                                    db=self.db,
+-                                    message=action['prefix'],
+-                                    completion=self.head_completion,
+-                                    widget=self.widget,
+-                                    role="system"
+-                                )
+-                                
+-                                action_results[action_id]['prefix_completion'] = completion
+-                            elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
+-                                completion_obj = await self.project_manager.update_message(
+-                                    self.db,
+-                                    action_results[action_id]['prefix_completion'],
+-                                    action['prefix'],
+-                                    json_result['reasoning']
+-                                )
+-                                action_results[action_id]['prefix_completion'] = completion_obj
++                            if action_results[action_id]['prefix_completion'] is None:
++                                if i == 0:
++                                    # For first action in plan, update the plan_completion
++                                    # Use a temporary variable to ensure we get the updated object back
++                                    updated_completion = await self.project_manager.update_message(
++                                        self.db,
++                                        plan_completion,
++                                        message=action['prefix'],  # Set the message to the action prefix
++                                        reasoning=plan_completion.completion.get('reasoning')  # Keep existing reasoning
++                                    )
++                                    action_results[action_id]['prefix_completion'] = updated_completion  # Store the returned object
++                                else:
++                                    # Create new completion for non-first actions (unchanged)
++                                    completion = await self.project_manager.create_message(
++                                        report=self.report,
++                                        db=self.db,
++                                        message=action['prefix'],
++                                        completion=self.head_completion,
++                                        widget=self.widget,
++                                        role="system"
++                                    )
++                                    action_results[action_id]['prefix_completion'] = completion
+ 
+                         # Skip if action is already completed
+                         if action_results[action_id]["completed"]:
+@@ -200,20 +223,6 @@ class Agent:
+                         if not action_type:
+                             continue
+                         
+-                        # Use system_completion only on first pass
+-                        if analysis_step == 0 and self.system_completion and not system_completion_used and not action_results[action_id]['prefix_completion']:
+-                            # Update existing system completion with action prefix
+-                            if action.get('prefix') is not None:
+-                                current_reasoning = self.system_completion.completion.get('reasoning')
+-                                await self.project_manager.update_message(
+-                                    self.db,
+-                                    self.system_completion,
+-                                    message=action['prefix'],
+-                                    reasoning=current_reasoning  # Preserve reasoning
+-                                )
+-                            action_results[action_id]['prefix_completion'] = self.system_completion
+-                            system_completion_used = True  # Mark as used
+-                        
+                         # Handle different action types
+                         if action_type == 'create_widget':
+                             if action_results[action_id]['widget'] is None and action['details'].get('title'):
+@@ -361,8 +370,8 @@ class Agent:
+                                     # Update message with progress
+                                     await self.project_manager.update_message(
+                                         self.db,
+-                                        action_results[action_id]['prefix_completion'],
+-                                        full_answer
++                                        completion=action_results[action_id]['prefix_completion'],
++                                        message=full_answer
+                                     )
+ 
+                                 # Mark as completed only if we get here without errors
+@@ -445,8 +454,8 @@ class Agent:
+                             
+                             await self.project_manager.update_message(
+                                 self.db,
+-                                action_results[action_id]['prefix_completion'],
+-                                "Now putting it together and creating a dashboard.. and it's ready!"
++                                completion=action_results[action_id]['prefix_completion'],
++                                message="Now putting it together and creating a dashboard.. and it's ready!"
+                             )
+ 
+                             action_results[action_id] = {
+@@ -460,8 +469,8 @@ class Agent:
+                             # Stop processing more actions if observation is required
+                             break
+                 
+-                # Check if analysis is complete
+-                if current_plan.get("analysis_complete") == True:
++                # Only break after processing all actions and when both conditions are met
++                if current_plan.get("analysis_complete") == True and current_plan.get("streaming_complete") == True:
+                     analysis_complete = True
+                     break
+                 
+@@ -492,10 +501,6 @@ class Agent:
+                 title = await self.reporter.generate_report_title(previous_messages, current_plan['plan'])
+                 await self.project_manager.update_report_title(self.db, self.report, title)
+ 
+-            plan_json = { "reasoning": current_plan['reasoning'], "analysis_complete": current_plan['analysis_complete'], "plan": current_plan['plan'] , "streaming_complete": current_plan['streaming_complete'], "text": current_plan['text'], "token_usage": current_plan['token_usage']}
+-            plan_json = json.dumps(plan_json)
+-            plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)  # Use head_completion instead of undefined 'completion'
+-
+             logger.info("Main execution completed")
+             return action_results
+         

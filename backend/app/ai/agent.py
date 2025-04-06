@@ -121,6 +121,8 @@ class Agent:
                 )
                 
                 current_plan = None
+                plan_complete = False
+                
                 async for json_result in plan_generator:
                     if not json_result:
                         continue
@@ -140,7 +142,26 @@ class Agent:
                         continue
                         
                     current_plan = json_result
-                    
+
+                    # Only store plan when streaming is complete
+                    if current_plan.get('streaming_complete', False) and not plan_complete:
+                        plan_json = {
+                            "reasoning": current_plan.get('reasoning', ''),
+                            "analysis_complete": current_plan.get('analysis_complete', False),
+                            "plan": current_plan.get('plan', []),
+                            "streaming_complete": current_plan.get('streaming_complete', True),
+                            "text": current_plan.get('text', ''),
+                            "token_usage": current_plan.get('token_usage', {})
+                        }
+                        plan_json_str = json.dumps(plan_json)
+                        await self.project_manager.create_plan(
+                            self.db, 
+                            self.report, 
+                            plan_json_str, 
+                            self.head_completion
+                        )
+                        plan_complete = True
+
                     # Process each action in the plan
                     for i, action in enumerate(json_result['plan']):
                         if not isinstance(action, dict) or 'action' not in action:
@@ -425,24 +446,7 @@ class Agent:
                                                 widget['width'],
                                                 widget['height']
                                             )
-                                # Handle each dashboard design update
-                                if dashboard_design.get('text_widgets'):
-                                    for i, text_widget in enumerate(dashboard_design['text_widgets']):
-                                        if i not in [x.get('index') for x in dashboard_widgets['text_widgets']]:
-                                            # Add index to track the text widget
-                                            text_widget['index'] = i
-                                            dashboard_widgets['text_widgets'].append(
-                                                text_widget)
-                                            await self.project_manager.create_text_widget(
-                                                self.db,
-                                                text_widget['content'],
-                                                text_widget['x'],
-                                                text_widget['y'],
-                                                text_widget['width'],
-                                                text_widget['height'],
-                                                self.report.id
-                                            )
-                            
+
                             await self.project_manager.update_message(
                                 self.db,
                                 action_results[action_id]['prefix_completion'],
@@ -450,11 +454,13 @@ class Agent:
                             )
 
                             action_results[action_id] = {
-                                "dashboard_design": dashboard_design,
+                                "prefix_completion": action_results[action_id]['prefix_completion'],
+                                "widget": None,
+                                "step": None,
                                 "completed": True
                             }
 
-                        # Check if we need to observe after this action
+                        # Check if this action requires observation
                         requires_observation = action.get('requires_observation', False)
                         if requires_observation and action_results[action_id]["completed"]:
                             # Stop processing more actions if observation is required
@@ -491,10 +497,6 @@ class Agent:
             if self.head_completion.id == first_completion.id:
                 title = await self.reporter.generate_report_title(previous_messages, current_plan['plan'])
                 await self.project_manager.update_report_title(self.db, self.report, title)
-
-            plan_json = { "reasoning": current_plan['reasoning'], "analysis_complete": current_plan['analysis_complete'], "plan": current_plan['plan'] , "streaming_complete": current_plan['streaming_complete'], "text": current_plan['text'], "token_usage": current_plan['token_usage']}
-            plan_json = json.dumps(plan_json)
-            plan = await self.project_manager.create_plan(self.db, self.report, plan_json, self.head_completion)  # Use head_completion instead of undefined 'completion'
 
             logger.info("Main execution completed")
             return action_results

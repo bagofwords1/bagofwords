@@ -30,9 +30,14 @@ class ProjectManager:
         await db.refresh(error_completion)
         return error_completion
 
-    async def create_message(self, db, report, message, completion, widget, role, step=None):
-        
-        completion_message = PromptSchema(content=message).dict()
+    async def create_message(self, db, report, message=None, reasoning=None, completion=None, widget=None, role="system", step=None):
+        completion_message = PromptSchema(content="", reasoning="")
+        if message is not None:
+            completion_message.content = message
+        if reasoning is not None:
+            completion_message.reasoning = reasoning
+
+        completion_message = completion_message.dict()
 
         new_completion = Completion(
             completion=completion_message,
