@@ -182,13 +182,13 @@ class Agent:
                         # Now we can safely access prefix_completion
                         if action.get('prefix') is not None:
                             # Skip if this is a completed answer action
-                            if action.get('action') == 'answer_question' and action_results[action_id].get('completed'):
+                            if (action.get('action') == 'answer_question' and i > 0) and action_results[action_id].get('completed'):
                                 continue
                             
                             # Handle completion creation/update
                             if action_results[action_id]['prefix_completion'] is None:
                                 # Use system completion for first action in first analysis step
-                                if i == 0 and analysis_step == 0 and self.system_completion and not system_completion_used:
+                                if analysis_step == 0 and self.system_completion and not system_completion_used:
                                     await self.project_manager.update_message(
                                         self.db,
                                         self.system_completion,
