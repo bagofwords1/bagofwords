@@ -105,11 +105,13 @@ class Agent:
             system_completion_used = False  # Flag to track if we've used system_completion
             first_reasoning_captured = ""
             analysis_step = 0
-            
+
             # ReAct loop: Plan → Execute → Observe → Plan? 
             while not analysis_complete or analysis_step < self.organization_settings.get_config("limit_analysis_steps").value:
                 action_results = {}  # Reset action results for each analysis step
-
+                if observation_data is not None:
+                    pass
+                
                 # 1. PLAN: Get actions from planner
                 plan_generator = self.planner.execute(
                     schemas, 

@@ -224,7 +224,7 @@ class Planner:
         If you are responding after observing previous results:
         1. Analyze what was discovered in the previous step
         2. Determine if additional actions are needed
-        3. If no further actions are needed, respond with with a simple answer_question action to provide brief info to the user, and set "analysis_complete" to true
+        3. If no further actions are needed, respond with with a simple answer_question action to provide brief info to the user (if needed and if not redundant), and set "analysis_complete" to true
         4. If more actions are needed, provide them and set "requires_observation" to true for actions that require feedback
 
         1. **Determine the Nature of the Request**:
@@ -235,7 +235,7 @@ class Planner:
              use `create_widget` action to create a table or chart for better data visualization.
            - If the user's request can be answered directly from the given context (schemas, previous messages, memories), OR basic llm can answer the question (summarize, explain, etc.), 
              use `answer_question` action EVEN IF a widget is selected. Only use modify_widget if the user explicitly wants to change the widget.
-           - If not directly answerable, generate a plan consisting of one or more actions. Actions can be:
+           - If not directly answerable, generate a plan consisting of one or more actions that can be used to answer the question. Actions can be:
                 - "create_widget": For building tables, charts, or other data visuals from the schema.
                   * Avoid creating a 'create_widget' action if a widget is already selected in the context.*
                   * Do not create a 'create_widget' if an identical widget is already in the chat (previos messages).*
@@ -255,7 +255,7 @@ class Planner:
 
         2. **When Generating a Plan**:
            - Begin your JSON output with the "analysis_complete" field to indicate whether the observation is finished and analysis complete, and no more actions are needed.
-           - Provide a "reasoning" key that explains the thinking and the plan before execution. make it 100 words.
+           - Provide a "reasoning" key that explains the thinking and the plan before execution. make its length based on the complexity of the request.
            - Provide each action as a JSON object inside a "plan" array.
            - Each action must have:
              - "action": One of the defined actions.
@@ -264,8 +264,8 @@ class Planner:
              - "details": A dictionary of relevant details:
                * For "answer_question":
                  - "extracted_question": The question being answered (end with "$.")
-               * For "create_widget":
-                 - "title": The widget title, must end with "$." REQUIRED
+               * For "create_widget" (all is required, unless otherwise specified):
+                 - "title": The widget title, must end with "$." 
                  - "data_model": A dictionary describing how to query and present the data.
                      - "type": The type of response ("table", "bar_chart", "line_chart", "pie_chart", "area_chart", "count", etc.)
                      - "columns": A list of columns in the data model. Each column is a dictionary with:
