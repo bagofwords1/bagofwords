@@ -544,7 +544,7 @@ class Agent:
 
             # Setup validator function if enabled
             validator_fn = None
-            if self.organization_settings.get_config("validator").enabled:
+            if self.organization_settings.get_config("validator").value:
                 validator_fn = self.coder.validate_code
             
             # Execute the full process: generate -> validate -> execute with retries

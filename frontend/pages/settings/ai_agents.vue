@@ -26,12 +26,20 @@
                         <UTooltip v-if="feature.is_lab" text="Beta feature">
                             <Icon name="heroicons:beaker" class="ml-2 w-4 h-4" />
                         </UTooltip>
+                         <UTooltip v-if="feature.state === 'locked'" text="This setting is locked and cannot be changed.">
+                            <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                        </UTooltip>
                     </div>
-                    <UToggle 
-                        v-model="feature.enabled" 
-                        :disabled="!feature.editable"
-                        @change="updateFeature(key, feature)" 
+                     <UToggle
+                        v-if="typeof feature.value === 'boolean'"
+                        v-model="feature.value"
+                        :disabled="!feature.editable || feature.state === 'locked'"
+                        @change="updateFeature(key, feature)"
                     />
+                     <!-- Optionally handle non-boolean values here -->
+                     <span v-else class="text-sm text-gray-600">
+                        {{ feature.value }} ({{ feature.editable && feature.state !== 'locked' ? 'Editable via API' : 'Not directly editable' }})
+                    </span>
                 </div>
                 <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
             </div>
@@ -40,15 +48,20 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, permissions: ['modify_settings'], layout: 'settings' })
+import { ref, onMounted } from 'vue'
+import { useToast } from '#imports' // Ensure useToast is imported
 
+// Updated interface to use 'value' and include 'state'
 interface AIFeature {
     name: string
     description: string
-    enabled: boolean
+    value: any // Changed from enabled: boolean
+    state: 'enabled' | 'disabled' | 'locked'
     editable: boolean
     is_lab: boolean
 }
+
+definePageMeta({ auth: true, permissions: ['modify_settings'], layout: 'settings' })
 
 const loading = ref(true)
 const error = ref('')
@@ -62,15 +75,20 @@ const fetchSettings = async () => {
     error.value = ''
     try {
         const response = await useMyFetch('/api/organization/settings')
-        if (!response.status.value == 'success') throw new Error('Failed to fetch settings')
+        // Adjust status check as needed
+        if (response.status.value !== 'success') {
+            const errorData = response.error?.value?.data || { message: 'Failed to fetch settings' }
+            throw new Error(errorData.message || errorData.detail || 'Failed to fetch settings')
+        }
         const data = response.data.value
-        
-        // Extract AI features
-        aiFeatures.value = data.config.ai_features
-    } catch (err) {
+
+        // Extract AI features, ensuring it's an object
+        aiFeatures.value = (data.config && data.config.ai_features) ? data.config.ai_features : {}
+
+    } catch (err: any) {
         error.value = err.message || 'An error occurred while fetching settings'
         toast.add({
-            title: 'Error',
+            title: 'Error Fetching Settings',
             description: error.value,
             color: 'red',
             timeout: 5000,
@@ -83,12 +101,13 @@ const fetchSettings = async () => {
 
 // Update feature setting
 const updateFeature = async (featureKey: string, feature: AIFeature) => {
+    // Store original value for revert
+    const originalValue = !feature.value;
     try {
-        const payload = { config: {} }
-        payload.config.ai_features = {
-            [featureKey]: {
-                enabled: aiFeatures.value[featureKey].enabled
-            }
+        const payload = { config: { ai_features: {} } }
+        // Send 'value' in the payload
+        payload.config.ai_features[featureKey] = {
+            value: aiFeatures.value[featureKey].value // Send the new value
         }
 
         const response = await useMyFetch('/api/organization/settings', {
@@ -99,23 +118,38 @@ const updateFeature = async (featureKey: string, feature: AIFeature) => {
             body: JSON.stringify(payload)
         })
 
-        if (response.status.value !== 'success') throw new Error('Failed to update settings')
+        // Adjust status check as needed
+        if (response.status.value !== 'success') {
+             const errorData = response.error?.value?.data || { message: 'Failed to update setting' }
+             throw new Error(errorData.message || errorData.detail || 'Failed to update setting')
+        }
 
-        // Show success toast
+         // Update the local state fully from the response if possible
+        const updatedConfig = response.data?.value?.config;
+        if (updatedConfig && updatedConfig.ai_features && updatedConfig.ai_features[featureKey]) {
+             aiFeatures.value[featureKey] = updatedConfig.ai_features[featureKey];
+        } else {
+             // Fallback: manually update state based on new value if full object not returned
+             aiFeatures.value[featureKey].state = aiFeatures.value[featureKey].value ? 'enabled' : 'disabled';
+        }
+
+        // Show success toast using the new value
         toast.add({
             title: 'Success',
-            description: `${feature.name} has been ${feature.enabled ? 'enabled' : 'disabled'}`,
+            description: `${feature.name} has been set to ${feature.value ? 'enabled' : 'disabled'}`,
             color: 'green',
             timeout: 3000
         })
-    } catch (err) {
-        // Revert the toggle if there was an error
-        aiFeatures.value[featureKey].enabled = !aiFeatures.value[featureKey].enabled
-        
+    } catch (err: any) {
+        // Revert the toggle using the stored original value
+        aiFeatures.value[featureKey].value = originalValue;
+         // Also revert state if possible
+        aiFeatures.value[featureKey].state = originalValue ? 'enabled' : 'disabled';
+
         // Show error toast
         error.value = err.message || 'An error occurred while updating settings'
         toast.add({
-            title: 'Error',
+            title: 'Error Updating Setting',
             description: error.value,
             color: 'red',
             timeout: 5000,
