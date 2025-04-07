@@ -128,10 +128,12 @@ class Agent:
                 async for json_result in plan_generator:
                     if not json_result:
                         continue
+
                     # Update reasoning only on first iteration
                     if 'reasoning' in json_result and self.system_completion and first_reasoning_captured != json_result['reasoning'] and analysis_step == 0:
                         # Keep existing content but update reasoning
                         existing_content = self.system_completion.completion.get('content')
+                        
                         await self.project_manager.update_message(
                             self.db,
                             self.system_completion,
@@ -210,6 +212,9 @@ class Agent:
                                     )
                                     action_results[action_id]['prefix_completion'] = completion
                             elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
+                                if action_results[action_id].get('answer', None) is not None:
+                                    continue
+
                                 # Update existing completion if content changed
                                 completion_obj = await self.project_manager.update_message(
                                     self.db,
@@ -344,6 +349,7 @@ class Agent:
                                         report=self.report,
                                         db=self.db,
                                         message=action['prefix'],
+                                        reasoning=json_result.get('reasoning'),
                                         completion=self.head_completion,
                                         widget=None,
                                         role="system"
@@ -375,9 +381,9 @@ class Agent:
                                     await self.project_manager.update_message(
                                         self.db,
                                         action_results[action_id]['prefix_completion'],
-                                        full_answer
+                                        full_answer,
+                                        json_result.get('reasoning')
                                     )
-
                                 # Mark as completed only if we get here without errors
                                 action_results[action_id].update({
                                     "answer": full_answer,
@@ -397,7 +403,7 @@ class Agent:
                                 continue
 
                         elif action_type == 'design_dashboard':
-                            widgets_steps = await self._get_report_widgeets_and_steps(self.report.id)
+                            widgets_steps = await self._get_report_widgets_and_steps(self.report.id)
                             widgets = [x[0] for x in widgets_steps if x[0] is not None]
                             steps = [x[1] for x in widgets_steps if x[1] is not None]
 
@@ -536,7 +542,7 @@ class Agent:
 
             # Setup validator function if enabled
             validator_fn = None
-            if self.organization_settings.get_config("validator").value:
+            if self.organization_settings.get_config("validator").enabled:
                 validator_fn = self.coder.validate_code
             
             # Execute the full process: generate -> validate -> execute with retries
@@ -852,7 +858,7 @@ class Agent:
 
         return response
     
-    async def _get_report_widgeets_and_steps(self, report_id):
+    async def _get_report_widgets_and_steps(self, report_id):
     
         result = []
         widgets = await self.db.execute(select(Widget).where(Widget.report_id == report_id))
@@ -876,7 +882,7 @@ class Agent:
 
     async def _built_report_widgets_context(self):
         # Get all widgets for the report
-        widgets = await self._get_report_widgeets_and_steps(self.report.id)
+        widgets = await self._get_report_widgets_and_steps(self.report.id)
 
         # Only add to context if we have both widget and step
         context = []
