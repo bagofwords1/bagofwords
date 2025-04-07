@@ -5,7 +5,7 @@ from tests.utils.user_creds import main_user
 import os
 import time
 
-@pytest.mark.llm
+@pytest.mark.ai
 def test_basic_eval(
     create_completion,
     get_completions,
