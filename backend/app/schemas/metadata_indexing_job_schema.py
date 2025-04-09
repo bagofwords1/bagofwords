@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
-from app.schemas.dbt_resource_schema import DBTResourceSchema
+from app.schemas.metadata_resource_schema import MetadataResourceSchema
 
 class JobStatus(str, Enum):
     PENDING = "pending"
@@ -25,7 +25,7 @@ class MetadataIndexingJobSchema(BaseModel):
     # Configuration for the job
     config: Optional[Dict[str, Any]] = None
 
-    resources: List[DBTResourceSchema]
+    resources: List[MetadataResourceSchema]
     
     # Statistics
     resources_processed: int = 0

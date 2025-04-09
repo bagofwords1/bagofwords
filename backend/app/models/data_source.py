@@ -148,7 +148,7 @@ class DataSource(BaseSchema):
         lazy="selectin",
         overlaps="reports,organization"
     )
-    dbt_resources = relationship("DBTResource", back_populates="data_source")
+    metadata_resources = relationship("MetadataResource", back_populates="data_source")
     metadata_indexing_jobs = relationship("MetadataIndexingJob", back_populates="data_source")
     
     def get_client(self):
@@ -238,7 +238,7 @@ class DataSource(BaseSchema):
     
     async def get_resources(self, db: AsyncSession, prompt_content) -> str:
         """
-        Get relevant DBT resources associated with this data source based on the prompt.
+        Get relevant metadata resources associated with this data source based on the prompt.
         Uses ResourceContextBuilder to extract and filter resources.
         """
         # Create a ResourceContextBuilder instance

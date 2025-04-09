@@ -31,6 +31,8 @@ class MetadataIndexingJob(BaseSchema):
 
     job_type = Column(String, nullable=False, default=IndexingJobType.DBT.value)
     status = Column(String, nullable=False, default=IndexingJobStatus.PENDING.value)
+
+    detected_project_types = Column(JSON, nullable=True) # List of strings, e.g., ["dbt", "lookml"]
     
     # Job details
     started_at = Column(DateTime, nullable=True)
@@ -51,6 +53,9 @@ class MetadataIndexingJob(BaseSchema):
     # Raw data from the extraction process
     raw_data = Column(JSON, nullable=True)  # Complete extracted data before processing
 
+    # Detected project types in the repository for this job
+    detected_project_types = Column(JSON, nullable=True) # List of strings, e.g., ["dbt", "lookml"]
+
     is_active = Column(Boolean, nullable=False, default=True)
     
     # Relationships
@@ -58,8 +63,8 @@ class MetadataIndexingJob(BaseSchema):
     git_repository = relationship("GitRepository", back_populates="metadata_indexing_jobs")
     
     # Use lambda for late binding to avoid circular imports
-    dbt_resources = relationship(
-        lambda: DBTResource,
+    metadata_resources = relationship(
+        lambda: MetadataResource,
         back_populates="metadata_indexing_job"
     )
 
@@ -110,4 +115,4 @@ class MetadataIndexingJob(BaseSchema):
                         self.raw_data[resource_type].extend(resources)
 
 # Import at the end to avoid circular imports
-from app.models.dbt_resource import DBTResource 
+from app.models.metadata_resource import MetadataResource 

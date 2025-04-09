@@ -40,7 +40,8 @@ from app.routes import (
     user_profile,
     llm,
     git_repository,
-    organization_settings
+    organization_settings,
+    metadata_resource
 )
 
 # Initialize logging
@@ -154,6 +155,7 @@ app.include_router(memory.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
+app.include_router(metadata_resource.router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
