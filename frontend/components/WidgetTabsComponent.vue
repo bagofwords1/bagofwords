@@ -58,6 +58,10 @@
                     </th>
                     <td class="border-t border-b border-l border-gray-200 px-2 py-1">
                         {{ column.description }}
+                        <UTooltip :text="column.source">
+                            <Icon name="heroicons:information-circle" class="text-gray-500" />
+                        </UTooltip>
+
                     </td>
                 </tr>
             </transition-group>

@@ -224,7 +224,7 @@ class Planner:
         If you are responding after observing previous results:
         1. Analyze what was discovered in the previous step
         2. Determine if additional actions are needed
-        3. If no further actions are needed, respond with with a simple answer_question action to provide brief info to the user (if needed and if not redundant), and set "analysis_complete" to true
+        3. If no further actions are needed, respond with with a simple answer_question action to provide brief info to the user. Only use answer_question if needed and if not redundant.
         4. If more actions are needed, provide them and set "requires_observation" to true for actions that require feedback
 
         1. **Determine the Nature of the Request**:
