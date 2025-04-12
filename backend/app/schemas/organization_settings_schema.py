@@ -88,7 +88,7 @@ class OrganizationSettingsConfig(BaseModel):
     allow_file_upload: FeatureConfig = FeatureConfig(value=True, name="Allow file upload", description="Allow users to upload spreadsheets and docuemnts (xls/pdf) and push their content to the LLM", is_lab=False, editable=False)
     allow_code_editing: FeatureConfig = FeatureConfig(value=False, name="Allow users to edit and execute the LLM generated code", description="Allow users to edit and execute the LLM generated code", is_lab=False, editable=False)
     #limit_row_count: FeatureConfig = FeatureConfig(value=1000, name="Limit row count", description="Limit the number of rows that can be showed in the table or stored in the database cache", is_lab=False, editable=False) # Assuming value is int here
-    limit_analysis_steps: FeatureConfig = FeatureConfig(value=7, name="Limit analysis steps", description="Limit the number of analysis steps that can be used in the analysis", is_lab=False, editable=False) # Assuming value is int here
+    limit_analysis_steps: FeatureConfig = FeatureConfig(value=3, name="Limit analysis steps", description="Limit the number of analysis steps that can be used in the analysis", is_lab=False, editable=False) # Assuming value is int here
     limit_code_retries: FeatureConfig = FeatureConfig(value=3, name="Limit code retries", description="Limit the number of times the LLM can retry code generation", is_lab=False, editable=False) # Assuming value is int here
 
     ai_features: Dict[str, FeatureConfig] = {

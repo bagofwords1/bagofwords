@@ -220,10 +220,11 @@ class Planner:
         6. For "design_dashboard," do not recreate existing widgets. Combine them into a dashboard if they are relevant.
         7. Carefully verify all columns and data sources actually exist in the provided schemas.
         8. If the user requested something, always create at least one action - even if it's an answer_question action.
+        9. In an observed plan, if new actions are needed, only create the new actions - dont repeat actions that were already created in the previous step.
 
         If you are responding after observing previous results:
         1. Analyze what was discovered in the previous step
-        2. Determine if additional actions are needed
+        2. Determine if additional actions are needed. If actions are needed, only create the new actions - dont repeat actions that were already created in the previous step.
         3. If no further actions are needed, respond with with a simple answer_question action to provide brief info to the user. Only use answer_question if needed and if not redundant.
         4. If more actions are needed, provide them and set "requires_observation" to true for actions that require feedback
 
@@ -265,7 +266,7 @@ class Planner:
                * For "answer_question":
                  - "extracted_question": The question being answered (end with "$.")
                * For "create_widget" (all is required, unless otherwise specified):
-                 - "title": The widget title, must end with "$." 
+                 - "title": The widget title, must end with "$." -- VERY IMPORTANT, DO NOT MISS THIS
                  - "data_model": A dictionary describing how to query and present the data.
                      - "type": The type of response ("table", "bar_chart", "line_chart", "pie_chart", "area_chart", "count", etc.)
                      - "columns": A list of columns in the data model. Each column is a dictionary with:
@@ -342,7 +343,7 @@ class Planner:
                     "prefix": "Let me prepare a chart for you. I will create a bar chart with the month and total revenue coming from `sales` table joined with `payment` table and aggregate the data by month.",
                     "execution_mode": "sequential",
                     "details": {{
-                        "title": "Revenue by Month$.",
+                        "title": "Revenue by Month$.", // VERY IMPORTANT, DO NOT MISS THIS
                         "data_model": {{
                             "type": "bar_chart",
                             "columns": [
@@ -461,7 +462,7 @@ class Planner:
                     "execution_mode": "sequential",
                     "requires_observation": true,
                     "details": {
-                        "title": "Duplicate Transaction Analysis",
+                        "title": "Duplicate Transaction Analysis$.", // VERY IMPORTANT, DO NOT MISS THIS
                         "data_model": {
                             // Data model details here
                         }
@@ -560,6 +561,9 @@ class Planner:
                                     current_action["prefix"] = action_item["prefix"]
                                 yield current_plan
                         # Update title
+                        if "title" in details and details["title"] and details["title"].endswith("."):
+                            current_details["title"] = details["title"][:-1]
+
                         if "title" in details and details["title"] and details["title"].endswith("$."):
                             current_details["title"] = details["title"][:-2]
 

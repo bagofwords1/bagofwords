@@ -512,6 +512,9 @@ class Agent:
             # Initialize data_model at the start
             data_model = None
             
+
+
+
             # First condition - save data model as soon as it's available
             if action['details'].get('data_model') and action['details']['data_model'].get('columns'):
                 data_model = action['details']['data_model']
@@ -547,6 +550,7 @@ class Agent:
             if self.organization_settings.get_config("validator").value:
                 validator_fn = self.coder.validate_code
             
+
             # Execute the full process: generate -> validate -> execute with retries
             df, final_code, code_and_error_messages = await self.code_execution_manager.generate_and_execute_with_retries(
                 data_model=data_model,

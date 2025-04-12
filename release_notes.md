@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.16
+## Version 0.0.16 (April 12, 2025)
 
 - Refactored main_execution to use ReAct and advanced planning
 - Added human feedback (upvote/downvote) to score AI completions 
@@ -8,6 +8,7 @@
 - Improved organization settings key management
 - OpenAPI support for global auth and org ID
 - Added support for Completion API for non-background jobs 
+- Added source icon trace in data modeling
 
 
 ## Version 0.0.155 (March 30, 2025)
