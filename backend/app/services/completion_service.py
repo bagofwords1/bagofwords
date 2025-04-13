@@ -137,7 +137,7 @@ class CompletionService:
                 model=default_model.model_id,  # We know this exists now
                 widget_id=str(widget.id) if widget else None,
                 report_id=report.id,
-                parent_id=last_completion.id if last_completion else None,
+                #parent_id=last_completion.id if last_completion else None,
                 turn_index=last_completion.turn_index + 1 if last_completion else 0,
                 message_type="table",
                 role="user",
@@ -207,8 +207,13 @@ class CompletionService:
                 return None
             else:
                 try:
+                    # Run the agent
                     await agent.main_execution()
-                    return await self._serialize_completion(db, system_completion, current_user, organization)
+
+                    # Get the response completions by parent_id
+                    response_completions = await self._get_response_completions(db, completion, current_user, organization)
+                    completions = [await self._serialize_completion(db, completion, current_user, organization) for completion in response_completions]
+                    return completions
                 except Exception as e:
                     # Create error completion and raise exception
                     await self._create_error_completion(db, completion, str(e))
@@ -322,3 +327,13 @@ class CompletionService:
         await db.refresh(completion)
 
         return completion
+    
+    async def _get_response_completions(self, db: AsyncSession, head_completion: Completion, current_user: User, organization: Organization):
+        response_completions = await db.execute(
+            select(Completion)
+            .where(Completion.parent_id == head_completion.id)
+            .where(Completion.report_id == head_completion.report_id)
+            .order_by(Completion.created_at.asc())
+        )
+        response_completions = response_completions.scalars().all()
+        return response_completions

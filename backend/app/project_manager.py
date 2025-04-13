@@ -44,7 +44,7 @@ class ProjectManager:
             model="gpt4o",
             status="success",
             turn_index=0,
-            parent_id=None,
+            parent_id=completion.id if completion else None,
             message_type="ai_completion",
             role=role,
             report_id=report.id,  # Assuming 'report' is an instance of the Report model

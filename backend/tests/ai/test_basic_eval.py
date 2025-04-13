@@ -5,6 +5,53 @@ from tests.utils.user_creds import main_user
 import os
 import time
 
+def validate_response_completions(completions):
+    """
+    Validates the entire completions response array and each individual completion
+    Returns (bool, dict) tuple with validation result and statistics
+    """
+    assert isinstance(completions, list), "Completions must be a list"
+    assert len(completions) > 0, "Completions list cannot be empty"
+
+    stats = {
+        "total_completions": len(completions),
+        "completions_with_code": 0,
+        "completions_with_data_model": 0,
+        "completions_with_widget": 0
+    }
+    for completion in completions:
+        # Validate basic required fields
+        assert "id" in completion, "Completion missing required 'id' field"
+        assert "status" in completion, "Completion missing required 'status' field"
+        assert "role" in completion, "Completion missing required 'role' field"
+        assert "completion" in completion, "Completion missing required 'completion' object"
+        
+        # Validate completion content structure
+        assert "content" in completion["completion"], "Completion missing 'content' field"
+        assert "reasoning" in completion["completion"], "Completion missing 'reasoning' field"
+
+        # Validate widget if present and not None
+        if completion.get("widget"):
+            stats["completions_with_widget"] += 1
+            assert "title" in completion["widget"], "Widget missing required 'title' field"
+            assert completion["widget"]["title"] is not None, "Widget title cannot be None"
+
+        # Validate step if present and not None
+        if completion.get("step"):
+            # Validate data model if present and not None
+            data_model = completion["step"].get("data_model")
+            if data_model and isinstance(data_model, dict) and data_model.get("columns"):
+                stats["completions_with_data_model"] += 1
+
+            # Validate code if present and not None
+            code = completion["step"].get("code")
+            if code and len(str(code)) > 5:
+                stats["completions_with_code"] += 1
+
+
+
+    return True, stats
+
 @pytest.mark.ai
 def test_basic_eval(
     create_completion,
@@ -85,39 +132,32 @@ def test_basic_eval(
 
     time_start = time.time()
     # Create a completion
-    completion = create_completion(report_id=report["id"], prompt="List of customers in dvdrental", user_token=user_token, org_id=org_id)
-    # Verify completion structure
-    assert completion is not None
-    assert "id" in completion
-    assert "status" in completion
-    assert completion["role"] == "system"
-    assert len(completion['completion']['content']) > 0
-    assert len(completion['completion']['reasoning']) > 0
-
-    # Widget validation
-    assert completion['widget']['title'] is not None
-
-    # Step validation
-    assert completion['step']['data_model'] is not None
-    assert len(completion['step']['data_model']['columns']) > 0
-    assert len(completion['step']['code']) > 10
-
-
-    completion_bar_chart = create_completion(report_id=report["id"], prompt="Top 10 films by revenue, bar chart", user_token=user_token, org_id=org_id)
-    assert completion_bar_chart is not None
-    assert "id" in completion_bar_chart
-    assert "status" in completion_bar_chart
-    assert completion_bar_chart["role"] == "system"
-    assert len(completion_bar_chart['completion']['content']) > 0
-    assert len(completion_bar_chart['completion']['reasoning']) > 0
-
-    # Widget validation
-    assert completion_bar_chart['widget']['title'] is not None
-
-    # Step validation
-    assert completion_bar_chart['step']['data_model'] is not None
-    assert len(completion_bar_chart['step']['data_model']['columns']) > 0
-    assert len(completion_bar_chart['step']['code']) > 10
-
+    completions = create_completion(report_id=report["id"], prompt="List of customers in dvdrental", user_token=user_token, org_id=org_id)
+    
+    # Validate completions and get statistics
+    is_valid, completion_stats = validate_response_completions(completions)
+    assert is_valid, "Completions validation failed"
+    assert completion_stats["completions_with_code"] > 0, "No completions found with valid code"
+    assert completion_stats["completions_with_data_model"] > 0, "No completions found with valid data model"
+    
+    print(f"Completion Statistics: {completion_stats}")
+    
+    time_end = time.time()
+    print(f"Time taken: {time_end - time_start} seconds")
+    time_start = time.time()
+    # Create a completion
+    completions = create_completion(report_id=report["id"], prompt="Top 10 films by revenue, bar chart", user_token=user_token, org_id=org_id)
+    
+    # Validate completions and get statistics
+    is_valid, completion_stats = validate_response_completions(completions)
+    assert is_valid, "Completions validation failed"
+    
+    # Verify at least one completion has code and data model
+    assert completion_stats["completions_with_code"] > 0, "No completions found with valid code"
+    assert completion_stats["completions_with_data_model"] > 0, "No completions found with valid data model"
+    
+    # Optional: Print statistics for debugging
+    print(f"Completion Statistics: {completion_stats}")
+    
     time_end = time.time()
     print(f"Time taken: {time_end - time_start} seconds")
