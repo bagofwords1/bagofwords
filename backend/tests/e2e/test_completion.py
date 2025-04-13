@@ -38,9 +38,11 @@ def test_completion_creation(
     )
 
     # Create a completion
-    completion = create_completion(report_id=report["id"], prompt="Tell me about this report", user_token=user_token, org_id=org_id)
+    completions = create_completion(report_id=report["id"], prompt="Tell me about this report", user_token=user_token, org_id=org_id)
 
     # Verify completion structure
+    assert len(completions) > 0
+    completion = completions[0]
     assert completion is not None
     assert "id" in completion
     assert "status" in completion
