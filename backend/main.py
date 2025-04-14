@@ -21,7 +21,7 @@ from httpx_oauth.clients.google import GoogleOAuth2
 from fastapi.openapi.utils import get_openapi
 
 from app.core.auth import get_user_manager, auth_backend, create_fastapi_users, SECRET
-from app.dependencies import get_async_session
+from app.dependencies import get_db
 from app.schemas.user_schema import UserCreate, UserRead, UserUpdate
 from app.settings.config import settings
 from app.settings.logging_config import setup_logging, get_logger
@@ -58,8 +58,6 @@ sentry_sdk.init(
 enable_google_oauth = settings.bow_config.google_oauth.enabled
 google_client_id = settings.bow_config.google_oauth.client_id
 google_client_secret = settings.bow_config.google_oauth.client_secret
-
-
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -129,6 +127,7 @@ app.include_router(
     prefix="/api/users",
     tags=["users"],
 )
+
 if google_oauth_client:
     oauth_router = fastapi_users.get_oauth_router(
         google_oauth_client,

@@ -11,6 +11,13 @@ postgresql:
   primary:
     persistence:
       size: 20Gi
+    readinessProbe:
+      enabled: true
+      initialDelaySeconds: 30
+      periodSeconds: 10
+      timeoutSeconds: 5
+      successThreshold: 1
+      failureThreshold: 6
 config:
   googleClientId: ""
   googleClientSecret: ""

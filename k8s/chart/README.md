@@ -1,7 +1,7 @@
 ```bash
 helm upgrade -i --create-namespace \
- -nbowapp-1 bowapp ./chart \
- --set postgresql.auth.username=<PG-USER> \
- --set postgresql.auth.password=<PG-PASS> \
- --set postgresql.auth.database=<PG-DB>
+ -n bagofwords bowapp ./chart \
+ --set postgresql.auth.username=user \
+ --set postgresql.auth.password=password \
+ --set postgresql.auth.database=pgdb
 ```

@@ -2,11 +2,11 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: bowapp
-  namespace: {{ .Release.Namespace }}
+  namespace: {{.Release.Namespace}}
 data:
-  BOW_DATABASE_URL: postgres://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@{{.Release.Name}}-postgresql:5432/{{.Values.postgresql.auth.database}}
-  BOW_GOOGLE_CLIENT_ID: "{{.Values.config.googleClientId}}"
-  BOW_GOOGLE_CLIENT_SECRET: "{{.Values.config.googleClientSecret}}"
-  BOW_DEFAULT_LLM_API_KEY: "{{.Values.config.defaultLLMApiKey}}"
-  BOW_SMTP_PASSWORD: "{{.Values.config.smtpPassword}}"
-  BOW_ENCRYPTION_KEY: "{{.Values.config.encryptionKey}}"
+  BOW_DATABASE_URL: postgresql://user:password@bowapp-postgresql:5432/pgdb
+  BOW_DEFAULT_LLM_API_KEY: {{.Values.config.defaultLLMApiKey | quote}}
+  BOW_ENCRYPTION_KEY: {{.Values.config.encryptionKey | quote}}
+  BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
+  BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
+  BOW_SMTP_PASSWORD: {{.Values.config.smtpPassword | quote}}
