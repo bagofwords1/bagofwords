@@ -1,0 +1,27 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bowapp
+  namespace:  {{.Release.Namespace}}
+  labels:
+    app: bowapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bowapp
+  template:
+    metadata:
+      labels:
+        app: bowapp
+    spec:
+      serviceAccountName: bowapp
+      containers:
+      - name: bowapp
+        image: {{.Values.image}}
+        ports:
+        - containerPort: 3000
+        envFrom:
+          - configMapRef:
+              name: bowapp
+

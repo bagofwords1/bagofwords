@@ -100,8 +100,14 @@
             </button>
           </UTooltip>
         </li>
+        <li v-if="version">
+          <div class="text-[9px] text-gray-500 p-0">
+            {{ version }}
+          </div>
+        </li>
       </ul>
     </div>
+
   </aside>
 
   <div class="sm:ml-14 h-[100vh]">

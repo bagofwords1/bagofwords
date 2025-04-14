@@ -1,0 +1,19 @@
+image: bagofwords/bagofwords:latest
+host: app.bagofwords.com
+registry:
+  name: bow-app-registry
+  url: docker.io
+postgresql:
+  auth:
+    username: ""
+    password: ""
+    database: ""
+  primary:
+    persistence:
+      size: 20Gi
+config:
+  googleClientId: ""
+  googleClientSecret: ""
+  defaultLLMApiKey: ""
+  smtpPassword: ""
+  encryptionKey: ""
