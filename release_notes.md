@@ -1,6 +1,10 @@
 # Release Notes
 
-## Version 0.0.16 (April 12, 2025)
+## Version 0.0.161 (April 14, 2025)
+
+- Added support to OpenAI GPT-4.1 model series
+
+## Version 0.0.160 (April 12, 2025)
 
 - Enhanced AI reasoning with ReAct framework and advanced planning capabilities
 - Added upvote/downvote system for users to provide feedback on AI responses

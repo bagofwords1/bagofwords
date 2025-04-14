@@ -3,13 +3,28 @@ from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
 LLM_MODEL_DETAILS = [
+    {   "name": "GPT-4.1",
+        "model_id": "gpt-4.1",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True
+    },
+    {
+        "name": "GPT-4.1 Mini",
+        "model_id": "gpt-4.1-mini",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False
+    },
     {
         "name": "GPT-4o",
         "model_id": "gpt-4o",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True
+        "is_default": False
     },
     {
         "name": "GPT-4o Mini",
