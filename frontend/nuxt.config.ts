@@ -7,7 +7,9 @@ import path from 'path'
 const configPath = path.resolve(__dirname, '..', 
   process.env.NODE_ENV === 'development' ? 'configs/bow-config.dev.yaml' : 'bow-config.yaml'
 )
-const versionPath = path.resolve(__dirname, '..', 'VERSION')
+const versionPath = process.env.NODE_ENV === 'development'
+  ? path.resolve(__dirname, '..', 'VERSION')
+  : path.resolve('/app', 'VERSION')
 const config = yaml.load(fs.readFileSync(configPath, 'utf8'))
 const version = fs.readFileSync(versionPath, 'utf8')
 

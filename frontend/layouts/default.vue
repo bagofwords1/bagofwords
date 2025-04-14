@@ -101,9 +101,11 @@
           </UTooltip>
         </li>
         <li v-if="version">
-          <div class="text-[9px] text-gray-500 p-0">
-            {{ version }}
-          </div>
+          <UTooltip text="Version" :popper="{ placement: 'right' }">
+            <div class="text-[9px] text-gray-500 p-0 cursor-pointer hover:text-gray-900">
+              {{ version }}
+            </div>
+          </UTooltip>
         </li>
       </ul>
     </div>
