@@ -74,7 +74,7 @@ class PostgresqlClient(DataSourceClient):
 
                     if table_name not in tables:
                         tables[table_name] = Table(
-                            name=table_name, columns=[], pks=None, fks=None)
+                            name=table_name, columns=[], pks=[], fks=[])
                     tables[table_name].columns.append(
                         TableColumn(name=column_name, dtype=data_type))
                 return list(tables.values())

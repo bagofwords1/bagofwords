@@ -305,13 +305,12 @@ class DataSourceService:
         client = data_source.get_client()
         try:
             schema = client.get_schemas()
+            if not schema:
+                raise HTTPException(status_code=500, detail="No schema returned from data source")
+            return schema
         except Exception as e:
-
             print(f"Error getting data source schema: {e}")
-            schema = None
             raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
-        
-        return schema
     
     async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
@@ -361,19 +360,27 @@ class DataSourceService:
                     columns = table.get("columns", {})
                     columns_dict = [{"name": col.name, "dtype": col.dtype} if hasattr(col, 'name') else col 
                                   for col in columns]
+                    pks = table.get("pks", []) or []  # Convert None to []
+                    pks_dict = [{"name": pk.name, "dtype": pk.dtype} if hasattr(pk, 'name') else pk 
+                               for pk in pks]
+                    fks = table.get("fks", []) or []  # Convert None to []
                     table_name = table.get("name")
                 else:
                     columns = getattr(table, "columns", {})
                     columns_dict = [{"name": col.name, "dtype": col.dtype} if hasattr(col, 'name') else col 
                                   for col in columns]
+                    pks = getattr(table, "pks", []) or []  # Convert None to []
+                    pks_dict = [{"name": pk.name, "dtype": pk.dtype} if hasattr(pk, 'name') else pk 
+                               for pk in pks]
+                    fks = getattr(table, "fks", []) or []  # Convert None to []
                     table_name = getattr(table, "name", None)
                 
                 if table_name:  # Only add if name is present
                     table_object = DataSourceTable(
                         name=table_name,
                         columns=columns_dict,
-                        pks=table.get("pks", []) if isinstance(table, dict) else getattr(table, "pks", []),
-                        fks=table.get("fks", []) if isinstance(table, dict) else getattr(table, "fks", []),
+                        pks=pks_dict,
+                        fks=fks,
                         datasource_id=data_source.id,
                         is_active=active_status.get(table_name, should_set_active) 
                     )
