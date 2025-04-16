@@ -10,7 +10,7 @@ features:
   verify_emails: false
 
 google_oauth:
-  enabled: false
+  enabled: true
   client_id: 'asdf'
   client_secret: 'asdfsdafdsaf'
 

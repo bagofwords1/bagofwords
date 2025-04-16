@@ -1,17 +1,4 @@
 import { defineNuxtConfig } from "nuxt/config"
-import yaml from 'js-yaml'
-import fs from 'fs'
-import path from 'path'
-
-// Load YAML config
-const configPath = path.resolve(__dirname, '..', 
-  process.env.NODE_ENV === 'development' ? 'configs/bow-config.dev.yaml' : 'bow-config.yaml'
-)
-const versionPath = process.env.NODE_ENV === 'development'
-  ? path.resolve(__dirname, '..', 'VERSION')
-  : path.resolve('/app', 'VERSION')
-const config = yaml.load(fs.readFileSync(configPath, 'utf8'))
-const version = fs.readFileSync(versionPath, 'utf8')
 
 export default defineNuxtConfig({
   devtools: { enabled: true },
@@ -159,13 +146,8 @@ export default defineNuxtConfig({
     public: {
       baseURL: '/api',
       wsURL: '/ws/api',
-      googleSignIn: config.google_oauth?.enabled || false,
-      deployment: config.deployment?.type || 'development',
-      version: version,
       environment: process.env.NODE_ENV,
-      app_url: config.base_url || 'http://localhost:3000',
-      intercom: config.intercom?.enabled || false
-    },
+    }
   },
 
   nitro: {

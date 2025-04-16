@@ -45,7 +45,8 @@ from app.routes import (
     user_profile,
     llm,
     git_repository,
-    organization_settings
+    organization_settings,
+    bow_settings
 )
 
 # Initialize logging
@@ -79,6 +80,7 @@ app = FastAPI(
         {"name": "llm", "description": "LLM and their providers settings"},
         {"name": "memories", "description": "Memory management"},
         {"name": "git", "description": "Git repository and data source integration"},
+        {"name": "settings", "description": "Settings management"},
     ],
     swagger_ui_oauth2_redirect_url="/api/auth/jwt/login"
 )
@@ -159,6 +161,7 @@ app.include_router(memory.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
+app.include_router(bow_settings.router, prefix="/api")
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():

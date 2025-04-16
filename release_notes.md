@@ -4,6 +4,8 @@
 
 - Added ability to stop AI generation mid-completion with a graceful shutdown option
 - Enhanced application startup reliability with automatic database connection retries
+- Moved configuration management to server-side, enabling centralized client configuration
+- Introduced support for deploying the application on Kubernetes clusters using Helm charts
 
 ## Version 0.0.161 (April 14, 2025)
 
