@@ -210,3 +210,12 @@ class ProjectManager:
         await db.commit()
         await db.refresh(plan)
         return plan
+    
+
+    async def update_completion_status(self, db, completion, status):
+        completion.status = status
+        db.add(completion)
+        await db.commit()
+        await db.refresh(completion)
+        return completion
+        

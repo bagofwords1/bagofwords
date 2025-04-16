@@ -8,6 +8,7 @@ import uuid
 import io
 import sys
 from contextlib import redirect_stdout
+import asyncio
 
 from .llm.llm import LLM
 from app.ai.agents.planner import Planner
@@ -30,7 +31,10 @@ from app.settings.logging_config import get_logger
 logger = get_logger("app.agent")
 
 from app.ai.code_execution.code_execution import CodeExecutionManager
+from app.websocket_manager import websocket_manager
 
+class SigkillException(Exception):
+    pass
 
 class Agent:
 
@@ -85,6 +89,22 @@ class Agent:
             organization_settings=self.organization_settings
         )
 
+        # Add event queue for sigkill detection
+        self.sigkill_event = asyncio.Event()
+        
+        # Register websocket handler
+        websocket_manager.add_handler(self._handle_completion_update)
+
+    async def _handle_completion_update(self, message):
+        try:
+            data = json.loads(message)
+            if (data['event'] == 'update_completion' and 
+                data['completion_id'] == str(self.system_completion.id) and 
+                data.get('sigkill') is not None):
+                self.sigkill_event.set()
+        except Exception as e:
+            logger.error(f"Error handling completion update: {e}")
+
     async def main_execution(self):
         logger.info("Starting main execution")
         try:
@@ -107,7 +127,12 @@ class Agent:
             analysis_step = 0
 
             # ReAct loop: Plan → Execute → Observe → Plan? 
-            while not analysis_complete or analysis_step < self.organization_settings.get_config("limit_analysis_steps").value:
+            while (not analysis_complete or analysis_step < self.organization_settings.get_config("limit_analysis_steps").value):
+                # Single check for sigkill
+                if self.sigkill_event.is_set():
+                    logger.info("Sigkill detected via websocket, stopping analysis")
+                    break
+                    
                 action_results = {}  # Reset action results for each analysis step
                 if observation_data is not None:
                     pass
@@ -128,6 +153,10 @@ class Agent:
                 plan_complete = False
                 
                 async for json_result in plan_generator:
+                    if self.sigkill_event.is_set():
+                        logger.info("Sigkill detected via websocket, stopping analysis")
+                        break
+
                     if not json_result:
                         continue
 
@@ -497,8 +526,19 @@ class Agent:
             if self.head_completion.id == first_completion.id:
                 title = await self.reporter.generate_report_title(previous_messages, current_plan['plan'])
                 await self.project_manager.update_report_title(self.db, self.report, title)
+            
+            # Final status check
+            if self.sigkill_event.is_set():
+                status = 'sigkill'
+            else:
+                status = 'success'
 
+            await self.project_manager.update_completion_status(self.db, self.system_completion, status)
             logger.info("Main execution completed")
+            
+            # Clean up
+            websocket_manager.remove_handler(self._handle_completion_update)
+            
             return action_results
         
         except Exception as e:

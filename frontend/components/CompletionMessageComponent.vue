@@ -26,6 +26,7 @@
                 </div>
                 <!-- System messages -->
                 <div v-if="localCompletion.role == 'system'">
+
                     <!-- Show thinking dots when reasoning is empty -->
                     <div v-if="(!localCompletion.completion?.reasoning || localCompletion.completion?.reasoning.length == 0) && !localCompletion.completion?.content">
                         <div class="simple-dots"></div>
@@ -39,7 +40,7 @@
                                 <div class="flex items-center">
                                     <Icon :name="reasoningCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" 
                                          class="w-4 h-4 text-gray-500" />
-                                    <span v-if="localCompletion.completion?.content && localCompletion.completion?.content.length > 0" class="ml-1">
+                                    <span v-if="(localCompletion.completion?.content && localCompletion.completion?.content.length > 0) || localCompletion.status === 'stopped' || localCompletion.status === 'error' || localCompletion.sigkill" class="ml-1">
                                         Thought Process
                                     </span>
                                     <!-- Show "Thinking" when no content is available -->
@@ -98,6 +99,10 @@
                                             class="w-3 h-3 inline-block" />
                                         {{  localCompletion.step?.status }}
                                     </button>
+                                    <button v-else-if="localCompletion.status === 'stopped' || localCompletion.sigkill" class="text-xs rounded text-blue-800">
+                                        <Icon name="heroicons-stop-circle" />
+                                        Stopped generating
+                                    </button>
                                     <button v-else class="text-xs rounded text-blue-800">
                                         <Icon name="heroicons-arrow-path"
                                             class="w-3 h-3 animate-spin inline-block" />
@@ -129,7 +134,9 @@
                                     :completion="localCompletion" 
                                     :feedbackScore="localCompletion.feedback_score || 0" 
                                 />
+         
                         </div>
+
                 </div>
 
 
@@ -242,6 +249,7 @@
             </div>
         </div>
     </UModal>
+
 </template>
 
 <script lang="ts" setup>
@@ -345,6 +353,9 @@ const showPlan = async (completion: any) => {
         planLoading.value = false;
     }
 }
+
+const isStoppingGeneration = ref(false);
+
 
 const getPlan = async (completionId: string) => {
     try {

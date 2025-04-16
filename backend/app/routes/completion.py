@@ -84,3 +84,8 @@ async def get_completion_plans(completion_id: str, current_user: User = Depends(
 @router.post("/api/completions/{completion_id}/feedback")
 async def update_completion_feedback(completion_id: str, vote: int, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.update_completion_feedback(db, completion_id, vote)
+
+@requires_permission('create_reports')
+@router.post("/api/completions/{completion_id}/sigkill")
+async def update_completion_sigkill(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
+    return await completion_service.update_completion_sigkill(db, completion_id)

@@ -2,7 +2,7 @@ import asyncio
 from fastapi.responses import StreamingResponse
 import json
 import logging
-
+from datetime import datetime
 from app.models.plan import Plan
 from app.models.completion import Completion
 from app.models.report import Report
@@ -67,6 +67,7 @@ class CompletionService:
             completion=completion_prompt,
             model=completion.model,
             status=completion.status,
+            sigkill=completion.sigkill,
             turn_index=completion.turn_index,
             parent_id=completion.parent_id,
             message_type=completion.message_type,
@@ -185,6 +186,7 @@ class CompletionService:
             try:
                 org_settings = await organization.get_settings(db)
                 mentions = await self.mention_service.create_completion_mentions(db, completion)
+
                 agent = Agent(
                     db=db,
                     organization_settings=org_settings,
@@ -337,3 +339,16 @@ class CompletionService:
         )
         response_completions = response_completions.scalars().all()
         return response_completions
+    
+    async def update_completion_sigkill(self, db: AsyncSession, completion_id: str):
+        completion = await db.execute(select(Completion).where(Completion.id == completion_id))
+        completion = completion.scalars().first()
+
+        if not completion:
+            raise HTTPException(status_code=404, detail="Completion not found")
+        
+        completion.sigkill = datetime.now()
+        await db.commit()
+        await db.refresh(completion)
+
+        return completion

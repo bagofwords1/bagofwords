@@ -75,6 +75,12 @@
                                     @update:selectedWidgetId="handleSelectedWidgetId"
                                     @addWidget="handleAddWidget"
                                 />
+                                <div v-if="completion.role == 'system' && completion.status === 'in_progress' && !completion.completion?.sigkill" class="text-gray-500 py-4 text-center flex justify-center items-center">
+                                    <button @click="sigkill(completion)" class="text-gray-500 text-xs hover:text-gray-700 flex justify-center items-center gap-1 border border-gray-200 rounded-md px-2 py-1">
+                                        <Icon name="heroicons-stop-circle" class="w-3.5 h-3.5" />
+                                        <span>{{ isStoppingGeneration ? 'Stopping...' : 'Stop Generation' }}</span>
+                                    </button>
+                                </div>
                             </li>
                         </ul>
                     </div>
@@ -153,6 +159,7 @@ const completions = ref([])
 const isLoading = ref(false)
 const report_id = route.params.id
 const reportTitleInput = ref(null)
+const isStoppingGeneration = ref(false)
 
 const report = ref({
     title: '',
@@ -162,6 +169,27 @@ const report = ref({
 
 const shareModalOpen = ref(false)
 
+const sigkill = async (completion: any) => {
+    isStoppingGeneration.value = true;
+    try {
+        await useMyFetch(`/api/completions/${completion.id}/sigkill`, {
+            method: 'POST'
+        });
+        // After successful sigkill, update the local completion state
+        completion.value = {
+            ...completion.value,
+            status: 'stopped', 
+            sigkill: true,
+            completion: {
+                ...completion.value.completion
+            }
+        };
+    } catch (error) {
+        console.error('Error updating sigkill:', error);
+    } finally {
+        isStoppingGeneration.value = false;
+    }
+}
 const applyToExcel = (completion: any) => {
     // Serialize the entire completion object
     const serializedData = JSON.stringify(completion);
@@ -344,8 +372,10 @@ async function updateCompletion(updated: any) {
     completion: {
       ...completions.value[index].completion,
       content: updated.completion?.content || '',
-      reasoning: updated.completion?.reasoning || ''
-    }
+      reasoning: updated.completion?.reasoning || '',
+    },
+    status: updated.status || '',
+    sigkill: updated.sigkill || false
   };
 }
 
@@ -390,6 +420,7 @@ function connectWebSocket() {
                 newCompletion.value = {
                     id: data.id,
                     role: role.value, 
+                    status: data.status,
                     completion: { content: data.completion.content || "", reasoning: data.completion.reasoning || "" }
                 }
                 // if last completion id is prefix system, dont add

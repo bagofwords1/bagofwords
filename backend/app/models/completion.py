@@ -76,6 +76,7 @@ def after_insert_completion(mapper, connection, target):
             "completion": target.completion,
             "prompt": target.prompt,
             "status": target.status,
+            "sigkill": target.sigkill.isoformat() if target.sigkill else None,
             "model": target.model,
             "turn_index": target.turn_index,
             "parent_id": target.parent_id,
@@ -111,6 +112,7 @@ def after_update_completion(mapper, connection, target):
             "parent_id": target.parent_id,
             "message_type": target.message_type,
             "role": target.role,
+            "sigkill": target.sigkill.isoformat() if target.sigkill else None
         }
 
         if target.widget_id:
