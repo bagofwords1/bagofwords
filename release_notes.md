@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.162 (April 16, 2025)
+
+- Added ability to stop AI generation mid-completion with a graceful shutdown option
+- Enhanced application startup reliability with automatic database connection retries
+
 ## Version 0.0.161 (April 14, 2025)
 
 - Added support to OpenAI GPT-4.1 model series

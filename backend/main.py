@@ -6,6 +6,10 @@ import argparse
 import uuid
 import time
 
+from tenacity import retry, stop_after_attempt, wait_exponential
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+
 # Add this before app initialization
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, help='Path to custom config file')
@@ -21,7 +25,7 @@ from httpx_oauth.clients.google import GoogleOAuth2
 from fastapi.openapi.utils import get_openapi
 
 from app.core.auth import get_user_manager, auth_backend, create_fastapi_users, SECRET
-from app.dependencies import get_db
+from app.dependencies import get_db, async_session_maker
 from app.schemas.user_schema import UserCreate, UserRead, UserUpdate
 from app.settings.config import settings
 from app.settings.logging_config import setup_logging, get_logger
@@ -211,8 +215,33 @@ def custom_openapi():
 # Assign the custom function to app.openapi
 app.openapi = custom_openapi
 
+# Add this function before the startup_event
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    reraise=True
+)
+async def check_db_connection():
+    """Verify database connection with retries"""
+    try:
+        async with async_session_maker() as session:
+            # Try a simple query to verify the connection
+            await session.execute(text("SELECT 1"))
+            await session.commit()
+            logger.info("✅ Database connection successful")
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {str(e)}")
+        raise
+
 @app.on_event("startup")
 async def startup_event():
+    try:
+        # Check database connection first with retries
+        await check_db_connection()
+    except Exception as e:
+        logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
+        exit(1)
+
     logger.info(
         "Application starting",
         extra={
