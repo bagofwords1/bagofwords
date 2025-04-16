@@ -19,6 +19,7 @@ spec:
       containers:
       - name: bowapp
         image: {{.Values.image}}
+        imagePullPolicy: Always
         ports:
         - containerPort: 3000
         envFrom:
@@ -43,4 +44,12 @@ spec:
             port: 3000
           initialDelaySeconds: 15
           periodSeconds: 20
+        volumeMounts:
+          - name: bow-config
+            mountPath: /app/bow-config.yaml
+            subPath: bowConfig
+      volumes:
+        - name: bow-config
+          configMap:
+            name: bowapp
 

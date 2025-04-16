@@ -4,9 +4,30 @@ metadata:
   name: bowapp
   namespace: {{.Release.Namespace}}
 data:
-  BOW_DATABASE_URL: postgresql://user:password@bowapp-postgresql:5432/pgdb
+  BOW_DATABASE_URL: postgresql://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@bowapp-postgresql:5432/{{.Values.postgresql.auth.database}}
   BOW_DEFAULT_LLM_API_KEY: {{.Values.config.defaultLLMApiKey | quote}}
   BOW_ENCRYPTION_KEY: {{.Values.config.encryptionKey | quote}}
   BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
   BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
+  BOW_GOOGLE_AUTH_ENABLED: {{.Values.config.googleOauthEnabled | quote}}
   BOW_SMTP_PASSWORD: {{.Values.config.smtpPassword | quote}}
+  bowConfig: |
+    # Deployment Configuration
+    base_url: http://0.0.0.0:3000
+
+
+    # Feature Flags
+    features:
+      allow_uninvited_signups: false
+      allow_multiple_organizations: false
+      verify_emails: false
+
+    google_oauth:
+      enabled: ${BOW_GOOGLE_AUTH_ENABLED}
+      client_id: ${BOW_GOOGLE_CLIENT_ID}
+      client_secret: ${BOW_GOOGLE_CLIENT_SECRET}
+
+    encryption_key: ${BOW_ENCRYPTION_KEY}
+
+    intercom:
+      enabled: true
