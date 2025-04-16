@@ -11,14 +11,14 @@ postgresql:
   primary:
     persistence:
       size: 20Gi
-    readinessProbe:
-      enabled: true
-      initialDelaySeconds: 30
-      periodSeconds: 10
-      timeoutSeconds: 5
-      successThreshold: 1
-      failureThreshold: 6
+ingress:
+  enabled: true
+  className: nginx
+  tls: true
+  clusterIssuerName: prod-cluster-issuer
+
 config:
+  googleOauthEnabled: false
   googleClientId: ""
   googleClientSecret: ""
   defaultLLMApiKey: ""

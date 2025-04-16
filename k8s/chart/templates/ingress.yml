@@ -1,3 +1,4 @@
+{{- if .Values.ingress.enabled }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -5,9 +6,9 @@ metadata:
   namespace: {{.Release.Namespace}}
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
-    cert-manager.io/cluster-issuer: prod-cluster-issuer
+    cert-manager.io/cluster-issuer: {{.Values.ingress.clusterIssuerName}}
 spec:
-  ingressClassName: nginx
+  ingressClassName: {{.Values.ingress.className}}
   rules:
     - host: {{.Values.host}}
       http:
@@ -19,7 +20,10 @@ spec:
                 name: bowapp
                 port:
                   number: 3000
+  {{- if .Values.ingress.tls }}
   tls:
     - hosts:
         - {{.Values.host}}
       secretName: bowapp-cert
+  {{- end }}
+{{- end }}
