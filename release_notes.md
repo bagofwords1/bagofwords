@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.163 (April 21, 2025)
+
+- Added new charts: area, map, treemap, heatmap, candletick, and more
+- Better experience for charts to handle zoom, resize and overall better rendering
+
 ## Version 0.0.162 (April 16, 2025)
 
 - Added ability to stop AI generation mid-completion with a graceful shutdown option
