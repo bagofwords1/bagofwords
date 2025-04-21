@@ -52,7 +52,7 @@
         :style="{ 
             transform: `scale(${props.edit ? zoom * 1 : 1})`, 
             transformOrigin: 'left top', 
-            minHeight: `${canvasHeight}px`,  
+            minHeight: `${canvasHeight}px`,
             width: '1200px' 
         }">
 
@@ -159,12 +159,14 @@
             </div>
             <div v-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
                 <RenderVisual 
-                 v-if="!widget.show_data_model && !widget.show_data"
-                :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
-                <div v-if="widget.show_data_model">
+                    v-if="!props.edit || (props.edit && !widget.show_data_model && !widget.show_data)"
+                    :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
+                
+                <div v-if="props.edit && widget.show_data_model"> 
                     {{ widget.last_step?.data_model }}
                 </div>
-                <div v-if="widget.show_data">
+
+                <div v-if="props.edit && widget.show_data">
                     {{ widget.last_step?.data }}
                 </div>
             </div>
@@ -233,7 +235,7 @@
          class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center transition-opacity duration-300"
          :class="{ 'opacity-0': !isModalMounted, 'opacity-100': isModalMounted }"
          @click="closeModal">
-        <div class="bg-white w-[95vw] h-[95vh] rounded-lg flex flex-col transition-transform duration-300"
+        <div class="bg-white w-[95vw] h-[95vh] rounded-lg flex flex-col transition-transform duration-300 relative"
              :class="{ 'scale-95 opacity-0': !isModalMounted, 'scale-100 opacity-100': isModalMounted }"
              @click.stop>
             <!-- Modal Header -->
@@ -245,7 +247,7 @@
             
             <!-- Modal Content -->
             <div class="flex-1 overflow-auto p-4">
-                <div id="modal-canvas" class="mx-auto z-[1000]" :style="{ transform: `scale(${zoom})`, transformOrigin: 'center top', zIndex: 1000 }">
+                <div id="modal-canvas" class="mx-auto z-[1000] relative h-full" :style="{ transform: `scale(${zoom})`, transformOrigin: 'center top', zIndex: 1000 }">
                     <!-- Copy of the canvas content -->
                      <template v-for="textWidget in textWidgets" :key="textWidget.id">
                         <div
@@ -268,19 +270,15 @@
                             width: `${widget.width}px`,
                             height: `${widget.height}px`
                         }" class="border border-solid border-gray-200 bg-white">
-                            <div class="w-full h-full relative overflow-scroll pt-3">
-                                <!-- Widget content (same as original) -->
-                                <div class="flex items-center text-sm py-3 px-2">
+                            <div class="w-full h-full relative flex flex-col pt-3"> 
+                                <div class="flex items-center text-sm py-3 px-2 flex-shrink-0"> 
                                     <div class="w-full absolute left-2 top-3">
                                         <span v-if="widget.last_step?.type == 'table' || widget.last_step === null">{{ widget.title }}</span>
                                         <span v-if="widget.last_step?.data?.loadingColumn" class="text-gray-400">Loading...</span>
                                     </div>
                                 </div>
-                                <div>
-                                    <div v-if="widget.last_step?.data_model?.type == 'count'" class="mt-2">
-                                        <RenderCount :show_title="false" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
-                                    </div>
-                                    <div v-if="widget.last_step?.data_model?.type == 'table'" class="mt-2 h-full">
+                                <div class="flex-grow min-h-0">  
+                                    <div v-if="widget.last_step?.data_model?.type == 'table'" class="mt-2 h-full"> 
                                         <AgGridComponent ref="agGrid" :columnDefs="widget.last_step?.data?.columns"
                                             :rowData="widget.last_step?.data?.rows" class="px-2 h-full" v-if="!widget.show_data_model && !widget.show_data" />
                                         <div v-if="widget.show_data_model">
@@ -291,7 +289,12 @@
                                         </div>
                                     </div>
                                     <div v-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
-                                        <RenderVisual :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
+                                        <RenderVisual 
+                                            :widget="widget" 
+                                            :data="widget.last_step?.data" 
+                                            :data_model="widget.last_step?.data_model"
+                                            :triggerResize="modalResizeTrigger" 
+                                        />
                                     </div>
                                     <div v-if="widget.last_step?.type == 'init'" class="text-center items-center flex flex-col pt-14">
                                         <SpinnerComponent />
