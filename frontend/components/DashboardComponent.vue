@@ -328,9 +328,9 @@ const props = defineProps<{
     textWidgetsIds: string[] | undefined
 }>();
 
-const textWidgets = ref([]);
+const textWidgets = ref<any[]>([]);
 
-const displayedWidgets = computed(() => props.widgets || []);
+const displayedWidgets = ref<any[]>([]);
 
 const zoom = ref(1)
 const zoomStep = 0.1
@@ -420,7 +420,12 @@ const handleWidgetResize = async (left: number, top: number, width: number, heig
 };
 
 const removeWidget = (widget: any) => {
+    const index = displayedWidgets.value.findIndex(w => w.id === widget.id);
+    if (index !== -1) {
+        displayedWidgets.value.splice(index, 1);
+    }
     emit('removeWidget', widget);
+    nextTick(updateCanvasHeight);
 };
 
 
@@ -584,6 +589,57 @@ watch(
     { immediate: true, deep: true }  // Add immediate: true to run on component creation
 );
 
+watch(() => props.widgets, (newWidgets) => {
+    if (!newWidgets) {
+        displayedWidgets.value = [];
+        return;
+    }
+    // Create a map of current local widgets to preserve their state
+    const currentWidgetsMap = new Map(displayedWidgets.value.map(w => [w.id, {
+        show_data: w.show_data,
+        show_data_model: w.show_data_model,
+        _defaultViewSet: w._defaultViewSet
+    }]));
+
+    // Map new widgets, merging with existing state or initializing new ones
+    displayedWidgets.value = newWidgets.map(newWidget => {
+        const existingState = currentWidgetsMap.get(newWidget.id);
+        return {
+            ...newWidget,
+            // Keep existing state if widget was already present, otherwise initialize
+            show_data: existingState?.show_data ?? false,
+            show_data_model: existingState?.show_data_model ?? false,
+            _defaultViewSet: existingState?._defaultViewSet ?? false
+        };
+    });
+    updateCanvasHeight(); // Recalculate height after potential widget changes
+}, { immediate: true, deep: true });
+
+watch(displayedWidgets, (newLocalWidgets, oldLocalWidgets) => {
+    // Create map of old widgets for comparison (might be undefined on initial run)
+    const oldWidgetsMap = new Map(oldLocalWidgets?.map(w => [w.id, w]) ?? []);
+
+    newLocalWidgets.forEach(widget => {
+        // Check conditions: Is it a chart type? Does it have data? Has default been set?
+        const isChart = chartVisualTypes.has(widget.last_step?.data_model?.type);
+        const hasData = widget.last_step?.data?.rows?.length > 0;
+
+        if (isChart && hasData && !widget._defaultViewSet) {
+             // Check if it *just* became a chart with data
+            const oldWidget = oldWidgetsMap.get(widget.id);
+            const wasPreviouslyChartWithData = chartVisualTypes.has(oldWidget?.last_step?.data_model?.type) && oldWidget?.last_step?.data?.rows?.length > 0;
+
+            if (!wasPreviouslyChartWithData) {
+                // Set default view to 'Data'
+                console.log(`Setting default view for widget ${widget.id} to 'Data'`);
+                widget.show_data = true;
+                widget.show_data_model = false;
+                widget._defaultViewSet = true; // Mark that we've set the default
+            }
+        }
+    });
+}, { deep: true });
+
 onMounted(async () => {
     nextTick(async () => {
         document.getElementById('canvas')?.addEventListener('wheel', handleWheel, { passive: false });
@@ -650,6 +706,7 @@ const toggleDataModel = (widget: any) => {
     if (widget.show_data_model) {
         widget.show_data = false;
     }
+    widget._defaultViewSet = true;
 };
 
 const toggleData = (widget: any) => {
@@ -657,6 +714,7 @@ const toggleData = (widget: any) => {
     if (widget.show_data) {
         widget.show_data_model = false;
     }
+    widget._defaultViewSet = true;
 };
 
 // {{ Define the set of all visualization types handled by RenderVisual }}

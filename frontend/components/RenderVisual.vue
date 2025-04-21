@@ -1,5 +1,5 @@
 <template>
-    <div v-if="!isLoading && chartOptions && Object.keys(chartOptions).length > 0 && props.data?.rows?.length > 0" class="pb-5 h-full">
+    <div v-if="!isLoading && chartOptions && Object.keys(chartOptions).length > 0 && props.data?.rows?.length > 0" class="h-full">
       <VChart class="chart" :option="chartOptions" autoresize :loading="isLoading" />
     </div>
     <div v-else-if="isLoading">
@@ -253,9 +253,38 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
 
     const categories = [...new Set(normalizedRows.map(row => getSafeValue(row, categoryKey, 'string') ?? ''))]; // Unique categories
 
+    // {{ Updated Dynamic Interval Logic }}
+    const numCategories = categories.length;
+    let labelInterval = 0;
+    let labelRotate = 0;
+    let hideOverlap = false; // Default to not hiding for low counts
+
+    if (numCategories > 50) { // Very High density
+        labelInterval = Math.max(1, Math.floor(numCategories / 20));
+        labelRotate = 45;
+        hideOverlap = true;
+    } else if (numCategories > 25) { // High density
+        labelInterval = 1; // Skip every other
+        labelRotate = 45;
+        hideOverlap = true;
+    } else if (numCategories > 10) { // Medium-High density (Rotate and skip)
+        labelInterval = 1; // Start skipping (every other)
+        labelRotate = 45;
+        hideOverlap = true;
+    } else if (numCategories > 5) { // Medium density (Rotate only)
+        labelInterval = 0; // Show all
+        labelRotate = 45;
+        hideOverlap = true; // Hide if they still overlap after rotation
+    } else { // Low density (<= 5): Show all, no rotation
+        labelInterval = 0;
+        labelRotate = 0;
+        hideOverlap = false; // Try showing all even if slight overlap
+    }
+    // {{ End Updated Dynamic Interval Logic }}
+
     const series = dataModel.series.map(seriesConfig => {
         const valueKey = seriesConfig.value?.toLowerCase();
-        if (!valueKey) return null; // Need a value key for each series
+        if (!valueKey) return null;
 
         // Map data ensuring alignment with unique categories
         const seriesDataMap = new Map<string, number | null>();
@@ -266,15 +295,22 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
                  seriesDataMap.set(cat, val);
             }
         });
-        const seriesData = categories.map(cat => seriesDataMap.get(cat) ?? null); // Use null for missing points
+        const seriesData = categories.map(cat => seriesDataMap.get(cat) ?? null);
 
-            return {
-                name: seriesConfig.name,
+        return {
+            name: seriesConfig.name,
             type: chartType,
             data: seriesData,
-            ...specificSeriesOptions // Apply type-specific options (smooth, areaStyle, etc.)
+            ...specificSeriesOptions
         };
-    }).filter(Boolean) as SeriesOption[]; // Filter out nulls and assert type
+    }).filter(Boolean) as SeriesOption[];
+
+    // {{ Calculate required bottom padding }}
+    let gridBottomPadding = 12; // Base percentage
+    if (labelRotate > 0) {
+        gridBottomPadding = Math.max(gridBottomPadding, 18);
+    }
+    gridBottomPadding = Math.max(gridBottomPadding, 12); // Space for potential slider
 
     return {
         tooltip: {
@@ -287,9 +323,9 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
             data: categories,
             name: dataModel.series[0]?.key || 'Categories',
             axisLabel: {
-                interval: 0,
-                rotate: categories.length > 10 ? 45 : 0,
-                hideOverlap: true
+                interval: labelInterval,
+                rotate: labelRotate,
+                hideOverlap: hideOverlap
             }
         },
         yAxis: {
@@ -365,19 +401,63 @@ function buildScatterOptions(normalizedRows: DataRow[], dataModel: DataModel): E
 
 // --- Builder: Heatmap ---
 function buildHeatmapOptions(normalizedRows: DataRow[], dataModel: DataModel): EChartsOption {
-    // Requires xKey, yKey, valueKey from dataModel.series (assuming first series config)
-
-    debugger
     const config = dataModel.series[0];
-    const xKey = config?.x?.toLowerCase() || config?.key?.toLowerCase(); // Or some convention
-    const yKey = config?.y?.toLowerCase(); // Need a separate key for Y
+    const xKey = config?.x?.toLowerCase() || config?.key?.toLowerCase();
+    const yKey = config?.y?.toLowerCase();
     const valueKey = config?.value?.toLowerCase();
-    if (!xKey || !yKey || !valueKey) return {}; // Essential keys missing
+    if (!xKey || !yKey || !valueKey) return {};
 
     const xCategories = [...new Set(normalizedRows.map(row => getSafeValue(row, xKey, 'string')))].filter(Boolean) as string[];
     const yCategories = [...new Set(normalizedRows.map(row => getSafeValue(row, yKey, 'string')))].filter(Boolean) as string[];
 
-    debugger
+    // {{ Updated Dynamic Interval Logic for X-Axis }}
+    const numXCategories = xCategories.length;
+    let xLabelInterval = 0;
+    let xLabelRotate = 0;
+    let xHideOverlap = false; // Default to not hiding for low counts
+
+    if (numXCategories > 50) { // Very High density
+        xLabelInterval = Math.max(1, Math.floor(numXCategories / 20));
+        xLabelRotate = 45;
+        xHideOverlap = true;
+    } else if (numXCategories > 25) { // High density
+        xLabelInterval = 1;
+        xLabelRotate = 45;
+        xHideOverlap = true;
+    } else if (numXCategories > 10) { // Medium-High density (Rotate and skip)
+        xLabelInterval = 1;
+        xLabelRotate = 45;
+        xHideOverlap = true;
+    } else if (numXCategories > 5) { // Medium density (Rotate only)
+        xLabelInterval = 0;
+        xLabelRotate = 45;
+        xHideOverlap = true;
+    } else { // Low density (<= 5): Show all, no rotation
+        xLabelInterval = 0;
+        xLabelRotate = 0;
+        xHideOverlap = false;
+    }
+    // {{ End Updated Dynamic Interval Logic for X-Axis }}
+
+    // {{ Dynamic Interval Logic for Y-Axis (Keep simpler logic, no rotation) }}
+    const numYCategories = yCategories.length;
+    let yLabelInterval = 0;
+    let yHideOverlap = true; // Default hide
+
+    if (numYCategories > 50) {
+        yLabelInterval = Math.max(1, Math.floor(numYCategories / 20));
+    } else if (numYCategories > 25) {
+        yLabelInterval = 1;
+    } else if (numYCategories > 10) { // Start skipping earlier for Y maybe
+        yLabelInterval = 1;
+    }
+     else { // Low/Medium density <= 10
+        yLabelInterval = 0;
+        yHideOverlap = false; // Try to show all Y if few enough
+    }
+    // {{ End Dynamic Interval Logic for Y-Axis }}
+
+
     const seriesData = normalizedRows.map(row => {
         const xVal = getSafeValue(row, xKey, 'string');
         const yVal = getSafeValue(row, yKey, 'string');
@@ -386,32 +466,79 @@ function buildHeatmapOptions(normalizedRows: DataRow[], dataModel: DataModel): E
         const xIndex = xCategories.indexOf(xVal ?? '');
         const yIndex = yCategories.indexOf(yVal ?? '');
 
-        if (xIndex === -1 || yIndex === -1 || heatVal === null) return null; // Skip invalid data
-        return [xIndex, yIndex, heatVal];
-    }).filter(Boolean);
+        if (xIndex === -1 || yIndex === -1 || heatVal === null) return null;
+        // Store original values along with indices for tooltip
+        return {
+            value: [xIndex, yIndex, heatVal],
+            originalX: xVal,
+            originalY: yVal
+        };
+    }).filter(item => item !== null); // Filter out null items
 
-     const maxHeat = Math.max(...seriesData.map(d => d?.[2] ?? 0).filter(v => v !== null) as number[]);
+    const maxHeat = Math.max(...seriesData.map(d => d?.value[2] ?? 0).filter(v => v !== null) as number[], 0); // Adjust maxHeat calculation
+
+    // {{ Calculate grid padding }}
+    let gridBottomPadding = xLabelRotate > 0 ? 25 : 20; // Base for heatmap visualMap
+    let gridLeftPadding = 10; // Base for Y axis
+    // Potentially increase left padding if Y labels are very long (harder to calculate dynamically)
+    // gridLeftPadding = Math.max(10, longestYLabelLength * estimatedCharWidth / totalWidth);
 
     return {
         tooltip: {
-            position: 'top'
+            position: 'top',
+            formatter: (params: any) => {
+                // params.data should contain the object we created in seriesData mapping
+                const dataItem = params.data;
+                if (dataItem && dataItem.value && dataItem.value.length === 3) {
+                    const xIndex = dataItem.value[0];
+                    const yIndex = dataItem.value[1];
+                    const heatValue = dataItem.value[2];
+
+                    // Get original category names using indices
+                    const xCatName = xCategories[xIndex] || 'N/A';
+                    const yCatName = yCategories[yIndex] || 'N/A';
+
+                    // Use original values if stored, otherwise fallback to index lookup
+                    const xOriginal = dataItem.originalX || xCatName;
+                    const yOriginal = dataItem.originalY || yCatName;
+
+                    // Construct the tooltip string
+                    // Assuming X = Customer, Y = Film, Value = Rentals based on screenshot
+                    // Adjust field names as needed
+                    return `
+                        ${params.marker} <b>${config.value || 'Value'}</b>: ${heatValue}<br/>
+                        <b>${config.x || config.key || 'X'}</b>: ${xOriginal}<br/>
+                        <b>${config.y || 'Y'}</b>: ${yOriginal}
+                    `;
+                }
+                return ''; // Return empty string if data format is unexpected
+            }
         },
-        grid: { // Adjust grid for heatmap labels
+        grid: {
             height: '60%',
             top: '10%',
-             bottom: '20%'
+            bottom: `${gridBottomPadding}%`,
+            left: `${gridLeftPadding}%`,
+            containLabel: true
         },
         xAxis: {
             type: 'category',
             data: xCategories,
             splitArea: { show: true },
-             axisLabel: { interval: 0, rotate: xCategories.length > 10 ? 45 : 0 }
+             axisLabel: {
+                 interval: xLabelInterval,
+                 rotate: xLabelRotate,
+                 hideOverlap: xHideOverlap
+             }
         },
         yAxis: {
             type: 'category',
             data: yCategories,
             splitArea: { show: true },
-             axisLabel: { interval: 0 }
+             axisLabel: {
+                 interval: yLabelInterval,
+                 hideOverlap: yHideOverlap
+             }
         },
         visualMap: { // Essential for heatmap coloring
             min: 0,
@@ -425,8 +552,11 @@ function buildHeatmapOptions(normalizedRows: DataRow[], dataModel: DataModel): E
             {
                 name: config?.name || 'Heatmap Data',
                 type: 'heatmap',
-                data: seriesData,
-                label: { show: true }, // Show values on squares
+                data: seriesData, // Use the mapped data with original values
+                label: {
+                    show: true,
+                    formatter: '{@[2]}' // Show the heat value (index 2 in the value array)
+                 },
                 emphasis: {
                     itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0, 0, 0, 0.5)' }
                 }
@@ -481,78 +611,153 @@ function buildMapOptions(normalizedRows: DataRow[], dataModel: DataModel): EChar
 
 
 // --- Builder: Candlestick ---
-function buildCandlestickOptions(normalizedRows: DataRow[], dataModel: DataModel): EChartsOption {
-    // Requires category/time key, open, close, low, high keys
-    const config = dataModel.series[0];
-    const categoryKey = config?.key?.toLowerCase(); // Date or category
-    const openKey = config?.open?.toLowerCase();
-    const closeKey = config?.close?.toLowerCase();
-    const lowKey = config?.low?.toLowerCase();
-    const highKey = config?.high?.toLowerCase();
+function buildCandlestickOptions(dataModel, normalizedRows) {
+  if (!dataModel?.series?.length || !normalizedRows?.length) {
+    console.warn('Candlestick: Missing dataModel, series, or normalizedRows');
+    return {};
+  }
 
-    if (!categoryKey || !openKey || !closeKey || !lowKey || !highKey) return {};
+  const keyField = dataModel.series[0]?.key; // Date field
+  if (!keyField) {
+    console.warn('Candlestick: Missing key field in first series config');
+    return {};
+  }
 
-    const categories: string[] = [];
-    const seriesData: (number | null)[][] = [];
+  // --- Preprocessing: Create a nested lookup map: date -> ticker -> row ---
+  const dataLookup = new Map();
+  let tickerField = 'ticker'; // Default assumption, try to find dynamically
+  let foundTickerField = false;
 
-    normalizedRows.forEach(row => {
-        const cat = getSafeValue(row, categoryKey, 'string');
-        const openVal = getSafeValue(row, openKey, 'number');
-        const closeVal = getSafeValue(row, closeKey, 'number');
-        const lowVal = getSafeValue(row, lowKey, 'number');
-        const highVal = getSafeValue(row, highKey, 'number');
+  normalizedRows.forEach(row => {
+    const dateCategory = getSafeValue(row, keyField);
+    if (dateCategory === null || dateCategory === undefined) return; // Skip rows without a valid date
 
-        if (cat !== null && openVal !== null && closeVal !== null && lowVal !== null && highVal !== null) {
-             categories.push(cat);
-             seriesData.push([openVal, closeVal, lowVal, highVal]);
+    // Attempt to find the ticker field more dynamically if not already found
+    if (!foundTickerField) {
+        const keys = Object.keys(row);
+        const potentialTickerField = keys.find(k => k !== keyField && !['open', 'high', 'low', 'close'].includes(k.toLowerCase()));
+        if (potentialTickerField) {
+            tickerField = potentialTickerField;
+            foundTickerField = true;
+            // console.log("Determined ticker field:", tickerField);
         }
+    }
+
+    const tickerValue = getSafeValue(row, tickerField);
+    if (tickerValue === null || tickerValue === undefined) return; // Skip rows without a valid ticker
+
+    if (!dataLookup.has(dateCategory)) {
+      dataLookup.set(dateCategory, new Map());
+    }
+    dataLookup.get(dateCategory).set(tickerValue, row);
+  });
+  // --- End Preprocessing ---
+
+  // Extract unique categories (dates) and sort them
+  const categories = [...dataLookup.keys()].sort();
+
+  if (categories.length === 0) {
+      console.warn('Candlestick: No categories found after processing.');
+      return {};
+  }
+   if (!foundTickerField) {
+       console.warn("Candlestick: Could not dynamically determine ticker field after processing. Assuming 'ticker'.");
+   }
+
+  const echartsSeries = dataModel.series.map(seriesConfig => {
+    const seriesName = seriesConfig.name;
+    const openField = seriesConfig.open;
+    const closeField = seriesConfig.close;
+    const lowField = seriesConfig.low;
+    const highField = seriesConfig.high;
+
+    if (!seriesName || !openField || !closeField || !lowField || !highField) {
+      console.warn(`Candlestick: Skipping series due to missing config: ${JSON.stringify(seriesConfig)}`);
+      return null;
+    }
+
+    // Map data using the lookup table
+    const seriesData = categories.map(category => {
+      const tickerMap = dataLookup.get(category);
+      // Get the specific row for THIS seriesName and THIS category(date)
+      const row = tickerMap?.get(seriesName);
+
+      if (!row) {
+        return [null, null, null, null]; // Null for missing points on the shared axis
+      }
+
+      const openVal = getSafeValue(row, openField);
+      const closeVal = getSafeValue(row, closeField);
+      const lowVal = getSafeValue(row, lowField);
+      const highVal = getSafeValue(row, highField);
+
+      // Optional: Re-add debug log if needed
+       if (category === '2025-02-14') {
+         console.log(`DEBUG [${seriesName} on ${category}]: Found Row: ${JSON.stringify(row)} -> [O:${openVal}, C:${closeVal}, L:${lowVal}, H:${highVal}]`);
+       }
+
+      // Echarts expects [open, close, lowest, highest]
+      return [openVal, closeVal, lowVal, highVal];
     });
 
     return {
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: { type: 'cross' }
-        },
-        xAxis: {
-            type: 'category',
-            data: categories,
-             axisLabel: { interval: 0, rotate: categories.length > 10 ? 45 : 0 }
-        },
-        yAxis: {
-            type: 'value',
-            scale: true, // Allow scaling to fit data
-            splitArea: { show: true }
-        },
-        dataZoom: [
-            {
-                type: 'inside',
-                xAxisIndex: 0,
-                filterMode: 'weakFilter'
-            },
-            {
-                show: true,
-                type: 'slider',
-                xAxisIndex: 0,
-                start: 0,
-                end: 100,
-                bottom: '1%',
-                height: 20
-            }
-        ],
-        series: [
-            {
-                name: config?.name || 'Candlestick',
-                type: 'candlestick',
-                data: seriesData,
-                 itemStyle: { // Example styling
-                     color: '#ef232a', // Down color
-                     color0: '#14b143', // Up color
-                     borderColor: '#ef232a',
-                     borderColor0: '#14b143'
-                 }
-            }
-        ]
+      name: seriesName,
+      type: 'candlestick',
+      data: seriesData,
+       // Optional styling below
+      itemStyle: {},
+      emphasis: { itemStyle: { borderColor: '#555', borderWidth: 1 } },
+      // markPoint: { data: [ { type: 'max', name: 'Max' }, { type: 'min', name: 'Min' } ] },
+      // markLine: { data: [ { type: 'average', name: 'Avg' } ] }
     };
+  }).filter(s => s !== null);
+
+  if (echartsSeries.length === 0) {
+      console.warn('Candlestick: No valid series could be generated.');
+      return {};
+  }
+
+  // --- ECharts Options ---
+  return {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      // Consider using the default formatter first, it should work now.
+      // If needed, uncomment and adapt the custom formatter from previous examples.
+    },
+    legend: {
+      show: false,
+      data: echartsSeries.map(s => s.name),
+      bottom: 30,
+      inactiveColor: '#777',
+      textStyle: { color: '#333' }
+    },
+    xAxis: {
+      type: 'category',
+      data: categories, // *** Assign the definitive categories array ***
+      axisLine: { lineStyle: { color: '#8392A5' } },
+      splitLine: { show: false },
+      axisLabel: { /* rotate: 30, interval: 'auto' */ } // Add label options if needed
+    },
+    yAxis: {
+      type: 'value',
+      scale: true,
+      splitArea: { show: true },
+      splitLine: { show: true, lineStyle: { color: ['#eee'] } },
+      axisLabel: { color: '#333' }
+    },
+    grid: {
+      left: '5%',
+      right: '5%',
+      bottom: '15%', // Increased slightly for dataZoom slider + potential labels
+      containLabel: true
+    },
+     dataZoom: [
+        { type: 'inside', start: 0, end: 100 },
+        { type: 'slider', start: 0, end: 100, bottom: 10, height: 20 }
+    ],
+    series: echartsSeries
+  };
 }
 
 // --- Builder: Treemap ---
@@ -751,7 +956,7 @@ async function buildChartOptions() {
                  specificOptions = buildMapOptions(normalizedRows, props.data_model);
                  break;
              case 'candlestick':
-                 specificOptions = buildCandlestickOptions(normalizedRows, props.data_model);
+                 specificOptions = buildCandlestickOptions(props.data_model, normalizedRows);
                  break;
              case 'treemap':
                  specificOptions = buildTreemapOptions(normalizedRows, props.data_model);
