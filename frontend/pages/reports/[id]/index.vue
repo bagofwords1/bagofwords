@@ -322,7 +322,7 @@ async function submitCompletion(promptValue) {
             completions.value.push({
                 id: `system-${Date.now()}`,
                 role: 'system',
-                completion: { content: response.error.value.data.detail  + " " + "Click 'Upgrade' to continue." },
+                completion: { content: response.error.value.data.detail  + " " + "Sign in to continue." },
                 status: 'error'
             })
         }
@@ -336,7 +336,7 @@ async function loadWidgets() {
         if (data.value) {
             widgets.value = data.value.map(widget => ({
                 ...widget,
-                key: Date.now() + widget.id
+                key: Date.now() + widget.id + String(Math.random())
             }));
             // check if widget is published and if in not split screen, set isSplitScreen to true
             if (widgets.value.filter(widget => widget.status === 'published').length > 0 && !isSplitScreen.value) {
