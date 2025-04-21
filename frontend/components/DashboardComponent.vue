@@ -47,7 +47,8 @@
             'relative': true, 
             'overflow-y-scroll': true, 
             'overflow-x-scroll': true, 
-            'border-none border-gray-200': props.edit 
+            'border-none': !props.edit,
+            'border-gray-200': props.edit 
         }" 
         :style="{ 
             transform: `scale(${props.edit ? zoom * 1 : 1})`, 
@@ -70,11 +71,13 @@
             :draggable="props.edit"
             @drag-stop="(left, top) => handleTextWidgetDrag(left, top, textWidget)"
             @resize-stop="(left, top, width, height) => handleTextWidgetResize(left, top, width, height, textWidget)"
-            :class="[
-                'border border-solid border-gray-200',
-                'absolute',
-                'bg-white'
-            ]"
+            :class="{
+                'border border-solid border-gray-200': props.edit,
+                'border-none': !props.edit,
+                'absolute': true,
+                'bg-white': true,
+                'p-2': true
+            }"
         >
         <div id="text-widget-controls" v-if="props.edit" class="absolute right-2 top-1 z-10 flex gap-2">
             <button class="text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border" 
@@ -93,7 +96,7 @@
                 @cancel="textWidget.isEditing = false"
             />
         </div>
-        <div v-else class="w-full h-full p-2 text-black rendered-html" v-html="textWidget.content"></div>
+        <div v-else class="w-full h-full text-black rendered-html" v-html="textWidget.content"></div>
             </vue-draggable-resizable>
         </TransitionGroup>
 
@@ -114,11 +117,12 @@
         @resize-stop="(left, top, width, height) => handleWidgetResize(left, top, width, height, widget)"
         @mouseenter="widget.showControls = true"
         @mouseleave="widget.showControls = false"
-        :class="[
-            'border border-solid border-gray-200',
-            'absolute',
-            'bg-white'
-        ]"
+        :class="{
+            'border border-solid border-gray-200': props.edit,
+            'border-none': !props.edit,
+            'absolute': true,
+            'bg-white': true
+        }"
     >
         <div class="w-full h-full relative overflow-scroll pt-3" >
             <div class="flex items-center text-sm py-3 px-2">
@@ -635,7 +639,6 @@ watch(displayedWidgets, (newLocalWidgets, oldLocalWidgets) => {
             if (!wasPreviouslyChartWithData) {
                 // Set default view to 'Data'
                 console.log(`Setting default view for widget ${widget.id} to 'Data'`);
-                widget.show_data = true;
                 widget.show_data_model = false;
                 widget._defaultViewSet = true; // Mark that we've set the default
             }
@@ -799,6 +802,7 @@ const chartVisualTypes = new Set([
     margin-top: 10px;
     margin-bottom: 10px;
 }
+
 
 /* Add these new styles */
 #canvas:fullscreen {

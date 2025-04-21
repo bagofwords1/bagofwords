@@ -216,7 +216,7 @@ class Planner:
         3. If a widget already exists that satisfies the user's goal, do not create a new one or modify it unnecessarily, but do create an answer_question action that will be useful for the next step.
         4. Only create a new widget if it's clearly required by the user's request and there is no suitable existing widget.
         5. For metrics, create a widget per metric. Don't combine multiple metrics into a single widget.
-        6. For "design_dashboard," do not recreate existing widgets. Combine them into a dashboard if they are relevant.
+        6. For "design_dashboard," do not recreate existing widgets. Combine them into a dashboard/report if they are relevant.
         7. Carefully verify all columns and data sources actually exist in the provided schemas.
         8. If the user requested something, always create at least one action - even if it's an answer_question action.
         9. In an observed plan, if new actions are needed, only create the new actions - dont repeat actions that were already created in the previous step.
@@ -250,7 +250,7 @@ class Planner:
                                     If it's greetings/conversing/etc, just respond briefly
                                     If you need to clarify a question, use this action.
                                     *IMPORTANT: If a widget is selected, bias your answer with widget context in mind.*
-                - "design_dashboard": For creating a full, multi-step dashboard/report. If used, this should be the final action in the plan.
+                - "design_dashboard": For creating a full, multi-step dashboard or reports. Trigger this if user is asking for a comprehensive report / analysis / report. If used, this should be the final action in the plan.
                   * if widget were already created and the request is to design a dashboard, simply just create a dashboard. 
 
         2. **When Generating a Plan**:

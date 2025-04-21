@@ -475,6 +475,24 @@ class Agent:
                                                 widget['width'],
                                                 widget['height']
                                             )
+                                if dashboard_design.get('text_widgets'):
+                                    for i, text_widget in enumerate(dashboard_design['text_widgets']):
+                                        if i not in [x.get('index') for x in dashboard_widgets['text_widgets']]:
+                                            # Add index to track the text widget
+                                            text_widget['index'] = i
+                                            dashboard_widgets['text_widgets'].append(
+                                                text_widget)
+                                            await self.project_manager.create_text_widget(
+                                                self.db,
+                                                text_widget['content'],
+                                                text_widget['x'],
+                                                text_widget['y'],
+                                                text_widget['width'],
+                                                text_widget['height'],
+                                                self.report.id
+                                            )
+
+
 
                             await self.project_manager.update_message(
                                 self.db,

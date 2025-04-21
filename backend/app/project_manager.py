@@ -7,7 +7,7 @@ from app.models.widget import Widget
 from app.models.step import Step
 from app.models.plan import Plan
 from app.models.report import Report
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 class ProjectManager:
 
@@ -174,6 +174,14 @@ class ProjectManager:
         await db.refresh(text_widget)
 
         return text_widget
+    
+    async def delete_text_widgets_for_report(self, db, report_id):
+        """Deletes all TextWidget entries associated with a given report_id."""
+        stmt = delete(TextWidget).where(TextWidget.report_id == report_id)
+        await db.execute(stmt)
+        await db.commit()
+        # No object to refresh after deletion
+        print(f"Deleted existing text widgets for report {report_id}") # Optional logging
     
     async def update_report_title(self, db, report, title):
         # Instead of merging, let's fetch a fresh instance

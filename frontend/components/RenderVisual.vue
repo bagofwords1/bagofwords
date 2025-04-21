@@ -1,6 +1,12 @@
 <template>
     <div v-if="!isLoading && chartOptions && Object.keys(chartOptions).length > 0 && props.data?.rows?.length > 0" class="h-full">
-      <VChart class="chart" :option="chartOptions" autoresize :loading="isLoading" />
+      <VChart
+        :key="chartRenderKey"
+        class="chart"
+        :option="chartOptions"
+        autoresize
+        :loading="isLoading"
+       />
     </div>
     <div v-else-if="isLoading">
       Loading Chart...
@@ -130,6 +136,7 @@ const props = defineProps<{
 
 const chartOptions = ref<EChartsOption>({})
 const isLoading = ref(false); // Add a loading state
+const chartRenderKey = ref(0); // Add a key ref
 
 // --- Helper: Base Options ---
 function getBaseOptions(): EChartsOption {
@@ -208,7 +215,7 @@ function buildPieOptions(normalizedRows: DataRow[], dataModel: DataModel): EChar
         value: getSafeValue(row, seriesConfig.value, 'number') ?? 0
     })).filter(item => item.name !== 'Unknown' && item.value !== null); // Filter out invalid data
 
-            return {
+    return {
         tooltip: {
             trigger: 'item',
             formatter: '{b}: {c} ({d}%)'
@@ -925,6 +932,7 @@ async function buildChartOptions() {
     if (!props.data_model || !props.data?.rows?.length) {
         console.warn("Missing data model or data rows.");
         isLoading.value = false;
+        chartRenderKey.value++; // Increment key even on error/no data to force update
         return;
     }
 
@@ -991,6 +999,7 @@ async function buildChartOptions() {
          // Add a small delay to prevent flash of loading state if processing is very fast
         await new Promise(resolve => setTimeout(resolve, 50));
         isLoading.value = false;
+        chartRenderKey.value++; // Increment the key HERE after options are set
     }
 }
 
