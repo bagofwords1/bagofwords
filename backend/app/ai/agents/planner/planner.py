@@ -1,4 +1,3 @@
-
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
@@ -268,13 +267,17 @@ class Planner:
                * For "create_widget" (all is required, unless otherwise specified):
                  - "title": The widget title, must end with "$." -- VERY IMPORTANT, DO NOT MISS THIS
                  - "data_model": A dictionary describing how to query and present the data.
-                     - "type": The type of response ("table", "bar_chart", "line_chart", "pie_chart", "area_chart", "count", etc.)
+                     - "type": The type of response ("table", "bar_chart", "line_chart", "pie_chart", "area_chart", "count", "heatmap", "map", "candlestick", "treemap", "radar_chart", etc.)
                      - "columns": A list of columns in the data model. Each column is a dictionary with:
                        "generated_column_name", "source", and "description".
-                     - For charts, include "series": a list where each item specifies:
-                       "name": the series name,
-                       "key": which column is used for categories,
-                       "value": which column is used for the numeric values.
+                    - For charts, include "series": a list where each item specifies configuration:
+                       * For most charts (bar, line, pie, area, etc.): Include "name", "key" (for categories/labels), and "value" (for numerical values).
+                       * **For "candlestick" charts**: Include "name", "key" (for date/time axis), "open", "close", "low", and "high" mapping to the respective data columns.
+                       * **For "heatmap" charts**: Include "name", "x" (x-axis category column), "y" (y-axis category column), and "value" (heat value column).
+                       * **For "scatter_plot" charts**: Include "name", "x" (x-axis value column), and "y" (y-axis value column). Optionally include "size" or other dimension columns.
+                       * **For "map" charts**: Include "name", "key" (region name column), and "value" (metric value column).
+                       * **For "treemap" charts**: Include "name", "id" (node ID column), "parentId" (parent node ID column), and "value" (node size column). Use "key" for the display name if different from "name".
+                       * **For "radar_chart" charts**: Include "name" (series name), "key" (if grouping rows into series), and "dimensions" (a list of column names representing the radar axes/indicators).
                * For "modify_widget":
                  - "data_model": (Optional) If you need to change the widget's underlying data model type or series:
                    - "type": New type of the widget if changing (e.g., from table to bar_chart).
@@ -601,16 +604,43 @@ class Planner:
 
                             # Process series
                             if "series" in data_model and isinstance(data_model["series"], list):
-                                # Check if all series items are complete and valid
-                                series_complete = all(
-                                    isinstance(series, dict) and
-                                    all(key in series for key in ["name", "key", "value"]) and
-                                    all(isinstance(series[key], str) for key in ["name", "key", "value"])
-                                    for series in data_model["series"]
-                                )
+                                # --- START MODIFICATION ---
+                                chart_type = current_details.get("data_model", {}).get("type") # Get the chart type already determined
+
+                                # Define required keys for each chart type's series object
+                                type_specific_keys = {
+                                    "bar_chart": ["name", "key", "value"],
+                                    "line_chart": ["name", "key", "value"],
+                                    "pie_chart": ["name", "key", "value"],
+                                    "area_chart": ["name", "key", "value"],
+                                    "candlestick": ["name", "key", "open", "close", "low", "high"],
+                                    "heatmap": ["name", "x", "y", "value"],
+                                    "scatter_plot": ["name", "x", "y"], # Add optional keys like "size" if you expect them
+                                    "map": ["name", "key", "value"],
+                                    "treemap": ["name", "id", "parentId", "value"], # Adjust if using 'key' for name, etc.
+                                    "radar_chart": ["name", "dimensions"] # Or ["name", "key", "value"] depending on structure needed
+                                    # Add other types if necessary
+                                }
+
+                                required_keys = type_specific_keys.get(chart_type)
+
+                                series_complete = False
+                                if required_keys and data_model["series"]: # Ensure we have keys for the type and series isn't empty
+                                    series_complete = all(
+                                        isinstance(series_item, dict) and
+                                        all(key in series_item for key in required_keys)
+                                        # Optional: Add more robust type checking per key if needed
+                                        # e.g., check if series_item.get('dimensions') is a list for radar
+                                        for series_item in data_model["series"]
+                                    )
+                                # --- END MODIFICATION ---
+
                                 if series_complete:
                                     current_details["data_model"]["series"] = data_model["series"]
+                                    print(f"DEBUG: Valid series found and processed for chart type '{chart_type}'.") # Added debug log
                                     yield current_plan
+                                else:
+                                     print(f"DEBUG: Series validation failed for chart type '{chart_type}'. Required keys: {required_keys}. Received series: {data_model['series']}") # Added debug log
 
                         # Handle modify_widget specific details
                         if action_item["action"] == "modify_widget":

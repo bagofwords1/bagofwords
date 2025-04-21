@@ -157,7 +157,7 @@
                     {{ widget.last_step?.data }}
                 </div>
             </div>
-            <div v-if="widget.last_step?.data_model?.type?.includes('chart')" class="z-10">
+            <div v-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
                 <RenderVisual 
                  v-if="!widget.show_data_model && !widget.show_data"
                 :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
@@ -290,7 +290,7 @@
                                             {{ widget.last_step?.data }}
                                         </div>
                                     </div>
-                                    <div v-if="widget.last_step?.data_model?.type?.includes('chart')" class="z-10">
+                                    <div v-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
                                         <RenderVisual :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
                                     </div>
                                     <div v-if="widget.last_step?.type == 'init'" class="text-center items-center flex flex-col pt-14">
@@ -658,6 +658,20 @@ const toggleData = (widget: any) => {
         widget.show_data_model = false;
     }
 };
+
+// {{ Define the set of all visualization types handled by RenderVisual }}
+const chartVisualTypes = new Set([
+    'pie_chart',
+    'line_chart',
+    'bar_chart',
+    'area_chart',
+    'scatter_plot',
+    'heatmap',
+    'map',
+    'candlestick',
+    'treemap',
+    'radar_chart'
+]);
 
 </script>
 
