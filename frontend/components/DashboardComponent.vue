@@ -163,11 +163,9 @@
                                  :gs-w="widget.width"
                                  :gs-h="widget.height">
                                  <div class="grid-stack-item-content bg-white rounded overflow-hidden flex flex-col relative p-0 shadow-sm">
-                                    <!-- Text Widget Content (Readonly) -->
                                     <template v-if="widget.type === 'text'">
                                         <div class="p-2 flex-grow overflow-auto rendered-html" v-html="widget.content"></div>
                                     </template>
-                                    <!-- Regular Widget Content (Readonly) -->
                                     <template v-else>
                                         <div class="flex items-center text-sm py-1 px-2 flex-shrink-0 border-b h-[30px] bg-gray-50 rounded-t">
                                              <span class="font-medium truncate text-gray-700">{{ widget.title || 'Widget' }}</span>
@@ -195,16 +193,7 @@
                             </div>
                         </div>
                     </div>
-                    <!-- Modal Zoom Controls -->
-                    <div class="modal-zoom-controls absolute bottom-6 right-6 bg-white rounded-lg shadow-lg p-1 flex gap-1 z-[1100] items-center">
-                         <button title="Zoom In" @click.stop="modalZoomIn" class="p-1.5 hover:bg-gray-100 rounded text-gray-600">
-                             <Icon name="heroicons:plus-circle" class="w-5 h-5"/>
-                         </button>
-                         <span class="text-xs text-gray-500 self-center px-1 min-w-[30px] text-center">{{ Math.round(modalZoom * 100) }}%</span>
-                         <button title="Zoom Out" @click.stop="modalZoomOut" class="p-1.5 hover:bg-gray-100 rounded text-gray-600">
-                             <Icon name="heroicons:minus-circle" class="w-5 h-5"/>
-                         </button>
-                     </div>
+
                 </div>
             </UModal>
         </Teleport>
@@ -757,6 +746,11 @@
     const closeModal = () => {
         isModalOpen.value = false;
         modalZoom.value = 1;
+        // Explicitly destroy the modal grid instance and reset the ref
+        if (modalGrid.value) {
+            modalGrid.value.destroy(false); // false = don't remove DOM elements
+            modalGrid.value = null;
+        }
     };
     const handleEscKey = (e: KeyboardEvent) => {
         if (e.key === 'Escape' && isModalOpen.value) closeModal();
