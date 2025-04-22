@@ -330,12 +330,12 @@
     // --- Data Fetching & Loading ---
     async function fetchAllWidgets() {
         await Promise.all([
-            getTextWidgets(),
+            getTextWidgetsInternal(),
             updateDisplayedWidgets(props.widgets || [])
         ]);
     }
 
-    async function getTextWidgets() {
+    async function getTextWidgetsInternal() {
         try {
             const url = props.edit ? `/api/reports/${props.report.id}/text_widgets` : `/api/r/${props.report.id}/text_widgets`;
             const { data, error } = await useMyFetch(url, { method: 'GET' });
@@ -358,7 +358,6 @@
         } catch (error: any) {
             console.error('Failed to fetch text widgets:', error);
             toast.add({ title: 'Error', description: `Failed to load text widgets: ${error.message || 'Unknown error'}`, color: 'red' });
-            textWidgets.value = [];
         }
     }
 
@@ -795,6 +794,21 @@
         'pie_chart', 'line_chart', 'bar_chart', 'area_chart', 'scatter_plot',
         'heatmap', 'map', 'candlestick', 'treemap', 'radar_chart'
     ]);
+
+    // --- Exposed Methods ---
+    async function refreshTextWidgets() {
+        console.log("DashboardComponent: Refreshing text widgets...");
+        await getTextWidgetsInternal();
+        // After fetching, ensure the grid reflects the latest state of allWidgets
+        await loadWidgetsIntoGrid(grid.value, allWidgets.value);
+        if (isModalOpen.value && modalGrid.value) {
+            await loadWidgetsIntoGrid(modalGrid.value, allWidgets.value, true);
+        }
+    }
+
+    defineExpose({
+        refreshTextWidgets
+    });
 
     </script>
     

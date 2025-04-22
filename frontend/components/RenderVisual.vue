@@ -630,46 +630,65 @@ function buildCandlestickOptions(dataModel, normalizedRows) {
     return {};
   }
 
-  // --- Preprocessing: Create a nested lookup map: date -> ticker -> row ---
-  const dataLookup = new Map();
-  let tickerField = 'ticker'; // Default assumption, try to find dynamically
+  // --- START MODIFICATION: Handle single and multi-ticker data structures ---
+  let tickerField = 'ticker'; // Default assumption
   let foundTickerField = false;
+  let dataLookup = new Map(); // Will hold Map<Date, Map<Ticker, Row>> OR Map<Date, Row>
 
+  // 1. Try to identify the ticker field dynamically
+  if (normalizedRows.length > 0) {
+    const firstRowKeys = Object.keys(normalizedRows[0]);
+    const potentialTickerField = firstRowKeys.find(k =>
+        k !== keyField.toLowerCase() &&
+        !['open', 'high', 'low', 'close'].includes(k.toLowerCase())
+    );
+    if (potentialTickerField) {
+      tickerField = potentialTickerField;
+      foundTickerField = true;
+      // console.log("Candlestick: Determined ticker field:", tickerField);
+    } else {
+      // console.log("Candlestick: No distinct ticker field found. Assuming single series data.");
+    }
+  }
+
+  // 2. Populate the lookup map based on whether a ticker field was found
   normalizedRows.forEach(row => {
     const dateCategory = getSafeValue(row, keyField);
     if (dateCategory === null || dateCategory === undefined) return; // Skip rows without a valid date
 
-    // Attempt to find the ticker field more dynamically if not already found
-    if (!foundTickerField) {
-        const keys = Object.keys(row);
-        const potentialTickerField = keys.find(k => k !== keyField && !['open', 'high', 'low', 'close'].includes(k.toLowerCase()));
-        if (potentialTickerField) {
-            tickerField = potentialTickerField;
-            foundTickerField = true;
-            // console.log("Determined ticker field:", tickerField);
-        }
-    }
+    if (foundTickerField) {
+      // Multi-ticker: Build Map<Date, Map<TickerValue, Row>>
+      const tickerValue = getSafeValue(row, tickerField);
+      if (tickerValue === null || tickerValue === undefined) return; // Skip rows without a valid ticker
 
-    const tickerValue = getSafeValue(row, tickerField);
-    if (tickerValue === null || tickerValue === undefined) return; // Skip rows without a valid ticker
-
-    if (!dataLookup.has(dateCategory)) {
-      dataLookup.set(dateCategory, new Map());
+      if (!dataLookup.has(dateCategory)) {
+        dataLookup.set(dateCategory, new Map());
+      }
+      dataLookup.get(dateCategory).set(tickerValue, row);
+    } else {
+      // Single-ticker: Build Map<Date, Row>
+      // If a date already exists, we might overwrite. This assumes one row per date for single-ticker data.
+      // Consider adding a warning or alternative handling if duplicate dates are possible in single-ticker input.
+       if (dataLookup.has(dateCategory)) {
+           console.warn(`Candlestick (Single-Ticker): Duplicate date found ('${dateCategory}'). Overwriting previous data for this date.`);
+       }
+      dataLookup.set(dateCategory, row);
     }
-    dataLookup.get(dateCategory).set(tickerValue, row);
   });
-  // --- End Preprocessing ---
+  // --- END MODIFICATION ---
 
   // Extract unique categories (dates) and sort them
-  const categories = [...dataLookup.keys()].sort();
+  // Ensure keys are treated consistently (e.g., strings) if dates might come in different types
+  const categories = [...dataLookup.keys()]
+      .map(String) // Ensure keys are strings for reliable sorting/lookup
+      .sort((a, b) => new Date(a).getTime() - new Date(b).getTime()); // Sort chronologically
 
   if (categories.length === 0) {
       console.warn('Candlestick: No categories found after processing.');
       return {};
   }
-   if (!foundTickerField) {
-       console.warn("Candlestick: Could not dynamically determine ticker field after processing. Assuming 'ticker'.");
-   }
+  // Removed the warning about assuming 'ticker', as we now handle the 'not found' case explicitly.
+
 
   const echartsSeries = dataModel.series.map(seriesConfig => {
     const seriesName = seriesConfig.name;
@@ -683,14 +702,27 @@ function buildCandlestickOptions(dataModel, normalizedRows) {
       return null;
     }
 
-    // Map data using the lookup table
+    // Map data using the lookup table, adapting based on foundTickerField
     const seriesData = categories.map(category => {
-      const tickerMap = dataLookup.get(category);
-      // Get the specific row for THIS seriesName and THIS category(date)
-      const row = tickerMap?.get(seriesName);
+      let row = null;
+      if (foundTickerField) {
+        // Multi-ticker: Look up using date and seriesName (ticker)
+        const tickerMap = dataLookup.get(category);
+        row = tickerMap?.get(seriesName);
+      } else {
+        // Single-ticker: Look up using date directly
+        row = dataLookup.get(category);
+        // For single-ticker, ensure we only process the first series definition
+        if (dataModel.series.indexOf(seriesConfig) > 0) {
+            console.warn("Candlestick (Single-Ticker): Multiple series defined in data_model, but no ticker field found in data. Only using the first series definition.");
+            return null; // Return null for subsequent series in single-ticker mode
+        }
+      }
+
 
       if (!row) {
-        return [null, null, null, null]; // Null for missing points on the shared axis
+        // Return null for missing points on the shared axis (or for skipped series in single-ticker)
+        return [null, null, null, null];
       }
 
       const openVal = getSafeValue(row, openField);
@@ -698,42 +730,38 @@ function buildCandlestickOptions(dataModel, normalizedRows) {
       const lowVal = getSafeValue(row, lowField);
       const highVal = getSafeValue(row, highField);
 
-      // Optional: Re-add debug log if needed
-       if (category === '2025-02-14') {
-         console.log(`DEBUG [${seriesName} on ${category}]: Found Row: ${JSON.stringify(row)} -> [O:${openVal}, C:${closeVal}, L:${lowVal}, H:${highVal}]`);
-       }
-
       // Echarts expects [open, close, lowest, highest]
       return [openVal, closeVal, lowVal, highVal];
-    });
+    }).filter(item => item !== null); // Filter out nulls potentially added by the single-ticker series check
+
+    // If, after filtering, seriesData is empty for this series config, return null
+     if (seriesData.length === 0) {
+         console.warn(`Candlestick: No valid data points found for series '${seriesName}' after processing.`);
+         return null;
+     }
 
     return {
       name: seriesName,
       type: 'candlestick',
       data: seriesData,
-       // Optional styling below
       itemStyle: {},
       emphasis: { itemStyle: { borderColor: '#555', borderWidth: 1 } },
-      // markPoint: { data: [ { type: 'max', name: 'Max' }, { type: 'min', name: 'Min' } ] },
-      // markLine: { data: [ { type: 'average', name: 'Avg' } ] }
     };
-  }).filter(s => s !== null);
+  }).filter(s => s !== null); // Filter out null series configs (skipped or failed)
 
   if (echartsSeries.length === 0) {
       console.warn('Candlestick: No valid series could be generated.');
       return {};
   }
 
-  // --- ECharts Options ---
+  // --- ECharts Options (Keep existing options structure) ---
   return {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'cross' },
-      // Consider using the default formatter first, it should work now.
-      // If needed, uncomment and adapt the custom formatter from previous examples.
     },
     legend: {
-      show: false,
+      show: echartsSeries.length > 1, // Only show legend if multiple series exist
       data: echartsSeries.map(s => s.name),
       bottom: 30,
       inactiveColor: '#777',
@@ -741,10 +769,10 @@ function buildCandlestickOptions(dataModel, normalizedRows) {
     },
     xAxis: {
       type: 'category',
-      data: categories, // *** Assign the definitive categories array ***
+      data: categories,
       axisLine: { lineStyle: { color: '#8392A5' } },
       splitLine: { show: false },
-      axisLabel: { /* rotate: 30, interval: 'auto' */ } // Add label options if needed
+      axisLabel: { /* Add label options if needed */ }
     },
     yAxis: {
       type: 'value',
@@ -756,7 +784,7 @@ function buildCandlestickOptions(dataModel, normalizedRows) {
     grid: {
       left: '5%',
       right: '5%',
-      bottom: '15%', // Increased slightly for dataZoom slider + potential labels
+      bottom: '15%',
       containLabel: true
     },
      dataZoom: [

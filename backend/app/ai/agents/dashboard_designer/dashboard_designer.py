@@ -109,17 +109,15 @@ class DashboardDesigner:
                 - `height`: Number of rows spanned (minimum 1).
             - **CRITICAL**: All `x`, `y`, `width`, `height` values MUST be small integer grid units based on the 12-column grid, NOT pixel values. Values larger than 12 for `x` or `width`, or very large values for `y` or `height` (e.g., > 50), are incorrect and invalid.
             - **No Overlaps**: Ensure no widgets (text or data) overlap in the grid. Check `y` and `y + height` for vertical overlaps, and `x` and `x + width` for horizontal overlaps within the same row span.
-            - **Vertical Spacing**:
-                - **Text-to-Widget**: If a text widget directly precedes a data widget below it (same `x`, same `width`), leave exactly 1 empty row between them (e.g., text ends row `N`, data starts row `N+2`).
-                - **Section Spacing**: Leave at least 1-2 empty rows between the bottom of one section/widget and the top of the *next text widget* introducing a new section.
-            - **Horizontal Spacing**: Handled by the column layout. Ensure `x + width <= 12` for all widgets.
             - **Data Widget Sizes**: Minimum `width` of 4-6 columns (adjust based on content), minimum `height` of 5 rows. Size appropriately (charts often need `height` 8-12+ rows; tables vary).
-            - **Text Widget Sizing**: Estimate `height` in rows based on HTML content. **Crucially, ensure sufficient height for readability.** Use these MINIMUMS as a guide:
-                - Simple `<h1>` or `<h2>`: min `height: 1`.
-                - `<h1>` + `<p>`: min `height: 2` (more if paragraph is long, aim for 3).
-                - `<h2>` + `<p>`: min `height: 2` (more if paragraph is long, aim for 2-3).
-                - Multiple paragraphs or lists: Calculate based on lines (approx. 1 row per 1-2 lines of text after headings).
-              Ensure `width` allows text to be readable (often full width, or matching related widgets). **Never use `height: 1` if there is more than just a short heading.**
+            - **Text Widget Sizing**: Determine `height` in rows based on the **rendered HTML content** and the **chosen `width`**. The goal is to allocate enough vertical grid space for the text to be fully readable without excessive scrolling within the widget.
+                - **Content Complexity**: Consider the amount and type of content (headings, paragraphs, lists, tables, etc.). More complex or longer content needs more height.
+                - **Width is Crucial**: Text wraps. A narrow `width` (e.g., 4-6 columns) will require **significantly more `height`** than a wide `width` (e.g., 10-12 columns) for the *same* content.
+                - **Estimation Process**:
+                    1. Estimate the vertical space needed for the content assuming a wide layout (e.g., 10-12 columns). Think in terms of approximate lines of text or visual blocks.
+                    2. **Adjust significantly upwards** for narrower widths. The narrower the widget, the more rows are needed. For very narrow widgets (< 7 columns), the height might need to be doubled or tripled compared to a wide layout estimate, depending on content density.
+                - **Minimum Height**: Ensure the final `height` is at least 2 rows. **Never use `height: 1` for anything more than a single, short heading, especially with narrow widths.** Ensure `width` is also reasonable (usually >= 4 columns). A single short heading might fit `height: 1`, but a heading plus even a short paragraph usually needs `height: 2` *at minimum*, and more if the width is constrained.
+                - Be EXTRA generous with height for text widgets (at least 2x compared to your initial estimate).
         6.  **Output Format**:
             - Return JSON ONLY. No explanations outside the JSON structure.
             - Structure: `{{"prefix": "...", "widgets": [...], "text_widgets": [...], "end_message": "..."}}`

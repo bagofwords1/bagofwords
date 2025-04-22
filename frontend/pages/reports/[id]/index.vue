@@ -122,14 +122,18 @@
              ]">
             <div>
                 <DashboardComponent 
+                    ref="dashboardRef"
                     @removeWidget="removeWidget"
-                    v-if="widgets.length"
+                    v-if="reportLoaded && widgets"
                     :report="report" 
                     :edit="true" 
                     :widgets="widgets.filter(widget => widget.status === 'published')" 
                     :textWidgetsIds="textWidgetsIds"
                     @toggleSplitScreen="toggleSplitScreen"
                 />
+                <div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500">
+                    No dashboard items yet.
+                </div>
             </div>
         </div>
     </div>
@@ -140,6 +144,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 
 import PromptBoxExcel from '@/components/excel/PromptBoxExcel.vue';
 import GoBackChevron from '@/components/excel/GoBackChevron.vue';
+import DashboardComponent from '~/components/DashboardComponent.vue';
 
 const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
 const { organization, setOrganization } = useOrganization()
@@ -450,7 +455,12 @@ function connectWebSocket() {
                 loadWidgets()
                 break;
             case 'insert_text_widget':
-                textWidgetsIds.value.push(data.text_widget_id)
+                console.log("Index.vue: Received insert_text_widget, calling refresh...");
+                if (dashboardRef.value) {
+                    dashboardRef.value.refreshTextWidgets();
+                } else {
+                    console.warn("Dashboard component ref not available to refresh text widgets.");
+                }
                 break;
             case 'update_step':
                 updateStep(data)
@@ -632,6 +642,9 @@ const shouldAnimateTitle = ref(false)
 
 // Add ref for PromptBoxExcel component
 const promptBoxRef = ref(null);
+
+// Add ref for DashboardComponent
+const dashboardRef = ref(null);
 
 // Add function to handle example click
 function handleExampleClick(starter: string) {
