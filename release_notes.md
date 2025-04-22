@@ -1,5 +1,14 @@
 # Release Notes
 
+## Verion 0.0.164 (April 22nd, 2025)
+
+- Refactored dashboard visualization capabilities:
+  - Improved chart rendering performance and responsiveness
+  - Enhanced data handling for large datasets
+  - Added better error handling and validation
+  - Streamlined chart configuration options
+- Fixed candlestick chart bug where single stock data was not properly displayed when no ticker field was present
+
 ## Version 0.0.163 (April 21, 2025)
 
 - Added new charts: area, map, treemap, heatmap, candletick, and more
