@@ -1,837 +1,890 @@
 <template>
-<div class="container mx-auto">
-    <div v-if="props.edit" class="w-full bg-[#fff] p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2 border-gray-200">
-        <div class="flex items-center gap-4">
-            <div class="space-x-2">
-                <UTooltip text="Collapse">
-                    <button @click="$emit('toggleSplitScreen')" class="text-xs items-center flex gap-1 hover:bg-gray-100 px-0 py-1 rounded">
-                        <Icon name="heroicons:chevron-double-right" />
+    <div class="container mx-auto">
+        <!-- Header: Kept -->
+        <div v-if="props.edit" class="w-full bg-[#fff] p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2 border-gray-200">
+            <div class="flex items-center gap-4">
+                <div class="space-x-2">
+                    <UTooltip text="Collapse">
+                        <button @click="$emit('toggleSplitScreen')" class="text-xs items-center flex gap-1 hover:bg-gray-100 px-0 py-1 rounded">
+                            <Icon name="heroicons:chevron-double-right" />
+                        </button>
+                    </UTooltip>
+                </div>
+                <div class="font-medium text-gray-700">
+                    Dashboard
+                </div>
+            </div>
+            <div class="space-x-2 flex items-center">
+                <UTooltip text="Add text element">
+                    <button v-if="props.edit" @click="addNewTextWidgetToGrid" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+                        <Icon name="heroicons:italic" />
                     </button>
                 </UTooltip>
-            </div>
-            <div class="font-medium text-gray-700">
-                Dashboard 
+                <UTooltip text="Rerun report">
+                    <button @click="rerunReport" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+                        <Icon name="heroicons:play" />
+                    </button>
+                </UTooltip>
+                <CronModal :report="report" />
+                <UTooltip text="Open dashboard in a new tab" v-if="report.status === 'published'">
+                    <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+                        <Icon name="heroicons:arrow-top-right-on-square" />
+                    </a>
+                </UTooltip>
+                <UTooltip text="Full screen">
+                    <button @click="openModal" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+                        <Icon name="heroicons:arrows-pointing-out" />
+                    </button>
+                </UTooltip>
+                <ShareModal :report="report" />
             </div>
         </div>
-        <div class="space-x-2 flex items-center">
-            <UTooltip text="Add text element">
-                <button v-if="props.edit" @click="showTextWidgetEditor = !showTextWidgetEditor"class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-                    <Icon name="heroicons:italic" />
-                </button>
-            </UTooltip>
-            <UTooltip text="Rerun report">
-                <button @click="rerunReport" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-                    <Icon name="heroicons:play" />
-                </button>
-            </UTooltip>
-            <CronModal :report="report" />
-
-            <UTooltip text="Open dashboard in a new tab" v-if="report.status === 'published'">
-                <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-                    <Icon name="heroicons:arrow-top-right-on-square" />
-                </a>
-            </UTooltip>
-            <UTooltip text="Full screen">
-                <button @click="isModalOpen = true" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-                    <Icon name="heroicons:arrows-pointing-out" />
-                </button>
-            </UTooltip>
-            <ShareModal :report="report" />
-        </div>
-    </div>
-  <div class="overflow-x-hidden overflow-y-scroll overflow-x-scroll w-full h-full"> 
-
     
-    <div id="canvas" 
-        :class="{ 
-            'relative': true, 
-            'overflow-y-scroll': true, 
-            'overflow-x-scroll': true, 
-            'border-none': !props.edit,
-            'border-gray-200': props.edit 
-        }" 
-        :style="{ 
-            transform: `scale(${props.edit ? zoom * 1 : 1})`, 
-            transformOrigin: 'left top', 
-            minHeight: `${canvasHeight}px`,
-            width: '1200px' 
-        }">
-
-        <TransitionGroup name="fade">
-            <vue-draggable-resizable
-                v-for="textWidget in textWidgets"
-            :parent="true"
-            :grid="[40, 40]"
-            :key="textWidget.id"
-            :w="textWidget.width"
-            :h="textWidget.height"
-            :x="textWidget.x"
-            :y="textWidget.y"
-            :resizable="props.edit"
-            :draggable="props.edit"
-            @drag-stop="(left, top) => handleTextWidgetDrag(left, top, textWidget)"
-            @resize-stop="(left, top, width, height) => handleTextWidgetResize(left, top, width, height, textWidget)"
-            :class="{
-                'border border-solid border-gray-200': props.edit,
-                'border-none': !props.edit,
-                'absolute': true,
-                'bg-white': true,
-                'p-2': true
-            }"
-        >
-        <div id="text-widget-controls" v-if="props.edit" class="absolute right-2 top-1 z-10 flex gap-2">
-            <button class="text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border" 
-                    @click="removeTextWidget(textWidget)">
-                <Icon name="heroicons:trash" />
-            </button>
-            <button class="text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border" 
-                    @click="textWidget.isEditing = !textWidget.isEditing">
-                <Icon name="heroicons:pencil" v-if="!textWidget.isEditing"/>
-                <Icon name="heroicons:x-mark" v-if="textWidget.isEditing"/>
-            </button>
-        </div>
-        <div v-if="textWidget.isEditing">
-            <TextWidgetEditor :textWidget="textWidget"
-                @save="(content) => saveTextWidgetEdit(content, textWidget)"
-                @cancel="textWidget.isEditing = false"
-            />
-        </div>
-        <div v-else class="w-full h-full text-black rendered-html" v-html="textWidget.content"></div>
-            </vue-draggable-resizable>
-        </TransitionGroup>
-
-
-        <TransitionGroup name="fade">
-            <vue-draggable-resizable
-                v-for="widget in displayedWidgets"
-                :parent="true"
-                :grid="[40, 40]"
-                :key="widget.id"
-                :w="widget.width"
-        :h="widget.height"
-        :x="widget.x"
-        :y="widget.y"
-        :resizable="props.edit"
-        :draggable="props.edit"
-        @drag-stop="(left, top) => handleWidgetDrag(left, top, widget)"
-        @resize-stop="(left, top, width, height) => handleWidgetResize(left, top, width, height, widget)"
-        @mouseenter="widget.showControls = true"
-        @mouseleave="widget.showControls = false"
-        :class="{
-            'border border-solid border-gray-200': props.edit,
-            'border-none': !props.edit,
-            'absolute': true,
-            'bg-white': true
-        }"
-    >
-        <div class="w-full h-full relative overflow-scroll pt-3" >
-            <div class="flex items-center text-sm py-3 px-2">
-                <div class="w-full absolute left-2 top-3">
-                    <div>
-                        <span v-if="widget.last_step?.type == 'table' || widget.last_step === null">{{ widget.title }}</span>
-                        <span v-if="widget.last_step?.data?.loadingColumn" class="text-gray-400">Loading...</span>
-                    </div>
-                </div>
-                <div id="widget-controls" class="w-1/2 absolute right-0 top-2 z-10 text-right" v-show="widget.showControls">
-                    <div class="mr-2 inline-flex gap-2">
-                        <button v-if="props.edit" class="text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border" @click="removeWidget(widget)">
-                            <Icon name="heroicons:trash" /> Remove
-                        </button>
-                        <button @click="toggleDataModel(widget)" class="hidden text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border">
-                            <Icon name="heroicons:table-cells" />
-                            Data Model
-                        </button>
-                        <button @click="toggleData(widget)" class="hidden text-xs items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border">
-                            <Icon name="heroicons-table-cells" />
-                            Data
-                        </button>
-                    </div>
-                </div>
-            </div>
-            <div v-if="widget.last_step?.data_model?.type == 'count'" class="mt-2">
-                <RenderCount :show_title="false" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
-            </div>
-            <div v-if="widget.last_step?.data_model?.type == 'table'" class="mt-2 h-full">
-                <AgGridComponent ref="agGrid" :columnDefs="widget.last_step?.data?.columns"
-                    :rowData="widget.last_step?.data?.rows" class="px-2" v-if="!widget.show_data_model && !widget.show_data" />
-                <div v-if="widget.show_data_model">
-                    {{ widget.last_step?.data_model }}
-                </div>
-                <div v-if="widget.show_data">
-                    {{ widget.last_step?.data }}
-                </div>
-            </div>
-            <div v-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
-                <RenderVisual 
-                    v-if="!props.edit || (props.edit && !widget.show_data_model && !widget.show_data)"
-                    :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
-                
-                <div v-if="props.edit && widget.show_data_model"> 
-                    {{ widget.last_step?.data_model }}
-                </div>
-
-                <div v-if="props.edit && widget.show_data">
-                    {{ widget.last_step?.data }}
-                </div>
-            </div>
-            <div v-if="widget.last_step?.type == 'init'" class="text-center items-center flex flex-col pt-14">
-                <SpinnerComponent />
-                Loading..
-            </div>
-            </div>
-            </vue-draggable-resizable>
-        </TransitionGroup>
-
-        <TransitionGroup name="fade">
-            <vue-draggable-resizable
-                v-if="showTextWidgetEditor"
-            :parent="true"
-            :grid="[40, 40]"
-            :w="editorSize.width"
-            :h="editorSize.height"
-            :x="editorPosition.x"
-            :y="editorPosition.y"
-            :resizable="true"
-            :draggable="true"
-            @drag-stop="(left, top) => { editorPosition = { x: left, y: top }}"
-            @resize-stop="(left, top, width, height) => { 
-                editorPosition = { x: left, y: top };
-                editorSize = { width, height };
-            }"
-            :class="[
-                'rounded-lg',
-                'absolute',
-                'bg-white',
-                'shadow-lg',
-                'z-40'
-            ]"
-        >
-            <div class="w-full h-full relative">
-                <div class="flex flex-col h-full">
-                    <TextWidgetEditor 
-                        @save="saveTextWidget"
-                        :initial-content="hello"
-                        @cancel="showTextWidgetEditor = false"
-                    />
-                </div>
-            </div>
-            </vue-draggable-resizable>
-        </TransitionGroup>
-
-</div>
-
-<div v-if="props.edit" class="zoom-controls fixed bottom-4 right-4 bg-white rounded-lg shadow-lg p-2 flex gap-2 z-50">
-
-    <button @click="zoomIn" class="p-2 hover:bg-gray-100 rounded">
-        <Icon name="heroicons:plus-circle" />
-    </button>
-    <button @click="zoomOut" class="p-2 hover:bg-gray-100 rounded">
-        <Icon name="heroicons:minus-circle" />
-    </button>
-    <button @click="resetZoom" class="p-2 hover:bg-gray-100 rounded">
-        <Icon name="heroicons:arrows-pointing-in" />
-    </button>
-</div>
-</div>
-
-<Teleport to="body">
-    <div v-if="isModalOpen || isModalMounted" 
-         class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center transition-opacity duration-300"
-         :class="{ 'opacity-0': !isModalMounted, 'opacity-100': isModalMounted }"
-         @click="closeModal">
-        <div class="bg-white w-[95vw] h-[95vh] rounded-lg flex flex-col transition-transform duration-300 relative"
-             :class="{ 'scale-95 opacity-0': !isModalMounted, 'scale-100 opacity-100': isModalMounted }"
-             @click.stop>
-            <!-- Modal Header -->
-            <div class="p-2 flex justify-end items-center">
-                <button @click="isModalOpen = false" class="text-gray-500 hover:text-gray-700">
-                    <Icon name="heroicons:x-mark" class="w-5 h-5" />
-                </button>
-            </div>
-            
-            <!-- Modal Content -->
-            <div class="flex-1 overflow-auto p-4">
-                <div id="modal-canvas" class="mx-auto z-[1000] relative h-full" :style="{ transform: `scale(${zoom})`, transformOrigin: 'center top', zIndex: 1000 }">
-                    <!-- Copy of the canvas content -->
-                     <template v-for="textWidget in textWidgets" :key="textWidget.id">
-                        <div
-                        :style="{
-                            position: 'absolute',
-                            left: `${textWidget.x}px`,
-                            top: `${textWidget.y}px`,
-                            width: `${textWidget.width}px`,
-                            height: `${textWidget.height}px`
-                        }" class="border border-solid border-gray-200 bg-white">
-                            <div class="w-full h-full p-2 text-black rendered-html" v-html="textWidget.content"></div>
+        <!-- Main container for grid and floating editor -->
+        <div class="relative w-full h-full dashboard-area bg-white">
+            <!-- Gridstack Container -->
+            <div ref="gridstackContainer"
+                 class="grid-stack main-grid"
+                 :style="{
+                    transform: `scale(${props.edit ? zoom : 1})`,
+                    transformOrigin: 'top left'
+                 }"
+                 @wheel="handleWheel">
+    
+                <!-- Gridstack Items -->
+                <div v-for="widget in allWidgets"
+                     :key="widget.id"
+                     class="grid-stack-item"
+                     :gs-id="widget.id"
+                     :gs-x="widget.x"
+                     :gs-y="widget.y"
+                     :gs-w="widget.width"
+                     :gs-h="widget.height"
+                     :gs-auto-position="widget.x === undefined || widget.y === undefined"
+                     @mouseenter="props.edit"
+                     @mouseleave="props.edit">
+    
+                    <div class="grid-stack-item-content bg-white rounded overflow-hidden flex flex-col relative p-0 shadow-sm" :class="{ 'border': props.edit }">
+                        <!-- Controls Overlay -->
+                        <div v-if="props.edit" class="absolute right-1 top-1 z-20 flex gap-1 bg-white bg-opacity-80 p-1 rounded shadow">
+                            <!-- Regular Widget Remove -->
+                            <button v-if="widget.type !== 'text'" title="Remove Widget" class="text-xs items-center flex gap-0.5 hover:bg-red-100 text-red-600 px-1 py-0.5 rounded border border-gray-300" @click="removeWidget(widget)">
+                                <Icon name="heroicons:trash" class="w-3 h-3"/>
+                            </button>
+                            <!-- Text Widget Remove (only for EXISTING widgets) -->
+                            <button v-if="widget.type === 'text' && !widget.isNew" title="Remove Text" class="text-xs items-center flex gap-0.5 hover:bg-red-100 text-red-600 px-1 py-0.5 rounded border border-gray-300" @click="removeTextWidget(widget)">
+                                 <Icon name="heroicons:trash" class="w-3 h-3"/>
+                            </button>
+                            <!-- Toggle Edit / Cancel New -->
+                            <button v-if="widget.type === 'text'" :title="widget.isNew ? 'Cancel Adding Text' : 'Edit Text'" class="text-xs items-center flex gap-0.5 hover:bg-blue-100 text-blue-600 px-1 py-0.5 rounded border border-gray-300" @click="toggleTextEdit(widget)">
+                                <Icon name="heroicons:pencil" v-if="!widget.isEditing && !widget.isNew" class="w-3 h-3"/>
+                                <Icon name="heroicons:x-mark" v-if="widget.isEditing || widget.isNew" class="w-3 h-3"/> <!-- Show X for editing or new -->
+                            </button>
                         </div>
-                    </template>
-
-                    <template v-for="widget in displayedWidgets" :key="widget.id">
-                        <div :style="{
-                            position: 'absolute',
-                            left: `${widget.x}px`,
-                            top: `${widget.y}px`,
-                            width: `${widget.width}px`,
-                            height: `${widget.height}px`
-                        }" class="border border-solid border-gray-200 bg-white">
-                            <div class="w-full h-full relative flex flex-col pt-3"> 
-                                <div class="flex items-center text-sm py-3 px-2 flex-shrink-0"> 
-                                    <div class="w-full absolute left-2 top-3">
-                                        <span v-if="widget.last_step?.type == 'table' || widget.last_step === null">{{ widget.title }}</span>
-                                        <span v-if="widget.last_step?.data?.loadingColumn" class="text-gray-400">Loading...</span>
+    
+                        <!-- Text Widget Display/Edit -->
+                        <template v-if="widget.type === 'text'">
+                            <div v-if="widget.isEditing" class="p-1 flex-grow flex flex-col min-h-0">
+                                 <TextWidgetEditor :textWidget="widget"
+                                    @save="(content) => saveTextWidget(content, widget)"
+                                    @cancel="cancelTextEdit(widget)"
+                                    class="flex-grow min-h-0"
+                                 />
+                            </div>
+                            <div v-else class="p-2 flex-grow overflow-auto rendered-html" v-html="widget.content"></div>
+                        </template>
+    
+                        <!-- Regular Widget Display -->
+                        <template v-else>
+                            <div class="flex items-center text-sm py-1 px-2 flex-shrink-0 border-b h-[30px] bg-gray-50 rounded-t">
+                                <span class="font-medium truncate text-gray-700">{{ widget.title || 'Widget' }}</span>
+                                <span v-if="widget.last_step?.data?.loadingColumn" class="text-gray-400 ml-2 text-xs italic">Loading...</span>
+                            </div>
+                            <div class="flex-grow overflow-auto p-2 min-h-0">
+                                <div v-if="widget.last_step?.data_model?.type == 'count'" class="mt-1">
+                                    <RenderCount :show_title="false" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
+                                </div>
+                                <div v-else-if="widget.last_step?.data_model?.type == 'table'" class="mt-1 h-full">
+                                    <AgGridComponent v-show="!widget.show_data_model && !widget.show_data" :columnDefs="widget.last_step?.data?.columns" :rowData="widget.last_step?.data?.rows" class="h-full" />
+                                    <div v-if="widget.show_data_model" class="text-xs p-1 bg-gray-50 rounded overflow-auto h-full border">
+                                        <pre class="text-[10px] whitespace-pre-wrap">{{ widget.last_step?.data_model }}</pre>
+                                    </div>
+                                    <div v-if="widget.show_data" class="text-xs p-1 bg-gray-50 rounded overflow-auto h-full border">
+                                         <pre class="text-[10px] whitespace-pre-wrap">{{ widget.last_step?.data }}</pre>
                                     </div>
                                 </div>
-                                <div class="flex-grow min-h-0">  
-                                    <div v-if="widget.last_step?.data_model?.type == 'table'" class="mt-2 h-full"> 
-                                        <AgGridComponent ref="agGrid" :columnDefs="widget.last_step?.data?.columns"
-                                            :rowData="widget.last_step?.data?.rows" class="px-2 h-full" v-if="!widget.show_data_model && !widget.show_data" />
-                                        <div v-if="widget.show_data_model">
-                                            {{ widget.last_step?.data_model }}
+                                <div v-else-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
+                                    <RenderVisual v-show="!widget.show_data_model && !widget.show_data" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
+                                    <div v-if="widget.show_data_model" class="text-xs p-1 bg-gray-50 rounded overflow-auto h-full border">
+                                         <pre class="text-[10px] whitespace-pre-wrap">{{ widget.last_step?.data_model }}</pre>
+                                    </div>
+                                    <div v-if="widget.show_data" class="text-xs p-1 bg-gray-50 rounded overflow-auto h-full border">
+                                        <pre class="text-[10px] whitespace-pre-wrap">{{ widget.last_step?.data }}</pre>
+                                    </div>
+                                </div>
+                                <div v-else-if="widget.last_step?.type == 'init'" class="text-center items-center flex flex-col justify-center h-full text-gray-500">
+                                    <SpinnerComponent />
+                                    <span class="mt-2 text-sm">Loading...</span>
+                                </div>
+                                 <div v-else class="text-center items-center flex flex-col justify-center h-full text-gray-400 italic text-sm">
+                                    No data or visualization available.
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+    
+        </div>
+    
+        <!-- Fullscreen Modal -->
+        <Teleport to="body">
+            <UModal v-model="isModalOpen" :ui="{ width: 'sm:max-w-[95vw]', height: 'h-[95vh]' }">
+                <div class="h-full flex flex-col">
+                    <!-- Modal Header -->
+                     <div class="p-2 flex justify-between items-center border-b ">
+                        <span class="text-sm font-medium text-gray-700 pl-2">Fullscreen View</span>
+                        <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" class="-my-1" @click="closeModal" />
+                    </div>
+    
+                    <!-- Modal Content Area -->
+                    <div class="flex-1 overflow-auto p-4">
+                        <!-- Modal Gridstack Container -->
+                        <div ref="modalGridstackContainer"
+                             class="grid-stack grid-stack-modal"
+                             :style="{ transform: `scale(${modalZoom})`, transformOrigin: 'top left' }">
+                            <!-- Modal Grid Items -->
+                            <div v-for="widget in allWidgets"
+                                 :key="`modal-${widget.id}`"
+                                 class="grid-stack-item"
+                                 :gs-id="`modal-${widget.id}`"
+                                 :gs-x="widget.x"
+                                 :gs-y="widget.y"
+                                 :gs-w="widget.width"
+                                 :gs-h="widget.height">
+                                 <div class="grid-stack-item-content bg-white rounded overflow-hidden flex flex-col relative p-0 shadow-sm">
+                                    <!-- Text Widget Content (Readonly) -->
+                                    <template v-if="widget.type === 'text'">
+                                        <div class="p-2 flex-grow overflow-auto rendered-html" v-html="widget.content"></div>
+                                    </template>
+                                    <!-- Regular Widget Content (Readonly) -->
+                                    <template v-else>
+                                        <div class="flex items-center text-sm py-1 px-2 flex-shrink-0 border-b h-[30px] bg-gray-50 rounded-t">
+                                             <span class="font-medium truncate text-gray-700">{{ widget.title || 'Widget' }}</span>
+                                             <span v-if="widget.last_step?.data?.loadingColumn" class="text-gray-400 ml-2 text-xs italic">Loading...</span>
                                         </div>
-                                        <div v-if="widget.show_data">
-                                            {{ widget.last_step?.data }}
+                                        <div class="flex-grow overflow-auto p-2 min-h-0">
+                                            <div v-if="widget.last_step?.data_model?.type == 'count'" class="mt-1">
+                                                <RenderCount :show_title="false" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
+                                            </div>
+                                            <div v-else-if="widget.last_step?.data_model?.type == 'table'" class="mt-1 h-full">
+                                                <AgGridComponent :columnDefs="widget.last_step?.data?.columns" :rowData="widget.last_step?.data?.rows" class="h-full" />
+                                            </div>
+                                            <div v-else-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
+                                                 <RenderVisual :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
+                                            </div>
+                                            <div v-else-if="widget.last_step?.type == 'init'" class="text-center items-center flex flex-col justify-center h-full text-gray-500">
+                                                 <SpinnerComponent /><span class="mt-2 text-sm">Loading...</span>
+                                            </div>
+                                            <div v-else class="text-center items-center flex flex-col justify-center h-full text-gray-400 italic text-sm">
+                                                No data or visualization available.
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div v-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
-                                        <RenderVisual 
-                                            :widget="widget" 
-                                            :data="widget.last_step?.data" 
-                                            :data_model="widget.last_step?.data_model"
-                                            :triggerResize="modalResizeTrigger" 
-                                        />
-                                    </div>
-                                    <div v-if="widget.last_step?.type == 'init'" class="text-center items-center flex flex-col pt-14">
-                                        <SpinnerComponent />
-                                        Loading..
-                                    </div>
+                                    </template>
                                 </div>
                             </div>
                         </div>
-                    </template>
+                    </div>
+                    <!-- Modal Zoom Controls -->
+                    <div class="modal-zoom-controls absolute bottom-6 right-6 bg-white rounded-lg shadow-lg p-1 flex gap-1 z-[1100] items-center">
+                         <button title="Zoom In" @click.stop="modalZoomIn" class="p-1.5 hover:bg-gray-100 rounded text-gray-600">
+                             <Icon name="heroicons:plus-circle" class="w-5 h-5"/>
+                         </button>
+                         <span class="text-xs text-gray-500 self-center px-1 min-w-[30px] text-center">{{ Math.round(modalZoom * 100) }}%</span>
+                         <button title="Zoom Out" @click.stop="modalZoomOut" class="p-1.5 hover:bg-gray-100 rounded text-gray-600">
+                             <Icon name="heroicons:minus-circle" class="w-5 h-5"/>
+                         </button>
+                     </div>
                 </div>
-            </div>
-        </div>
+            </UModal>
+        </Teleport>
+    
     </div>
-</Teleport>
+    </template>
+    
+    <script setup lang="ts">
+    // Import Gridstack CSS FIRST
+    import 'gridstack/dist/gridstack.min.css';
+    import { GridStack } from 'gridstack';
+    import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+    import { useMyFetch } from '~/composables/useMyFetch';
+    import RenderVisual from './RenderVisual.vue';
+    import TextWidgetEditor from './TextWidgetEditor.vue';
+    import RenderCount from './RenderCount.vue';
+    import SpinnerComponent from './SpinnerComponent.vue';
+    import CronModal from './CronModal.vue';
+    import ShareModal from './ShareModal.vue';
+    import AgGridComponent from './AgGridComponent.vue';
 
-</div>
-</template>
+    const toast = useToast();
+    const emit = defineEmits(['removeWidget', 'toggleSplitScreen']);
 
-<script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+    const props = defineProps<{
+        report: any
+        edit: boolean
+        widgets: any[]
+        textWidgetsIds?: string[]
+    }>();
 
-import { useMyFetch } from '~/composables/useMyFetch';
+    // --- Refs ---
+    const gridstackContainer = ref<HTMLElement | null>(null);
+    const grid = ref<GridStack | null>(null);
+    const textWidgets = ref<any[]>([]);
+    const displayedWidgets = ref<any[]>([]);
 
-import RenderVisual from './RenderVisual.vue';
+    // Zoom state
+    const zoom = ref(1);
+    const zoomStep = 0.1;
+    const minZoom = 0.5;
+    const maxZoom = 1.5;
 
-const toast = useToast();
+    // Fullscreen Modal state
+    const isModalOpen = ref(false);
+    const modalGridstackContainer = ref<HTMLElement | null>(null);
+    const modalGrid = ref<GridStack | null>(null);
+    const modalZoom = ref(1);
 
-const emit = defineEmits(['removeWidget', 'addTextWidget', 'removeTextWidget', 'toggleSplitScreen']);
+    // --- Gridstack Configuration ---
+    const GRID_CELL_HEIGHT = 40;
+    const GRID_MARGIN = 10;
+    const GRID_COLS = 12;
 
-const props = defineProps<{
-    report: any
-    edit: boolean
-    widgets: any[]
-    textWidgetsIds: string[] | undefined
-}>();
-
-const textWidgets = ref<any[]>([]);
-
-const displayedWidgets = ref<any[]>([]);
-
-const zoom = ref(1)
-const zoomStep = 0.1
-const minZoom = 0.1
-const maxZoom = 1.2
-
-const zoomIn = () => {
-    if (zoom.value < maxZoom) {
-        zoom.value = Math.min(zoom.value + zoomStep, maxZoom)
-    }
-}
-
-const zoomOut = () => {
-    if (zoom.value > minZoom) {
-        zoom.value = Math.max(zoom.value - zoomStep, minZoom)
-    }
-}
-
-const resetZoom = () => {
-    zoom.value = 1
-}
-
-// Add wheel zoom support
-const handleWheel = (event: WheelEvent) => {
-    if (event.ctrlKey) {
-        event.preventDefault()
-        if (event.deltaY < 0) {
-            zoomIn()
-        } else {
-            zoomOut()
-        }
-    }
-}
-
-const canvasHeight = ref(1400)
-
-// Add this new function to calculate canvas height
-const updateCanvasHeight = () => {
-    const padding = 20; // bottom padding
-    const maxY = displayedWidgets.value.reduce((max, widget) => {
-        const bottomY = widget.y + widget.height;
-        return bottomY > max ? bottomY : max;
-    }, 0);
-
-    // Calculate the full height based on the viewport size
-    const fullHeight = window.innerHeight - padding;
-
-    // Set the canvas height to the full height or the calculated maxY, whichever is larger, but not exceeding a maximum height
-    const maxHeight = 2000; // Set your desired maximum height here
-    canvasHeight.value = Math.min(Math.max(800, maxY + padding, fullHeight), maxHeight);
-};
-
-const handleWidgetDrag = async (left: number, top: number, widget: any) => {
-    widget.x = left;
-    widget.y = top;
-    updateCanvasHeight();
-    const requestBody = { id: widget.id, x: widget.x, y: widget.y, width: widget.width, height: widget.height };
-
-    try {
-        await useMyFetch(`/api/reports/${props.report.id}/widgets/${widget.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-        });
-    } catch (error) {
-        console.error(`Failed to update widget ${widget.id} position`, error);
-    }
-};
-
-const handleWidgetResize = async (left: number, top: number, width: number, height: number, widget: any) => {
-    widget.x = left;
-    widget.y = top;
-    widget.width = width;
-    widget.height = height;
-    updateCanvasHeight();
-    const requestBody = { id: widget.id, x: widget.x, y: widget.y, width: widget.width, height: widget.height };
-
-    try {
-        await useMyFetch(`/api/reports/${props.report.id}/widgets/${widget.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-        });
-    } catch (error) {
-        console.error(`Failed to update widget ${widget.id} dimensions`, error);
-    }
-};
-
-const removeWidget = (widget: any) => {
-    const index = displayedWidgets.value.findIndex(w => w.id === widget.id);
-    if (index !== -1) {
-        displayedWidgets.value.splice(index, 1);
-    }
-    emit('removeWidget', widget);
-    nextTick(updateCanvasHeight);
-};
-
-
-
-const showTextWidgetEditor = ref(false);
-
-async function getTextWidgets() {
-    try {
-        let url = '';
-        if (props.report.status === 'published' && props.edit === false) {
-            url = `/api/r/${props.report.id}/text_widgets`;
-        } else {
-            url = `/api/reports/${props.report.id}/text_widgets`;
-        }
-        const { data } = await useMyFetch(url, {
-            method: 'GET',
-        });
-        
-        // Ensure data.value exists and is an array
-        const widgetsArray = Array.isArray(data.value) ? data.value : [];
-        
-        // Force a re-render by creating a new array
-        textWidgets.value = widgetsArray.map((widget: any) => ({
-            ...widget,
-            isEditing: false,
-            key: `${widget.id}-${Date.now()}` // Add a unique key to force re-render
+    // --- Computed ---
+    const allWidgets = computed(() => {
+        const regular = displayedWidgets.value.map(w => ({
+            ...w,
+            type: 'regular',
+            showControls: w.showControls ?? false,
+            show_data: w.show_data ?? false,
+            show_data_model: w.show_data_model ?? false
         }));
-        
-        // Force canvas update
+        const text = textWidgets.value.map(w => ({
+            ...w,
+            type: 'text',
+            isEditing: w.isEditing ?? false,
+            showControls: w.showControls ?? false,
+            isNew: w.isNew ?? false
+        }));
+        return [...regular, ...text].sort((a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0));
+    });
+
+    // --- Lifecycle Hooks ---
+    onMounted(async () => {
+        initializeMainGrid();
+        await fetchAllWidgets();
+        loadWidgetsIntoGrid(grid.value, allWidgets.value);
+        document.addEventListener('keydown', handleEscKey);
+    });
+
+    onBeforeUnmount(() => {
+        grid.value?.destroy(false);
+        modalGrid.value?.destroy(false);
+        document.removeEventListener('keydown', handleEscKey);
+    });
+
+    // --- Grid Initialization ---
+    function initializeMainGrid() {
+        if (gridstackContainer.value && !grid.value) {
+            grid.value = GridStack.init({
+                column: GRID_COLS,
+                cellHeight: GRID_CELL_HEIGHT,
+                margin: GRID_MARGIN,
+                float: true,
+                sizeToContent: false,
+                disableDrag: !props.edit,
+                disableResize: !props.edit,
+            }, gridstackContainer.value);
+
+            grid.value.on('change', handleGridChange);
+            grid.value.on('added', handleGridAdded);
+            grid.value.on('removed', handleGridRemoved);
+        }
+    }
+
+    async function initializeModalGrid() {
         await nextTick();
-        updateCanvasHeight();
-    } catch (error) {
-        console.error('Failed to fetch text widgets:', error);
-        textWidgets.value = []; // Reset to empty array on error
+        if (modalGridstackContainer.value && !modalGrid.value) {
+            modalGrid.value = GridStack.init({
+                column: GRID_COLS,
+                cellHeight: GRID_CELL_HEIGHT,
+                margin: GRID_MARGIN,
+                float: true,
+                staticGrid: true,
+            }, modalGridstackContainer.value);
+            loadWidgetsIntoGrid(modalGrid.value, allWidgets.value, true);
+        } else if (modalGrid.value) {
+             loadWidgetsIntoGrid(modalGrid.value, allWidgets.value, true);
+        }
     }
-}
 
-async function removeTextWidget(widget: any) {
-    const response = await useMyFetch(`/api/reports/${props.report.id}/text_widgets/${widget.id}`, {
-        method: 'DELETE',
-    })
-    // remove the widget from the textWidgets array
-    textWidgets.value = textWidgets.value.filter((textWidget: any) => textWidget.id !== widget.id);
-}
-
-const saveTextWidget = async (content: string) => {
-    try {
-        await useMyFetch(`/api/reports/${props.report.id}/text_widgets`, {
-            method: 'POST',
-            body: JSON.stringify({ 
-                content,
-                x: editorPosition.value.x,
-                y: editorPosition.value.y,
-                width: editorSize.value.width,
-                height: editorSize.value.height
-            })
-        });
-        
-        await getTextWidgets();
-        showTextWidgetEditor.value = false;
-        // Reset position and size for next time
-        editorPosition.value = { x: 0, y: 0 };
-        editorSize.value = { width: 400, height: 140 };
-    } catch (error) {
-        console.error('Failed to save text widget', error);
+    // --- Data Fetching & Loading ---
+    async function fetchAllWidgets() {
+        await Promise.all([
+            getTextWidgets(),
+            updateDisplayedWidgets(props.widgets || [])
+        ]);
     }
-};
 
-const editTextWidget = (widget: any) => {
-    widget.isEditing = true;
-};
+    async function getTextWidgets() {
+        try {
+            const url = props.edit ? `/api/reports/${props.report.id}/text_widgets` : `/api/r/${props.report.id}/text_widgets`;
+            const { data, error } = await useMyFetch(url, { method: 'GET' });
 
-const saveTextWidgetEdit = async (content: string, widget: any) => {
-    try {
-        await useMyFetch(`/api/reports/${props.report.id}/text_widgets/${widget.id}`, {
-            method: 'PUT',
-            body: JSON.stringify({ 
-                id: widget.id,
-                content: content,
-                x: editorPosition.value.x,
-                y: editorPosition.value.y,
-                width: editorSize.value.width,
-                height: editorSize.value.height
-            })
-        });
-        
-        widget.content = content;
-        widget.isEditing = false;
-        await getTextWidgets();
-    } catch (error) {
-        console.error('Failed to update text widget', error);
+            if (error.value) throw error.value;
+
+            const widgetsArray = Array.isArray(data.value) ? data.value : [];
+            const currentTextWidgetsMap = new Map(textWidgets.value.map(w => [w.id, { isEditing: w.isEditing, showControls: w.showControls }]));
+
+            textWidgets.value = widgetsArray.map((widgetDataFromApi: any) => ({
+                ...widgetDataFromApi,
+                type: 'text',
+                isEditing: currentTextWidgetsMap.get(widgetDataFromApi.id)?.isEditing ?? false,
+                showControls: currentTextWidgetsMap.get(widgetDataFromApi.id)?.showControls ?? false,
+                x: widgetDataFromApi.x ?? 0,
+                y: widgetDataFromApi.y ?? 0,
+                width: widgetDataFromApi.width ?? 4,
+                height: widgetDataFromApi.height ?? 5
+            }));
+        } catch (error: any) {
+            console.error('Failed to fetch text widgets:', error);
+            toast.add({ title: 'Error', description: `Failed to load text widgets: ${error.message || 'Unknown error'}`, color: 'red' });
+            textWidgets.value = [];
+        }
     }
-};
 
-const handleTextWidgetDrag = async (left: number, top: number, widget: any) => {
-    widget.x = left;
-    widget.y = top;
-    updateCanvasHeight();
-    const requestBody = { id: widget.id, x: widget.x, y: widget.y };
-
-    try {
-        await useMyFetch(`/api/reports/${props.report.id}/text_widgets/${widget.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-        });
-    } catch (error) {
-        console.error(`Failed to update text widget ${widget.id} position`, error);
-    }
-};
-
-const handleTextWidgetResize = async (left: number, top: number, width: number, height: number, widget: any) => {
-    widget.x = left;
-    widget.y = top;
-    widget.width = width;
-    widget.height = height;
-    updateCanvasHeight();
-    const requestBody = { id: widget.id, x: widget.x, y: widget.y, width: widget.width, height: widget.height };
-
-    try {
-        await useMyFetch(`/api/reports/${props.report.id}/text_widgets/${widget.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody),
-        });
-    } catch (error) {
-        console.error(`Failed to update text widget ${widget.id} dimensions`, error);
-    }
-};
-
-async function rerunReport() {
-    console.log('rerun report');
-    const response = await useMyFetch(`/api/reports/${props.report.id}/rerun`, {
-        method: 'POST',
-    });
-    if (response.data.value) {
-        toast.add({
-            title: 'Rerunning report',
-            description: response.data.value.message,
-        });
-    }
-    else {
-        toast.add({
-            title: 'Error',
-            description: response.data.value.message,
-            color: 'red'
-        });
-    }
-}
-
-
-
-
-// Update the watch to be immediate and handle empty arrays
-watch(
-    [() => props.textWidgetsIds, () => props.edit], 
-    async ([newIds, newEdit], [oldIds, oldEdit]) => {
-        // Always fetch on component initialization or when IDs/edit mode changes
-        await getTextWidgets();
-    }, 
-    { immediate: true, deep: true }  // Add immediate: true to run on component creation
-);
-
-watch(() => props.widgets, (newWidgets) => {
-    if (!newWidgets) {
-        displayedWidgets.value = [];
-        return;
-    }
-    // Create a map of current local widgets to preserve their state
-    const currentWidgetsMap = new Map(displayedWidgets.value.map(w => [w.id, {
-        show_data: w.show_data,
-        show_data_model: w.show_data_model,
-        _defaultViewSet: w._defaultViewSet
-    }]));
-
-    // Map new widgets, merging with existing state or initializing new ones
-    displayedWidgets.value = newWidgets.map(newWidget => {
-        const existingState = currentWidgetsMap.get(newWidget.id);
-        return {
+    function updateDisplayedWidgets(newWidgets: any[]) {
+        const currentWidgetsMap = new Map(displayedWidgets.value.map(w => [w.id, {
+            show_data: w.show_data,
+            show_data_model: w.show_data_model,
+            showControls: w.showControls
+        }]));
+        displayedWidgets.value = (newWidgets || []).map(newWidget => ({
             ...newWidget,
-            // Keep existing state if widget was already present, otherwise initialize
-            show_data: existingState?.show_data ?? false,
-            show_data_model: existingState?.show_data_model ?? false,
-            _defaultViewSet: existingState?._defaultViewSet ?? false
+            show_data: currentWidgetsMap.get(newWidget.id)?.show_data ?? false,
+            show_data_model: currentWidgetsMap.get(newWidget.id)?.show_data_model ?? false,
+            showControls: currentWidgetsMap.get(newWidget.id)?.showControls ?? false,
+            x: newWidget.x ?? 0,
+            y: newWidget.y ?? 0,
+            width: newWidget.width ?? 6,
+            height: newWidget.height ?? 7
+        }));
+    }
+
+    // Generic function to load widgets into a Gridstack instance
+    async function loadWidgetsIntoGrid(targetGrid: GridStack | null, widgetsToLoad: any[], useModalIds = false) {
+        if (!targetGrid) return;
+
+        await nextTick();
+        targetGrid.batchUpdate();
+
+        const currentGridItems = new Map(targetGrid.engine.nodes.map(n => [n.id, n]));
+        const widgetsMap = new Map(widgetsToLoad.map(w => [w.id, w]));
+
+        // Remove items from grid no longer in data
+         currentGridItems.forEach(node => {
+            const widgetId = useModalIds && typeof node.id === 'string' && node.id.startsWith('modal-') ? node.id.substring(6) : node.id;
+            if (!widgetsMap.has(widgetId)) {
+                 if (node.el) targetGrid.removeWidget(node.el, false, false);
+            }
+        });
+
+        // Add/Update widgets
+        for (const widget of widgetsToLoad) {
+            const gridItemId = useModalIds ? `modal-${widget.id}` : widget.id;
+            const existingNode = currentGridItems.get(gridItemId);
+            const element = document.querySelector(`[gs-id="${gridItemId}"]`);
+
+            if (element) {
+                const gsOptions = {
+                    x: widget.x,
+                    y: widget.y,
+                    w: widget.width,
+                    h: widget.height,
+                    id: gridItemId,
+                    autoPosition: widget.x === undefined || widget.y === undefined
+                };
+
+                if (existingNode) {
+                    if (existingNode.x !== gsOptions.x || existingNode.y !== gsOptions.y || existingNode.w !== gsOptions.w || existingNode.h !== gsOptions.h) {
+                        targetGrid.update(element as HTMLElement, gsOptions);
+                    }
+                } else {
+                    targetGrid.makeWidget(element as HTMLElement);
+                    const newNode = targetGrid.engine.nodes.find(n => n.el === element);
+                     if (newNode && (newNode.x !== gsOptions.x || newNode.y !== gsOptions.y || newNode.w !== gsOptions.w || newNode.h !== gsOptions.h)) {
+                        targetGrid.update(element as HTMLElement, gsOptions);
+                    }
+                }
+            } else {
+                // Element might not be rendered yet if just added, `addWidget` handles this case later
+                // Or warn if it's an existing widget that's missing
+                if (!widget.isNew) { // Avoid warning for newly added ones before addWidget runs
+                     console.warn(`Element for existing widget ID ${gridItemId} not found in DOM during load.`);
+                }
+            }
+        }
+
+        targetGrid.commit();
+    }
+
+    // --- Watchers ---
+    watch(() => props.edit, (newEditMode) => {
+        if (grid.value) {
+            if (newEditMode) {
+                grid.value.enable();
+            } else {
+                grid.value.disable();
+                allWidgets.value.forEach(w => w.showControls = false);
+            }
+        }
+    });
+
+    watch(() => props.widgets, async (newWidgets) => {
+        updateDisplayedWidgets(newWidgets || []);
+        await loadWidgetsIntoGrid(grid.value, allWidgets.value);
+    }, { deep: true, immediate: true });
+
+    watch(allWidgets, async (currentWidgets, oldWidgets) => {
+        // Simplified condition: Reload if length changes or if it's a deep change (heuristically)
+        if (currentWidgets.length !== oldWidgets?.length || JSON.stringify(currentWidgets) !== JSON.stringify(oldWidgets)) {
+            await loadWidgetsIntoGrid(grid.value, currentWidgets);
+            if (isModalOpen.value && modalGrid.value) {
+                await loadWidgetsIntoGrid(modalGrid.value, currentWidgets, true);
+            }
+        }
+    }, { deep: true });
+
+
+    // --- Gridstack Event Handlers ---
+    const handleGridChange = (event: Event, items: any[]) => {
+        if (!props.edit) return;
+        items.forEach(item => {
+            const widget = findWidgetById(item.id);
+            if (!widget) {
+                 console.warn(`Widget with ID ${item.id} not found in local data during grid change.`);
+                 return;
+            }
+            const newX = item.x;
+            const newY = item.y;
+            const newWidth = item.w;
+            const newHeight = item.h;
+
+            if (widget.x !== newX || widget.y !== newY || widget.width !== newWidth || widget.height !== newHeight) {
+                widget.x = newX;
+                widget.y = newY;
+                widget.width = newWidth;
+                widget.height = newHeight;
+                if (!widget.isNew) {
+                    updateWidgetBackend(widget); // Consider debouncing this
+                }
+            }
+        });
+    };
+
+    const handleGridAdded = (event: Event, items: any[]) => {
+        // Usually triggered by makeWidget or addWidget. Log if needed for debugging.
+        // console.log(`Grid added event: ${items.map(i=>i.id).join(', ')}`);
+    };
+
+    const handleGridRemoved = (event: Event, items: any[]) => {
+        // Sync local data state AFTER gridstack removes the element
+        items.forEach(item => {
+            const widgetId = item.id;
+            const textIndex = textWidgets.value.findIndex(w => w.id === widgetId);
+            if (textIndex !== -1) {
+                textWidgets.value.splice(textIndex, 1);
+            } else {
+                const regularIndex = displayedWidgets.value.findIndex(w => w.id === widgetId);
+                if (regularIndex !== -1) {
+                    displayedWidgets.value.splice(regularIndex, 1);
+                     emit('removeWidget', { id: widgetId });
+                }
+            }
+        });
+    };
+
+    // --- Widget Find & Update ---
+    const findWidgetById = (id: string): any | undefined => {
+        const cleanId = id?.startsWith('modal-') ? id.substring(6) : id;
+        return allWidgets.value.find(w => w.id === cleanId);
+    };
+
+    async function updateWidgetBackend(widget: any) {
+        if (!widget || !widget.id) return;
+        const isText = widget.type === 'text';
+        const url = isText
+            ? `/api/reports/${props.report.id}/text_widgets/${widget.id}`
+            : `/api/reports/${props.report.id}/widgets/${widget.id}`;
+
+        const requestBody = {
+            id: widget.id,
+            x: widget.x,
+            y: widget.y,
+            width: widget.width,
+            height: widget.height,
+            ...(isText && widget.content && { content: widget.content })
         };
-    });
-    updateCanvasHeight(); // Recalculate height after potential widget changes
-}, { immediate: true, deep: true });
+        try {
+            const { error } = await useMyFetch(url, { method: 'PUT', body: requestBody });
+            if (error.value) throw error.value;
+        } catch (error: any) {
+            console.error(`Failed to update widget ${widget.id}`, error);
+            toast.add({ title: 'Error Saving', description: `Could not save changes for widget. ${error.message || ''}`, color: 'red' });
+        }
+    }
 
-watch(displayedWidgets, (newLocalWidgets, oldLocalWidgets) => {
-    // Create map of old widgets for comparison (might be undefined on initial run)
-    const oldWidgetsMap = new Map(oldLocalWidgets?.map(w => [w.id, w]) ?? []);
+    // --- Widget CRUD ---
+    async function removeWidget(widget: any) {
+        try {
+            const { error } = await useMyFetch(`/api/reports/${props.report.id}/widgets/${widget.id}`, { method: 'DELETE' });
+            if (error.value) throw error.value;
 
-    newLocalWidgets.forEach(widget => {
-        // Check conditions: Is it a chart type? Does it have data? Has default been set?
-        const isChart = chartVisualTypes.has(widget.last_step?.data_model?.type);
-        const hasData = widget.last_step?.data?.rows?.length > 0;
+            const el = grid.value?.engine.nodes.find(n => n.id === widget.id)?.el;
+            if (el && grid.value) {
+                 grid.value.removeWidget(el); // Triggers 'removed' event
+            } else {
+                 console.warn(`Could not find element for widget ${widget.id} in grid to remove.`);
+                const index = displayedWidgets.value.findIndex(w => w.id === widget.id);
+                if (index !== -1) displayedWidgets.value.splice(index, 1);
+                 emit('removeWidget', { id: widget.id });
+            }
+            toast.add({ title: 'Widget Removed' });
+        } catch (error: any) {
+            console.error(`Failed to remove widget ${widget.id}`, error);
+            toast.add({ title: 'Error', description: `Failed to remove widget. ${error.message || ''}`, color: 'red' });
+        }
+    }
+    async function removeTextWidget(widget: any) {
+        try {
+            if (!widget.isNew) {
+                const { error } = await useMyFetch(`/api/reports/${props.report.id}/text_widgets/${widget.id}`, { method: 'DELETE' });
+                if (error.value) throw error.value;
+            }
 
-        if (isChart && hasData && !widget._defaultViewSet) {
-             // Check if it *just* became a chart with data
-            const oldWidget = oldWidgetsMap.get(widget.id);
-            const wasPreviouslyChartWithData = chartVisualTypes.has(oldWidget?.last_step?.data_model?.type) && oldWidget?.last_step?.data?.rows?.length > 0;
+            const el = grid.value?.engine.nodes.find(n => n.id === widget.id)?.el;
+            if (el && grid.value) {
+                grid.value.removeWidget(el); // Triggers 'removed' event
+            } else {
+                const index = textWidgets.value.findIndex(w => w.id === widget.id);
+                if (index !== -1) textWidgets.value.splice(index, 1);
+                else {
+                     console.warn(`Element/Data for text widget ${widget.id} not found for removal.`);
+                }
+            }
 
-            if (!wasPreviouslyChartWithData) {
-                // Set default view to 'Data'
-                console.log(`Setting default view for widget ${widget.id} to 'Data'`);
-                widget.show_data_model = false;
-                widget._defaultViewSet = true; // Mark that we've set the default
+            if (!widget.isNew) {
+                toast.add({ title: 'Text Widget Removed' });
+            }
+        } catch (error: any) {
+            console.error(`Failed to remove text widget ${widget.id}`, error);
+            toast.add({ title: 'Error', description: `Failed to remove text widget. ${error.message || ''}`, color: 'red' });
+        }
+    }
+
+    // --- Text Widget Specific ---
+    const addNewTextWidgetToGrid = async () => {
+        if (!grid.value) {
+            toast.add({ title: 'Error', description: 'Grid is not initialized.', color: 'red' });
+            return;
+        }
+
+        const tempId = `new-${Date.now()}`;
+        const newWidget = {
+            id: tempId,
+            content: '<p>Start typing...</p>',
+            x: 0, y: 0, width: 4, height: 5,
+            type: 'text', isEditing: true, isNew: true, showControls: true
+        };
+
+        textWidgets.value.push(newWidget);
+
+        await nextTick();
+
+        const element = document.querySelector(`[gs-id="${tempId}"]`);
+        if (element && grid.value) {
+            grid.value.makeWidget(element as HTMLElement);
+            // Check if Gridstack picked up the attributes correctly, update if not
+            const node = grid.value.engine.nodes.find(n => n.id === tempId);
+            if (node && (node.x !== newWidget.x || node.y !== newWidget.y || node.w !== newWidget.width || node.h !== newWidget.height)) {
+                 grid.value.update(element as HTMLElement, { x: newWidget.x, y: newWidget.y, w: newWidget.width, h: newWidget.height });
+            }
+        } else {
+            console.warn(`Could not find DOM element for new widget ${tempId} immediately after adding.`);
+            // await loadWidgetsIntoGrid(grid.value, allWidgets.value); // Fallback - might be too slow
+        }
+    };
+
+    const saveTextWidget = async (content: string, widget: any) => {
+        if (!content || content === '<p></p>') {
+            toast.add({ title: 'Cannot save', description: 'Text widget content is empty.', color: 'orange' });
+            return;
+        }
+
+        const widgetIndex = textWidgets.value.findIndex(w => w.id === widget.id);
+        if (widgetIndex === -1) {
+            console.error(`Cannot find widget ${widget.id} to save.`);
+            toast.add({ title: 'Error', description: 'Could not find widget data to save.', color: 'red' });
+            return;
+        }
+
+        let finalX = widget.x;
+        let finalY = widget.y;
+        let finalW = widget.width;
+        let finalH = widget.height;
+
+        const node = grid.value?.engine.nodes.find(n => n.id === widget.id);
+        if (node) {
+            finalX = node.x; finalY = node.y; finalW = node.w; finalH = node.h;
+        } else {
+             console.warn(`Could not find grid node for ${widget.id} when saving. Using stored values.`);
+        }
+
+        if (widget.isNew) {
+            try {
+                const tempNode = grid.value?.engine.nodes.find(n => n.id === widget.id);
+                const tempElement = tempNode?.el;
+
+                const { data: newWidgetData, error } = await useMyFetch(`/api/reports/${props.report.id}/text_widgets`, {
+                    method: 'POST',
+                    body: { content, x: finalX, y: finalY, width: finalW, height: finalH }
+                });
+                if (error.value) throw error.value;
+
+                if (newWidgetData.value) {
+                    const savedWidget = {
+                        ...newWidgetData.value,
+                        type: 'text',
+                        isEditing: false,
+                        isNew: false,
+                        showControls: true // Ensure controls are ready
+                    };
+
+                    if (tempElement && grid.value) {
+                        grid.value.removeWidget(tempElement, false, false);
+                    } else {
+                         console.warn(`Could not find temporary element ${widget.id} to remove.`);
+                    }
+
+                    textWidgets.value.splice(widgetIndex, 1, savedWidget);
+
+                    await nextTick();
+
+                    const newElement = document.querySelector(`[gs-id="${savedWidget.id}"]`);
+
+                    if (newElement && grid.value) {
+                         grid.value.addWidget(newElement as HTMLElement, {
+                             id: savedWidget.id,
+                             x: savedWidget.x, y: savedWidget.y,
+                             w: savedWidget.width, h: savedWidget.height,
+                             autoPosition: false
+                         });
+                    } else {
+                         console.warn(`Could not find new element ${savedWidget.id} in DOM to add to gridstack.`);
+                         // Consider fallback: await loadWidgetsIntoGrid(grid.value, allWidgets.value);
+                    }
+
+                    toast.add({ title: 'Text Widget Added' });
+                 } else { throw new Error("No data returned for new text widget"); }
+            } catch (error: any) {
+                console.error('Failed to save new text widget', error);
+                toast.add({ title: 'Error', description: `Failed to save new text widget. ${error.message || ''}`, color: 'red' });
+            }
+        } else {
+            // Saving edits to an EXISTING widget
+            const existingWidget = textWidgets.value[widgetIndex];
+            existingWidget.content = content;
+            existingWidget.x = finalX;
+            existingWidget.y = finalY;
+            existingWidget.width = finalW;
+            existingWidget.height = finalH;
+            existingWidget.isEditing = false;
+
+            await updateWidgetBackend(existingWidget);
+        }
+    };
+
+    const toggleTextEdit = (widget: any) => {
+        if (widget.isNew) {
+            removeTextWidget(widget);
+        } else {
+            const originalWidgetIndex = textWidgets.value.findIndex(w => w.id === widget.id);
+            if (originalWidgetIndex !== -1) {
+                const originalWidget = textWidgets.value[originalWidgetIndex];
+                originalWidget.isEditing = !originalWidget.isEditing;
+            } else {
+                console.warn(`Could not find original text widget with ID ${widget.id} to toggle edit state.`);
             }
         }
-    });
-}, { deep: true });
+    };
 
-onMounted(async () => {
-    nextTick(async () => {
-        document.getElementById('canvas')?.addEventListener('wheel', handleWheel, { passive: false });
-        await getTextWidgets();
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && isModalOpen.value) {
-                closeModal();
-            }
-        });
-    });
-});
-
-onBeforeUnmount(() => {
-    document.getElementById('canvas')?.removeEventListener('wheel', handleWheel)
-    document.removeEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && isModalOpen.value) {
-            closeModal();
+    const cancelTextEdit = (widget: any) => {
+        if (widget.isNew) {
+             removeTextWidget(widget);
+        } else {
+            // Find original and toggle editing off
+            const originalWidgetIndex = textWidgets.value.findIndex(w => w.id === widget.id);
+             if (originalWidgetIndex !== -1) {
+                textWidgets.value[originalWidgetIndex].isEditing = false;
+             }
         }
-    });
-});
+    };
 
-// Add these refs to store the current editor position and size
-const editorPosition = ref({ x: 0, y: 0 });
-const editorSize = ref({ width: 400, height: 140 });
+    // --- Zoom ---
+    const zoomIn = () => { zoom.value = Math.min(zoom.value + zoomStep, maxZoom) };
+    const zoomOut = () => { zoom.value = Math.max(zoom.value - zoomStep, minZoom) };
+    const resetZoom = () => { zoom.value = 1 };
+    const handleWheel = (event: WheelEvent) => {
+        if (props.edit && event.ctrlKey) {
+            event.preventDefault();
+            if (event.deltaY < 0) zoomIn(); else zoomOut();
+        }
+    };
 
-// Add this new function to handle fullscreen
-const toggleFullscreen = () => {
-    const canvas = document.getElementById('canvas');
-    if (!canvas) return;
-
-    if (!document.fullscreenElement) {
-        canvas.requestFullscreen().catch((err) => {
-            console.error(`Error attempting to enable fullscreen: ${err.message}`);
-        });
-    } else {
-        document.exitFullscreen();
-    }
-};
-
-const isModalOpen = ref(false);
-const isModalMounted = ref(false);
-
-// Update the existing isModalOpen watch or create one
-watch(isModalOpen, (newValue) => {
-    if (newValue) {
-        // Small delay to trigger the animation
-        nextTick(() => {
-            isModalMounted.value = true;
-        });
-    } else {
-        isModalMounted.value = false;
-    }
-});
-
-const closeModal = () => {
-    isModalMounted.value = false;
-    setTimeout(() => {
+    // --- Fullscreen Modal ---
+    const openModal = async () => {
+        isModalOpen.value = true;
+        await initializeModalGrid();
+    };
+    const closeModal = () => {
         isModalOpen.value = false;
-    }, 300); // Match this duration with the transition duration
-};
+        modalZoom.value = 1;
+    };
+    const handleEscKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && isModalOpen.value) closeModal();
+    };
+    const modalZoomIn = () => { modalZoom.value = Math.min(modalZoom.value + zoomStep, maxZoom * 1.2) };
+    const modalZoomOut = () => { modalZoom.value = Math.max(modalZoom.value - zoomStep, minZoom) };
 
-const toggleDataModel = (widget: any) => {
-    widget.show_data_model = !widget.show_data_model;
-    if (widget.show_data_model) {
-        widget.show_data = false;
+    // --- Data/Model Toggles ---
+    const toggleDataModel = (widget: any) => {
+        widget.show_data_model = !widget.show_data_model;
+        if (widget.show_data_model) widget.show_data = false;
+    };
+    const toggleData = (widget: any) => {
+        widget.show_data = !widget.show_data;
+        if (widget.show_data) widget.show_data_model = false;
+    };
+
+    // --- Other ---
+    async function rerunReport() {
+         try {
+            const { data, error } = await useMyFetch(`/api/reports/${props.report.id}/rerun`, { method: 'POST' });
+            if (error.value) throw error.value;
+            if (data.value) {
+                toast.add({ title: 'Rerunning report', description: data.value.message || 'Report rerun initiated.' });
+                // Optionally fetch widgets after delay: setTimeout(fetchAllWidgets, 5000);
+            } else {
+                 toast.add({ title: 'Note', description: 'Report rerun request sent, but no message received.', color: 'orange' });
+            }
+        } catch (error: any) {
+            console.error('Failed to rerun report:', error);
+            toast.add({ title: 'Error', description: `Failed to rerun report. ${error.message || ''}`, color: 'red' });
+        }
     }
-    widget._defaultViewSet = true;
-};
+    const chartVisualTypes = new Set([
+        'pie_chart', 'line_chart', 'bar_chart', 'area_chart', 'scatter_plot',
+        'heatmap', 'map', 'candlestick', 'treemap', 'radar_chart'
+    ]);
 
-const toggleData = (widget: any) => {
-    widget.show_data = !widget.show_data;
-    if (widget.show_data) {
-        widget.show_data_model = false;
+    </script>
+    
+    <style> /* Use non-scoped style for gridstack overrides if necessary */
+    /* Gridstack base styles */
+    /* @import 'gridstack/dist/gridstack.min.css'; /* Loaded via JS import */
+    
+    .grid-stack {
+      /* background: #fafafa; */ /* REMOVED: Let parent control background */
+      /* Use min-height or let gridstack determine height */
+       min-height: 600px; /* Ensure it has some height */
     }
-    widget._defaultViewSet = true;
-};
-
-// {{ Define the set of all visualization types handled by RenderVisual }}
-const chartVisualTypes = new Set([
-    'pie_chart',
-    'line_chart',
-    'bar_chart',
-    'area_chart',
-    'scatter_plot',
-    'heatmap',
-    'map',
-    'candlestick',
-    'treemap',
-    'radar_chart'
-]);
-
-</script>
-
-<style scoped>
-
-.vue-flow {
-    height: 100%;
-}
-
-.vue-flow__container {
-    height: 100%;
-}
-
-.custom-node {
-    padding: 10px;
-    border-radius: 5px;
-    background: white;
-    border: 1px solid #ddd;
-}
-
-#canvas {
-    transition: transform 0.2s ease-out;
-}
-
-.zoom-controls {
-    z-index: 1000 !important;
-}
-
-.rendered-html {
-    font-size: 14px;
-    line-height: 1.5;
-
-    :deep(h1) {
-        font-size: 1.2rem;
-        font-weight: 600;
-        margin: 1rem 0;
+    
+    /* Default item content style */
+    .grid-stack-item-content {
+      background-color: #ffffff;
+      color: #2c3e50;
+      text-align: left;
+      overflow: hidden !important; /* CRITICAL: Prevent content spillover */
+      /* inset: 0px; */ /* No default inset, use padding on inner elements */
+      position: absolute; /* Needed for Gridstack sizing */
+      top: 0; bottom: 0; left: 0; right: 0; /* Fill the item */
     }
-
-    :deep(h2) {
-        font-size: 1rem;
-        font-weight: 600;
-        margin: 0.8rem 0;
+    
+    /* Improve placeholder appearance */
+    .grid-stack-placeholder > .placeholder-content {
+      border: 2px dashed #ccc !important;
+      background-color: rgba(220, 220, 220, 0.3) !important;
     }
-
-    :deep(p) {
-        margin: 0.5rem 0;
+    
+    /* Style for the floating text editor */
+    .vue-draggable-resizable {
+        /* Optional: Add specific styles */
     }
-
-    :deep(a) {
-        color: #3b82f6;
-        text-decoration: underline;
+    .vdr.active:before { /* Style when active */
+        outline: 2px dashed #42b983;
     }
-
-    :deep(strong) {
-        font-weight: 600;
+    
+    /* Rendered HTML styles inside widgets - Using standard descendant selectors */
+    .rendered-html { font-size: 14px; line-height: 1.5; color: #333; }
+    .rendered-html h1 { font-size: 1.25rem !important; font-weight: 600 !important; margin: 0.8rem 0 0.5rem 0 !important; padding-bottom: 0.2rem !important; border-bottom: 1px solid #eee !important; }
+    .rendered-html h2 { font-size: 1.1rem !important; font-weight: 600 !important; margin: 0.7rem 0 0.4rem 0 !important; }
+    .rendered-html p { margin: 0.5rem 0 !important; }
+    .rendered-html a { color: #3b82f6 !important; text-decoration: underline !important; }
+    .rendered-html strong { font-weight: 600 !important; }
+    .rendered-html em { font-style: italic !important; }
+    .rendered-html ul, .rendered-html ol {
+        margin: 0.5rem 0 0.5rem 1.5rem !important;
+        list-style: revert !important;
+        padding-left: revert !important;
     }
-
-    :deep(em) {
-        font-style: italic;
+     .rendered-html li {
+        margin-bottom: 0.2rem !important;
+        display: list-item !important;
+     }
+    .rendered-html blockquote { border-left: 3px solid #ccc !important; padding-left: 1rem !important; margin: 0.5rem 0 !important; color: #666 !important; }
+    .rendered-html code { background-color: #f0f0f0 !important; padding: 2px 4px !important; border-radius: 3px !important; font-size: 0.9em !important; font-family: monospace !important; }
+    .rendered-html pre { background-color: #f5f5f5 !important; padding: 0.5rem !important; border-radius: 4px !important; overflow-x: auto !important; font-family: monospace !important; white-space: pre-wrap !important; }
+    
+    /* Modal Specific Grid */
+    .grid-stack-modal {
+        /* background: #f0f0f0; */ /* REMOVED: Let parent control background */
+        min-height: 600px; /* Ensure modal grid has some initial size */
+        transition: transform 0.2s ease-out; /* Smooth modal zoom */
     }
-}
-
-.rendered-html p {
-    margin-top: 10px;
-    margin-bottom: 10px;
-}
-
-
-/* Add these new styles */
-#canvas:fullscreen {
-    background-color: white;
-    padding: 20px;
-    overflow: auto !important;
-}
-
-.widget-transition {
-  transition: all 0.3s ease-out;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: translateY(20px) scale(0.95);
-}
-
-/* Add these new styles to ensure proper transition behavior */
-.fade-move {
-  transition: transform 0.3s ease;
-}
-
-.fade-leave-active {
-  position: absolute;
-}
-</style>
+    
+    /* Ensure TextWidgetEditor takes available space */
+    .grid-stack-item-content .flex-grow.min-h-0,
+    .vue-draggable-resizable .flex-grow.min-h-0 {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden; /* Crucial for editor scroll */
+    }
+    
+    .grid-stack-item-content .flex-grow.min-h-0 > .flex-grow.min-h-0, /* Target the TextWidgetEditor container */
+    .vue-draggable-resizable .flex-grow.min-h-0 > .flex-grow.min-h-0 {
+        flex-grow: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden; /* Let editor handle internal scroll */
+    }
+    
+    /* Main dashboard area - allow scroll if grid overflows */
+    .dashboard-area {
+        overflow: auto; /* Or overflow: hidden if grid should not scroll page */
+    }
+    
+    /* Main Grid - apply zoom */
+    .main-grid {
+         transition: transform 0.2s ease-out;
+    }
+    
+    </style>

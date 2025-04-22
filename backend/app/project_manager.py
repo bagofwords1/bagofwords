@@ -96,8 +96,8 @@ class ProjectManager:
             status="draft",
             x=0,
             y=0,
-            width=400,
-            height=400,
+            width=5,
+            height=9,
             slug=title.lower().replace(" ", "-")
         )
 

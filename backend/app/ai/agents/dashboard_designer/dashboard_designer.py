@@ -72,7 +72,7 @@ class DashboardDesigner:
 
         text = f"""
         You are an expert dashboard / report analyst and designer. Your task is to create a dashboard layout based on a user's request, the available data widgets, the analysis steps performed, and the conversation history.
-        The goal is NOT just to place widgets, but to arrange them and add explanatory **text widgets** to create a clear narrative that summarizes the analysis and directly addresses the user's initial prompt.
+        The goal is NOT just to place widgets, but to arrange them **thoughtfully** and add explanatory **text widgets** to create a clear, compelling narrative that summarizes the analysis and directly addresses the user's initial prompt.
 
         **Context Provided**:
 
@@ -89,65 +89,87 @@ class DashboardDesigner:
             {previous_messages}
 
         **Key Objectives**:
-        1.  **Fulfill User Intent**: The dashboard layout MUST address the user's initial prompt, using the available widgets and insights from the analysis steps.
-        2.  **Create a Narrative**: Use **text widgets** strategically. Start with an introductory text (title/summary). Place text widgets near related data widgets to explain what they show, summarize key findings from the analysis steps, and connect them back to the user's goal. The flow should tell a story.
+        1.  **Fulfill User Intent**: The layout MUST address the user's initial prompt, using the available widgets and insights from the analysis steps.
+        2.  **Create a Narrative**: Use **text widgets** strategically. Start with an introductory text (title/summary). Place text widgets near related data widgets to explain *what* they show, summarize key findings from the analysis steps, and connect them back to the user's goal. The flow should tell a story.
         3.  **Layout & Storytelling**:
-            - Arrange the provided data `widgets` logically to support the narrative.
+            - **Arrange widgets logically to tell a story.** Consider the flow of analysis. Start broad (summary/KPIs), then dive deeper.
+            - **Don't just stack everything vertically.** Create a visually engaging layout. Use side-by-side placement (mosaic style) where it makes sense to group related smaller widgets or compare visuals. For instance, a KPI widget might sit next to the introductory text for the chart it relates to.
+            - **Size matters.** Allocate space based on importance and content complexity. Key charts might span the full width (12 columns), while secondary charts or tables could share a row (e.g., two 6-column widgets). Use `text_widgets` effectively to introduce sections or individual widgets.
             - Introduce the dashboard with an optional `text_widget` (e.g., `<h1>`).
-            - Group related `widgets` and use `text_widgets` (e.g., `<p>`, `<h2>`) before or near them to explain their purpose and findings based on the "Analysis Steps Taken".
+            - Group related `widgets` and use `text_widgets` (e.g., `<p>`, `<h2>`) positioned **directly before** the related data widget(s) they describe.
             - **Crucially, use the content of `text_widgets` to bridge the gap between the raw data widgets and the user's request, summarizing the analysis.**
         4.  **Text Widget Content**:
             - **Use HTML syntax** (e.g., `<h1>Title</h1>`, `<h2>Subtitle</h2>`, `<p>Paragraph</p>`, `<ul><li>List item</li></ul>`, `<a href="url">Link</a>`, `<table><tr><td>Cell</td></tr></table>`) inside the `content` field of `text_widgets`. Do NOT use Markdown syntax.
-        5.  **Technical Constraints**:
-            - **No Overlaps**: Absolutely no overlapping widgets (text or data).
-            - **Grid System**: Max width = 1000px, max height = 3000px. Snap all x, y, width, height to a 20px grid (must be multiples of 20).
-            - **Spacing**: Min 20px vertical spacing between stacked elements, min 10px horizontal between side-by-side.
-            - **Data Widget Sizes**: Min 500x300px. Size appropriately, prefer wider aspect for charts.
-            - **Text Widget Sizing**: Estimate height based on HTML content (e.g., h1 ≈ 40-60px, h2 ≈ 30-50px, paragraph line ≈ 20px). Ensure text widget height is a multiple of 20. Adjust height based on expected rendered lines.
+        5.  **Technical Constraints (Grid System)**:
+            - **Grid**: Use a 12-column grid system (columns indexed 0-11).
+            - **Coordinates & Dimensions**:
+                - `x`: Starting column index (0-11).
+                - `y`: Starting row index (absolute, starting from 0). Rows define vertical position.
+                - `width`: Number of columns spanned (1-12).
+                - `height`: Number of rows spanned (minimum 1).
+            - **CRITICAL**: All `x`, `y`, `width`, `height` values MUST be small integer grid units based on the 12-column grid, NOT pixel values. Values larger than 12 for `x` or `width`, or very large values for `y` or `height` (e.g., > 50), are incorrect and invalid.
+            - **No Overlaps**: Ensure no widgets (text or data) overlap in the grid. Check `y` and `y + height` for vertical overlaps, and `x` and `x + width` for horizontal overlaps within the same row span.
+            - **Vertical Spacing**:
+                - **Text-to-Widget**: If a text widget directly precedes a data widget below it (same `x`, same `width`), leave exactly 1 empty row between them (e.g., text ends row `N`, data starts row `N+2`).
+                - **Section Spacing**: Leave at least 1-2 empty rows between the bottom of one section/widget and the top of the *next text widget* introducing a new section.
+            - **Horizontal Spacing**: Handled by the column layout. Ensure `x + width <= 12` for all widgets.
+            - **Data Widget Sizes**: Minimum `width` of 4-6 columns (adjust based on content), minimum `height` of 5 rows. Size appropriately (charts often need `height` 8-12+ rows; tables vary).
+            - **Text Widget Sizing**: Estimate `height` in rows based on HTML content. **Crucially, ensure sufficient height for readability.** Use these MINIMUMS as a guide:
+                - Simple `<h1>` or `<h2>`: min `height: 1`.
+                - `<h1>` + `<p>`: min `height: 2` (more if paragraph is long, aim for 3).
+                - `<h2>` + `<p>`: min `height: 2` (more if paragraph is long, aim for 2-3).
+                - Multiple paragraphs or lists: Calculate based on lines (approx. 1 row per 1-2 lines of text after headings).
+              Ensure `width` allows text to be readable (often full width, or matching related widgets). **Never use `height: 1` if there is more than just a short heading.**
         6.  **Output Format**:
-            - Return JSON ONLY. No HTML formatting *outside* the `content` fields, no explanations outside the JSON structure.
+            - Return JSON ONLY. No explanations outside the JSON structure.
             - Structure: `{{"prefix": "...", "widgets": [...], "text_widgets": [...], "end_message": "..."}}`
-            - `widgets` array: Contains objects like `{{ "id": "UUID_from_Available_Widgets", "x": N, "y": N, "width": N, "height": N }}`. Use ONLY IDs from the "Available Widgets" section.
-            - `text_widgets` array: Contains objects like `{{ "type": "text", "content": "<h1>Title</h1>...", "x": N, "y": N, "width": N, "height": N }}`. Content MUST be HTML.
+            - `widgets` array: Contains objects like `{{ "id": "UUID_from_Available_Widgets", "x": N, "y": N, "width": N, "height": N }}`. Use ONLY IDs from "Available Widgets". `x`, `y`, `width`, `height` are grid units.
+            - `text_widgets` array: Contains objects like `{{ "type": "text", "content": "HTML...", "x": N, "y": N, "width": N, "height": N }}`. Content MUST be HTML. `x`, `y`, `width`, `height` are grid units.
             - `prefix`: Short loading message.
             - `end_message`: Short closing message, must end with `$.`.
 
-        **Example (Conceptual - focus on text widgets with HTML)**:
-        If steps involved creating a sales trend chart (UUID1) and a top products table (UUID2) in response to "Show me sales performance":
+        **Example (Conceptual - Mosaic Layout)**:
+        Showing Sales Trend (UUID1), Top Products Table (UUID2), and a KPI Card (UUID3).
         {{
-          "prefix": "Visualizing your sales performance analysis...",
+          "prefix": "Visualizing your sales performance...",
           "widgets": [
-            {{ "id": "UUID1", "x": 0, "y": 120, "width": 980, "height": 300 }}, // Main trend chart
-            {{ "id": "UUID2", "x": 0, "y": 500, "width": 500, "height": 300 }}  // Top products table
+             // Trend Chart (Full Width) starts after Intro Text + 1 empty row
+            {{ "id": "UUID1", "x": 0, "y": 3, "width": 12, "height": 8 }}, // Rows 3-10
+             // KPI Card (Left Half) starts after Trend Chart + 1 empty row
+            {{ "id": "UUID3", "x": 0, "y": 13, "width": 5, "height": 4 }}, // Rows 13-16
+             // Top Products Table (Right Half) starts after Trend Chart + 1 empty row, next to Text
+            {{ "id": "UUID2", "x": 6, "y": 13, "width": 6, "height": 6 }}  // Rows 13-18
           ],
           "text_widgets": [
             {{ // Report Title / Intro (HTML)
               "type": "text",
-              "content": "<h1>Sales Performance Analysis</h1>\\n\\nThis dashboard summarizes the key findings regarding sales trends and top products based on your request.",
-              "x": 0, "y": 0, "width": 980, "height": 100 // Approx H1 + 2 lines + spacing
+              "content": "<h1>Sales Performance Analysis</h1><p>Summary...</p>",
+              "x": 0, "y": 0, "width": 12, "height": 2 // Rows 0-1. Row 2 is empty.
             }},
-            {{ // Explanation for Trend Chart (HTML)
+            {{ // Explanation for KPI + Table (Spans width below chart)
               "type": "text",
-              "content": "<h2>Monthly Sales Trend</h2>\\n\\nThe chart above shows a positive sales trend over the last quarter, peaking in December. *(Insight from Analysis Step 2)*",
-              "x": 0, "y": 440, "width": 980, "height": 60 // Approx H2 + 2 lines
-            }},
-             {{ // Explanation for Top Products (HTML)
-              "type": "text",
-              "content": "<h2>Top Products</h2>\\n\\nThe table on the left lists the top 5 products driving revenue. **Product X** saw the most significant growth. *(Insight from Analysis Step 3)*",
-              "x": 520, "y": 500, "width": 460, "height": 80 // Approx H2 + 2 lines
+              "content": "<h2>Key Metrics & Top Products</h2><p>The KPI card highlights total revenue. The table details top products.</p>",
+              // Starts after Chart (Row 10) + 1 empty row = Row 11
+              "x": 0, "y": 11, "width": 12, "height": 2 // Rows 11-12. Widgets start Row 13.
             }}
+            // Note: Could optionally have placed text specifically for the table at x: 6, y: 11, width: 6, height: 2
           ],
           "end_message": "Analysis dashboard complete$. "
         }}
 
-        Now, based on the specific context (prompt, steps, available widgets, messages), generate the final JSON layout that places the provided widgets and uses new text widgets (with **HTML content**) to build a coherent analytical report narrative. Ensure all technical constraints are met.
+        Now, based on the specific context (prompt, steps, available widgets, messages), generate the final JSON layout. Prioritize creating a **visually appealing and narrative-driven layout** using mosaic arrangements where appropriate. Ensure all technical constraints (**especially the grid unit requirement and spacing rules**) are met.
         """
 
         full_result = ""
 
         async for chunk in self.llm.inference_stream(text):
             full_result += chunk
-
+            # ---- TEMPORARY LOGGING ----
+            # print("--- RAW LLM CHUNK ---")
+            # print(chunk)
+            # print("--- CURRENT FULL RESULT ---")
+            # print(full_result)
+            # ---- END LOGGING ----
             try:
                 json_result = parser.parse(full_result)
 
