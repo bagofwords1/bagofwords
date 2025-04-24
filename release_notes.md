@@ -10,6 +10,7 @@
 - Fixed candlestick chart bug where single stock data was not properly displayed when no ticker field was present
 - Added "File" top level navigation item. You can now see all files uploaded in the org
 - You can now mention files outside of the report
+- Support older version of Excel (97-03)
 
 ## Version 0.0.163 (April 21, 2025)
 
