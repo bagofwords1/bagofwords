@@ -12,6 +12,8 @@ from typing import Optional
 from fastapi import HTTPException
 from app.models.file import report_file_association
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
+import xlrd
 from app.ai.agents.doc.doc import DocAgent
 from app.models.file_tag import FileTag
 import tiktoken
@@ -127,28 +129,80 @@ class FileService:
         return [FileSchema.from_orm(file) for file in files]
 
     async def _create_sheet_schemas(self, db: AsyncSession, file: File, model: LLMModel):
-        if file.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or file.content_type == "application/vnd.ms-excel":
-            # Note: load_workbook is synchronous, consider running in threadpool for production
-            workbook = load_workbook(filename=file.path, read_only=True)
-            try:
-                sheet_names = workbook.sheetnames
-                
-                for index, sheet_name in enumerate(sheet_names):
-                    ea = ExcelAgent(file, model)
-                    schema = ea.get_schema(index)
+        sheet_names = []
+        workbook = None # Initialize workbook variable
 
+        # Handle .xlsx files with openpyxl
+        if file.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+            try:
+                # Note: load_workbook is synchronous, consider running in threadpool for production
+                workbook = load_workbook(filename=file.path, read_only=True)
+                sheet_names = workbook.sheetnames
+            except InvalidFileException as e:
+                print(f"Error opening .xlsx file {file.filename} with openpyxl: {e}")
+                # Handle error appropriately, maybe raise HTTPException or return
+                raise HTTPException(status_code=400, detail=f"Failed to process .xlsx file: {e}")
+            except Exception as e: # Catch other potential openpyxl errors
+                print(f"Unexpected error opening .xlsx file {file.filename} with openpyxl: {e}")
+                raise HTTPException(status_code=500, detail=f"Error processing Excel file: {e}")
+        
+        # Handle .xls files with xlrd
+        elif file.content_type == "application/vnd.ms-excel":
+            try:
+                # Note: xlrd.open_workbook is synchronous, consider running in threadpool
+                workbook = xlrd.open_workbook(filename=file.path)
+                sheet_names = workbook.sheet_names()
+            except xlrd.XLRDError as e:
+                print(f"Error opening .xls file {file.filename} with xlrd: {e}")
+                # Handle error appropriately
+                raise HTTPException(status_code=400, detail=f"Failed to process .xls file: {e}")
+            except Exception as e: # Catch other potential xlrd errors
+                print(f"Unexpected error opening .xls file {file.filename} with xlrd: {e}")
+                raise HTTPException(status_code=500, detail=f"Error processing Excel file: {e}")
+
+        # If we couldn't get sheet names (e.g., unsupported format or error)
+        if not sheet_names:
+            print(f"Could not extract sheet names from file {file.filename} (content type: {file.content_type})")
+            return 0 # Or raise an error if processing must succeed
+
+        # Common processing logic using sheet names and ExcelAgent
+        try:
+            processed_sheets_count = 0
+            for index, sheet_name in enumerate(sheet_names):
+                # Assuming ExcelAgent can handle the file path and sheet index
+                # regardless of whether it's .xls or .xlsx
+                ea = ExcelAgent(file, model) 
+                schema = ea.get_schema(index) # This call needs to work for both formats
+
+                # Ensure schema is not None or handle appropriately
+                if schema and "sheet_name" in schema:
                     sc = SheetSchema(
-                        sheet_name=schema["sheet_name"],
+                        sheet_name=schema["sheet_name"], # Use name from agent if available
                         sheet_index=index,
-                        schema=schema,
+                        schema=schema, # Store the schema obtained from the agent
                         file_id=file.id
                     )
                     db.add(sc)
-                
+                    processed_sheets_count += 1
+                else:
+                     print(f"Warning: Could not get valid schema for sheet '{sheet_name}' (index {index}) in file {file.filename}")
+
+
+            if processed_sheets_count > 0:
                 await db.commit()
-                return len(sheet_names)
-            finally:
-                workbook.close()
+            return processed_sheets_count
+        
+        except Exception as e: # Catch errors during agent processing or db commit
+             await db.rollback() # Rollback commit if error occurs during loop/commit
+             print(f"Error during schema processing or commit for file {file.filename}: {e}")
+             # Decide how to handle this: raise error, return partial count, etc.
+             raise HTTPException(status_code=500, detail=f"Error processing sheet schemas: {e}")
+
+        finally:
+            # Close openpyxl workbook if it was opened
+            if hasattr(workbook, 'close') and callable(workbook.close):
+                 workbook.close()
+            # xlrd objects don't typically need explicit closing like openpyxl file handles
 
     async def _process_pdf(self, db: AsyncSession, file: File, model: LLMModel):
         da = DocAgent(file, model)
