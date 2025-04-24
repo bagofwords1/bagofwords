@@ -1,6 +1,6 @@
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from app.schemas.file_schema import FileSchema
+from app.schemas.file_schema import FileSchema, FileSchemaWithMetadata
 from app.models.file import File
 import uuid
 from app.models.report import Report
@@ -17,7 +17,7 @@ from app.models.file_tag import FileTag
 import tiktoken
 from sqlalchemy.ext.asyncio import AsyncSession
 import aiofiles  # Add this import for async file operations
-from sqlalchemy import select
+from sqlalchemy import select, exists
 from app.models.llm_model import LLMModel
 
 class FileService:
@@ -54,8 +54,6 @@ class FileService:
                 report.files.append(db_file)
                 await db.commit()
                 await db.refresh(report)
-            else:
-                raise HTTPException(status_code=404, detail="Report not found")
 
         # should be in as a seperate job 
         # currently doing this for one sheet only
@@ -101,6 +99,22 @@ class FileService:
 
         return True
         
+    async def get_files(self, db: AsyncSession, organization: Organization):
+        stmt = select(File).filter(File.organization_id == organization.id)
+        result = await db.execute(stmt)
+        files = result.scalars().all()
+
+        # get files with tags
+        for file in files:
+            stmt = select(FileTag).filter(FileTag.file_id == file.id)
+            result = await db.execute(stmt)
+            file.tags = result.scalars().all()
+
+            stmt = select(SheetSchema).filter(SheetSchema.file_id == file.id)
+            result = await db.execute(stmt)
+            file.schemas = result.scalars().all()
+
+        return files
 
     async def get_files_by_report(self, db: AsyncSession, report_id: str, organization: Organization):
         stmt = select(Report).filter(Report.id == report_id)
@@ -171,3 +185,50 @@ class FileService:
         await db.commit()
         
         return tags
+
+
+    async def create_or_get_report_file_association(self, db: AsyncSession, report_id: str, file_id: str):
+        # 1. Fetch Report and File
+        report_stmt = select(Report).where(Report.id == report_id)
+        report_result = await db.execute(report_stmt)
+        report = report_result.scalar_one_or_none()
+        if not report:
+            raise HTTPException(status_code=404, detail=f"Report not found: {report_id}")
+
+        file_stmt = select(File).where(File.id == file_id)
+        file_result = await db.execute(file_stmt)
+        file = file_result.scalar_one_or_none()
+        if not file:
+            raise HTTPException(status_code=404, detail=f"File not found: {file_id}")
+
+        # 2. Check if association already exists (more efficient check)
+        # Assuming 'files' is the relationship attribute on the Report model
+        # Adjust if the relationship is defined differently
+        association_exists_stmt = select(exists().where(
+            report_file_association.c.report_id == report_id,
+            report_file_association.c.file_id == file_id
+        ))
+        association_exists = await db.scalar(association_exists_stmt)
+
+        # 3. If not associated, create the association by appending
+        if not association_exists:
+            try:
+                # Append the file to the report's collection. SQLAlchemy handles the insert.
+                # Ensure the relationship is correctly defined in your models
+                # (e.g., on Report: files = relationship("File", secondary=report_file_association, backref="reports"))
+                # If the relationship is defined on the File model instead (e.g., file.reports.append(report)), use that.
+                report.files.append(file) 
+                db.add(report) # Add the modified report to the session if needed
+                await db.commit()
+                await db.refresh(report) # Refresh report to potentially load the updated relationship
+                print(f"Association created between Report {report_id} and File {file_id}")
+                return True # Indicate association was created
+            except Exception as e:
+                await db.rollback()
+                print(f"Error creating association: {e}") # Log the specific error
+                # Consider raising a specific exception or HTTPException
+                raise HTTPException(status_code=500, detail=f"Failed to create association: {e}")
+        else:
+            print(f"Association already exists between Report {report_id} and File {file_id}")
+            return False # Indicate association already existed
+        

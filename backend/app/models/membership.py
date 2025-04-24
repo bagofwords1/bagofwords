@@ -32,7 +32,8 @@ MEMBER_PERMISSIONS = {
     'rerun_memory_step',
     'view_organizations',
     'view_llm_settings',
-    'view_organization_members'
+    'view_organization_members',
+    'view_files'
 }
 
 ADMIN_PERMISSIONS = {

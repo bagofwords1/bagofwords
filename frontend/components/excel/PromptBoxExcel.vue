@@ -131,7 +131,7 @@ const files = ref([]);
 const dataSources = ref([]);
 
 async function getFiles() {
-  const response = await useMyFetch(`/api/reports/${report_id}/files`, {
+  const response = await useMyFetch(`/api/files`, {
     method: 'GET',
   });
   if (response.data.value) {

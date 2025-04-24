@@ -297,7 +297,7 @@ async function submitCompletion(promptValue) {
     const requestBody = {
         prompt: {
             content: promptValue.text,
-            mentions: mentions.value,
+            mentions: promptValue.mentions,
             widget_id: selectedWidgetId.value.widgetId,
             step_id: selectedWidgetId.value.stepId
         }

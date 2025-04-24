@@ -6,15 +6,20 @@ from app.schemas.mention_schema import MentionCreate, MentionUpdate
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.completion import Completion
+from app.services.file_service import FileService
+
+
 
 class MentionService:
+
+    def __init__(self):
+        self.file_service = FileService()
     
     async def create_completion_mentions(self, db: AsyncSession, completion: Completion) -> Mention:
 
         # todo - parse mention content to extract all ids and data
         mentions = completion.prompt["mentions"]
         db_mentions = []
-
         if not mentions[0] or not mentions[1] or not mentions[2]:
             return db_mentions
 
@@ -34,7 +39,10 @@ class MentionService:
                               type="FILE",
                               mention_content=file_mention["filename"],
                               object_id=file_mention["id"])
-            
+
+            # if no report_file_association, create a new one
+            file_association = await self.file_service.create_or_get_report_file_association(db, completion.report_id, file_mention["id"])
+
             db_mention = await self.create_mention(db, m, completion)
             db_mentions.append(db_mention)
 
