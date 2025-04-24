@@ -167,3 +167,4 @@ websockets==12.0
 XlsxWriter==3.2.0
 zeep==4.3.1
 zstandard==0.23.0
+xlrd==2.0.1

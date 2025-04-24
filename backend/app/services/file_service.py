@@ -127,7 +127,7 @@ class FileService:
         return [FileSchema.from_orm(file) for file in files]
 
     async def _create_sheet_schemas(self, db: AsyncSession, file: File, model: LLMModel):
-        if file.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+        if file.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or file.content_type == "application/vnd.ms-excel":
             # Note: load_workbook is synchronous, consider running in threadpool for production
             workbook = load_workbook(filename=file.path, read_only=True)
             try:
