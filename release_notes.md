@@ -1,6 +1,6 @@
 # Release Notes
 
-## Verion 0.0.164 (April 22nd, 2025)
+## Version 0.0.164 (April 24th, 2025)
 
 - Refactored dashboard visualization capabilities:
   - Improved chart rendering performance and responsiveness
@@ -8,6 +8,8 @@
   - Added better error handling and validation
   - Streamlined chart configuration options
 - Fixed candlestick chart bug where single stock data was not properly displayed when no ticker field was present
+- Added "File" top level navigation item. You can now see all files uploaded in the org
+- You can now mention files outside of the report
 
 ## Version 0.0.163 (April 21, 2025)
 
