@@ -25,6 +25,10 @@ spec:
         envFrom:
           - configMapRef:
               name: bowapp
+          {{- if not (empty .Values.config.secretRef) }}
+          - secretRef:
+              name: {{ .Values.config.secretRef }}
+          {{- end }}
         startupProbe:
           httpGet:
             path: /health
