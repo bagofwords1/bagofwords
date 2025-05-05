@@ -8,6 +8,7 @@ postgresql:
     username: ""
     password: ""
     database: ""
+    existingSecret: ""
   primary:
     persistence:
       size: 20Gi
@@ -18,6 +19,7 @@ ingress:
   clusterIssuerName: prod-cluster-issuer
 
 config:
+  secretRef: ""
   googleOauthEnabled: false
   googleClientId: ""
   googleClientSecret: ""
