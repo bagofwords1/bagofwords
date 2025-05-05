@@ -1,5 +1,7 @@
 from pydantic import BaseModel
 from datetime import datetime
+from app.schemas.file_tag_schema import FileTagSchema
+from app.schemas.sheet_schema_schema_ import SheetSchema
 
 class FileBase(BaseModel):
     pass
@@ -16,3 +18,8 @@ class FileSchema(FileBase):
 
     class Config:
         from_attributes = True
+
+
+class FileSchemaWithMetadata(FileSchema):
+    schemas: list[SheetSchema]
+    tags: list[FileTagSchema]

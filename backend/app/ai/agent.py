@@ -9,6 +9,7 @@ import io
 import sys
 from contextlib import redirect_stdout
 import asyncio
+import logging
 
 from .llm.llm import LLM
 from app.ai.agents.planner import Planner
@@ -110,10 +111,6 @@ class Agent:
         try:
             results = []
             action_results = {}
-            dashboard_widgets = {
-                "text_widgets": [],
-                "widgets": []
-            }
             schemas = await self._build_schemas_context()
             memories = await self._build_memories_context()
             previous_messages = await self._build_messages_context()
@@ -434,60 +431,169 @@ class Agent:
                                 continue
 
                         elif action_type == 'design_dashboard':
+                            # Get widgets and steps for context
                             widgets_steps = await self._get_report_widgets_and_steps(self.report.id)
-                            widgets = [x[0] for x in widgets_steps if x[0] is not None]
-                            steps = [x[1] for x in widgets_steps if x[1] is not None]
+                            widgets = [ws[0] for ws in widgets_steps if ws[0] is not None]
+                            steps = [ws[1] for ws in widgets_steps if ws[1] is not None]
 
-                            if not widgets or not steps:
-                                print("design_dashboard action has no widgets or steps")
-                                continue
-
+                            # --- Dashboard Completion Setup ---
+                            dashboard_completion = None
                             if action_results[action_id]['prefix_completion'] is None:
-                                if self.system_completion:
-                                    dashboard_completion = self.system_completion
+                                # Use system completion or create a new one
+                                if analysis_step == 0 and self.system_completion and not system_completion_used:
+                                     dashboard_completion = self.system_completion
+                                     await self.project_manager.update_message(
+                                         self.db,
+                                         dashboard_completion,
+                                         "Designing the dashboard layout...", # Initial message
+                                         json_result.get('reasoning')
+                                     )
+                                     system_completion_used = True
                                 else:
                                     dashboard_completion = await self.project_manager.create_message(
                                         report=self.report,
                                         db=self.db,
-                                        message="Now putting it together and creating a dashboard..",
+                                        message="Designing the dashboard layout...", # Initial message
                                         completion=self.head_completion,
-                                        widget=self.widget,
-                                        role="system"
-                                )
+                                        widget=None,
+                                        role="system",
+                                        reasoning=json_result.get('reasoning')
+                                    )
                                 action_results[action_id]['prefix_completion'] = dashboard_completion
-                            
-                            async for dashboard_design in self.dashboard_designer.execute(
-                                prompt=head_completion.prompt,
-                                widgets=widgets,
-                                steps=steps,
-                                previous_messages=previous_messages
-                            ):
+                            else:
+                                # Update existing completion message if needed (e.g., if re-planning)
+                                dashboard_completion = action_results[action_id]['prefix_completion']
+                                await self.project_manager.update_message(
+                                    self.db,
+                                    dashboard_completion,
+                                    "Designing the dashboard layout...", # Reset message
+                                    json_result.get('reasoning')
+                                )
 
-                                if dashboard_design.get('widgets'):
-                                    for widget in dashboard_design['widgets']:
-                                        if not widget['id'] in [x['id'] for x in dashboard_widgets['widgets']]:
-                                            dashboard_widgets['widgets'].append(widget)
-                                            await self.project_manager.update_widget_position_and_size(
-                                                self.db,
-                                                widget['id'],
-                                                widget['x'],
-                                                widget['y'],
-                                                widget['width'],
-                                                widget['height']
-                                            )
+                            # --- Process Dashboard Design Stream ---
+                            processed_text_widget_ids = set() # Track created text widgets to avoid duplicates
+                            final_design_state = {} # Store the last state received
 
-                            await self.project_manager.update_message(
-                                self.db,
-                                action_results[action_id]['prefix_completion'],
-                                "Now putting it together and creating a dashboard.. and it's ready!"
-                            )
+                            try:
+                                async for partial_design in self.dashboard_designer.execute(
+                                    prompt=head_completion.prompt['content'],
+                                    widgets=widgets,
+                                    steps=steps,
+                                    previous_messages=previous_messages
+                                ):
+                                    if self.sigkill_event.is_set():
+                                        logger.info("Sigkill detected during dashboard design stream")
+                                        break # Exit the stream processing loop
 
-                            action_results[action_id] = {
-                                "prefix_completion": action_results[action_id]['prefix_completion'],
-                                "widget": None,
-                                "step": None,
-                                "completed": True
-                            }
+                                    final_design_state = partial_design # Keep track of the latest state
+
+                                    # Update prefix message
+                                    if 'prefix' in partial_design and dashboard_completion:
+                                         await self.project_manager.update_message(
+                                            self.db,
+                                            dashboard_completion,
+                                            partial_design['prefix'] or "Generating dashboard...", # Use LLM prefix or fallback
+                                            json_result.get('reasoning') # Keep original reasoning
+                                         )
+
+                                    # Process the ordered blocks incrementally
+                                    if 'blocks' in partial_design and isinstance(partial_design['blocks'], list):
+                                        for block in partial_design['blocks']:
+                                            if not isinstance(block, dict): continue # Skip invalid blocks
+
+                                            block_type = block.get('type')
+                                            x = block.get('x')
+                                            y = block.get('y')
+                                            width = block.get('width')
+                                            height = block.get('height')
+                                            internal_id = block.get("internal_id") # Get the ID used for streaming
+
+                                            # Basic validation for grid units
+                                            if not all(isinstance(val, int) for val in [x, y, width, height]):
+                                                 logger.warning(f"Skipping block due to invalid grid units: {block}")
+                                                 continue
+
+                                            if block_type == 'widget':
+                                                widget_id = block.get('id')
+                                                if widget_id:
+                                                    # Update existing widget's position and size
+                                                    await self.project_manager.update_widget_position_and_size(
+                                                        self.db,
+                                                        widget_id,
+                                                        x, y, width, height
+                                                    )
+                                                else:
+                                                    logger.warning(f"Skipping widget block due to missing ID: {block}")
+
+                                            elif block_type == 'text':
+                                                content = block.get('content')
+                                                # Use internal_id to check if already created
+                                                if content and internal_id and internal_id not in processed_text_widget_ids:
+                                                    # Create new text widget
+                                                    try:
+                                                        await self.project_manager.create_text_widget(
+                                                            self.db,
+                                                            content,
+                                                            x, y, width, height,
+                                                            self.report.id
+                                                        )
+                                                        processed_text_widget_ids.add(internal_id) # Mark as processed
+                                                    except Exception as text_create_e:
+                                                        logger.error(f"Failed to create text widget {internal_id}: {text_create_e}")
+
+                                                elif not internal_id:
+                                                     logger.warning(f"Skipping text block due to missing internal_id: {block}")
+                                                elif not content:
+                                                     logger.warning(f"Skipping text block due to missing content: {block}")
+                                            else:
+                                                logger.warning(f"Unknown block type encountered: {block_type}")
+
+                                # Check sigkill again after processing a chunk
+                                if self.sigkill_event.is_set():
+                                    break
+
+                                # --- End of Stream Processing Loop ---
+
+                            except Exception as e:
+                                logger.error(f"Error during dashboard design stream execution or processing: {e}")
+                                if dashboard_completion:
+                                    await self.project_manager.update_message(
+                                        self.db,
+                                        dashboard_completion,
+                                        f"Error creating dashboard layout: {str(e)}",
+                                    )
+                                action_results[action_id]["completed"] = False
+                                continue # Move to next action or step if error occurs
+
+                            # If sigkilled during stream, mark incomplete and break outer loop potentially
+                            if self.sigkill_event.is_set():
+                                action_results[action_id]["completed"] = False
+                                logger.info("Dashboard design interrupted by sigkill signal.")
+                                # Depending on desired behavior, you might want to break the main action loop here too
+                                break # Break from the `for action in json_result['plan']:` loop
+
+
+                            # Update the final completion message if the stream completed normally
+                            if not self.sigkill_event.is_set() and dashboard_completion:
+                                end_message = (final_design_state.get('end_message') or "Dashboard design complete.")
+                                await self.project_manager.update_message(
+                                    self.db,
+                                    dashboard_completion,
+                                    end_message # Use the final message from the last state
+                                )
+                                action_results[action_id]["completed"] = True
+                            else:
+                                # If sigkilled, leave the completion message as it was (likely indicating design in progress)
+                                action_results[action_id]["completed"] = False
+
+
+                            # Reset action result structure
+                            action_results[action_id].update({
+                                "widget": None, # Design action is not tied to one widget/step
+                                "step": None
+                            })
+                            # --- End of Dashboard Design Action ---
+
 
                         # Check if this action requires observation
                         requires_observation = action.get('requires_observation', False)
@@ -531,10 +637,12 @@ class Agent:
             if self.sigkill_event.is_set():
                 status = 'sigkill'
             else:
-                status = 'success'
+                # Only mark success if the system completion exists
+                status = 'success' if self.system_completion else 'unknown' # Or handle case where system_completion might be None
 
-            await self.project_manager.update_completion_status(self.db, self.system_completion, status)
-            logger.info("Main execution completed")
+            if self.system_completion: # Ensure system_completion exists before updating
+                await self.project_manager.update_completion_status(self.db, self.system_completion, status)
+            logger.info(f"Main execution completed with status: {status}")
             
             # Clean up
             websocket_manager.remove_handler(self._handle_completion_update)
@@ -905,13 +1013,17 @@ class Agent:
         return response
     
     async def _get_report_widgets_and_steps(self, report_id):
-    
         result = []
         widgets = await self.db.execute(select(Widget).where(Widget.report_id == report_id))
         widgets = widgets.scalars().all()
-        
+
         for widget in widgets:
-            # Get the latest step for each widget
+            # Safely check the widget type using getattr
+            widget_type = getattr(widget, 'type', None) # Get type, default to None if not present
+            if widget_type == 'text':
+                continue # Skip text widgets created by the designer
+
+            # Get the latest step for each data widget
             latest_step = await self.db.execute(
                 select(Step)
                 .filter(Step.widget_id == widget.id)
@@ -919,10 +1031,13 @@ class Agent:
                 .limit(1)
             )
             latest_step = latest_step.scalar_one_or_none()
-            
+
+            # Only add widgets that have an associated step, as the designer needs step context
             if latest_step:
-                # Only add to context if we have both widget and step
                 result.append([widget, latest_step])
+            # else:
+                # Optionally log or handle data widgets without steps if needed
+                # logger.debug(f"Widget {widget.id} skipped, no associated step found.")
 
         return result
 
@@ -952,49 +1067,63 @@ class Agent:
         allow_llm_see_data = self.organization_settings.get_config("allow_llm_see_data").value
         
         observation_data = {
-            "widget_id": widget.id,
-            "widget_title": widget.title,
+            "widget_id": str(widget.id) if widget else "N/A", # Use str for consistency
+            "widget_title": widget.title if widget else "N/A",
             "widget_type": "unknown",
-            "step_id": step.id,
-            "step_title": step.title,
+            "step_id": str(step.id) if step else "N/A",
+            "step_title": step.title if step else "N/A",
+            "data_model": None,
+            "stats": {},
+            "column_names": [],
+            "row_count": 0,
+            "data": [], # Initialize data list
+            "data_preview": "No data available" # Default preview
         }
         
-        # Safely get data model type
-        if step.data_model and isinstance(step.data_model, dict):
-            observation_data["widget_type"] = step.data_model.get("type", "unknown")
-            observation_data["data_model"] = step.data_model
-        
-        # Always include metadata about the data
-        if step.data and isinstance(step.data, dict):
-            # Add metadata
-            if "info" in step.data:
-                observation_data["stats"] = step.data["info"]
-            
-            if "columns" in step.data:
-                observation_data["column_names"] = [col["field"] for col in step.data["columns"]]
-            
-            if "rows" in step.data:
-                observation_data["row_count"] = len(step.data["rows"])
-                # Include the actual data rows
-                observation_data["data"] = step.data["rows"]
-            
-            # Only include formatted preview if allowed
-            if allow_llm_see_data and "rows" in step.data and "columns" in step.data:
-                try:
-                    # Create data preview with limited rows
-                    columns = [col["field"] for col in step.data["columns"]]
-                    preview_rows = step.data["rows"][:5]  # First 5 rows
-                    
-                    # Format preview as table
-                    preview_lines = []
-                    preview_lines.append(" | ".join(columns))
-                    preview_lines.append("-" * (sum(len(col) for col in columns) + 3 * len(columns)))
-                    
-                    for row in preview_rows:
-                        preview_lines.append(" | ".join(str(row.get(col, "N/A")) for col in columns))
-                    
-                    observation_data["data_preview"] = "\n".join(preview_lines)
-                except Exception as e:
-                    logger.error(f"Error building data preview: {e}")
-        
+        if step:
+            # Safely get data model type and structure
+            if step.data_model and isinstance(step.data_model, dict):
+                observation_data["widget_type"] = step.data_model.get("type", "unknown")
+                observation_data["data_model"] = step.data_model # Include the full data model
+
+            # Always include metadata about the data if available
+            if step.data and isinstance(step.data, dict):
+                if "info" in step.data:
+                    observation_data["stats"] = step.data["info"]
+
+                if "columns" in step.data and isinstance(step.data["columns"], list):
+                    observation_data["column_names"] = [col.get("field", "?") for col in step.data["columns"]]
+
+                if "rows" in step.data and isinstance(step.data["rows"], list):
+                    rows = step.data["rows"]
+                    observation_data["row_count"] = len(rows)
+                    # Include the actual data rows (consider limiting size if very large)
+                    observation_data["data"] = rows # Assuming rows is a list of dicts
+
+                    # Only include formatted preview if allowed
+                    if allow_llm_see_data and rows and observation_data["column_names"]:
+                        try:
+                            # Create data preview with limited rows
+                            columns = observation_data["column_names"]
+                            preview_rows = rows[:5]  # First 5 rows
+
+                            # Format preview as table string
+                            preview_lines = []
+                            header = " | ".join(columns)
+                            separator = "-" * len(header) # Adjust separator length
+                            preview_lines.append(header)
+                            preview_lines.append(separator)
+
+                            for row_dict in preview_rows:
+                                row_values = [str(row_dict.get(col, "N/A")) for col in columns]
+                                preview_lines.append(" | ".join(row_values))
+
+                            observation_data["data_preview"] = "\n".join(preview_lines)
+                        except Exception as e:
+                            logger.error(f"Error building data preview: {e}")
+                            observation_data["data_preview"] = "Error formatting preview."
+        else:
+             logger.warning(f"Building observation data for widget {widget.id if widget else 'N/A'} without a step.")
+
+
         return observation_data

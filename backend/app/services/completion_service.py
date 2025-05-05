@@ -93,6 +93,7 @@ class CompletionService:
         background: bool = True
     ):
         try:
+            
             print("CompletionService: Starting create_completion")
 
             # Validate report exists

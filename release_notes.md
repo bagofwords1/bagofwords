@@ -1,9 +1,28 @@
 # Release Notes
 
+## Version 0.0.164 (April 24th, 2025)
+
+- Refactored dashboard visualization capabilities:
+  - Improved chart rendering performance and responsiveness
+  - Enhanced data handling for large datasets
+  - Added better error handling and validation
+  - Streamlined chart configuration options
+- Fixed candlestick chart bug where single stock data was not properly displayed when no ticker field was present
+- Added "File" top level navigation item. You can now see all files uploaded in the org
+- You can now mention files outside of the report
+- Support older version of Excel (97-03)
+
+## Version 0.0.163 (April 21, 2025)
+
+- Added new charts: area, map, treemap, heatmap, candletick, and more
+- Better experience for charts to handle zoom, resize and overall better rendering
+
 ## Version 0.0.162 (April 16, 2025)
 
 - Added ability to stop AI generation mid-completion with a graceful shutdown option
 - Enhanced application startup reliability with automatic database connection retries
+- Moved configuration management to server-side, enabling centralized client configuration
+- Introduced support for deploying the application on Kubernetes clusters using Helm charts
 
 ## Version 0.0.161 (April 14, 2025)
 

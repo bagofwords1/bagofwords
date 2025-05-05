@@ -75,6 +75,7 @@ class BowConfig(BaseModel):
     )
     stripe: Stripe = Stripe()
     database: Database = Database()
+    intercom: Intercom = Intercom()
 
     @validator('encryption_key')
     def validate_encryption_key(cls, v):

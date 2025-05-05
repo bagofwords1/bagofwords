@@ -4,7 +4,7 @@ from app.dependencies import get_db
 from typing import Optional
 
 from app.services.file_service import FileService
-from app.schemas.file_schema import FileSchema
+from app.schemas.file_schema import FileSchema, FileSchemaWithMetadata
 from app.models.user import User
 from app.core.auth import current_user
 from app.models.organization import Organization
@@ -32,3 +32,8 @@ async def get_files_by_report(report_id: str, current_user: User = Depends(curre
 @requires_permission('delete_files', model=Report)
 async def remove_file_from_report(file_id: str, report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await file_service.remove_file_from_report(db, file_id, report_id, organization, current_user)
+
+@router.get("/files", response_model=list[FileSchemaWithMetadata])
+@requires_permission('view_files')
+async def get_files(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    return await file_service.get_files(db, organization)

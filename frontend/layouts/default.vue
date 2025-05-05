@@ -46,6 +46,15 @@
             </UTooltip>
           </NuxtLink>
         </li>
+        <li>
+          <NuxtLink to="/library" class="flex mt-1 items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
+            <UTooltip text="Library" :popper="{ placement: 'right' }">
+              <span class="font-medium text-lg">
+                <UIcon name="heroicons-document-duplicate" />
+              </span>
+            </UTooltip>
+          </NuxtLink>
+        </li>
 
       </ul>
       <ul class="font-normal text-sm">

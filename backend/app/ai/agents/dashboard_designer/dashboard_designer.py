@@ -1,236 +1,255 @@
 from app.ai.llm import LLM
 from partialjson.json_parser import JSONParser
-
 from app.models.llm_model import LLMModel
+from app.models.step import Step
+from app.models.widget import Widget
+from typing import List, Optional
+import json
 
 class DashboardDesigner:
 
     def __init__(self, model: LLMModel) -> None:
         self.llm = LLM(model)
 
-    async def execute(self, prompt, widgets, steps, previous_messages):
+    async def execute(self, prompt: str, widgets: List[Widget], steps: Optional[List[Step]], previous_messages: str):
         parser = JSONParser()
         current_design = {
             "prefix": "",
-            "widgets": [],
-            "text_widgets": [],
+            "blocks": [],
             "end_message": ""
         }
+        processed_block_ids = set()
+
+        detailed_widgets_parts = []
+        widget_map = {}
+        if widgets:
+            for widget in widgets:
+                widget_map[str(widget.id)] = widget
+                widget_type = getattr(widget, 'type', 'unknown type')
+                data_model = getattr(widget, 'data_model', None)
+                if not widget_type or widget_type == 'unknown type':
+                     if data_model and isinstance(data_model, dict):
+                        widget_type = data_model.get('type', 'unknown type')
+
+                columns_str = 'N/A'
+                if data_model and isinstance(data_model, dict):
+                     columns_list = data_model.get('columns', [])
+                     if columns_list:
+                         columns_str = ", ".join([c.get('generated_column_name', '?') for c in columns_list])
+
+                detailed_widgets_parts.append(
+                    f"Widget ID: {widget.id}\n"
+                    f"  Title: {widget.title}\n"
+                    f"  Type: {widget_type}\n"
+                    f"  Columns/Data: {columns_str}"
+                )
+            detailed_widgets_str = "\n\n".join(detailed_widgets_parts)
+        else:
+            detailed_widgets_str = "No widgets provided for layout."
+
+        steps_parts = []
+        if steps:
+             for i, step in enumerate(steps):
+                 action = getattr(step, 'action', getattr(step, 'name', 'Unknown Action'))
+                 prefix = getattr(step, 'prefix', 'No description provided.')
+                 step_widget_id = getattr(step, 'widget_id', None)
+                 step_widget_title = widget_map.get(str(step_widget_id), None)
+                 step_widget_title = step_widget_title.title if step_widget_title else "N/A"
+
+                 data_model_summary = ""
+                 if hasattr(step, 'data_model') and step.data_model:
+                     try:
+                         dm_type = step.data_model.get('type', 'N/A')
+                         dm_cols = [c.get('generated_column_name', 'N/A') for c in step.data_model.get('columns', [])]
+                         data_model_summary = f"\n  Generated Data Type: {dm_type} | Columns: {', '.join(dm_cols)}"
+                     except Exception:
+                         data_model_summary = "\n  (Could not summarize data model)"
+
+                 steps_parts.append(f"Step {i+1}: (Action: {action} | Widget: '{step_widget_title}' (ID: {step_widget_id}))\n  Details: {prefix}{data_model_summary}")
+             steps_str = "\n\n".join(steps_parts)
+        else:
+            steps_str = "No analysis steps preceded this design request."
 
         text = f"""
-        You are an expert dashboard UI/UX designer. Given a user prompt, a list of widgets (charts, tables, etc.), and previous context, produce a JSON layout for a dashboard. The final output must be a JSON object describing widget placements and optional text widgets that provide structure and context.
+        You are an expert dashboard / report analyst and designer. Your task is to create a dashboard layout based on a user's request, the available data widgets, the analysis steps performed, and the conversation history.
+        The goal is NOT just to place widgets, but to arrange them **thoughtfully** and add explanatory **text widgets** to create a clear, compelling narrative that summarizes the analysis and directly addresses the user's initial prompt.
 
-        Widgets:
-        {'\n'.join([f"Widget {widget.id}: {widget.title}" for widget in widgets])}
+        **Context Provided**:
 
-        previous messages:
-        {previous_messages}
+        1.  **User's Initial Prompt**:
+            {prompt}
 
-        User initial prompt:
-        {prompt}
+        2.  **Analysis Steps Taken**: (These explain *how* the widgets were created and *what* was done)
+            {steps_str}
 
+        3.  **Available Widgets & Data Context**: (These are the building blocks for the dashboard)
+            {detailed_widgets_str}
+
+        4.  **Conversation History (Previous Messages)**:
+            {previous_messages}
 
         **Key Objectives**:
-        1. **Fulfill User Intent**: The dashboard should address the user's initial prompt and align with any relevant previous messages.
-        2. **Layout & Storytelling**: Arrange widgets to form a logical narrative. Introduce the dashboard with an optional text widget (like a title or short description). Group related widgets together, and use text widgets before or near them to explain their purpose.
-        3. **No Overlaps**: Absolutely no overlapping of widgets. Carefully compute positions (x,y) and sizes (width,height) so every element fits without collision.
-        4. **Consistent Spacing & Sizing**:
-           - Coordinate system starts at x=0, y=0.
-           - Max dashboard width = 1000px, max height = 3000px.
-           - Use a 20px grid snap for all positions and sizes (all x,y,width,height should be multiples of 20).
-           - Vertical spacing: At least 20px between stacked widgets.
-           - Horizontal spacing: At least 10px between side-by-side widgets.
-           - Widgets (charts/tables) min size: 500px width, 300px height.
-           - Avoid making widgets excessively large; keep them appropriately sized.
-           - For charts like bar/line charts, prefer a wider aspect.
-           - For minimal data displays (like simple counts), use smaller widgets.
-        5. **Text Widgets**:
-           - Use text widgets for titles, sections, short explanations. Keep text concise and helpful.
-           - Text widgets can contain HTML (e.g., <h1>, <h2>, <p>).
-           - Height calculation for text:
-             - h1 line ≈ 60px
-             - p or simple text line ≈ 20px each
-             Example: A widget with an h1 and 2 lines of text might need around 100-120px.
-           - All text widgets must also align to the 20px grid.
-        6. **Styling Considerations**:
-           - Start with a brief introductory text widget at the top if needed.
-           - Order widgets so the user can understand the data story:
-             - Introduce the topic (text widget, maybe h1 or h2),
-             - Present the key insights (charts/tables),
-             - Optionally add explanatory text near complex charts.
-           - Place related widgets near each other for coherence.
-        7. **Semantics & User Prompt Alignment**:
-           - Reflect the user's intent in layout and sizing.
-           - Consider making a main chart prominent if it’s central to the prompt.
-        8. **Prefix and End Message**:
-           - "prefix": A short message shown when the dashboard loads.
-           - "end_message": A closing message, must end with "$.".
-        9. **Output Format**:
-           - Return JSON only, no markdown or code fences.
-           - Example structure:
-             {{
-               "prefix": "Welcome to your dashboard!",
-               "widgets": [
-                 {{ "id": "UUID", "x": 0, "y": 0, "width": 500, "height": 300 }},
-                 ...
-               ],
-               "text_widgets": [
-                 {{ "type": "text", "content": "<h1>Dashboard Title</h1>", "x":0, "y":320, "width":500, "height":120 }},
-                 ...
-               ],
-               "end_message": "All set!$."
-             }}
+        1.  **Fulfill User Intent**: The layout MUST address the user's initial prompt, using the available widgets and insights from the analysis steps.
+        2.  **Create a Narrative**: Use **text widgets** strategically. Start with an introductory text (title/summary). Place text widgets near related data widgets to explain *what* they show, summarize key findings from the analysis steps, and connect them back to the user's goal. The flow should tell a story.
+        3.  **Layout & Storytelling**:
+            - **Arrange widgets logically to tell a story.** Consider the flow of analysis. Start broad (summary/KPIs), then dive deeper.
+            - **Don't just stack everything vertically.** Create a visually engaging layout. Use side-by-side placement (mosaic style) where it makes sense to group related smaller widgets or compare visuals.
+            - **Size matters.** Allocate space based on importance and content complexity. Key charts might span the full width (12 columns), while secondary charts or tables could share a row (e.g., two 6-column widgets).
+            - Introduce the dashboard with an optional text widget (`type: "text"`, e.g., using `<h1>`).
+            - Group related data widgets (`type: "widget"`) and use text widgets (`type: "text"`, e.g., using `<p>`, `<h2>`) positioned **directly before** the related data widget(s) they describe.
+            - **Crucially, use the content of text widgets to bridge the gap between the raw data widgets and the user's request, summarizing the analysis.**
+        4.  **Text Widget Content**:
+            - **Use HTML syntax** (e.g., `<h1>Title</h1>`, `<h2>Subtitle</h2>`, `<p>Paragraph</p>`, `<ul><li>List item</li></ul>`, `<a href="url">Link</a>`, `<table><tr><td>Cell</td></tr></table>`) inside the `content` field of text widgets. Do NOT use Markdown syntax.
+        5.  **Technical Constraints (Grid System)**:
+            - **Grid**: Use a 12-column grid system (columns indexed 0-11).
+            - **Coordinates & Dimensions**:
+                - `x`: Starting column index (0-11).
+                - `y`: Starting row index (absolute, starting from 0). Rows define vertical position.
+                - `width`: Number of columns spanned (1-12).
+                - `height`: Number of rows spanned (minimum 1).
+            - **CRITICAL**: All `x`, `y`, `width`, `height` values MUST be small integer grid units based on the 12-column grid, NOT pixel values. Values larger than 12 for `x` or `width`, or very large values for `y` or `height` (e.g., > 50), are incorrect and invalid.
+            - **No Overlaps**: Ensure no blocks (text or data) overlap in the grid. Check `y` and `y + height` for vertical overlaps, and `x` and `x + width` for horizontal overlaps within the same row span.
+            - **Data Widget Sizes**: Minimum `width` of 4-6 columns (adjust based on content), minimum `height` of 5 rows. Size appropriately (charts often need `height` 8-12+ rows; tables vary). Use the `id` from the "Available Widgets" list.
+            - **Text Widget Sizing**: Determine `height` in rows based on the **rendered HTML content** and the **chosen `width`**. A narrow `width` requires **significantly more `height`**. Be generous (at least 2 rows minimum, often more).
+        6.  **Output Format**:
+            - Return JSON ONLY. No explanations outside the JSON structure.
+            - Structure: `{{"prefix": "...", "blocks": [...], "end_message": "..."}}`
+            - `blocks` array: Contains **ordered** objects representing either data widgets or text widgets.
+                - Data Widget Block: `{{ "type": "widget", "id": "UUID_from_Available_Widgets", "x": N, "y": N, "width": N, "height": N }}`. Use ONLY IDs from "Available Widgets". `x`, `y`, `width`, `height` are grid units.
+                - Text Widget Block: `{{ "type": "text", "content": "HTML...", "x": N, "y": N, "width": N, "height": N }}`. Content MUST be HTML. `x`, `y`, `width`, `height` are grid units. Assign a temporary unique ID (e.g., "text_block_1") if needed internally for streaming updates, but it's not strictly required in the final output structure itself.
+            - `prefix`: Short loading message.
+            - `end_message`: Short closing message, must end with `$.`.
 
-        10. **No Extra Formatting**:
-            - Start response directly with the JSON object (no Markdown, no code fences).
-            - Ensure all coordinates and sizes are multiples of 20.
-            - Ensure no overlaps.
-
-        **Additional Examples**:
-
-        Example 1 (Simple Dashboard):
+        **Example (Conceptual - Mosaic Layout)**:
+        Showing Sales Trend (UUID1), Top Products Table (UUID2), and a KPI Card (UUID3).
         {{
-          "prefix": "Loading your data visualization...",
-          "widgets": [
-            {{
-              "id": "UUID1",
-              "x": 0,
-              "y": 140,
-              "width": 500,
-              "height": 300
-            }}
-          ],
-          "text_widgets": [
-            {{
+          "prefix": "Visualizing your sales performance...",
+          "blocks": [
+            {{ // Report Title / Intro (HTML)
               "type": "text",
-              "content": "<h1>Sales Overview</h1><p>This chart shows monthly sales trends.</p>",
-              "x": 0,
-              "y": 0,
-              "width": 500,
-              "height": 120
+              "content": "<h1>Sales Performance Analysis</h1><p>Summary...</p>",
+              "x": 0, "y": 0, "width": 12, "height": 2 // Rows 0-1. Row 2 is empty.
+            }},
+            {{ // Trend Chart (Full Width) starts after Intro Text + 1 empty row
+              "type": "widget", "id": "UUID1", "x": 0, "y": 3, "width": 12, "height": 8 // Rows 3-10
+            }},
+            {{ // Explanation for KPI + Table (Spans width below chart)
+              "type": "text",
+              "content": "<h2>Key Metrics & Top Products</h2><p>The KPI card highlights total revenue. The table details top products.</p>",
+              // Starts after Chart (Row 10) + 1 empty row = Row 11
+              "x": 0, "y": 11, "width": 12, "height": 2 // Rows 11-12. Widgets start Row 13.
+            }},
+             {{ // KPI Card (Left Half) starts after Trend Chart + 1 empty row
+              "type": "widget", "id": "UUID3", "x": 0, "y": 13, "width": 5, "height": 4 // Rows 13-16
+            }},
+             {{ // Top Products Table (Right Half) starts after Trend Chart + 1 empty row, next to Text
+              "type": "widget", "id": "UUID2", "x": 6, "y": 13, "width": 6, "height": 6 // Rows 13-18
             }}
           ],
-          "end_message": "Dashboard fully loaded$."
+          "end_message": "Analysis dashboard complete$. "
         }}
 
-        In this example:
-        - The text widget is at y=0, height=120px to accommodate h1 + p lines.
-        - The chart starts at y=140 (120 + 20px vertical spacing).
-        - Everything aligns to multiples of 20 and no overlap occurs.
-
-        Example 2 (More Complex Dashboard):
-        {{
-          "prefix": "Welcome to the analytics dashboard!",
-          "widgets": [
-            {{
-              "id": "UUID2",
-              "x": 0,
-              "y": 140,
-              "width": 500,
-              "height": 300
-            }},
-            {{
-              "id": "UUID3",
-              "x": 520,
-              "y": 140,
-              "width": 500,
-              "height": 300
-            }}
-          ],
-          "text_widgets": [
-            {{
-              "type": "text",
-              "content": "<h1>Company Performance Overview</h1><p>Below you can see our sales trends and revenue breakdown.</p>",
-              "x": 0,
-              "y": 0,
-              "width": 1000,
-              "height": 120
-            }},
-            {{
-              "type": "text",
-              "content": "<p>The line chart on the left shows monthly sales units, while the bar chart on the right breaks down revenue by category.</p>",
-              "x": 0,
-              "y": 460,
-              "width": 1000,
-              "height": 60
-            }}
-          ],
-          "end_message": "All set and ready to explore!$."
-        }}
-
-        In this more complex example:
-        - Intro text spans full width (1000px) and sits at the top.
-        - Two charts placed side by side with a 20px gap (0 to 500, then 520 to 1020).
-        - A second text widget placed below the charts at y=460 (charts end at 440 + 20px gap).
-        - All coordinates and sizes are multiples of 20. No overlaps.
-
-        Use these examples as a reference when producing the final layout.
-
-        Now, produce the final JSON layout following all these guidelines based on the given prompt, widgets, and context.
+        Now, based on the specific context (prompt, steps, available widgets, messages), generate the final JSON layout. Prioritize creating a **visually appealing and narrative-driven layout** using mosaic arrangements where appropriate. Ensure all technical constraints (**especially the grid unit requirement and spacing rules**) are met. Stream the JSON structure, updating the `blocks` list incrementally.
         """
 
         full_result = ""
-        
+        last_yielded_design_str = ""
+
         async for chunk in self.llm.inference_stream(text):
             full_result += chunk
-            
             try:
                 json_result = parser.parse(full_result)
 
-                # Skip iteration if parsing failed or required fields missing
                 if not json_result or not isinstance(json_result, dict):
                     continue
 
-                # Update prefix if it exists and has changed
-                if "prefix" in json_result and json_result["prefix"] != current_design["prefix"]:
-                    current_design["prefix"] = json_result["prefix"]
-                    yield current_design
+                update_occurred = False
 
-                # Process regular widgets array
-                if "widgets" in json_result and isinstance(json_result["widgets"], list):
-                    for widget in json_result["widgets"]:
-                        required_fields = ["id", "x", "y", "width", "height"]
-                        if (all(key in widget for key in required_fields) and 
-                            all(widget[key] is not None for key in required_fields)):
-                            if not any(existing_widget["id"] == widget["id"] for existing_widget in current_design["widgets"]):
-                                current_design["widgets"].append(widget)
-                                yield current_design
+                # 1. Update Prefix
+                new_prefix = json_result.get("prefix")
+                if new_prefix is not None and new_prefix != current_design["prefix"]:
+                    current_design["prefix"] = new_prefix
+                    update_occurred = True
+
+                # 2. Update Blocks (Incrementally)
+                if "blocks" in json_result and isinstance(json_result["blocks"], list):
+                    blocks_changed = False
+                    temp_current_blocks = list(current_design["blocks"])
+
+                    for index, block_data in enumerate(json_result["blocks"]):
+                        if not isinstance(block_data, dict): continue
+
+                        block_type = block_data.get("type")
+                        layout_fields = ["x", "y", "width", "height"]
+
+                        # Basic validation
+                        if not block_type or not all(key in block_data for key in layout_fields) or \
+                           not all(isinstance(block_data[key], int) for key in layout_fields):
+                            continue # Skip invalid blocks
+
+                        # Assign/Get unique ID for comparison
+                        block_id = None
+                        if block_type == "widget":
+                            widget_id_str = str(block_data.get("id"))
+                            if widget_id_str in widget_map:
+                                block_id = widget_id_str # Use widget UUID as ID
                             else:
-                                for i, existing_widget in enumerate(current_design["widgets"]):
-                                    if existing_widget["id"] == widget["id"]:
-                                        if existing_widget != widget:
-                                            current_design["widgets"][i] = widget
-                                            yield current_design
-                                        break
+                                continue # Skip widget block if ID is invalid/missing
+                        elif block_type == "text":
+                            # Generate a pseudo-stable ID for text blocks based on order and content hash
+                            content_hash = hash(block_data.get("content", ""))
+                            block_id = f"text_{index}_{content_hash}"
+                        else:
+                            continue # Skip unknown block types
 
-                # Process text widgets array
-                if "text_widgets" in json_result and isinstance(json_result["text_widgets"], list):
-                    for widget in json_result["text_widgets"]:
-                        required_fields = ["type", "content", "x", "y", "width", "height"]
-                        if (all(key in widget for key in required_fields) and 
-                            all(widget[key] is not None for key in required_fields)):
-                            # Generate a unique ID for text widgets based on content if not present
-                            widget_id = widget.get("id", hash(widget["content"]))
-                            widget["id"] = widget_id
-                            
-                            if not any(existing_widget["id"] == widget_id for existing_widget in current_design["text_widgets"]):
-                                current_design["text_widgets"].append(widget)
-                                yield current_design
-                            else:
-                                for i, existing_widget in enumerate(current_design["text_widgets"]):
-                                    if existing_widget["id"] == widget_id:
-                                        if existing_widget != widget:
-                                            current_design["text_widgets"][i] = widget
-                                            yield current_design
-                                        break
+                        # Add 'internal_id' for tracking during streaming
+                        block_data_with_id = {**block_data, "internal_id": block_id}
 
-                # Update end_message if it exists and ends with "$."
-                if "end_message" in json_result and json_result["end_message"].endswith("$."):
-                    current_design["end_message"] = json_result["end_message"][:-2]  # Remove "$."
+                        # Check if this block (by internal_id) already exists or needs update
+                        found_index = -1
+                        for i, existing_block in enumerate(temp_current_blocks):
+                            if existing_block.get("internal_id") == block_id:
+                                found_index = i
+                                break
+
+                        if found_index != -1:
+                            # Update existing block if different
+                            if temp_current_blocks[found_index] != block_data_with_id:
+                                temp_current_blocks[found_index] = block_data_with_id
+                                blocks_changed = True
+                        else:
+                            # Add new block if it wasn't found
+                            temp_current_blocks.append(block_data_with_id)
+                            blocks_changed = True
+
+                    # Update the main design if changes occurred
+                    if blocks_changed:
+                        current_design["blocks"] = temp_current_blocks
+                        update_occurred = True
+
+
+                # 3. Update End Message
+                new_end_message_raw = json_result.get("end_message")
+                if new_end_message_raw is not None and new_end_message_raw.endswith("$."):
+                    new_end_message = new_end_message_raw[:-2].strip() # Remove suffix and strip whitespace
+                    if new_end_message != current_design["end_message"]:
+                         current_design["end_message"] = new_end_message
+                         update_occurred = True
+
+                # Yield only if an update occurred and the design is different from the last yield
+                current_design_str = json.dumps(current_design, sort_keys=True)
+                if update_occurred and current_design_str != last_yielded_design_str:
                     yield current_design
+                    last_yielded_design_str = current_design_str
 
             except Exception as e:
-                print(f"Error processing JSON chunk: {e}")
+                # Log parsing errors if needed, but continue stream
+                # print(f"Partial JSON parsing error: {e}")
                 continue
 
-            yield current_design
+        # Final yield with potentially completed end_message if not yielded before
+        current_design_str = json.dumps(current_design, sort_keys=True)
+        if current_design_str != last_yielded_design_str:
+             yield current_design
+
+        # The generator finishes here
