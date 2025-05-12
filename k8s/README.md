@@ -80,3 +80,15 @@ helm install \
  --set config.secretRef=existing-bowapp-secret
 ```
 
+
+### Service Account annotations  
+For adding a SA annotation pass the following flag during `helm install` command  
+`--set serviceAccount.annotations.foo=bar` 
+Otherwise, set annotations directly in values.yaml file by updating
+```yaml
+serviceAccount:
+  ...
+  annotations:
+    foo: bar 
+```
+    

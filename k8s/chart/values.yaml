@@ -17,7 +17,10 @@ ingress:
   className: nginx
   tls: true
   clusterIssuerName: prod-cluster-issuer
-
+serviceAccount:
+  name: bowapp
+  imagePullSecret: bowapp-pull-secret
+  annotations: {}
 config:
   secretRef: ""
   googleOauthEnabled: false
