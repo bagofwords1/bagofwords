@@ -12,6 +12,7 @@ postgresql:
   primary:
     persistence:
       size: 20Gi
+    nodeSelector: {}
 ingress:
   enabled: true
   className: nginx

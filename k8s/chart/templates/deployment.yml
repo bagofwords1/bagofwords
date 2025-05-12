@@ -15,7 +15,10 @@ spec:
       labels:
         app: bowapp
     spec:
-      serviceAccountName: bowapp
+      {{- if .Values.postgresql.primary.nodeSelector }}
+      nodeSelector: {{ .Values.postgresql.primary.nodeSelector | toJson }}
+      {{- end }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
       - name: bowapp
         image: {{.Values.image}}

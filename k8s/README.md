@@ -92,3 +92,15 @@ serviceAccount:
     foo: bar 
 ```
     
+### Configure node selector 
+For adding a node selector to both the BowApp and the PostgreSQL instance set the following flag during `helm install` 
+command ` --set postgresql.primary.nodeSelector.'kubernetes\.io/hostname'=kind-control-plane` 
+Otherwise, set node selector directly in values.yaml
+```yaml
+postgresql:
+  ...
+  primary:
+    ...
+    nodeSelector: 
+      kubernetes.io/hostname: kind-control-plane
+```
