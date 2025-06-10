@@ -25,6 +25,8 @@ spec:
         imagePullPolicy: Always
         ports:
         - containerPort: 3000
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
         envFrom:
           - configMapRef:
               name: bowapp

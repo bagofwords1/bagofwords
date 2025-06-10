@@ -30,3 +30,10 @@ config:
   defaultLLMApiKey: ""
   smtpPassword: ""
   encryptionKey: ""
+
+resources:
+  requests:
+    cpu: 2
+    memory: 900Mi
+  limits:
+    memory: 1100Mi
