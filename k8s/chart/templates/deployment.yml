@@ -1,8 +1,8 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: bowapp
-  namespace:  {{.Release.Namespace}}
+  name: {{.Release.Namespace}}
+  namespace: {{.Release.Namespace}}
   labels:
     app: bowapp
 spec:
