@@ -69,6 +69,9 @@ stringData:
   BOW_GOOGLE_AUTH_ENABLED: "false"
   BOW_GOOGLE_CLIENT_ID: "<client-id>"
   BOW_GOOGLE_CLIENT_SECRET: "<client-secret>"
+  BOW_SMTP_HOST: "<smtp-host>"
+  BOW_SMTP_PORT: "<smtp-port>"
+  BOW_SMTP_USERNAME: "<smtp-username>"
   BOW_SMTP_PASSWORD: "<smtp-password>"
 ```
 3. Deploy BoW Application  
