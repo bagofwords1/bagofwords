@@ -30,6 +30,13 @@ data:
       client_secret: ${BOW_GOOGLE_CLIENT_SECRET}
 
     encryption_key: ${BOW_ENCRYPTION_KEY}
+    
+    smtp_settings:
+      host: {{.Values.smtp.host }}
+      port: {{.Values.smtp.port }}
+      username: {{.Values.smtp.username }}
+      password: {{.Values.smtp.password }}
+  
 
     intercom:
       enabled: true
