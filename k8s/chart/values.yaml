@@ -31,6 +31,12 @@ config:
   smtpPassword: ""
   encryptionKey: ""
 
+smtp:
+  host: ""
+  port: ""
+  username: ""
+  password: ""
+
 resources:
   requests:
     cpu: 2
