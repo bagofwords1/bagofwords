@@ -11,7 +11,10 @@ data:
   BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
   BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
   BOW_GOOGLE_AUTH_ENABLED: {{.Values.config.googleOauthEnabled | quote}}
-  BOW_SMTP_PASSWORD: {{.Values.config.smtpPassword | quote}}
+  BOW_SMTP_HOST: {{.Values.config.smtp.host | quote}}
+  BOW_SMTP_PORT: {{.Values.config.smtp.port | quote}}
+  BOW_SMTP_USERNAME: {{.Values.config.smtp.username | quote}}
+  BOW_SMTP_PASSWORD: {{.Values.config.smtp.password | quote}}
   {{- end }}
   bowConfig: |
     # Deployment Configuration
@@ -32,10 +35,10 @@ data:
     encryption_key: ${BOW_ENCRYPTION_KEY}
     
     smtp_settings:
-      host: {{.Values.smtp.host }}
-      port: {{.Values.smtp.port }}
-      username: {{.Values.smtp.username }}
-      password: {{.Values.smtp.password }}
+      host: ${BOW_SMTP_HOST}
+      port: ${BOW_SMTP_PORT}
+      username: ${BOW_SMTP_USERNAME}
+      password: ${BOW_SMTP_PASSWORD}
   
 
     intercom:

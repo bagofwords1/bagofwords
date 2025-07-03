@@ -28,14 +28,14 @@ config:
   googleClientId: ""
   googleClientSecret: ""
   defaultLLMApiKey: ""
-  smtpPassword: ""
   encryptionKey: ""
+  smtp:
+    host: ""
+    port: ""
+    username: ""
+    password: ""
 
-smtp:
-  host: ""
-  port: ""
-  username: ""
-  password: ""
+
 
 resources:
   requests:
