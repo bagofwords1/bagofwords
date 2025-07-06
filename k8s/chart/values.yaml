@@ -34,8 +34,8 @@ config:
     port: ""
     username: ""
     password: ""
-    from_name: "Bag of Words"
-    from_email: "noreply@bagofwords.com"
+    from_name: ""
+    from_email: ""
     use_tls: true
     use_ssl: false
     use_credentials: true
