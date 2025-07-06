@@ -18,6 +18,9 @@ from fastapi import Request
 from fastapi_mail import FastMail, MessageSchema
 import asyncio
 from typing import Optional
+from app.settings.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class OrganizationService:
 
@@ -76,6 +79,9 @@ class OrganizationService:
         user = await db.execute(select(User).where(User.email == membership_data.email))
         user = user.scalar_one_or_none()
 
+        # Store the email for invitation before potentially setting it to None
+        invitation_email = membership_data.email
+
         if user:
             membership_data.user_id = user.id
             membership_data.email = None
@@ -93,6 +99,11 @@ class OrganizationService:
             .where(Membership.id == membership.id)
         )
         membership_with_user = result.scalar_one()
+        
+        # Send invitation email if email client is configured
+        if hasattr(settings, 'email_client') and settings.email_client and invitation_email:
+            await self._send_invitation_email(membership_with_user, invitation_email)
+            
         return MembershipSchema.from_orm(membership_with_user)
     
     async def get_user_organizations(self, db: AsyncSession, current_user: User) -> List[OrganizationAndRoleSchema]:
@@ -165,21 +176,23 @@ class OrganizationService:
 
         return len(admin_members)
     
-    async def _send_invitation_email(self, membership: Membership):
-
-        sign_up_url = settings.bow_config.base_url + "/users/sign-up?email=" + membership.email
+    async def _send_invitation_email(self, membership: Membership, email: str):
+        sign_up_url = settings.bow_config.base_url + "/users/sign-up?email=" + email
 
         message = MessageSchema(
             subject="You are invited to Bag of words",
-            recipients=[membership.email],
+            recipients=[email],
             body=f"You have been invited to join an organization on Bag of words. Click to sign up: <br /> {sign_up_url}",
             subtype="html")
         fm = settings.email_client
+        logger.info(f"Using email client: {fm}")
 
         async def send_email():
+            logger.info(f"Sending invitation email to: {email}")
             try:
                 await fm.send_message(message)
+                logger.info(f"Invitation email sent successfully to: {email}")
             except Exception as e:
-                print(f"Error sending invitation email: {e}")
+                logger.error(f"Error sending invitation email: {e}")
 
         asyncio.create_task(send_email())

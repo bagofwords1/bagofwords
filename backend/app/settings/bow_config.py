@@ -43,6 +43,12 @@ class SMTPSettings(BaseModel):
     port: int = 587
     username: str = "resend"
     password: str
+    from_name: str = "Bag of words"
+    from_email: str = "hi@bagofwords.com"
+    use_tls: bool = True
+    use_ssl: bool = False
+    use_credentials: bool = True
+    validate_certs: bool = True
 
 class Stripe(BaseModel):
     api_key: str = None

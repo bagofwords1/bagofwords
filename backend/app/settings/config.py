@@ -87,14 +87,14 @@ class Settings(BaseSettings):
             email_config = ConnectionConfig(
                 MAIL_USERNAME=bow_config.smtp_settings.username,
                 MAIL_PASSWORD=bow_config.smtp_settings.password,
-                MAIL_FROM_NAME="Bag of words",
-                MAIL_FROM="hi@bagofwords.com",
+                MAIL_FROM_NAME=bow_config.smtp_settings.from_name,
+                MAIL_FROM=bow_config.smtp_settings.from_email,
                 MAIL_PORT=bow_config.smtp_settings.port,
                 MAIL_SERVER=bow_config.smtp_settings.host,
-                MAIL_STARTTLS=True,
-                MAIL_SSL_TLS=False,
-                USE_CREDENTIALS=True,
-                VALIDATE_CERTS=True,
+                MAIL_STARTTLS=bow_config.smtp_settings.use_tls,
+                MAIL_SSL_TLS=bow_config.smtp_settings.use_ssl,
+                USE_CREDENTIALS=bow_config.smtp_settings.use_credentials,
+                VALIDATE_CERTS=bow_config.smtp_settings.validate_certs,
                 TEMPLATE_FOLDER=None
             )
             settings.email_client = FastMail(email_config)
