@@ -38,6 +38,7 @@
 const route = useRoute()
 
 let tabs = [
+    { name: "overview", label: "Overview" },
     { name: 'members', label: 'Members' },
     { name: 'models', label: 'Models' },
     { name: 'configuration', label: 'Configuration' },
