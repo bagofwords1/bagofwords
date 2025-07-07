@@ -45,7 +45,7 @@ async def get_organizations(db: AsyncSession = Depends(get_async_db), current_us
     return await organization_service.get_user_organizations(db, current_user)
 
 @router.get("/organizations/metrics")
-@requires_permission('update_organization_members')
+@requires_permission('view_organization_overview')
 async def get_organization_metrics(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -55,7 +55,7 @@ async def get_organization_metrics(
     return await organization_service.get_organization_metrics(db, organization)
 
 @router.get("/organizations/recent-widgets")
-@requires_permission('update_organization_members')
+@requires_permission('view_organization_overview')
 async def get_recent_widgets(
     limit: int = 10,
     db: AsyncSession = Depends(get_async_db),

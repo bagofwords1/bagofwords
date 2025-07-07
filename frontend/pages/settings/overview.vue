@@ -149,9 +149,17 @@
                         </div>
                     </div>
 
+                    <!-- Original Prompt -->
+                    <div v-if="selectedWidget.prompt" class="mb-4">
+                        <h4 class="text-sm font-medium text-gray-700 mb-2">Original Prompt</h4>
+                        <div class="p-3 bg-gray-50 rounded border text-sm">
+                            {{ selectedWidget.prompt?.content || selectedWidget.prompt }}
+                        </div>
+                    </div>
+
                     <!-- Completion Prompt -->
                     <div v-if="selectedWidget.completion_prompt" class="mb-4">
-                        <h4 class="text-sm font-medium text-gray-700 mb-2">Completion Prompt</h4>
+                        <h4 class="text-sm font-medium text-gray-700 mb-2">AI Response</h4>
                         <div class="p-3 bg-gray-50 rounded border text-sm">
                             {{ selectedWidget.completion_prompt?.content || selectedWidget.completion_prompt }}
                         </div>
@@ -218,7 +226,7 @@ import RenderTable from '~/components/RenderTable.vue'
 const { organization } = useOrganization()
 
 
-definePageMeta({ auth: true, permissions: ['modify_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['view_organization_overview'], layout: 'settings' })
 
 const metrics = ref({
     total_messages: 0,
@@ -361,5 +369,4 @@ onMounted(async () => {
     }
 })
 
-definePageMeta({ auth: true, permissions: ['modify_settings'], layout: 'settings' })
 </script> 

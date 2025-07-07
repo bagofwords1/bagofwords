@@ -284,14 +284,15 @@ class OrganizationService:
             
             # Get completion ID and prompt (first completion for this widget)
             completion_result = await db.execute(
-                select(Completion.id, Completion.prompt)
+                select(Completion.id, Completion.prompt, Completion.completion)
                 .where(Completion.widget_id == widget.id)
                 .order_by(Completion.created_at.asc())
                 .limit(1)
             )
             completion_data = completion_result.first()
             completion_id = completion_data[0] if completion_data else None
-            completion_prompt = completion_data[1] if completion_data else None
+            original_prompt = completion_data[1] if completion_data else None
+            completion_prompt = completion_data[2] if completion_data else None
             
             # Get sample output and row count
             output_sample = None
@@ -310,6 +311,7 @@ class OrganizationService:
                 "user_name": user_name,
                 "created_at": widget.created_at.isoformat() if widget.created_at else None,
                 "completion_id": completion_id,
+                "prompt": original_prompt,
                 "completion_prompt": completion_prompt,
                 "code": last_step.code if last_step else "",
                 "output_sample": output_sample,
