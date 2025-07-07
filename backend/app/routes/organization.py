@@ -57,10 +57,11 @@ async def get_organization_metrics(
 @router.get("/organizations/recent-widgets")
 @requires_permission('view_organization_overview')
 async def get_recent_widgets(
+    offset: int = 0,
     limit: int = 10,
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    """Get recent widgets for the organization"""
-    return await organization_service.get_recent_widgets(db, organization, limit)
+    """Get recent widgets for the organization with pagination"""
+    return await organization_service.get_recent_widgets(db, organization, offset, limit)

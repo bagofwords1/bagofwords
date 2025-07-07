@@ -238,14 +238,22 @@ class OrganizationService:
             "total_thumbs": total_thumbs
         }
 
-    async def get_recent_widgets(self, db: AsyncSession, organization: Organization, limit: int = 10) -> list:
-        """Get recent widgets with user, time, code, output sample, steps count, and thumbs"""
+    async def get_recent_widgets(self, db: AsyncSession, organization: Organization, offset: int = 0, limit: int = 10) -> dict:
+        """Get recent widgets with user, time, code, output sample, steps count, and thumbs with pagination"""
         from app.models.widget import Widget
         from app.models.report import Report
         from app.models.step import Step
         from app.models.completion import Completion
         from app.models.user import User
         from sqlalchemy import func
+        
+        # Get total count first
+        count_result = await db.execute(
+            select(func.count(Widget.id))
+            .join(Report, Widget.report_id == Report.id)
+            .where(Report.organization_id == organization.id)
+        )
+        total_count = count_result.scalar()
         
         # Get recent widgets with related data
         result = await db.execute(
@@ -263,6 +271,7 @@ class OrganizationService:
             .where(Report.organization_id == organization.id)
             .group_by(Widget.id, Report.id, User.name)
             .order_by(Widget.created_at.desc())
+            .offset(offset)
             .limit(limit)
         )
         
@@ -320,4 +329,9 @@ class OrganizationService:
                 "thumbs_count": thumbs_count or 0
             })
         
-        return formatted_widgets
+        return {
+            "items": formatted_widgets,
+            "total": total_count,
+            "offset": offset,
+            "limit": limit
+        }

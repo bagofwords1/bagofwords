@@ -21,7 +21,17 @@
         <!-- Recent Widgets Table -->
         <div class="mt-6">
             <h2 class="text-lg font-medium mb-4">Recent Data</h2>
-            <div class="overflow-x-auto">
+            
+            <!-- Loading state -->
+            <div v-if="isLoading" class="flex items-center justify-center py-8">
+                <div class="flex items-center space-x-2">
+                    <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                    <span class="text-gray-600">Loading widgets...</span>
+                </div>
+            </div>
+            
+            <!-- Table -->
+            <div v-else class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
@@ -82,6 +92,53 @@
                         </tr>
                     </tbody>
                 </table>
+            </div>
+            
+            <!-- Pagination Controls -->
+            <div v-if="totalItems > 0" class="mt-6 flex items-center justify-between">
+                <div class="text-sm text-gray-700">
+                    Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, totalItems) }} of {{ totalItems }} results
+                </div>
+                <div class="flex items-center space-x-2">
+                    <UButton
+                        icon="i-heroicons-chevron-left"
+                        color="gray"
+                        variant="ghost"
+                        size="sm"
+                        @click="handlePageChange(currentPage - 1)"
+                        :disabled="!hasPrevPage"
+                    >
+                        Previous
+                    </UButton>
+                    
+                    <!-- Page numbers -->
+                    <div class="flex items-center space-x-1">
+                        <template v-for="page in getVisiblePages()" :key="page">
+                            <UButton
+                                v-if="typeof page === 'number'"
+                                :color="page === currentPage ? 'blue' : 'gray'"
+                                :variant="page === currentPage ? 'solid' : 'ghost'"
+                                size="sm"
+                                @click="handlePageChange(page)"
+                                class="min-w-[32px]"
+                            >
+                                {{ page }}
+                            </UButton>
+                            <span v-else class="px-2 text-gray-500">...</span>
+                        </template>
+                    </div>
+                    
+                    <UButton
+                        icon="i-heroicons-chevron-right"
+                        color="gray"
+                        variant="ghost"
+                        size="sm"
+                        @click="handlePageChange(currentPage + 1)"
+                        :disabled="!hasNextPage"
+                    >
+                        Next
+                    </UButton>
+                </div>
             </div>
         </div>
 
@@ -223,23 +280,57 @@
 <script setup lang="ts">
 import RenderTable from '~/components/RenderTable.vue'
 
-const { organization } = useOrganization()
+// Define interfaces for type safety
+interface Widget {
+    id: string
+    title: string
+    user_name: string
+    created_at: string
+    completion_id: string | null
+    prompt: any
+    completion_prompt: any
+    code: string
+    output_sample: any
+    row_count: number
+    steps_count: number
+    thumbs_count: number
+}
 
+interface Metrics {
+    total_messages: number
+    total_queries: number
+    total_thumbs: number
+}
+
+interface PaginatedResponse {
+    items: Widget[]
+    total: number
+    offset: number
+    limit: number
+}
+
+const { organization } = useOrganization()
 
 definePageMeta({ auth: true, permissions: ['view_organization_overview'], layout: 'settings' })
 
-const metrics = ref({
+const metrics = ref<Metrics>({
     total_messages: 0,
     total_queries: 0,
     total_thumbs: 0
 })
 
-const recentWidgets = ref([])
+const recentWidgets = ref<Widget[]>([])
 const isModalOpen = ref(false)
-const selectedWidget = ref(null)
+const selectedWidget = ref<Widget | null>(null)
 const codeExpanded = ref(false)
 const dataExpanded = ref(false)
 const isDataLoading = ref(false)
+
+// Pagination state
+const currentPage = ref(1)
+const pageSize = ref(10)
+const totalItems = ref(0)
+const isLoading = ref(false)
 
 // Format date helper
 const formatDate = (dateString: string) => {
@@ -249,7 +340,7 @@ const formatDate = (dateString: string) => {
 }
 
 // Send feedback function
-const sendFeedback = async (completionId: string, vote: number) => {
+const sendFeedback = async (completionId: string | null, vote: number) => {
     if (!completionId) {
         const toast = useToast()
         toast.add({
@@ -322,7 +413,7 @@ const parsedStepData = computed(() => {
 })
 
 // Open modal with widget data
-const openModal = async (widget: any) => {
+const openModal = async (widget: Widget) => {
     selectedWidget.value = widget
     isModalOpen.value = true
     codeExpanded.value = false
@@ -341,10 +432,82 @@ const toggleData = async () => {
     isDataLoading.value = false
 }
 
+// Fetch widgets with pagination
+const fetchWidgets = async (page: number = 1) => {
+    isLoading.value = true
+    try {
+        const offset = (page - 1) * pageSize.value
+        const { data: widgetsData, error: widgetsError } = await useMyFetch<PaginatedResponse>(`/api/organizations/recent-widgets?offset=${offset}&limit=${pageSize.value}`, {
+            method: 'GET'
+        })
+        
+        if (widgetsError.value) {
+            console.error('Failed to fetch recent widgets:', widgetsError.value)
+        } else if (widgetsData.value) {
+            recentWidgets.value = widgetsData.value.items
+            totalItems.value = widgetsData.value.total
+            currentPage.value = page
+        }
+    } catch (err) {
+        console.error('Error fetching widgets:', err)
+    } finally {
+        isLoading.value = false
+    }
+}
+
+// Handle page change
+const handlePageChange = (page: number) => {
+    fetchWidgets(page)
+}
+
+// Computed properties for pagination
+const totalPages = computed(() => Math.ceil(totalItems.value / pageSize.value))
+const hasNextPage = computed(() => currentPage.value < totalPages.value)
+const hasPrevPage = computed(() => currentPage.value > 1)
+
+// Get visible page numbers for pagination
+const getVisiblePages = () => {
+    const pages: (number | string)[] = []
+    const total = totalPages.value
+    
+    if (total <= 7) {
+        // Show all pages if 7 or fewer
+        for (let i = 1; i <= total; i++) {
+            pages.push(i)
+        }
+    } else {
+        // Always show first page
+        pages.push(1)
+        
+        if (currentPage.value > 4) {
+            pages.push('...')
+        }
+        
+        // Show pages around current page
+        const start = Math.max(2, currentPage.value - 1)
+        const end = Math.min(total - 1, currentPage.value + 1)
+        
+        for (let i = start; i <= end; i++) {
+            pages.push(i)
+        }
+        
+        if (currentPage.value < total - 3) {
+            pages.push('...')
+        }
+        
+        // Always show last page
+        if (total > 1) {
+            pages.push(total)
+        }
+    }
+    
+    return pages
+}
+
 onMounted(async () => {
     try {
         // Fetch metrics
-        const { data: metricsData, error: metricsError } = await useMyFetch('/api/organizations/metrics', {
+        const { data: metricsData, error: metricsError } = await useMyFetch<Metrics>('/api/organizations/metrics', {
             method: 'GET'
         })
         
@@ -354,16 +517,8 @@ onMounted(async () => {
             metrics.value = metricsData.value
         }
         
-        // Fetch recent widgets
-        const { data: widgetsData, error: widgetsError } = await useMyFetch('/api/organizations/recent-widgets?limit=10', {
-            method: 'GET'
-        })
-        
-        if (widgetsError.value) {
-            console.error('Failed to fetch recent widgets:', widgetsError.value)
-        } else if (widgetsData.value) {
-            recentWidgets.value = widgetsData.value
-        }
+        // Fetch initial widgets
+        await fetchWidgets(1)
     } catch (err) {
         console.error('Error fetching data:', err)
     }
