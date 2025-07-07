@@ -166,7 +166,31 @@ class UserManager(BaseUserManager[User, str]):
     async def on_after_forgot_password(
         self, user: User, token: str, request: Optional[Request] = None
     ):
-        pass
+        await self._send_reset_password_email(user, token, request)
+
+    async def _send_reset_password_email(self, user: User, token: str, request: Optional[Request] = None):
+        import asyncio
+        
+        base_url = settings.bow_config.base_url
+            
+        reset_url = f"{base_url}/users/reset-password?token={token}"
+        
+        message = MessageSchema(
+            subject="Reset your password",
+            recipients=[user.email],
+            body=f"Hello {user.name},<br /><br />You have requested to reset your password for Bag of words. Click the link below to reset your password:<br /><br /> <a href='{reset_url}'>{reset_url}</a><br /><br />If you didn't request this, please ignore this email.<br /><br />Best regards,<br />Bag of words team",
+            subtype="html"
+        )
+        fm = settings.email_client
+        
+        async def send_email():
+            try:
+                await fm.send_message(message)
+            except Exception as e:
+                print(f"Error sending reset password email: {e}")
+        
+        # Create task without awaiting it
+        asyncio.create_task(send_email())
 
     async def on_after_request_verify(
         self, user: User, token: str, request: Optional[Request] = None
