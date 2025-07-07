@@ -3,19 +3,19 @@ entries:
   bagofwords:
   - apiVersion: v2
     appVersion: 1.0.1
-    created: "2025-07-06T22:23:28.017875+03:00"
+    created: "2025-07-07T23:06:38.338178+03:00"
     dependencies:
     - condition: postgresql.enabled
       name: postgresql
       repository: https://charts.bitnami.com/bitnami
       version: 16.3.2
     description: Bag of words - a new ai data tool
-    digest: bffa3345ec4d221dadf0965f015c4a5d5f8ebf81584dbbf5a702bb0830974578
+    digest: e22552dd6b3831b1b4655d95b5dd99219b34abb3266defe8b7b8061d58754d96
     name: bagofwords
     type: application
     urls:
-    - https://bagofwords.com/helm/bagofwords-1.0.6.tgz
-    version: 1.0.6
+    - https://bagofwords.com/helm/bagofwords-1.0.7.tgz
+    version: 1.0.7
   postgresql:
   - annotations:
       category: Database
@@ -29,7 +29,7 @@ entries:
       licenses: Apache-2.0
     apiVersion: v2
     appVersion: 17.2.0
-    created: "2025-07-06T22:23:28.021634+03:00"
+    created: "2025-07-07T23:06:38.340885+03:00"
     dependencies:
     - name: common
       repository: oci://registry-1.docker.io/bitnamicharts
@@ -58,4 +58,4 @@ entries:
     urls:
     - https://bagofwords.com/helm/charts/postgresql-16.3.2.tgz
     version: 16.3.2
-generated: "2025-07-06T22:23:28.011639+03:00"
+generated: "2025-07-07T23:06:38.333104+03:00"

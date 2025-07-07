@@ -4,9 +4,13 @@ metadata:
   name: bowapp
   namespace: {{.Release.Namespace}}
 data:
+  # Database URL - only set if not using existing secret
   {{- if (empty .Values.postgresql.auth.existingSecret) }}
   BOW_DATABASE_URL: postgresql://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@{{.Release.Name}}-postgresql:5432/{{.Values.postgresql.auth.database}}
-  BOW_DEFAULT_LLM_API_KEY: {{.Values.config.defaultLLMApiKey | quote}}
+  {{- end }}
+  
+  # Application configuration - always include these
+  BOW_BASE_URL: {{.Values.config.baseUrl | quote}}
   BOW_ENCRYPTION_KEY: {{.Values.config.encryptionKey | quote}}
   BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
   BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
@@ -21,17 +25,20 @@ data:
   BOW_SMTP_USE_SSL: {{.Values.config.smtp.use_ssl | quote}}
   BOW_SMTP_USE_CREDENTIALS: {{.Values.config.smtp.use_credentials | quote}}
   BOW_SMTP_VALIDATE_CERTS: {{.Values.config.smtp.validate_certs | quote}}
-  {{- end }}
+  BOW_INTERCOM_ENABLED: {{.Values.config.intercomEnabled | quote}}
+  BOW_ALLOW_UNINVITED_SIGNUPS: {{.Values.config.allowUninvitedSignups | quote}}
+  BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{.Values.config.allowMultipleOrganizations | quote}}
+  BOW_VERIFY_EMAILS: {{.Values.config.verifyEmails | quote}}
+  
   bowConfig: |
     # Deployment Configuration
-    base_url: http://0.0.0.0:3000
-
+    base_url: ${BOW_BASE_URL}
 
     # Feature Flags
     features:
-      allow_uninvited_signups: false
-      allow_multiple_organizations: false
-      verify_emails: false
+      allow_uninvited_signups: ${BOW_ALLOW_UNINVITED_SIGNUPS}
+      allow_multiple_organizations: ${BOW_ALLOW_MULTIPLE_ORGANIZATIONS}
+      verify_emails: ${BOW_VERIFY_EMAILS}
 
     google_oauth:
       enabled: ${BOW_GOOGLE_AUTH_ENABLED}
@@ -53,4 +60,4 @@ data:
       validate_certs: ${BOW_SMTP_VALIDATE_CERTS}
 
     intercom:
-      enabled: true
+      enabled: ${BOW_INTERCOM_ENABLED}

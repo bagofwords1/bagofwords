@@ -54,7 +54,7 @@ helm upgrade -i --create-namespace \
 ```bash
    kubectl create namespace <namespace>
 ```
-2. Create the secret 
+2. Create the secret with the environment variables you want to override
 ```yaml
 apiVersion: v1
 kind: Secret
@@ -64,11 +64,17 @@ metadata:
 stringData:
   postgres-password: "<postgres-password>" 
   BOW_DATABASE_URL: "postgresql://<postgres-user>:<postgres-password>@<postgres-host>:5432/<postgres-database>"
-  BOW_DEFAULT_LLM_API_KEY: "<default-api-llm-key>"
+  BOW_BASE_URL: "<base-url>"
   BOW_ENCRYPTION_KEY: "<encryption-key>"
+  BOW_DEFAULT_LLM_API_KEY: "<default-llm-api-key>"
   BOW_GOOGLE_AUTH_ENABLED: "false"
   BOW_GOOGLE_CLIENT_ID: "<client-id>"
   BOW_GOOGLE_CLIENT_SECRET: "<client-secret>"
+  BOW_ALLOW_UNINVITED_SIGNUPS: "false"
+  BOW_ALLOW_MULTIPLE_ORGANIZATIONS: "false"
+  BOW_VERIFY_EMAILS: "false"
+  BOW_INTERCOM_ENABLED: "false"
+  
   # SMTP Configuration
   BOW_SMTP_HOST: "<smtp-host>"
   BOW_SMTP_PORT: "<smtp-port>"
@@ -81,6 +87,9 @@ stringData:
   BOW_SMTP_USE_CREDENTIALS: "true"
   BOW_SMTP_VALIDATE_CERTS: "true"
 ```
+
+**Note**: When using an existing secret, the values in the secret will override the default values from the ConfigMap. You only need to include the environment variables you want to override.
+
 3. Deploy BoW Application  
 ```bash
 helm install \
