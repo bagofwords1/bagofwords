@@ -49,7 +49,8 @@ ADMIN_PERMISSIONS = {
     'manage_llm_settings',
     'view_data_source_full_schema',
     'manage_organization_settings',
-    'view_organization_settings'
+    'view_organization_settings',
+    'view_organization_overview'
 }
 
 # Combine permissions for roles

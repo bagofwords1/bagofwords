@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.165 (July 7th, 2025)
+- Added admin dashboard with usage analytics, query history tracking, and LLM feedback collection
+- Implemented secure password recovery workflow with email verification
+- Enhanced Kubernetes deployment configuration with expanded Helm chart coverage and options
+
 ## Version 0.0.164 (April 24th, 2025)
 
 - Refactored dashboard visualization capabilities:
