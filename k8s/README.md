@@ -66,7 +66,6 @@ stringData:
   BOW_DATABASE_URL: "postgresql://<postgres-user>:<postgres-password>@<postgres-host>:5432/<postgres-database>"
   BOW_BASE_URL: "<base-url>"
   BOW_ENCRYPTION_KEY: "<encryption-key>"
-  BOW_DEFAULT_LLM_API_KEY: "<default-llm-api-key>"
   BOW_GOOGLE_AUTH_ENABLED: "false"
   BOW_GOOGLE_CLIENT_ID: "<client-id>"
   BOW_GOOGLE_CLIENT_SECRET: "<client-secret>"
