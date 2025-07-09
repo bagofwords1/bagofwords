@@ -25,6 +25,10 @@ class Organization(BaseSchema):
     prompts = relationship("Prompt", back_populates="organization")
     settings = relationship("OrganizationSettings", uselist=False, back_populates="organization", cascade="all, delete-orphan")
     
+    # NEW: External platform relationships - use string references to avoid circular imports
+    external_platforms = relationship("ExternalPlatform", back_populates="organization", cascade="all, delete-orphan")
+    external_user_mappings = relationship("ExternalUserMapping", back_populates="organization", cascade="all, delete-orphan")
+    
     async def get_default_llm_model(self, db):
         """Get the default LLM model for the organization.
         

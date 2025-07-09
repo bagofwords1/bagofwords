@@ -38,6 +38,8 @@ from app.models.git_repository import GitRepository
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.dbt_resource import DBTResource
 from app.models.organization_settings import OrganizationSettings
+from app.models.external_platform import ExternalPlatform
+from app.models.external_user_mapping import ExternalUserMapping
 
 from app.settings.config import settings
 

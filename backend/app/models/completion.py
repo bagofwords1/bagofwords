@@ -48,6 +48,11 @@ class Completion(BaseSchema):
     main_router = Column(String, nullable=False, default='table')
 
     mentions = relationship("Mention", back_populates="completion", lazy='selectin')
+    
+    # NEW: External platform tracking
+    external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
+    external_message_id = Column(String, nullable=True)  # Platform-specific message ID
+    external_user_id = Column(String, nullable=True)  # Platform-specific user ID
 
 # Callback functions
 
