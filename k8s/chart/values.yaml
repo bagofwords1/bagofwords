@@ -27,8 +27,12 @@ config:
   googleOauthEnabled: false
   googleClientId: ""
   googleClientSecret: ""
-  defaultLLMApiKey: ""
   encryptionKey: ""
+  intercomEnabled: false
+  baseUrl: ""
+  allowUninvitedSignups: false
+  allowMultipleOrganizations: false
+  verifyEmails: false
   smtp:
     host: ""
     port: ""
