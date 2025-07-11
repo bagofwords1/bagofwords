@@ -33,7 +33,8 @@ MEMBER_PERMISSIONS = {
     'view_organizations',
     'view_llm_settings',
     'view_organization_members',
-    'view_files'
+    'view_files',
+    'manage_organization_external_platforms'
 }
 
 ADMIN_PERMISSIONS = {

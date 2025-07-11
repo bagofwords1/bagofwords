@@ -49,7 +49,6 @@ class Completion(BaseSchema):
 
     mentions = relationship("Mention", back_populates="completion", lazy='selectin')
     
-    # NEW: External platform tracking
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
     external_user_id = Column(String, nullable=True)  # Platform-specific user ID

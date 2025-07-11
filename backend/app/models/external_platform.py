@@ -14,9 +14,9 @@ class ExternalPlatform(BaseSchema):
     credentials = Column(Text, nullable=True)  # Encrypted sensitive credentials
     is_active = Column(Boolean, default=True, nullable=False)
     
-    # Relationships - use string references to avoid circular imports
+    # Relationships
     organization = relationship("Organization", back_populates="external_platforms")
-    user_mappings = relationship("ExternalUserMapping", back_populates="platform")
+    external_user_mappings = relationship("ExternalUserMapping", back_populates="external_platform")
     
     def encrypt_credentials(self, credentials: dict):
         """Encrypt sensitive credentials before storing"""
@@ -31,4 +31,4 @@ class ExternalPlatform(BaseSchema):
         return json.loads(fernet.decrypt(self.credentials.encode()).decode())
     
     def __repr__(self):
-        return f"<ExternalPlatform {self.platform_type}:{self.id}>"
+        return f"<ExternalPlatform {self.platform_type}:{self.id} - {self.organization.name}>"

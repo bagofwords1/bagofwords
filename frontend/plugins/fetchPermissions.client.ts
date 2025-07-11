@@ -65,7 +65,9 @@ function getPermissionsForRole(role: string): string[] {
       'view_organizations',
       'manage_llm_settings',
       'view_completion_plan',
-      'view_organization_overview'
+      'view_organization_overview',
+      'manage_organization_external_platforms',
+      'view_llm_settings'
     ],
     member: [
       'view_data_source',

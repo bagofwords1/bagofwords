@@ -8,7 +8,7 @@ class ExternalUserMappingBase(BaseModel):
     external_user_id: str
     external_email: Optional[str] = None
     external_name: Optional[str] = None
-    app_user_id: str
+    app_user_id: Optional[str] = None  # Allow null initially
     is_verified: bool = False
 
 class ExternalUserMappingCreate(ExternalUserMappingBase):
@@ -22,6 +22,7 @@ class ExternalUserMappingUpdate(BaseModel):
 class ExternalUserMappingSchema(ExternalUserMappingBase):
     id: str
     organization_id: str
+    platform_id: str  
     verification_token: Optional[str] = None
     verification_expires_at: Optional[datetime] = None
     last_verified_at: Optional[datetime] = None

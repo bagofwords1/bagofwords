@@ -2,7 +2,10 @@
 deployment:
   type: "self_hosted"
 
-base_url: http://localhost:3000
+base_url: http://localhost:3000A
+
+database:
+  url: sqlite:///db/app.db
   
 features:
   allow_uninvited_signups: true

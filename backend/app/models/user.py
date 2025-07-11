@@ -21,12 +21,12 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     memberships = relationship("Membership", back_populates="user")
     organizations = relationship("Organization", secondary="memberships", back_populates="users")
     files = relationship("File", back_populates="user")
+    #prompts = relationship("Prompt", back_populates="user", lazy="selectin")
     memories = relationship("Memory", back_populates="user", lazy="selectin")
     oauth_accounts: Mapped[list[OAuthAccount]] = relationship("OAuthAccount", back_populates="user", cascade="all, delete")
     git_repositories = relationship("GitRepository", back_populates="user")
     
-    # NEW: External platform mappings - use string reference
-    external_mappings = relationship("ExternalUserMapping", back_populates="app_user", cascade="all, delete-orphan")
+    external_user_mappings = relationship("ExternalUserMapping", back_populates="user", cascade="all, delete-orphan")
 
 
 

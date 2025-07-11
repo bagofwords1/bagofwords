@@ -46,7 +46,9 @@ from app.routes import (
     llm,
     git_repository,
     organization_settings,
-    bow_settings
+    bow_settings,
+    external_platform,
+    slack_webhook
 )
 
 # Initialize logging
@@ -162,6 +164,8 @@ app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
+app.include_router(external_platform.router, prefix="/api")
+app.include_router(slack_webhook.router)
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():

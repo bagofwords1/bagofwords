@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
         # Load environment variables first
         if environment == "development":
+            
             dotenv_path = os.path.join(
                 os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
                 ".env"
