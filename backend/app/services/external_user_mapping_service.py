@@ -170,7 +170,7 @@ class ExternalUserMappingService:
         # Generate secure token
         token = secrets.token_urlsafe(32)
         mapping.verification_token = token
-        mapping.verification_expires_at = datetime.utcnow() + timedelta(hours=24)
+        mapping.verification_expires_at = datetime.utcnow() + timedelta(days=365)
         
         await db.commit()
         
@@ -280,13 +280,8 @@ class ExternalUserMappingService:
         
         return user
 
-    async def get_mapping_by_token(
-        self, 
-        db: AsyncSession, 
-        token: str
-    ) -> Optional[ExternalUserMapping]:
+    async def get_mapping_by_token(self, db: AsyncSession, token: str) -> Optional[ExternalUserMapping]:
         """Get mapping by verification token"""
-        
         stmt = select(ExternalUserMapping).where(
             and_(
                 ExternalUserMapping.verification_token == token,
@@ -294,7 +289,8 @@ class ExternalUserMappingService:
             )
         )
         result = await db.execute(stmt)
-        return result.scalar_one_or_none()
+        mapping = result.scalar_one_or_none() 
+        return mapping
 
     async def complete_verification(
         self, 
@@ -303,10 +299,41 @@ class ExternalUserMappingService:
         current_user: User
     ) -> dict:
         """Complete verification by linking to signed-in user"""
-        
         mapping = await self.get_mapping_by_token(db, token)
+
         if not mapping:
+            # Try to find a mapping for this user that is already verified
+            # (Optional: you could also look up by current_user.id and platform_type)
+            stmt = select(ExternalUserMapping).where(
+                and_(
+                    ExternalUserMapping.app_user_id == current_user.id,
+                    ExternalUserMapping.is_verified == True,
+                    ExternalUserMapping.verification_token == None
+                )
+            )
+            result = await db.execute(stmt)
+            already_verified = result.scalar_one_or_none()
+            if already_verified:
+                return {
+                    "success": True,
+                    "already_verified": True,
+                    "message": "Your account is already verified.",
+                    "mapping_id": already_verified.id,
+                    "external_user_id": already_verified.external_user_id,
+                    "platform_type": already_verified.platform_type
+                }
             return {"success": False, "error": "Invalid or expired verification token"}
+        
+        # If mapping is already verified, return a friendly message
+        if mapping.is_verified:
+            return {
+                "success": True,
+                "already_verified": True,
+                "message": "Your account is already verified.",
+                "mapping_id": mapping.id,
+                "external_user_id": mapping.external_user_id,
+                "platform_type": mapping.platform_type
+            }
         
         # Update mapping with user info
         mapping.app_user_id = current_user.id
@@ -318,7 +345,21 @@ class ExternalUserMappingService:
         mapping.last_verified_at = datetime.utcnow()
         
         await db.commit()
-        
+
+        if mapping.platform_type == "slack":
+            from app.models.external_platform import ExternalPlatform
+            from app.services.platform_adapters.slack_adapter import SlackAdapter
+
+            platform = await db.get(ExternalPlatform, mapping.platform_id)
+            if not platform:
+                return {"success": False, "error": "Platform not found"}
+
+            adapter = SlackAdapter(platform)
+            await adapter.send_dm(
+                mapping.external_user_id,
+                "✅ Your account has been verified! You can now use the Slack integration."
+            )
+
         return {
             "success": True,
             "mapping_id": mapping.id,

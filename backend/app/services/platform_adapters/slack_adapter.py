@@ -198,7 +198,16 @@ class SlackAdapter(PlatformAdapter):
             
             message = {
                 "channel": channel_id,
-                "text": f"To start using this bot, please verify your account by clicking this link: <{verification_url}>"
+                "text": f"To start using this bot, please verify your account by clicking this link: <{verification_url}|Verify Account>",
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*Account Verification Required*\n\nTo start using this bot, please click the button below to verify your account: <{verification_url}>"
+                        }
+                    }
+                ]
             }
             
             print(f"Sending verification message to channel {channel_id}")
@@ -207,4 +216,39 @@ class SlackAdapter(PlatformAdapter):
             
         except Exception as e:
             print(f"Error sending verification message: {e}")
+            return False
+
+    async def send_dm(self, user_id: str, text: str) -> bool:
+        """
+        Open a DM with the user and send a message using send_response.
+        """
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            print("No bot token available")
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # Open a DM channel
+                open_resp = await client.post(
+                    "https://slack.com/api/conversations.open",
+                    headers={
+                        "Authorization": f"Bearer {bot_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={"users": user_id}
+                )
+                open_data = open_resp.json()
+                if not open_data.get("ok"):
+                    print(f"Failed to open DM: {open_data}")
+                    return False
+                channel_id = open_data["channel"]["id"]
+
+                # Use your existing send_response method
+                return await self.send_response({
+                    "channel": channel_id,
+                    "text": text
+                })
+        except Exception as e:
+            print(f"Error sending DM: {e}")
             return False

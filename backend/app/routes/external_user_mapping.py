@@ -107,7 +107,7 @@ async def verify_integration_user_token(
     # This would be handled by your frontend
     return {
         "token": token,
-        "verification_url": f"/verify-integration?token={token}"
+        "verification_url": f"/settings/integrations/verify/{token}/complete"
     }
 
 # Protected endpoint to complete verification after sign-in

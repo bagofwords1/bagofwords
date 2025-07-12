@@ -140,6 +140,13 @@ class ExternalPlatformManager:
         
         # This will integrate with your existing completion system
         # For now, just return success
+
+        # Send hello message back through the adapter
+        await adapter.send_dm(
+            user_mapping.external_user_id,
+            "Hello there!"
+        )
+
         return {
             "success": True,
             "action": "message_processed",
