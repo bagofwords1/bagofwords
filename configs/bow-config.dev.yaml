@@ -2,7 +2,7 @@
 deployment:
   type: "self_hosted"
 
-base_url: http://localhost:3000A
+base_url: http://localhost:3000
 
 database:
   url: sqlite:///db/app.db

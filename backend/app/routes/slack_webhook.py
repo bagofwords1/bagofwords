@@ -14,6 +14,9 @@ router = APIRouter(tags=["slack-webhook"])
 platform_manager = ExternalPlatformManager()
 platform_service = ExternalPlatformService()
 
+# Simple in-memory set to track processed events
+processed_events = set()
+
 @router.post("/api/settings/integrations/slack/webhook")
 async def slack_webhook(
     request: Request,
@@ -61,6 +64,29 @@ async def slack_webhook(
         # Check if this is a message event
         if event_data.get("type") != "event_callback" or event.get("type") != "message":
             print(f"Ignoring non-message event: {event_data.get('type')} - {event.get('type')}")
+            return {"ok": True}
+        
+        # Simple deduplication using event_id
+        event_id = event_data.get('event_id')
+        if event_id in processed_events:
+            print(f"Event {event_id} already processed, skipping")
+            return {"ok": True}
+        
+        # Mark as processed
+        processed_events.add(event_id)
+        
+        # Clean up if set gets too large (keep only last 1000 events)
+        if len(processed_events) > 1000:
+            processed_events.clear()
+        
+        # Only process direct messages (DMs) and ignore other message types
+        if event.get('channel_type') != 'im':
+            print(f"Ignoring non-DM message: {event.get('channel_type')}")
+            return {"ok": True}
+
+        # Skip if message is empty
+        if not event.get('text', '').strip():
+            print("Ignoring empty message")
             return {"ok": True}
         
         # Handle the event

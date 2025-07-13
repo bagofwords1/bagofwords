@@ -29,7 +29,6 @@ completion_service = CompletionService()
 async def create_completion(
     report_id: str, 
     completion: CompletionCreate, 
-    background_tasks: BackgroundTasks,
     background: bool = True,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
@@ -41,7 +40,6 @@ async def create_completion(
         completion, 
         current_user, 
         organization, 
-        background_tasks,
         background=background
     )
 

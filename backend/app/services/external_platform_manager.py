@@ -8,6 +8,8 @@ from app.services.platform_adapters.base_adapter import PlatformAdapter  # Add t
 from app.services.external_platform_service import ExternalPlatformService
 from app.services.external_user_mapping_service import ExternalUserMappingService
 from app.services.organization_service import OrganizationService
+from app.services.completion_service import CompletionService
+
 class ExternalPlatformManager:
     """Manages external platform interactions"""
     
@@ -15,6 +17,7 @@ class ExternalPlatformManager:
         self.platform_service = ExternalPlatformService()
         self.mapping_service = ExternalUserMappingService()
         self.organization_service = OrganizationService()
+        self.completion_service = CompletionService()
     
     async def handle_incoming_message(
         self, 
@@ -138,13 +141,72 @@ class ExternalPlatformManager:
     ) -> Dict[str, Any]:
         """Process message from verified user"""
         
-        # This will integrate with your existing completion system
-        # For now, just return success
+        # Get user and organization
+        user = await self.mapping_service.get_user_by_id(db, user_mapping.app_user_id)
+        if not user:
+            return {"success": False, "error": "User not found"}
+        
+        organization = await self.organization_service.get_organization(db, user_mapping.organization_id, None)
+        if not organization:
+            return {"success": False, "error": "Organization not found"}
+        
+        # Get a valid report for this organization/user, or create a new one.
+        from app.models.report import Report
+        from app.services.report_service import ReportService
+        from sqlalchemy import select
+        
+        report_service = ReportService()
 
-        # Send hello message back through the adapter
+        # Find the most recent report for this user in the organization
+        result = await db.execute(
+            select(Report)
+            .filter(Report.organization_id == organization.id)
+            .order_by(Report.created_at.desc())
+            .limit(1)
+        )
+        report = result.scalar_one_or_none()
+        
+        # If no report exists, create a new one for this conversation
+        if not report:
+            report = await report_service.create_report(
+                db=db,
+                title=f"Chat with {user.name} via Slack",
+                current_user=user,
+                organization=organization
+            )
+        
+        # Create completion data
+        from app.schemas.completion_schema import CompletionCreate, PromptSchema
+        
+        completion_data = CompletionCreate(
+            prompt=PromptSchema(
+                content=processed_data.get("message_text"),
+                widget_id=None,  
+                step_id=None,    
+                mentions=[       
+                    {'name': 'MEMORY', 'items': []},
+                    {'name': 'FILES', 'items': []},
+                    {'name': 'DATA SOURCES', 'items': []}
+                ]
+            )
+        )
+        
+        # Create completion (background=True to avoid blocking the webhook)
+        await self.completion_service.create_completion(
+            db=db,
+            report_id=str(report.id),
+            completion_data=completion_data,
+            current_user=user,
+            organization=organization,
+            background=True, 
+            external_user_id=user_mapping.external_user_id,
+            external_platform=user_mapping.platform_type
+        )
+
+        # Send acknowledgment message back through the adapter
         await adapter.send_dm(
             user_mapping.external_user_id,
-            "Hello there!"
+            "_Thinking..._"
         )
 
         return {

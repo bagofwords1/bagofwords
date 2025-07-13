@@ -12,6 +12,12 @@ import json
 from app.models.mention import MentionType
 from sqlalchemy.orm.exc import DetachedInstanceError
 
+# Add these imports for the new functionality
+from app.settings.database import create_async_session_factory
+from app.services.platform_adapters.adapter_factory import PlatformAdapterFactory
+from app.models.external_platform import ExternalPlatform
+
+
 class Completion(BaseSchema):
     __tablename__ = 'completions'
 
@@ -53,6 +59,58 @@ class Completion(BaseSchema):
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
     external_user_id = Column(String, nullable=True)  # Platform-specific user ID
 
+# New async function to handle sending the DM safely
+async def send_final_slack_dm(completion_id: str):
+    """
+    Fetches the final answer for a completion and sends it as a DM on Slack.
+    This is triggered when the main system_completion is marked as 'success'.
+    """
+    session_maker = create_async_session_factory()
+    async with session_maker() as db:
+        try:
+            # Get the system completion that triggered this event
+            stmt = select(Completion).options(selectinload(Completion.report)).where(Completion.id == completion_id)
+            result = await db.execute(stmt)
+            system_completion = result.scalar_one_or_none()
+
+            if not system_completion:
+                print(f"DM_SENDER: Could not find system_completion with id {completion_id}")
+                return
+
+            # Use the content from the triggering completion directly
+            if not (system_completion.completion and system_completion.completion.get('content')):
+                print(f"DM_SENDER: Completion {completion_id} has no content to send.")
+                return
+
+            final_answer_text = system_completion.completion.get('content')
+            external_user_id = system_completion.external_user_id
+            organization_id = system_completion.report.organization_id
+
+            # Get the Slack platform configuration to create the adapter
+            platform_stmt = select(ExternalPlatform).where(
+                ExternalPlatform.organization_id == organization_id,
+                ExternalPlatform.platform_type == "slack"
+            )
+            platform_result = await db.execute(platform_stmt)
+            platform = platform_result.scalar_one_or_none()
+
+            if not platform:
+                print(f"DM_SENDER: No active Slack platform found for organization {organization_id}")
+                return
+
+            # Create adapter and send the DM
+            adapter = PlatformAdapterFactory.create_adapter(platform)
+            success = await adapter.send_dm(external_user_id, final_answer_text)
+
+            if success:
+                print(f"DM_SENDER: Successfully sent final answer to Slack user {external_user_id}")
+            else:
+                print(f"DM_SENDER: Failed to send final answer to Slack user {external_user_id}")
+
+        except Exception as e:
+            print(f"DM_SENDER: Error sending final Slack DM for completion {completion_id}: {e}")
+            await db.rollback()
+
 # Callback functions
 
 
@@ -86,7 +144,10 @@ def after_insert_completion(mapper, connection, target):
             "parent_id": target.parent_id,
             "message_type": target.message_type,
             "role": target.role,
-            "report_id": str(target.report_id)
+            "report_id": str(target.report_id),
+            "external_platform": target.external_platform,
+            "external_message_id": target.external_message_id,
+            "external_user_id": target.external_user_id
         }
         
 
@@ -116,13 +177,25 @@ def after_update_completion(mapper, connection, target):
             "parent_id": target.parent_id,
             "message_type": target.message_type,
             "role": target.role,
-            "sigkill": target.sigkill.isoformat() if target.sigkill else None
+            "sigkill": target.sigkill.isoformat() if target.sigkill else None,
+            "external_platform": target.external_platform,
+            "external_message_id": target.external_message_id,
+            "external_user_id": target.external_user_id
         }
 
         if target.widget_id:
             data["widget_id"] = str(target.widget_id)
         if target.step_id:
             data["step_id"] = str(target.step_id)
+
+        # Check for the specific conditions to send the final DM
+        if (target.status == "success" and
+            target.role == "system" and
+            target.external_platform == "slack" and
+            target.external_user_id is not None):
+            
+            print(f"DM_SENDER: Triggering final Slack DM for completion {target.id}")
+            asyncio.create_task(send_final_slack_dm(str(target.id)))
 
         asyncio.create_task(broadcast_event(data))
 

@@ -63,9 +63,13 @@ class Agent:
         self.file_mentions = []
         self.data_source_mentions = []
         self.system_completion = system_completion  # Store the initial system completion
+        self.external_platform = None
+        self.external_user_id = None
 
         if head_completion:
             self.head_completion = head_completion
+            self.external_platform = head_completion.external_platform
+            self.external_user_id = head_completion.external_user_id
 
             if widget:
                 self.widget = widget
@@ -74,9 +78,10 @@ class Agent:
         if report:
             self.report = report
 
-            self.data_sources = self.report.data_sources
+            # Handle case where data_sources or files might be None
+            self.data_sources = getattr(report, 'data_sources', []) or []
             self.clients = { data_source.name: data_source.get_client() for data_source in self.data_sources }
-            self.files = self.report.files
+            self.files = getattr(report, 'files', []) or []
 
         # Create code execution manager with all required dependencies
         self.code_execution_manager = CodeExecutionManager(
@@ -92,7 +97,6 @@ class Agent:
 
         # Add event queue for sigkill detection
         self.sigkill_event = asyncio.Event()
-        
         # Register websocket handler
         websocket_manager.add_handler(self._handle_completion_update)
 
@@ -236,7 +240,9 @@ class Agent:
                                         completion=self.head_completion,
                                         widget=self.widget,
                                         role="system",
-                                        reasoning=json_result.get('reasoning')
+                                        reasoning=json_result.get('reasoning'),
+                                        external_platform=self.external_platform,
+                                        external_user_id=self.external_user_id
                                     )
                                     action_results[action_id]['prefix_completion'] = completion
                             elif action_results[action_id]['prefix_completion'].completion.get('content') != action['prefix']:
@@ -279,7 +285,9 @@ class Agent:
                                         message=action.get('prefix', f"Creating {action['details']['title']}..."),
                                         completion=self.head_completion,
                                         widget=widget,
-                                        role="system"
+                                        role="system",
+                                        external_platform=self.external_platform,
+                                        external_user_id=self.external_user_id
                                     )
                                     action_results[action_id]['prefix_completion'] = completion
                                 
@@ -329,7 +337,9 @@ class Agent:
                                         message=action['prefix'],
                                         completion=self.head_completion,
                                         widget=self.widget,
-                                    role="system"
+                                    role="system",
+                                        external_platform=self.external_platform,
+                                        external_user_id=self.external_user_id
                                 )
                                 action_results[action_id]['prefix_completion'] = completion
 
@@ -380,7 +390,9 @@ class Agent:
                                         reasoning=json_result.get('reasoning'),
                                         completion=self.head_completion,
                                         widget=None,
-                                        role="system"
+                                        role="system",
+                                        external_platform=self.external_platform,
+                                        external_user_id=self.external_user_id
                                 )
                                 action_results[action_id]['prefix_completion'] = completion
 
@@ -425,7 +437,9 @@ class Agent:
                                     message=f"I encountered an error while answering: {str(e)}",
                                     completion=self.head_completion,
                                     widget=self.widget,
-                                    role="ai_agent"
+                                    role="ai_agent",
+                                    external_platform=self.external_platform,
+                                    external_user_id=self.external_user_id
                                 )
                                 # Don't mark as completed if there was an error
                                 continue
@@ -457,7 +471,9 @@ class Agent:
                                         completion=self.head_completion,
                                         widget=None,
                                         role="system",
-                                        reasoning=json_result.get('reasoning')
+                                        reasoning=json_result.get('reasoning'),
+                                        external_platform=self.external_platform,
+                                        external_user_id=self.external_user_id
                                     )
                                 action_results[action_id]['prefix_completion'] = dashboard_completion
                             else:
@@ -684,7 +700,9 @@ class Agent:
                     message="Failed to generate data model",
                     completion=self.head_completion,
                     widget=self.widget,
-                    role="ai_agent"
+                    role="ai_agent",
+                    external_platform=self.external_platform,
+                    external_user_id=self.external_user_id
                 )
                 return False  # Return False to continue the loop
 
@@ -726,7 +744,9 @@ class Agent:
                         message=error_msg,
                         completion=self.head_completion,
                         widget=self.widget,
-                        role="ai_agent"
+                        role="ai_agent",
+                        external_platform=self.external_platform,
+                        external_user_id=self.external_user_id
                     )
             
             # Handle the final outcome
@@ -738,7 +758,9 @@ class Agent:
                     message="I faced some issues while generating data. Can you try explaining again?",
                     completion=self.head_completion,
                     widget=self.widget,
-                    role="ai_agent"
+                    role="ai_agent",
+                    external_platform=self.external_platform,
+                    external_user_id=self.external_user_id
                 )
             else:
                 await self.project_manager.update_step_status(self.db, step, "success")
@@ -762,7 +784,9 @@ class Agent:
                 message=f"An error occurred while generating data: {str(e)}",
                 completion=self.head_completion,
                 widget=self.widget,
-                role="ai_agent"
+                role="ai_agent",
+                external_platform=self.external_platform,
+                external_user_id=self.external_user_id
             )
             
             # Return False to continue the loop
@@ -823,7 +847,9 @@ class Agent:
                 message="I faced some issues while modifying the widget. Can you try explaining again?",
                 completion=self.head_completion,
                 widget=self.widget,
-                role="ai_agent"
+                role="ai_agent",
+                external_platform=self.external_platform,
+                external_user_id=self.external_user_id
             )
         else:
             await self.project_manager.update_step_status(self.db, step, "success")

@@ -89,8 +89,9 @@ class CompletionService:
         completion_data: CompletionCreate, 
         current_user: User, 
         organization: Organization, 
-        background_tasks: BackgroundTasks,
-        background: bool = True
+        background: bool = True,
+        external_user_id: str = None,
+        external_platform: str = None,
     ):
         try:
             
@@ -131,9 +132,7 @@ class CompletionService:
             # Create user completion
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
-            
             last_completion = await self.get_last_completion(db, report.id)
-            
             completion = Completion(
                 prompt=prompt_dict,
                 model=default_model.model_id,  # We know this exists now
@@ -144,7 +143,9 @@ class CompletionService:
                 message_type="table",
                 role="user",
                 status="success",
-                user_id=current_user.id
+                user_id=current_user.id,
+                external_user_id=external_user_id,
+                external_platform=external_platform
             )
 
             try:
@@ -169,7 +170,9 @@ class CompletionService:
                 turn_index=completion.turn_index + 1,
                 message_type="table",
                 role="system",
-                status="in_progress"
+                status="in_progress",
+                external_platform=external_platform,
+                external_user_id=external_user_id
             )
 
             try:
@@ -206,7 +209,7 @@ class CompletionService:
                 )
 
             if background:
-                background_tasks.add_task(agent.main_execution)
+                asyncio.create_task(agent.main_execution())
                 return None
             else:
                 try:

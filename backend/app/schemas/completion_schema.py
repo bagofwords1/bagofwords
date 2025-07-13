@@ -38,6 +38,9 @@ class CompletionSchema(CompletionBase):
     main_router: str = "table"
     step_id: Optional[str] = None
     step: Optional[StepSchema] = None
+    external_platform: Optional[str] = None
+    external_message_id: Optional[str] = None
+    external_user_id: Optional[str] = None
 
     class Config:
         from_attributes = True

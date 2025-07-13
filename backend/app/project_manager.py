@@ -22,7 +22,9 @@ class ProjectManager:
             message_type="error",
             role="system",
             report_id=head_completion.report_id if head_completion.report_id else None,
-            widget_id=head_completion.widget_id if head_completion.widget_id else None
+            widget_id=head_completion.widget_id if head_completion.widget_id else None,
+            external_platform=head_completion.external_platform,
+            external_user_id=head_completion.external_user_id
         )
 
         db.add(error_completion)
@@ -30,7 +32,7 @@ class ProjectManager:
         await db.refresh(error_completion)
         return error_completion
 
-    async def create_message(self, db, report, message=None, reasoning=None, completion=None, widget=None, role="system", step=None):
+    async def create_message(self, db, report, message=None, reasoning=None, completion=None, widget=None, role="system", step=None, external_platform=None, external_user_id=None):
         completion_message = PromptSchema(content="", reasoning="")
         if message is not None:
             completion_message.content = message
@@ -49,7 +51,9 @@ class ProjectManager:
             role=role,
             report_id=report.id,  # Assuming 'report' is an instance of the Report model
             widget_id=widget.id if widget else None,   # or pass a widget ID if available
-            step_id=step.id if step else None
+            step_id=step.id if step else None,
+            external_platform=external_platform,
+            external_user_id=external_user_id
         )
 
         db.add(new_completion)
