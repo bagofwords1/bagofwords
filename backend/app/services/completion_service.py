@@ -209,6 +209,7 @@ class CompletionService:
                 )
 
             if background:
+                logging.info("CompletionService: Starting agent execution in background")
                 asyncio.create_task(agent.main_execution())
                 return None
             else:

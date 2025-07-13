@@ -13,7 +13,7 @@ features:
   verify_emails: false
 
 google_oauth:
-  enabled: true
+  enabled: false
   client_id: '${BOW_GOOGLE_CLIENT_ID}'
   client_secret: '${BOW_GOOGLE_CLIENT_SECRET}'
 

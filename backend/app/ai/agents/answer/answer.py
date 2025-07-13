@@ -11,7 +11,7 @@ class Answer:
         self.search_context = organization_settings.get_config("search_context").value
         self.allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
 
-    async def execute(self, prompt, schemas, memories, previous_messages, widget=None, observation_data=None):
+    async def execute(self, prompt, schemas, memories, previous_messages, widget=None, observation_data=None, external_platform=None):
         # Build observation context similar to planner
         
         observation_context = ""
@@ -69,6 +69,9 @@ You are a data analyst. Your general capabilities are:
 - creating data tables from any data source: databses, APIs, files, etc
 - creating charts and dashboards
 - cleaning, analyzing, and transforming data
+
+Metadata about the user:
+- The user sent a message via {external_platform} platform. Make sure to format the output and style based on the platform.
 
 The planner agent decided that you should answer the question below with the data and schemas provided.
 

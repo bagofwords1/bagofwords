@@ -29,7 +29,7 @@ class Planner:
             return 0
         return len(self.tokenizer.encode(text))
 
-    async def execute(self, schemas, persona, prompt, memories, previous_messages, observation_data=None, widget=None, step=None):
+    async def execute(self, schemas, persona, prompt, memories, previous_messages, observation_data=None, widget=None, step=None, external_platform=None):
         # Generate observation context if observation_data is provided
         observation_context = ""
         if observation_data and "widgets" in observation_data and observation_data["widgets"]:
@@ -166,6 +166,9 @@ class Planner:
         text = f"""
         You are a data analyst specializing in data analytics, data engineering, data visualization, and data science.
 
+        Metadata about the user:
+        - external_platform: {external_platform}
+
         **Context**:
         - **Schemas**:
         {schemas}
@@ -259,7 +262,7 @@ class Planner:
            - Provide each action as a JSON object inside a "plan" array.
            - Each action must have:
              - "action": One of the defined actions.
-             - "prefix": A short message that validates the user's request, and explains the thinking and the plan before execution. If you are creating a widget, explain how your building and modeling it. Also explain the reasoning behind the plan.
+             - "prefix": A short message that validates the user's request, and explains the thinking and the plan before execution. If you are creating a widget, explain how your building and modeling it. Also explain the reasoning behind the plan. Make sure to format the output and style based on the target platform (slack, etc)
              - "execution_mode": Either "sequential" or "parallel". Use "parallel" if actions can be done independently. Otherwise, use "sequential".
              - "details": A dictionary of relevant details:
                * For "answer_question":

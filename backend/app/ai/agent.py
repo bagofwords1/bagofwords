@@ -41,15 +41,6 @@ class Agent:
 
     def __init__(self, db=None, organization_settings=None, report=None, model=None, head_completion=None, system_completion=None, widget=None, step=None, messages=[], main_router="table"):
 
-        self.llm = LLM(model=model)
-        self.organization_settings = organization_settings
-
-        self.planner = Planner(model=model, organization_settings=self.organization_settings)
-        self.answer = Answer(model=model, organization_settings=self.organization_settings)
-        self.dashboard_designer = DashboardDesigner(model=model)
-        self.project_manager = ProjectManager()
-        self.coder = Coder(model=model, organization_settings=self.organization_settings)
-        self.reporter = Reporter(model=model)
 
         if db:
             self.db = db
@@ -82,6 +73,17 @@ class Agent:
             self.data_sources = getattr(report, 'data_sources', []) or []
             self.clients = { data_source.name: data_source.get_client() for data_source in self.data_sources }
             self.files = getattr(report, 'files', []) or []
+        
+
+        self.llm = LLM(model=model)
+        self.organization_settings = organization_settings
+
+        self.planner = Planner(model=model, organization_settings=self.organization_settings)
+        self.answer = Answer(model=model, organization_settings=self.organization_settings)
+        self.dashboard_designer = DashboardDesigner(model=model)
+        self.project_manager = ProjectManager()
+        self.coder = Coder(model=model, organization_settings=self.organization_settings)
+        self.reporter = Reporter(model=model)
 
         # Create code execution manager with all required dependencies
         self.code_execution_manager = CodeExecutionManager(
@@ -147,7 +149,8 @@ class Agent:
                     previous_messages,
                     observation_data,  
                     self.widget, 
-                    self.step
+                    self.step,
+                    self.external_platform
                 )
                 
                 current_plan = None
@@ -210,7 +213,8 @@ class Agent:
                                 "prefix_completion": None,
                                 "widget": None,
                                 "step": None,
-                                "completed": False
+                                "completed": False,
+                                "status_set_to_success": False
                             }
 
                         # Now we can safely access prefix_completion
@@ -313,6 +317,18 @@ class Agent:
                                     action_results[action_id]['step']
                                 )
 
+                            # When action_end is true, the prefix is finalized. Set status to success.
+                            prefix_completion = action_results[action_id].get('prefix_completion')
+                            if (action.get('action_end', False) and
+                                    prefix_completion and
+                                    not action_results[action_id].get('status_set_to_success')):
+                                await self.project_manager.update_completion_status(
+                                    self.db,
+                                    prefix_completion,
+                                    'success'
+                                )
+                                action_results[action_id]['status_set_to_success'] = True
+
                             if action_results[action_id]['widget'] is not None and action_results[action_id]['step'] is not None:
                                 action_completed = await self._handle_generate_widget_data(
                                     head_completion.prompt,
@@ -342,6 +358,18 @@ class Agent:
                                         external_user_id=self.external_user_id
                                 )
                                 action_results[action_id]['prefix_completion'] = completion
+
+                            # When action_end is true, the prefix is finalized. Set status to success.
+                            prefix_completion = action_results[action_id].get('prefix_completion')
+                            if (action.get('action_end', False) and
+                                    prefix_completion and
+                                    not action_results[action_id].get('status_set_to_success')):
+                                await self.project_manager.update_completion_status(
+                                    self.db,
+                                    prefix_completion,
+                                    'success'
+                                )
+                                action_results[action_id]['status_set_to_success'] = True
 
                             # Get widget data using modify supertable
                             if not self.widget:
@@ -397,6 +425,18 @@ class Agent:
                                 action_results[action_id]['prefix_completion'] = completion
 
                             try:
+                                # When action_end is true, the prefix is finalized. Set status to success.
+                                prefix_completion = action_results[action_id].get('prefix_completion')
+                                if (action.get('action_end', False) and
+                                        prefix_completion and
+                                        not action_results[action_id].get('status_set_to_success')):
+                                    await self.project_manager.update_completion_status(
+                                        self.db,
+                                        prefix_completion,
+                                        'success'
+                                    )
+                                    action_results[action_id]['status_set_to_success'] = True
+
                                 question = action['details']['extracted_question']
                                 full_answer = action['prefix'] + " "
 
@@ -414,7 +454,8 @@ class Agent:
                                     memories=memories,
                                     previous_messages=previous_messages,
                                     widget=self.widget,
-                                    observation_data=current_observation_data
+                                    observation_data=current_observation_data,
+                                    external_platform=self.external_platform
                                 ):
                                     full_answer += chunk
                                     # Update message with progress
@@ -429,6 +470,12 @@ class Agent:
                                     "answer": full_answer,
                                     "completed": True
                                 })
+
+                                await self.project_manager.update_completion_status(
+                                    self.db,
+                                    action_results[action_id]['prefix_completion'],
+                                    'success'
+                                )
 
                             except Exception as e:
                                 await self.project_manager.create_message(
@@ -485,6 +532,18 @@ class Agent:
                                     "Designing the dashboard layout...", # Reset message
                                     json_result.get('reasoning')
                                 )
+
+                            # When action_end is true, the prefix is finalized. Set status to success.
+                            prefix_completion = action_results[action_id].get('prefix_completion')
+                            if (action.get('action_end', False) and
+                                    prefix_completion and
+                                    not action_results[action_id].get('status_set_to_success')):
+                                await self.project_manager.update_completion_status(
+                                    self.db,
+                                    prefix_completion,
+                                    'success'
+                                )
+                                action_results[action_id]['status_set_to_success'] = True
 
                             # --- Process Dashboard Design Stream ---
                             processed_text_widget_ids = set() # Track created text widgets to avoid duplicates
@@ -656,8 +715,8 @@ class Agent:
                 # Only mark success if the system completion exists
                 status = 'success' if self.system_completion else 'unknown' # Or handle case where system_completion might be None
 
-            if self.system_completion: # Ensure system_completion exists before updating
-                await self.project_manager.update_completion_status(self.db, self.system_completion, status)
+            #if self.system_completion: # Ensure system_completion exists before updating
+             #   await self.project_manager.update_completion_status(self.db, self.system_completion, status)
             logger.info(f"Main execution completed with status: {status}")
             
             # Clean up

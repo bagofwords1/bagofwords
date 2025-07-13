@@ -44,7 +44,7 @@ class ProjectManager:
         new_completion = Completion(
             completion=completion_message,
             model="gpt4o",
-            status="success",
+            status="in_progress",
             turn_index=0,
             parent_id=completion.id if completion else None,
             message_type="ai_completion",
