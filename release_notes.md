@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.166 (July 13th, 2025)
+- Resolved membership invitation handling for closed deployments with OAuth authentication
+- Corrected query count calculation in admin dashboard metrics
+
 ## Version 0.0.165 (July 7th, 2025)
 - Added admin dashboard with usage analytics, query history tracking, and LLM feedback collection
 - Implemented secure password recovery workflow with email verification

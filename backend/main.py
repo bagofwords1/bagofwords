@@ -250,7 +250,6 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
         exit(1)
-
     logger.info(
         "Application starting",
         extra={

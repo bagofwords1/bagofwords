@@ -59,31 +59,32 @@ class UserManager(BaseUserManager[User, str]):
                     headers={"Location": redirect_url},
                 )
 
+    async def _attach_open_memberships(self, user: User, session: AsyncSession):
+        stmt = select(Membership).where(
+            and_(
+                Membership.email == user.email,
+                Membership.user_id.is_(None)
+            )
+        )
+        open_memberships = (await session.execute(stmt)).scalars().all()
+        
+        if open_memberships:
+            user.is_verified = True
+
+        # Update each open membership with the new user
+        for membership in open_memberships:
+            membership.user_id = user.id
+            membership.email = None  # Clear the email since we now have a user
+
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
         
         # Get open memberships and attach user
         async with self.user_db.session as session:
-            # Find any open memberships for this user's email
-            stmt = select(Membership).where(
-                and_(
-                    Membership.email == user.email,
-                    Membership.user_id.is_(None)
-                )
-            )
-            open_memberships = (await session.execute(stmt)).scalars().all()
-            
-            if open_memberships:
-                # If memberships exist, verify the user
-                user.is_verified = True
+            await self._attach_open_memberships(user, session)
             
             if not settings.bow_config.features.verify_emails:
                 user.is_verified = True
-
-            # Update each open membership with the new user
-            for membership in open_memberships:
-                membership.user_id = user.id
-                membership.email = None  # Clear the email since we now have a user
             
             await session.commit()
 
@@ -149,6 +150,10 @@ class UserManager(BaseUserManager[User, str]):
                             "is_superuser": False,
                         }
                     )
+                    
+                    # Attach any open memberships
+                    await self._attach_open_memberships(user, session)
+                    
                     oauth_account = OAuthAccount(
                         oauth_name=oauth_name,
                         access_token=access_token,

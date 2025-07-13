@@ -201,36 +201,37 @@ class OrganizationService:
         """Get organization metrics including total messages, queries, and thumbs"""
         from app.models.completion import Completion
         from app.models.report import Report
+        from app.models.step import Step
+        from app.models.widget import Widget
+        from sqlalchemy import func
         
         # Count total messages (completions)
         messages_result = await db.execute(
-            select(Completion)
+            select(func.count(Completion.id))
             .join(Report)
             .where(Report.organization_id == organization.id)
         )
-        total_messages = len(messages_result.scalars().all())
+        total_messages = messages_result.scalar()
         
-        # Count total queries (user completions)
+        # Count total queries (steps)
         queries_result = await db.execute(
-            select(Completion)
+            select(func.count(Step.id))
+            .join(Widget)
             .join(Report)
-            .where(
-                Report.organization_id == organization.id,
-                Completion.role == 'user'
-            )
+            .where(Report.organization_id == organization.id)
         )
-        total_queries = len(queries_result.scalars().all())
+        total_queries = queries_result.scalar()
         
         # Count total thumbs (feedback scores)
         thumbs_result = await db.execute(
-            select(Completion)
+            select(func.count(Completion.id))
             .join(Report)
             .where(
                 Report.organization_id == organization.id,
                 Completion.feedback_score != 0
             )
         )
-        total_thumbs = len(thumbs_result.scalars().all())
+        total_thumbs = thumbs_result.scalar()
         
         return {
             "total_messages": total_messages,

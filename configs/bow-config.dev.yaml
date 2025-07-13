@@ -8,14 +8,14 @@ database:
   url: sqlite:///db/app.db
   
 features:
-  allow_uninvited_signups: true
+  allow_uninvited_signups: false
   allow_multiple_organizations: false
   verify_emails: false
 
 google_oauth:
-  enabled: false
-  client_id: 'asdf'
-  client_secret: 'asdfsdafdsaf'
+  enabled: true
+  client_id: '${BOW_GOOGLE_CLIENT_ID}'
+  client_secret: '${BOW_GOOGLE_CLIENT_SECRET}'
 
 smtp_settings:
   host: "smtp.resend.com"
