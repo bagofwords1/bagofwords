@@ -157,6 +157,8 @@ class ExternalPlatformManager:
         
         # Find a recent report for this user from the same platform
         platform_name = user_mapping.platform_type.capitalize()
+
+        # this will neer work, need to be re-written to use completion reports and by that to find the relevant one
         result = await db.execute(
             select(Report)
             .filter(
@@ -171,6 +173,7 @@ class ExternalPlatformManager:
             .limit(1)
         )
         report = result.scalar_one_or_none()
+        report = None
 
         if report:
             return report

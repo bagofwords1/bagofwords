@@ -95,6 +95,8 @@ async def send_step_slack_dm(step_id: str):
 
             adapter = PlatformAdapterFactory.create_adapter(platform)
             file_path, success = None, False
+
+            await adapter.send_dm(external_user_id, str(step.data))
             try:
                 if step.type == "table":
                     file_path = df_to_csv(step.data)
