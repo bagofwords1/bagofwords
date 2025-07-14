@@ -221,6 +221,85 @@ class SlackAdapter(PlatformAdapter):
             print(f"Error sending verification message: {e}")
             return False
 
+    async def _upload_file_v2(self, user_id: str, file_path: str, title: str) -> bool:
+        """
+        Uploads a file to Slack using the new multi-step process.
+        """
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            print("No bot token available")
+            return False
+
+        if not os.path.exists(file_path):
+            print(f"File not found at {file_path}")
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                # 1. Open a DM channel to get the channel_id
+                open_resp = await client.post(
+                    "https://slack.com/api/conversations.open",
+                    headers={"Authorization": f"Bearer {bot_token}"},
+                    json={"users": user_id}
+                )
+                open_data = open_resp.json()
+                if not open_data.get("ok"):
+                    print(f"Failed to open DM: {open_data}")
+                    return False
+                channel_id = open_data["channel"]["id"]
+
+                # 2. Get the upload URL
+                file_size = os.path.getsize(file_path)
+                file_name = os.path.basename(file_path)
+                
+                get_url_resp = await client.get(
+                    "https://slack.com/api/files.getUploadURLExternal",
+                    headers={"Authorization": f"Bearer {bot_token}"},
+                    params={"filename": file_name, "length": file_size}
+                )
+                get_url_data = get_url_resp.json()
+                if not get_url_data.get("ok"):
+                    print(f"Failed to get upload URL: {get_url_data}")
+                    return False
+                
+                upload_url = get_url_data["upload_url"]
+                file_id = get_url_data["file_id"]
+
+                # 3. Upload the file to the provided URL
+                with open(file_path, "rb") as f:
+                    upload_resp = await client.post(
+                        upload_url,
+                        content=f.read(),
+                        headers={"Content-Type": "application/octet-stream"}
+                    )
+                
+                if upload_resp.status_code != 200:
+                    print(f"Failed to upload file to URL. Status: {upload_resp.status_code}, Response: {upload_resp.text}")
+                    return False
+                
+                # 4. Complete the upload
+                files_data = [{"id": file_id, "title": title}]
+                complete_upload_resp = await client.post(
+                    "https://slack.com/api/files.completeUploadExternal",
+                    headers={"Authorization": f"Bearer {bot_token}"},
+                    json={
+                        "files": files_data,
+                        "channel_id": channel_id,
+                        "initial_comment": title,
+                    }
+                )
+
+                complete_upload_data = complete_upload_resp.json()
+                if not complete_upload_data.get("ok"):
+                    print(f"Failed to complete file upload: {complete_upload_data}")
+                    return False
+                
+                return True
+
+        except Exception as e:
+            print(f"Error in new file upload process: {e}")
+            return False
+
     async def send_dm(self, user_id: str, text: str) -> bool:
         """
         Open a DM with the user and send a message using send_response.
@@ -250,7 +329,14 @@ class SlackAdapter(PlatformAdapter):
                 # Use your existing send_response method
                 return await self.send_response({
                     "channel": channel_id,
-                    "text": text
+                    "text": text, # Fallback for notifications
+                    "blocks": [{
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": text
+                        }
+                    }]
                 })
         except Exception as e:
             print(f"Error sending DM: {e}")
@@ -258,110 +344,20 @@ class SlackAdapter(PlatformAdapter):
 
     async def send_image_in_dm(self, user_id: str, image_path: str, title: str) -> bool:
         """
-        Sends an image file in a direct message to a user.
+        Sends an image file in a direct message to a user using the new upload method.
         """
-        bot_token = self.credentials.get("bot_token")
-        if not bot_token:
-            print("No bot token available")
-            return False
-
-        if not os.path.exists(image_path):
-            print(f"Image file not found at {image_path}")
-            return False
-
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                # Open a DM channel
-                open_resp = await client.post(
-                    "https://slack.com/api/conversations.open",
-                    headers={
-                        "Authorization": f"Bearer {bot_token}",
-                        "Content-Type": "application/json"
-                    },
-                    json={"users": user_id}
-                )
-                open_data = open_resp.json()
-                if not open_data.get("ok"):
-                    print(f"Failed to open DM: {open_data}")
-                    return False
-                channel_id = open_data["channel"]["id"]
-
-                # Upload the image file
-                with open(image_path, "rb") as f:
-                    file_name = os.path.basename(image_path)
-                    upload_resp = await client.post(
-                        "https://slack.com/api/files.upload",
-                        headers={"Authorization": f"Bearer {bot_token}"},
-                        data={
-                            "channels": channel_id,
-                            "title": title,
-                            "initial_comment": title,
-                        },
-                        files={"file": (file_name, f)}
-                    )
-
-                upload_data = upload_resp.json()
-                if not upload_data.get("ok"):
-                    print(f"Failed to upload file: {upload_data}")
-                    return False
-                
-                return True
-
+            return await self._upload_file_v2(user_id, image_path, title)
         except Exception as e:
             print(f"Error sending image in DM: {e}")
             return False
 
     async def send_file_in_dm(self, user_id: str, file_path: str, title: str) -> bool:
         """
-        Sends a file attachment in a direct message to a user.
+        Sends a file attachment in a direct message to a user using the new upload method.
         """
-        bot_token = self.credentials.get("bot_token")
-        if not bot_token:
-            print("No bot token available")
-            return False
-            
-        if not os.path.exists(file_path):
-            print(f"File not found at {file_path}")
-            return False
-
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                # Open a DM channel
-                open_resp = await client.post(
-                    "https://slack.com/api/conversations.open",
-                    headers={
-                        "Authorization": f"Bearer {bot_token}",
-                        "Content-Type": "application/json"
-                    },
-                    json={"users": user_id}
-                )
-                open_data = open_resp.json()
-                if not open_data.get("ok"):
-                    print(f"Failed to open DM: {open_data}")
-                    return False
-                channel_id = open_data["channel"]["id"]
-
-                # Upload the file
-                with open(file_path, "rb") as f:
-                    file_name = os.path.basename(file_path)
-                    upload_resp = await client.post(
-                        "https://slack.com/api/files.upload",
-                        headers={"Authorization": f"Bearer {bot_token}"},
-                        data={
-                            "channels": channel_id,
-                            "title": title,
-                            "initial_comment": title
-                        },
-                        files={"file": (file_name, f)}
-                    )
-
-                upload_data = upload_resp.json()
-                if not upload_data.get("ok"):
-                    print(f"Failed to upload file: {upload_data}")
-                    return False
-                
-                return True
-
+            return await self._upload_file_v2(user_id, file_path, title)
         except Exception as e:
             print(f"Error sending file in DM: {e}")
             return False
