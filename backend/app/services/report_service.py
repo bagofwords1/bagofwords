@@ -70,6 +70,7 @@ class ReportService:
         del report_data.files
         data_sources = report_data.data_sources
         del report_data.data_sources
+
         # Create and persist the report
         report = Report(**report_data.dict())
         report.user_id = current_user.id

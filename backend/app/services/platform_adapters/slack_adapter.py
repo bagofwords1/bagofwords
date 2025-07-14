@@ -2,6 +2,9 @@ import hmac
 import hashlib
 import time
 import httpx
+import os
+import uuid
+import csv
 from typing import Dict, Any, Optional
 from .base_adapter import PlatformAdapter
 from sqlalchemy import select, and_
@@ -251,4 +254,114 @@ class SlackAdapter(PlatformAdapter):
                 })
         except Exception as e:
             print(f"Error sending DM: {e}")
+            return False
+
+    async def send_image_in_dm(self, user_id: str, image_path: str, title: str) -> bool:
+        """
+        Sends an image file in a direct message to a user.
+        """
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            print("No bot token available")
+            return False
+
+        if not os.path.exists(image_path):
+            print(f"Image file not found at {image_path}")
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                # Open a DM channel
+                open_resp = await client.post(
+                    "https://slack.com/api/conversations.open",
+                    headers={
+                        "Authorization": f"Bearer {bot_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={"users": user_id}
+                )
+                open_data = open_resp.json()
+                if not open_data.get("ok"):
+                    print(f"Failed to open DM: {open_data}")
+                    return False
+                channel_id = open_data["channel"]["id"]
+
+                # Upload the image file
+                with open(image_path, "rb") as f:
+                    file_name = os.path.basename(image_path)
+                    upload_resp = await client.post(
+                        "https://slack.com/api/files.upload",
+                        headers={"Authorization": f"Bearer {bot_token}"},
+                        data={
+                            "channels": channel_id,
+                            "title": title,
+                            "initial_comment": title,
+                        },
+                        files={"file": (file_name, f)}
+                    )
+
+                upload_data = upload_resp.json()
+                if not upload_data.get("ok"):
+                    print(f"Failed to upload file: {upload_data}")
+                    return False
+                
+                return True
+
+        except Exception as e:
+            print(f"Error sending image in DM: {e}")
+            return False
+
+    async def send_file_in_dm(self, user_id: str, file_path: str, title: str) -> bool:
+        """
+        Sends a file attachment in a direct message to a user.
+        """
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            print("No bot token available")
+            return False
+            
+        if not os.path.exists(file_path):
+            print(f"File not found at {file_path}")
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                # Open a DM channel
+                open_resp = await client.post(
+                    "https://slack.com/api/conversations.open",
+                    headers={
+                        "Authorization": f"Bearer {bot_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={"users": user_id}
+                )
+                open_data = open_resp.json()
+                if not open_data.get("ok"):
+                    print(f"Failed to open DM: {open_data}")
+                    return False
+                channel_id = open_data["channel"]["id"]
+
+                # Upload the file
+                with open(file_path, "rb") as f:
+                    file_name = os.path.basename(file_path)
+                    upload_resp = await client.post(
+                        "https://slack.com/api/files.upload",
+                        headers={"Authorization": f"Bearer {bot_token}"},
+                        data={
+                            "channels": channel_id,
+                            "title": title,
+                            "initial_comment": title
+                        },
+                        files={"file": (file_name, f)}
+                    )
+
+                upload_data = upload_resp.json()
+                if not upload_data.get("ok"):
+                    print(f"Failed to upload file: {upload_data}")
+                    return False
+                
+                return True
+
+        except Exception as e:
+            print(f"Error sending file in DM: {e}")
             return False

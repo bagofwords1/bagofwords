@@ -24,6 +24,7 @@ from app.services.report_service import ReportService
 from app.services.mention_service import MentionService
 from app.services.memory_service import MemoryService
 from app.websocket_manager import websocket_manager
+from app.settings.database import create_async_session_factory
 
 from sqlalchemy import select, update
 
@@ -186,34 +187,67 @@ class CompletionService:
                     detail=f"Failed to save system completion: {str(e)}"
                 )
 
-            # Setup agent
-            try:
-                org_settings = await organization.get_settings(db)
-                mentions = await self.mention_service.create_completion_mentions(db, completion)
-
-                agent = Agent(
-                    db=db,
-                    organization_settings=org_settings,
-                    model=default_model,
-                    report=report,
-                    messages=[],
-                    head_completion=completion,
-                    system_completion=system_completion,
-                    widget=widget,
-                    step=step
-                )
-            except Exception as e:
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to initialize agent: {str(e)}"
-                )
+            org_settings = await organization.get_settings(db)
 
             if background:
                 logging.info("CompletionService: Starting agent execution in background")
-                asyncio.create_task(agent.main_execution())
+
+                async def run_agent_task():
+                    # Create a new session factory and session for the background task
+                    async_session = create_async_session_factory()
+                    async with async_session() as session:
+                        try:
+                            # Re-fetch all database-dependent objects using the new session
+                            # to ensure they are not attached to the closed, request-level session.
+                            report_obj = await session.get(Report, report.id)
+                            completion_obj = await session.get(Completion, completion.id)
+                            system_completion_obj = await session.get(Completion, system_completion.id)
+                            widget_obj = await session.get(Widget, widget.id) if widget else None
+                            step_obj = await session.get(Step, step.id) if step else None
+
+                            if not all([report_obj, completion_obj, system_completion_obj]):
+                                logging.error("Failed to fetch necessary objects for background agent.")
+                                return
+
+                            agent = Agent(
+                                db=session,
+                                organization_settings=org_settings,
+                                model=default_model,
+                                report=report_obj,
+                                messages=[],
+                                head_completion=completion_obj,
+                                system_completion=system_completion_obj,
+                                widget=widget_obj,
+                                step=step_obj
+                            )
+                            await agent.main_execution()
+                        except Exception as e:
+                            logging.error(f"Agent background execution failed: {e}")
+                            if system_completion.id:
+                                # Use a new query to update the status in the new session
+                                await session.execute(
+                                    update(Completion)
+                                    .where(Completion.id == system_completion.id)
+                                    .values(status='error', completion={'content': f"Agent failed: {str(e)}", "error": True})
+                                )
+                                await session.commit()
+
+                asyncio.create_task(run_agent_task())
                 return None
             else:
                 try:
+                    # Setup agent for foreground execution
+                    agent = Agent(
+                        db=db,
+                        organization_settings=org_settings,
+                        model=default_model,
+                        report=report,
+                        messages=[],
+                        head_completion=completion,
+                        system_completion=system_completion,
+                        widget=widget,
+                        step=step
+                    )
                     # Run the agent
                     await agent.main_execution()
 

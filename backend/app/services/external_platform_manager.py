@@ -9,7 +9,7 @@ from app.services.external_platform_service import ExternalPlatformService
 from app.services.external_user_mapping_service import ExternalUserMappingService
 from app.services.organization_service import OrganizationService
 from app.services.completion_service import CompletionService
-
+from app.services.data_source_service import DataSourceService
 class ExternalPlatformManager:
     """Manages external platform interactions"""
     
@@ -18,7 +18,8 @@ class ExternalPlatformManager:
         self.mapping_service = ExternalUserMappingService()
         self.organization_service = OrganizationService()
         self.completion_service = CompletionService()
-    
+        self.data_source_service = DataSourceService()
+
     async def handle_incoming_message(
         self, 
         db: AsyncSession, 
@@ -132,6 +133,67 @@ class ExternalPlatformManager:
             token
         )
 
+    async def _get_or_create_conversation_report(
+        self,
+        db: AsyncSession,
+        organization: Any,
+        user: Any,
+        user_mapping: ExternalUserMapping
+    ) -> Any:
+        """
+        Get a report for a user if one from the platform exists from the last 24 hours,
+        otherwise create a new one.
+        """
+        from app.models.report import Report
+        from app.services.report_service import ReportService
+        from app.schemas.report_schema import ReportCreate
+        from sqlalchemy import select, and_
+        import datetime
+
+        report_service = ReportService()
+
+        # Check for a report from the last 24 hours for the user from the given platform
+        twenty_four_hours_ago = datetime.datetime.utcnow() - datetime.timedelta(hours=24)
+        
+        # Find a recent report for this user from the same platform
+        platform_name = user_mapping.platform_type.capitalize()
+        result = await db.execute(
+            select(Report)
+            .filter(
+                and_(
+                    Report.organization_id == organization.id,
+                    Report.user_id == user.id,
+                    Report.created_at >= twenty_four_hours_ago,
+                    Report.title == f"Chat with {user.name} via {platform_name}"
+                )
+            )
+            .order_by(Report.created_at.desc())
+            .limit(1)
+        )
+        report = result.scalar_one_or_none()
+
+        if report:
+            return report
+
+        # If no recent report, create a new one
+        data_sources = await self.data_source_service.get_active_data_sources(db, organization)
+        data_source_ids = [data_source.id for data_source in data_sources]
+        report_create_data = ReportCreate(
+            title=f"Chat with {user.name} via {platform_name}",
+            data_sources=data_source_ids
+        )
+        report = await report_service.create_report(
+            db=db,
+            report_data=report_create_data,
+            current_user=user,
+            organization=organization
+        )
+        
+        return report
+
+    
+
+
     async def _process_verified_message(
         self, 
         db: AsyncSession, 
@@ -150,30 +212,9 @@ class ExternalPlatformManager:
         if not organization:
             return {"success": False, "error": "Organization not found"}
         
-        # Get a valid report for this organization/user, or create a new one.
-        from app.models.report import Report
-        from app.services.report_service import ReportService
-        from sqlalchemy import select
-        
-        report_service = ReportService()
-
-        # Find the most recent report for this user in the organization
-        result = await db.execute(
-            select(Report)
-            .filter(Report.organization_id == organization.id)
-            .order_by(Report.created_at.desc())
-            .limit(1)
+        report = await self._get_or_create_conversation_report(
+            db, organization, user, user_mapping
         )
-        report = result.scalar_one_or_none()
-        
-        # If no report exists, create a new one for this conversation
-        if not report:
-            report = await report_service.create_report(
-                db=db,
-                title=f"Chat with {user.name} via Slack",
-                current_user=user,
-                organization=organization
-            )
         
         # Create completion data
         from app.schemas.completion_schema import CompletionCreate, PromptSchema
