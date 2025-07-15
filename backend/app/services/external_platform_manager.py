@@ -191,7 +191,7 @@ class ExternalPlatformManager:
             data_sources=data_source_ids,
             external_platform_id=user_mapping.platform_id
         )
-        breakpoint()
+        
         report = await report_service.create_report(
             db=db,
             report_data=report_create_data,
