@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.167 (July 15th, 2025)
+- Slack integration! Now admins can integrate their Slack organization account and have users converse with bow via slack. Includes user-level authorization, formatting, charts, and tables
+- Download steps data as CSV is now available in UI
+
 ## Version 0.0.166 (July 13th, 2025)
 - Resolved membership invitation handling for closed deployments with OAuth authentication
 - Corrected query count calculation in admin dashboard metrics

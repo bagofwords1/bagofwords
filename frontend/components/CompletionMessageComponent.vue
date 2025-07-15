@@ -76,11 +76,21 @@
                                         Version: {{ localCompletion.step?.id.split('-')[1] }}
                                     </span>
                                 </h3>
-                                <button @click="localCompletion.isCollapsed = !localCompletion.isCollapsed"
-                                    class="cursor-pointer text-xs text-gray-400 hover:text-gray-600">
-                                    <Icon
-                                        :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" />
-                                </button>
+                                <div class="flex items-center">
+                                    <UTooltip text="Download CSV" v-if="localCompletion.step?.id && localCompletion.step?.status === 'success'">
+                                    <button @click="downloadStepCSV(localCompletion.step?.id, localCompletion.widget?.title, localCompletion.step?.slug)"
+                                        v-if="localCompletion.step?.id && localCompletion.step?.status === 'success'"
+                                        class="cursor-pointer text-xs text-gray-400 hover:text-gray-600 mr-2"
+                                        title="Download CSV">
+                                        <Icon name="heroicons-arrow-down-tray" />
+                                    </button>
+                                </UTooltip> 
+                                    <button @click="localCompletion.isCollapsed = !localCompletion.isCollapsed"
+                                        class="cursor-pointer text-xs text-gray-400 hover:text-gray-600">
+                                        <Icon
+                                            :name="localCompletion.isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" />
+                                    </button>
+                                </div>
                             </div>
                             <hr />
                             <div v-if="!localCompletion.isCollapsed">
@@ -315,6 +325,46 @@ const cancelSaveMemory = () => {
     memoryTitle.value = '';
     memoryDescription.value = '';
 }
+
+const downloadStepCSV = async (stepId, widgetTitle, stepSlug) => {
+    if (!stepId) return;
+    try {
+        // Use `useMyFetch` with the correct `responseType` option
+        const { data, error } = await useMyFetch(`/api/steps/${stepId}/export`, {
+            responseType: 'blob'
+        });
+
+        // Check the error ref for any issues
+        if (error.value) {
+            // The error object from useFetch contains more details
+            throw new Error(`Download failed: ${error.value.message || 'Unknown error'}`);
+        }
+
+        // The data ref will now correctly hold the Blob object
+        const blob = data.value;
+        if (!blob) {
+            throw new Error('No data received from server.');
+        }
+
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        
+        // Sanitize and create a more human-readable filename
+        const safeWidgetTitle = widgetTitle?.replace(/[^a-zA-Z0-9_-\s]/g, '').trim() || 'widget';
+        const fileName = `${safeWidgetTitle.replace(/\s+/g, '_')}-${stepSlug || stepId}.csv`;
+        a.download = fileName;
+
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        a.remove();
+    } catch (error) {
+        console.error('Error downloading the CSV:', error);
+        // Here you could trigger a user-facing notification about the error.
+    }
+};
 
 const showPlanModal = ref(false);
 const planLoading = ref(false);

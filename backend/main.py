@@ -49,7 +49,8 @@ from app.routes import (
     bow_settings,
     external_platform,
     external_user_mapping,
-    slack_webhook
+    slack_webhook,
+    step
 )
 
 # Initialize logging
@@ -168,7 +169,7 @@ app.include_router(bow_settings.router, prefix="/api")
 app.include_router(external_platform.router, prefix="/api")
 app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)
-
+app.include_router(step.router, prefix="/api")
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
     if app.openapi_schema:
