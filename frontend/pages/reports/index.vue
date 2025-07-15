@@ -27,6 +27,9 @@
                                 <NuxtLink :to="`/reports/${report.id}`" class="text-blue-500 hover:underline">
                                     {{ report.title }}
                                 </NuxtLink>
+                                <div v-if="report.external_platform && report.external_platform.platform_type == 'slack'" class="ml-2 h-3 inline mr-2">
+                                    <img src="/icons/slack.png" class="h-3 inline mr-2" />
+                                </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                 <UTooltip :text="data_source.name" v-for="data_source in report.data_sources">

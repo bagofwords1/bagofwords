@@ -15,6 +15,7 @@ class ExternalPlatform(BaseSchema):
     is_active = Column(Boolean, default=True, nullable=False)
     
     # Relationships
+    reports = relationship("Report", back_populates="external_platform")
     organization = relationship("Organization", back_populates="external_platforms")
     external_user_mappings = relationship("ExternalUserMapping", back_populates="external_platform")
     

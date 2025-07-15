@@ -19,6 +19,12 @@ class ExternalUserMappingUpdate(BaseModel):
     external_name: Optional[str] = None
     is_verified: Optional[bool] = None
 
+class ExternalUserMappingMinimalSchema(ExternalUserMappingBase):
+    last_verified_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 class ExternalUserMappingSchema(ExternalUserMappingBase):
     id: str
     organization_id: str

@@ -4,7 +4,7 @@ from .widget_schema import WidgetSchema, WidgetCreate
 from app.schemas.user_schema import UserSchema
 from datetime import datetime
 from app.schemas.data_source_schema import DataSourceSchema
-
+from app.schemas.external_platform_schema import ExternalPlatformSchema
 class ReportBase(BaseModel):
     title: str
 
@@ -12,6 +12,7 @@ class ReportCreate(ReportBase):
     widget: Optional[WidgetCreate] = None
     files: Optional[List[str]] = []
     data_sources: Optional[List[str]] = []
+    external_platform_id: Optional[str] = None
 
 class ReportUpdate(ReportBase):
     status: Optional[Literal["draft", "published", "archived"]] = None
@@ -23,6 +24,7 @@ class ReportSchema(ReportBase):
     slug: str
     widgets: List[WidgetSchema] = []
     data_sources: List[DataSourceSchema] = []
+    external_platform: Optional[ExternalPlatformSchema] = None
     user: UserSchema
     created_at: datetime
     updated_at: datetime

@@ -24,6 +24,7 @@
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">External Platforms</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Seen</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                                 <th
@@ -79,6 +80,18 @@
                                         Pending
                                     </span>
                                 </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div v-if="member.user?.external_user_mappings.length > 0">
+                                        <div v-for="mapping in member.user?.external_user_mappings" :key="mapping.id">
+                                            <UTooltip :text="mapping.is_verified ? 'Verified' : 'Unverified'">
+                                                <img :src="`/icons/${mapping.platform_type}.png`" class="h-4 inline mr-2" />
+                                            </UTooltip>
+                                        </div>
+                                    </div>
+                                    <div v-else>
+                                        <span class="text-gray-400 italic">None</span>
+                                    </div>
+                                </td> 
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                     {{ member.user?.last_seen || '-' }}
                                 </td>

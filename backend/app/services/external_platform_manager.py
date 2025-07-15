@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from app.models.external_platform import ExternalPlatform
 from app.models.external_user_mapping import ExternalUserMapping
 from app.schemas.external_user_mapping_schema import ExternalUserMappingCreate
@@ -10,6 +10,9 @@ from app.services.external_user_mapping_service import ExternalUserMappingServic
 from app.services.organization_service import OrganizationService
 from app.services.completion_service import CompletionService
 from app.services.data_source_service import DataSourceService
+from app.settings.config import settings
+
+
 class ExternalPlatformManager:
     """Manages external platform interactions"""
     
@@ -138,11 +141,13 @@ class ExternalPlatformManager:
         db: AsyncSession,
         organization: Any,
         user: Any,
-        user_mapping: ExternalUserMapping
-    ) -> Any:
+        user_mapping: ExternalUserMapping,
+    ) -> Tuple[Any, bool]:
         """
         Get a report for a user if one from the platform exists from the last 24 hours,
         otherwise create a new one.
+        
+        Returns a tuple of (report, created).
         """
         from app.models.report import Report
         from app.services.report_service import ReportService
@@ -163,10 +168,10 @@ class ExternalPlatformManager:
             select(Report)
             .filter(
                 and_(
+                    Report.external_platform_id == user_mapping.platform_id,
                     Report.organization_id == organization.id,
                     Report.user_id == user.id,
-                    Report.created_at >= twenty_four_hours_ago,
-                    Report.title == f"Chat with {user.name} via {platform_name}"
+                    Report.created_at >= twenty_four_hours_ago
                 )
             )
             .order_by(Report.created_at.desc())
@@ -176,15 +181,17 @@ class ExternalPlatformManager:
         report = None
 
         if report:
-            return report
+            return report, False
 
         # If no recent report, create a new one
         data_sources = await self.data_source_service.get_active_data_sources(db, organization)
         data_source_ids = [data_source.id for data_source in data_sources]
         report_create_data = ReportCreate(
             title=f"Chat with {user.name} via {platform_name}",
-            data_sources=data_source_ids
+            data_sources=data_source_ids,
+            external_platform_id=user_mapping.platform_id
         )
+        breakpoint()
         report = await report_service.create_report(
             db=db,
             report_data=report_create_data,
@@ -192,7 +199,7 @@ class ExternalPlatformManager:
             organization=organization
         )
         
-        return report
+        return report, True
 
     
 
@@ -215,9 +222,16 @@ class ExternalPlatformManager:
         if not organization:
             return {"success": False, "error": "Organization not found"}
         
-        report = await self._get_or_create_conversation_report(
+        report, created = await self._get_or_create_conversation_report(
             db, organization, user, user_mapping
         )
+
+        if created:
+            report_url = f"{settings.bow_config.base_url}/reports/{report.id}"
+            await adapter.send_dm(
+                user_mapping.external_user_id,
+                f"> I've started a new conversation report for you: <{report_url}|{report.title}>"
+            )
         
         # Create completion data
         from app.schemas.completion_schema import CompletionCreate, PromptSchema

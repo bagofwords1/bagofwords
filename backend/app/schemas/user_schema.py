@@ -1,8 +1,10 @@
 import uuid
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, List
 from fastapi_users import schemas
 from datetime import datetime
+from app.schemas.external_user_mapping_schema import ExternalUserMappingMinimalSchema
+
 
 # class UserBase(BaseModel):
     # email: EmailStr
@@ -26,6 +28,7 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
 class UserSchema(BaseModel):
     name: str
     email: str
+    external_user_mappings: List[ExternalUserMappingMinimalSchema] = []
     # last_login: datetime
 
     class Config:

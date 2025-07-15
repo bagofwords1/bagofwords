@@ -20,7 +20,7 @@ class ExternalUserMapping(BaseSchema):
     
     # Relationships
     organization = relationship("Organization", back_populates="external_user_mappings")
-    user = relationship("User", back_populates="external_user_mappings")
+    user = relationship("User", back_populates="external_user_mappings", lazy="selectin")
     external_platform = relationship("ExternalPlatform", back_populates="external_user_mappings")
     
     # Composite unique constraint

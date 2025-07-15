@@ -58,7 +58,8 @@ class ReportService:
             cron_schedule=report.cron_schedule,
             created_at=report.created_at,
             updated_at=report.updated_at,
-            data_sources=report.data_sources  # Add this line to include data sources
+            data_sources=report.data_sources,
+            external_platform=report.external_platform
         )
         return report_schema
 
