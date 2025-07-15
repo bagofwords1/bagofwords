@@ -12,8 +12,8 @@ class TextWidget(BaseSchema):
     status = Column(String, nullable=False, default='published')
     x = Column(Integer, nullable=False, default=0)
     y = Column(Integer, nullable=False, default=0)
-    width = Column(Integer, nullable=False, default=900)
-    height = Column(Integer, nullable=False, default=400)
+    width = Column(Integer, nullable=False, default=5)
+    height = Column(Integer, nullable=False, default=9)
     content = Column(String, nullable=False, default="")
 
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=False)

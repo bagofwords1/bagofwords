@@ -21,6 +21,13 @@
           />
           <p v-if="error_message" class="mt-1 text-red-500 text-sm">{{ error_message }}</p>
         </div>
+        
+        <div class="field mt-2 text-right">
+          <NuxtLink to="/users/forgot-password" class="text-sm text-blue-400 hover:text-blue-600">
+            Forgot Password?
+          </NuxtLink>
+        </div>
+        
         <div class="field mt-3">
           <button type='submit' class="px-3 py-2 text-sm font-medium text-white bg-blue-700 hover:bg-blue-800 focus:ring-4 focus:outline-none focus:ring-blue-300 rounded-lg text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">Login</button>
         </div>

@@ -5,7 +5,7 @@ import pandas as pd
 from contextlib import contextmanager
 
 
-class AWSCostClient(DataSourceClient):
+class AwsCostClient(DataSourceClient):
     def __init__(self, access_key: str, secret_key: str, region_name: str = "us-east-1"):
         self.access_key = access_key
         self.secret_key = secret_key
@@ -33,54 +33,69 @@ class AWSCostClient(DataSourceClient):
     def get_schemas(self):
         """Define schemas for AWS Cost Explorer."""
         schemas = [
-            Table(name="CostAndUsage", columns=[
-                TableColumn(name="TimePeriod.Start", dtype="str"),
-                TableColumn(name="TimePeriod.End", dtype="str"),
-                TableColumn(name="BlendedCost.Amount", dtype="str"),
-                TableColumn(name="BlendedCost.Unit", dtype="str"),
-                TableColumn(name="UnblendedCost.Amount", dtype="str"),
-                TableColumn(name="UnblendedCost.Unit", dtype="str"),
-                TableColumn(name="AmortizedCost.Amount", dtype="str"),
-                TableColumn(name="AmortizedCost.Unit", dtype="str"),
-                TableColumn(name="NetUnblendedCost.Amount", dtype="str"),
-                TableColumn(name="NetUnblendedCost.Unit", dtype="str"),
-                TableColumn(name="NetAmortizedCost.Amount", dtype="str"),
-                TableColumn(name="NetAmortizedCost.Unit", dtype="str"),
-                TableColumn(name="NetBlendedCost.Amount", dtype="str"),
-                TableColumn(name="NetBlendedCost.Unit", dtype="str"),
-                TableColumn(name="UsageQuantity.Amount", dtype="str"),
-                TableColumn(name="UsageQuantity.Unit", dtype="str"),
-                TableColumn(name="SERVICE", dtype="str"),
-                TableColumn(name="Region", dtype="str"),
-                TableColumn(name="InstanceType", dtype="str"),
-                TableColumn(name="LinkedAccountName", dtype="str"),
-                TableColumn(name="LinkedAccountId", dtype="str"),
-                TableColumn(name="UsageType", dtype="str"),
-                TableColumn(name="Operation", dtype="str"),
-                TableColumn(name="AvailabilityZone", dtype="str"),
-                TableColumn(name="Tenancy", dtype="str"),
-                TableColumn(name="Platform", dtype="str"),
-                TableColumn(name="SubLocation", dtype="str"),
-                TableColumn(name="SubscriptionId", dtype="str"),
-                TableColumn(name="DatabaseEngine", dtype="str"),
-                TableColumn(name="CacheEngine", dtype="str"),
-                TableColumn(name="RightsizingType", dtype="str"),
-                TableColumn(name="SavingsPlansType", dtype="str"),
-                TableColumn(name="SavingsPlanArn", dtype="str"),
-                TableColumn(name="PaymentOption", dtype="str"),
-            ], pks=[TableColumn(name="TimePeriod.Start", dtype="str")], fks=[]),
-            Table(name="GroupingOptions", columns=[
-                TableColumn(name="GroupBy.Type", dtype="str"),
-                TableColumn(name="GroupBy.Key", dtype="str"),
-            ], pks=[], fks=[]),
-            Table(name="FilterOptions", columns=[
-                TableColumn(name="Dimensions.Key", dtype="str"),
-                TableColumn(name="Dimensions.Values", dtype="str"),
-                TableColumn(name="Tags.Key", dtype="str"),
-                TableColumn(name="Tags.Values", dtype="str"),
-                TableColumn(name="CostCategories.Key", dtype="str"),
-                TableColumn(name="CostCategories.Values", dtype="str"),
-            ], pks=[], fks=[])
+            {
+                "name": "CostAndUsage",
+                "columns": [
+                    {"name": "TimePeriod.Start", "dtype": "str"},
+                    {"name": "TimePeriod.End", "dtype": "str"},
+                    {"name": "BlendedCost.Amount", "dtype": "str"},
+                    {"name": "BlendedCost.Unit", "dtype": "str"},
+                    {"name": "UnblendedCost.Amount", "dtype": "str"},
+                    {"name": "UnblendedCost.Unit", "dtype": "str"},
+                    {"name": "AmortizedCost.Amount", "dtype": "str"},
+                    {"name": "AmortizedCost.Unit", "dtype": "str"},
+                    {"name": "NetUnblendedCost.Amount", "dtype": "str"},
+                    {"name": "NetUnblendedCost.Unit", "dtype": "str"},
+                    {"name": "NetAmortizedCost.Amount", "dtype": "str"},
+                    {"name": "NetAmortizedCost.Unit", "dtype": "str"},
+                    {"name": "NetBlendedCost.Amount", "dtype": "str"},
+                    {"name": "NetBlendedCost.Unit", "dtype": "str"},
+                    {"name": "UsageQuantity.Amount", "dtype": "str"},
+                    {"name": "UsageQuantity.Unit", "dtype": "str"},
+                    {"name": "SERVICE", "dtype": "str"},
+                    {"name": "Region", "dtype": "str"},
+                    {"name": "InstanceType", "dtype": "str"},
+                    {"name": "LinkedAccountName", "dtype": "str"},
+                    {"name": "LinkedAccountId", "dtype": "str"},
+                    {"name": "UsageType", "dtype": "str"},
+                    {"name": "Operation", "dtype": "str"},
+                    {"name": "AvailabilityZone", "dtype": "str"},
+                    {"name": "Tenancy", "dtype": "str"},
+                    {"name": "Platform", "dtype": "str"},
+                    {"name": "SubLocation", "dtype": "str"},
+                    {"name": "SubscriptionId", "dtype": "str"},
+                    {"name": "DatabaseEngine", "dtype": "str"},
+                    {"name": "CacheEngine", "dtype": "str"},
+                    {"name": "RightsizingType", "dtype": "str"},
+                    {"name": "SavingsPlansType", "dtype": "str"},
+                    {"name": "SavingsPlanArn", "dtype": "str"},
+                    {"name": "PaymentOption", "dtype": "str"}
+                ],
+                "pks": [{"name": "TimePeriod.Start", "dtype": "str"}],
+                "fks": []
+            },
+            {
+                "name": "GroupingOptions",
+                "columns": [
+                    {"name": "GroupBy.Type", "dtype": "str"},
+                    {"name": "GroupBy.Key", "dtype": "str"}
+                ],
+                "pks": [],
+                "fks": []
+            },
+            {
+                "name": "FilterOptions",
+                "columns": [
+                    {"name": "Dimensions.Key", "dtype": "str"},
+                    {"name": "Dimensions.Values", "dtype": "str"},
+                    {"name": "Tags.Key", "dtype": "str"},
+                    {"name": "Tags.Values", "dtype": "str"},
+                    {"name": "CostCategories.Key", "dtype": "str"},
+                    {"name": "CostCategories.Values", "dtype": "str"}
+                ],
+                "pks": [],
+                "fks": []
+            }
         ]
         return schemas
     
@@ -189,7 +204,7 @@ class AWSCostClient(DataSourceClient):
     def get_schema(self, table_id: str) -> Table:
         """Placeholder implementation for the abstract method."""
         raise NotImplementedError(
-            "get_schema() is not implemented in AWSCostClient.")
+            "get_schema() is not implemented in AwsCostClient.")
 
     def system_prompt(self):
         """Provide a detailed system prompt for LLM integration."""

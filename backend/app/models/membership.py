@@ -32,7 +32,9 @@ MEMBER_PERMISSIONS = {
     'rerun_memory_step',
     'view_organizations',
     'view_llm_settings',
-    'view_organization_members'
+    'view_organization_members',
+    'view_files',
+    'manage_organization_external_platforms'
 }
 
 ADMIN_PERMISSIONS = {
@@ -48,7 +50,8 @@ ADMIN_PERMISSIONS = {
     'manage_llm_settings',
     'view_data_source_full_schema',
     'manage_organization_settings',
-    'view_organization_settings'
+    'view_organization_settings',
+    'view_organization_overview'
 }
 
 # Combine permissions for roles

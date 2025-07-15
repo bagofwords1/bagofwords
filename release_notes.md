@@ -1,5 +1,57 @@
 # Release Notes
 
+## Version 0.0.167 (July 15th, 2025)
+- Slack integration! Now admins can integrate their Slack organization account and have users converse with bow via slack. Includes user-level authorization, formatting, charts, and tables
+- Download steps data as CSV is now available in UI
+
+## Version 0.0.166 (July 13th, 2025)
+- Resolved membership invitation handling for closed deployments with OAuth authentication
+- Corrected query count calculation in admin dashboard metrics
+
+## Version 0.0.165 (July 7th, 2025)
+- Added admin dashboard with usage analytics, query history tracking, and LLM feedback collection
+- Implemented secure password recovery workflow with email verification
+- Enhanced Kubernetes deployment configuration with expanded Helm chart coverage and options
+
+## Version 0.0.164 (April 24th, 2025)
+
+- Refactored dashboard visualization capabilities:
+  - Improved chart rendering performance and responsiveness
+  - Enhanced data handling for large datasets
+  - Added better error handling and validation
+  - Streamlined chart configuration options
+- Fixed candlestick chart bug where single stock data was not properly displayed when no ticker field was present
+- Added "File" top level navigation item. You can now see all files uploaded in the org
+- You can now mention files outside of the report
+- Support older version of Excel (97-03)
+
+## Version 0.0.163 (April 21, 2025)
+
+- Added new charts: area, map, treemap, heatmap, candletick, and more
+- Better experience for charts to handle zoom, resize and overall better rendering
+
+## Version 0.0.162 (April 16, 2025)
+
+- Added ability to stop AI generation mid-completion with a graceful shutdown option
+- Enhanced application startup reliability with automatic database connection retries
+- Moved configuration management to server-side, enabling centralized client configuration
+- Introduced support for deploying the application on Kubernetes clusters using Helm charts
+
+## Version 0.0.161 (April 14, 2025)
+
+- Added support to OpenAI GPT-4.1 model series
+
+## Version 0.0.160 (April 12, 2025)
+
+- Enhanced AI reasoning with ReAct framework and advanced planning capabilities
+- Added upvote/downvote system for users to provide feedback on AI responses
+- Added detailed reasoning explanations for AI responses in both UI and backend
+- Improved Completion API to support synchronous jobs and return multiple completions
+- Added OpenAPI support for global authentication and organization ID handling
+- Enhanced organization settings and key management system
+- Added visual source tracing in data modeling interface
+
+
 ## Version 0.0.155 (March 30, 2025)
 
 - Added code validation for generated code

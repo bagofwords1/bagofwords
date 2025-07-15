@@ -10,7 +10,8 @@ from app.schemas.organization_settings_schema import (
     OrganizationSettingsCreate, 
     OrganizationSettingsUpdate,
     OrganizationSettingsConfig,
-    FeatureConfig
+    FeatureConfig,
+    FeatureState
 )
 from datetime import datetime
 
@@ -36,93 +37,190 @@ class OrganizationSettingsService:
         # If settings don't exist yet, create default ones
         if not settings:
             settings = await self.create_default_settings(db, organization, current_user)
+        else:
+            # Check for any new features in schema that aren't in the DB
+            await self._sync_new_features(db, settings)
             
         return settings
 
+    async def _sync_new_features(self, db: AsyncSession, settings: OrganizationSettings):
+        """Sync any new features from schema that don't exist in DB config."""
+        schema_config = OrganizationSettingsConfig()
+        # Ensure current_config is mutable and handles potential None
+        current_config = dict(settings.config) if settings.config else {}
+        config_modified = False
+
+        # Ensure top-level keys from schema exist
+        schema_dict = schema_config.dict(exclude={'ai_features'})
+        for key, feature_or_value in schema_dict.items():
+             if key not in current_config:
+                 # Store the dict representation if it's a FeatureConfig
+                 current_config[key] = feature_or_value if not isinstance(feature_or_value, FeatureConfig) else feature_or_value.dict()
+                 config_modified = True
+
+        # Ensure 'ai_features' key exists and sync individual AI features
+        if 'ai_features' not in current_config:
+            current_config['ai_features'] = {}
+            config_modified = True # Mark modified if ai_features dict itself was added
+
+        schema_ai_features = schema_config.ai_features
+        # Ensure current_config['ai_features'] is a dict
+        if not isinstance(current_config.get('ai_features'), dict):
+            current_config['ai_features'] = {}
+            config_modified = True
+
+        for key, feature in schema_ai_features.items():
+            if key not in current_config['ai_features']:
+                current_config['ai_features'][key] = feature.dict()
+                config_modified = True
+
+        # Only update DB if new features were added
+        if config_modified:
+            settings.config = current_config
+            settings.updated_at = datetime.utcnow()
+            flag_modified(settings, "config")
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+
     async def update_settings(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
         settings_data: OrganizationSettingsUpdate
     ):
         """Update organization settings"""
-        # Fetch current settings
-        result = await db.execute(
-            select(OrganizationSettings)
-            .filter(OrganizationSettings.organization_id == organization.id)
-        )
-        
-        settings = result.scalar_one_or_none()
-        
-        # If settings don't exist yet, create default ones
-        if not settings:
-            settings = await self.create_default_settings(db, organization, current_user)
-        
-        # Process updates
+        settings = await self.get_settings(db, organization, current_user)
+        # Ensure settings.config is a dictionary
+        if settings.config is None:
+             settings.config = {}
+             flag_modified(settings, "config") # Mark as modified if initialized
+
         update_data = settings_data.dict(exclude_unset=True)
-        
+
         if 'config' in update_data and update_data['config']:
-            # Print state before update
-            print("SETTINGS BEFORE UPDATE:", settings.config)
-            print("UPDATE DATA:", update_data['config'])
-            
-            # Create a copy of the current config
+            # Use dict() to ensure we have a mutable copy
             current_config = dict(settings.config)
-            
-            # Apply updates to the copy
+            config_changed = False
+
+            # Handle AI features updates
             if 'ai_features' in update_data['config']:
                 ai_features_updates = update_data['config']['ai_features']
-                
-                # Ensure ai_features exists
+
                 if 'ai_features' not in current_config:
                     current_config['ai_features'] = {}
-                    
-                # Apply each feature update directly
+
                 for feature_name, feature_data in ai_features_updates.items():
-                    if feature_name in current_config['ai_features']:
-                        feature = current_config['ai_features'][feature_name]
-                        
-                        # Check if editable
-                        if feature.get('editable', True):
-                            # Apply all fields in the update
-                            for field, value in feature_data.items():
-                                print(f"Updating ai_features.{feature_name}.{field} from {feature.get(field)} to {value}")
-                                feature[field] = value
-            
-            # Update other top-level config fields (like allow_llm_see_data)
-            for key, value in update_data['config'].items():
-                if key != 'ai_features' and key in current_config:
-                    # If this is a partial update (e.g., just the 'enabled' field)
-                    if isinstance(value, dict) and isinstance(current_config[key], dict):
-                        # Only update the provided fields, preserving other fields
-                        for field_name, field_value in value.items():
-                            print(f"Updating {key}.{field_name} from {current_config[key].get(field_name)} to {field_value}")
-                            current_config[key][field_name] = field_value
-                    else:
-                        # Complete replacement of the field
-                        current_config[key] = value
-            
-            # Replace the entire config dictionary to force SQLAlchemy to detect the change
-            settings.config = current_config
-        
-        # Update timestamp
-        settings.updated_at = datetime.utcnow()
-        
-        # Print state after changes but before commit
-        print("SETTINGS AFTER UPDATE:", settings.config)
-        
-        # Force SQLAlchemy to detect the config change
-        flag_modified(settings, "config")
-        
-        # Commit changes
-        db.add(settings)
-        await db.commit()
-        await db.refresh(settings)
-        
-        # Print state after commit
-        print("SETTINGS AFTER COMMIT:", settings.config)
-        
+                    # Get current feature config from DB or default from schema
+                    current_feature_dict = current_config['ai_features'].get(feature_name)
+                    if not current_feature_dict:
+                         # Feature not in DB, get default from schema
+                         default_feature = OrganizationSettingsConfig().ai_features.get(feature_name)
+                         if not default_feature: continue # Skip if feature unknown
+                         current_feature_dict = default_feature.dict()
+                         current_config['ai_features'][feature_name] = current_feature_dict # Add to config
+
+                    # Create FeatureConfig object from current data to check properties
+                    feature = FeatureConfig(**current_feature_dict)
+
+                    if not feature.editable or feature.state == FeatureState.LOCKED:
+                         # Allow updating non-editable/locked features only if the update doesn't change 'value' or 'state'
+                         can_update = True
+                         if 'value' in feature_data and feature_data['value'] != feature.value:
+                             can_update = False
+                         if 'state' in feature_data and feature_data['state'] != feature.state:
+                             can_update = False
+
+                         if not can_update:
+                              raise HTTPException(
+                                  status_code=403,
+                                  detail=f"Feature '{feature_name}' cannot be modified"
+                              )
+
+                    # Apply updates from feature_data to the dictionary
+                    original_dict = current_feature_dict.copy()
+                    for field, value in feature_data.items():
+                         if hasattr(feature, field): # Check if field is valid for FeatureConfig
+                             current_feature_dict[field] = value
+
+                    # Re-validate and potentially adjust state/value based on changes
+                    updated_feature = FeatureConfig(**current_feature_dict)
+                    current_config['ai_features'][feature_name] = updated_feature.dict()
+
+                    if current_config['ai_features'][feature_name] != original_dict:
+                        config_changed = True
+
+
+            # Handle top-level feature updates
+            for key, value_update in update_data['config'].items():
+                if key != 'ai_features':
+                    # Get current config dict from DB or default from schema
+                    current_value_dict = current_config.get(key)
+                    is_feature = False
+                    default_config = getattr(OrganizationSettingsConfig(), key, None)
+
+                    if isinstance(default_config, FeatureConfig):
+                         is_feature = True
+                         if not current_value_dict:
+                             # Feature not in DB, get default from schema
+                             current_value_dict = default_config.dict()
+                             current_config[key] = current_value_dict # Add to config
+
+
+                    if is_feature and isinstance(current_value_dict, dict):
+                         feature = FeatureConfig(**current_value_dict)
+
+                         if not feature.editable or feature.state == FeatureState.LOCKED:
+                            can_update = True
+                            if isinstance(value_update, dict):
+                                if 'value' in value_update and value_update['value'] != feature.value:
+                                    can_update = False
+                                if 'state' in value_update and value_update['state'] != feature.state:
+                                    can_update = False
+                            # Allow updating if it's not a dict (e.g. direct value update) only if value doesn't change
+                            elif value_update != feature.value:
+                                 can_update = False
+
+
+                            if not can_update:
+                                raise HTTPException(
+                                     status_code=403,
+                                     detail=f"Feature '{key}' cannot be modified"
+                                )
+
+                         original_dict = current_value_dict.copy()
+                         if isinstance(value_update, dict):
+                             for field, field_value in value_update.items():
+                                 if hasattr(feature, field):
+                                     current_value_dict[field] = field_value
+                         else:
+                             # Assume direct update is for the 'value' field
+                             current_value_dict['value'] = value_update
+
+                         # Re-validate and potentially adjust state/value
+                         updated_feature = FeatureConfig(**current_value_dict)
+                         current_config[key] = updated_feature.dict()
+
+                         if current_config[key] != original_dict:
+                             config_changed = True
+                    elif key in current_config and current_config[key] != value_update : # Handle non-feature config update or addition
+                         current_config[key] = value_update
+                         config_changed = True
+                    elif key not in current_config: # Handle adding new non-feature key
+                         current_config[key] = value_update
+                         config_changed = True
+
+
+            if config_changed:
+                settings.config = current_config
+                settings.updated_at = datetime.utcnow()
+                flag_modified(settings, "config")
+
+                db.add(settings) # Add settings to session if changed
+                await db.commit()
+                await db.refresh(settings)
+
         return settings
 
     async def create_default_settings(
@@ -132,42 +230,65 @@ class OrganizationSettingsService:
         current_user: User
     ):
         """Create default settings for a new organization"""
-        # Create settings with a serializable config
+        config = OrganizationSettingsConfig()
+        # Use the .dict() method which now correctly handles value/state consistency
         settings = OrganizationSettings(
             organization_id=organization.id,
-            config=OrganizationSettingsConfig().dict()  # Convert to dictionary before saving
+            config=config.dict()
         )
-        
+
         db.add(settings)
         await db.commit()
         await db.refresh(settings)
-        
+
         return settings
 
     async def update_ai_feature(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
         feature_name: str,
-        enabled: bool
+        # Changed parameter name from 'enabled' to 'value'
+        new_value: bool # Assuming this endpoint is for boolean toggles
     ):
-        """Update a specific AI feature setting"""
+        """Update a specific AI feature setting's value"""
         settings = await self.get_settings(db, organization, current_user)
-        
-        if feature_name in settings.config.ai_features:
-            feature = settings.config.ai_features[feature_name]
-            
-            # Only update if the feature is editable
-            if feature.editable:
-                feature.enabled = enabled
-            else:
-                raise HTTPException(status_code=403, detail=f"AI feature '{feature_name}' is not editable")
-        else:
-            raise HTTPException(status_code=404, detail=f"AI feature '{feature_name}' not found")
-        
+        if settings.config is None: settings.config = {} # Ensure config exists
+
+        # Get the feature configuration using the model's method
+        feature = settings.get_config(feature_name)
+
+        if not isinstance(feature, FeatureConfig):
+             # Might be a non-feature config, or doesn't exist
+             schema_config = OrganizationSettingsConfig()
+             if feature_name in schema_config.ai_features:
+                 # Feature exists in schema but not DB, use default
+                 feature = schema_config.ai_features[feature_name]
+             else:
+                 raise HTTPException(status_code=404, detail=f"Feature '{feature_name}' not found or is not a valid feature configuration.")
+
+
+        if not feature.editable or feature.state == FeatureState.LOCKED:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Feature '{feature_name}' cannot be modified."
+            )
+
+        # Update the feature's value
+        feature.value = new_value
+        # State will be updated automatically by FeatureConfig validator/dict if it's not LOCKED
+
+        # Update the config in the database
+        if "ai_features" not in settings.config or not isinstance(settings.config.get("ai_features"), dict):
+            settings.config["ai_features"] = {}
+
+        # Store the updated feature as a dict
+        settings.config["ai_features"][feature_name] = feature.dict()
+
+        flag_modified(settings, "config")
         db.add(settings)
         await db.commit()
         await db.refresh(settings)
-        
+
         return settings

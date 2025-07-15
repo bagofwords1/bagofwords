@@ -46,7 +46,6 @@ class TextWidgetService:
         text_widget = text_widget.scalar_one_or_none()
         if not text_widget:
             raise HTTPException(status_code=404, detail="Text widget not found")
-
         # Update all non-None fields from the update data
         for key, value in text_widget_data.dict(exclude_unset=True).items():
             if value is not None:

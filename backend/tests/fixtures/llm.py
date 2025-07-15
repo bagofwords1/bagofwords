@@ -19,7 +19,18 @@ def create_llm_provider_and_models(test_client):
             json={"name": 'openai provider',
                    "provider_type": "openai",
                    "credentials": {"api_key": str(openai_api_key)},
-                   "models": [                   
+                   "models": [
+                       {
+                           "model_id": "gpt-4.1",
+                           "name": "GPT-4.1",
+                           "is_custom": False
+                       },
+                       {
+                           "model_id": "gpt-4.1-mini",
+                           "name": "GPT-4.1 Mini",
+                           "is_custom": False
+                       },
+
                        {
                            "model_id": "gpt-4o",
                            "name": "GPT-4o",
@@ -57,6 +68,17 @@ def get_models(test_client):
         return response.json()
     
     return _get_models
+
+@pytest.fixture
+def get_default_model(test_client):
+    def _get_default_model(user_token=None, org_id=None):
+        response = test_client.get(
+            "/api/llm/models",
+            headers={"Authorization": f"Bearer {user_token}", "X-Organization-Id": org_id}
+        )
+        return [model for model in response.json() if model['is_default']]
+    
+    return _get_default_model
 
 @pytest.fixture
 def set_llm_provider_as_default(test_client):

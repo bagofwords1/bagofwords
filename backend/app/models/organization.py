@@ -6,6 +6,8 @@ from sqlalchemy.orm import selectinload
 from app.models.report import Report
 from app.models.git_repository import GitRepository
 from app.models.prompt import Prompt
+from app.models.external_platform import ExternalPlatform
+from app.models.external_user_mapping import ExternalUserMapping
 
 class Organization(BaseSchema):
     __tablename__ = "organizations"
@@ -15,7 +17,7 @@ class Organization(BaseSchema):
     
     memberships = relationship("Membership", back_populates="organization")
     reports = relationship("Report", back_populates="organization")
-    users = relationship("User", secondary="memberships", back_populates="organizations")
+    users = relationship("User", secondary="memberships", back_populates="organizations", overlaps="memberships")
     files = relationship("File", back_populates="organization")
     data_sources = relationship("DataSource", back_populates="organization")
     memories = relationship("Memory", back_populates="organization")
@@ -24,6 +26,10 @@ class Organization(BaseSchema):
     git_repositories = relationship("GitRepository", back_populates="organization")
     prompts = relationship("Prompt", back_populates="organization")
     settings = relationship("OrganizationSettings", uselist=False, back_populates="organization", cascade="all, delete-orphan")
+    
+    # External platform relationships
+    external_platforms = relationship("ExternalPlatform", back_populates="organization", cascade="all, delete-orphan")
+    external_user_mappings = relationship("ExternalUserMapping", back_populates="organization", cascade="all, delete-orphan")
     
     async def get_default_llm_model(self, db):
         """Get the default LLM model for the organization.

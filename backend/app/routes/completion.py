@@ -26,13 +26,22 @@ completion_service = CompletionService()
 
 @router.post("/api/reports/{report_id}/completions")
 @requires_permission('create_reports')
-async def create_completion(report_id: str, 
-                             completion: CompletionCreate, 
-                             background_tasks: BackgroundTasks,
-                             current_user: User = Depends(current_user),
-                             organization: Organization = Depends(get_current_organization),
-                             db: AsyncSession = Depends(get_async_db)):
-    return await completion_service.create_completion(db, report_id, completion, current_user, organization, background_tasks)
+async def create_completion(
+    report_id: str, 
+    completion: CompletionCreate, 
+    background: bool = True,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    return await completion_service.create_completion(
+        db, 
+        report_id, 
+        completion, 
+        current_user, 
+        organization, 
+        background=background
+    )
 
 @router.get("/api/reports/{report_id}/completions")
 @requires_permission('view_reports', model=Report)
@@ -65,6 +74,16 @@ async def websocket_endpoint(websocket: WebSocket, report_id: str):
             keep_alive_task.cancel()
 
 @requires_permission('modify_settings')
-@router.get("/api/completions/{completion_id}/plan")
-async def get_completion_plan(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
-    return await completion_service.get_completion_plan(db, current_user, organization, completion_id)
+@router.get("/api/completions/{completion_id}/plans")
+async def get_completion_plans(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
+    return await completion_service.get_completion_plans(db, current_user, organization, completion_id)
+
+@requires_permission('view_reports', model=Report)
+@router.post("/api/completions/{completion_id}/feedback")
+async def update_completion_feedback(completion_id: str, vote: int, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
+    return await completion_service.update_completion_feedback(db, completion_id, vote)
+
+@requires_permission('create_reports')
+@router.post("/api/completions/{completion_id}/sigkill")
+async def update_completion_sigkill(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
+    return await completion_service.update_completion_sigkill(db, completion_id)

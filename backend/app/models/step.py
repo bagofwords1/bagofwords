@@ -8,6 +8,7 @@ from app.websocket_manager import websocket_manager
 import json
 from sqlalchemy import select
 from app.models.widget import Widget
+# from app.services.slack_notification_service import send_step_result_to_slack # This is removed
 
 class Step(BaseSchema):
     __tablename__ = 'steps'
@@ -48,6 +49,11 @@ def after_update_step(mapper, connection, target):
         }
         print(f"Broadcasting step update: {data}")
         asyncio.create_task(broadcast_step_update(data))
+
+        if target.status == "success":
+            from app.services.slack_notification_service import send_step_result_to_slack
+            print(f"STEP_UPDATE: Triggering Slack DM for successful step {target.id}")
+            asyncio.create_task(send_step_result_to_slack(str(target.id)))
 
     except Exception as e:
         print(f"Error in after_update_step: {e}")

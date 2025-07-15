@@ -27,6 +27,9 @@
                                 <NuxtLink :to="`/reports/${report.id}`" class="text-blue-500 hover:underline">
                                     {{ report.title }}
                                 </NuxtLink>
+                                <div v-if="report.external_platform && report.external_platform.platform_type == 'slack'" class="ml-2 h-3 inline mr-2">
+                                    <img src="/icons/slack.png" class="h-3 inline mr-2" />
+                                </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                 <UTooltip :text="data_source.name" v-for="data_source in report.data_sources">
@@ -34,16 +37,21 @@
                                 </UTooltip>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                <span
-                                    :class="[
-                                        report.status === 'published' ? 'bg-green-100 text-green-800' : 
-                                        report.status === 'draft' ? 'bg-gray-100 text-gray-800' : 
-                                        'bg-gray-100 text-gray-800',
-                                        'px-2 py-1 text-xs font-medium rounded-full capitalize'
-                                    ]"
-                                >
-                                    {{ report.status }}
-                                </span>
+                                <div class="flex items-center">
+                                    <span
+                                        :class="[
+                                            report.status === 'published' ? 'bg-green-100 text-green-800' : 
+                                            report.status === 'draft' ? 'bg-gray-100 text-gray-800' : 
+                                            'bg-gray-100 text-gray-800',
+                                            'px-2 py-1 text-xs font-medium rounded-full capitalize'
+                                        ]"
+                                    >
+                                        {{ report.status }}
+                                    </span>
+                                    <a target="_blank" :href="`/r/${report.id}`" v-if="report.status === 'published'" class="text-green-800">
+                                        <Icon name="heroicons:arrow-top-right-on-square" class="inline-block w-4 h-4 ml-1" />
+                                    </a>
+                                </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                 {{ report.created_at.split('T')[0].split('-').reverse().join('/') }}

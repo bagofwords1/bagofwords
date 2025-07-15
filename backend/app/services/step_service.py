@@ -8,6 +8,7 @@ import uuid
 import json
 import pandas as pd
 import numpy as np
+from sqlalchemy.orm import selectinload
 
 from app.ai.agent import Agent
 from app.ai.prompt_formatters import TableFormatter
@@ -24,9 +25,36 @@ class StepService:
         pass
 
     async def get_step_by_id(self, db: AsyncSession, step_id: str):
-        step = await db.execute(select(Step).filter(Step.id == step_id))
-        step = step.scalar_one_or_none()
+        result = await db.execute(
+            select(Step).options(selectinload(Step.widget)).filter(Step.id == step_id)
+        )
+        step = result.scalar_one_or_none()
         return step
+
+    async def export_step_to_csv(self, db: AsyncSession, step_id: str) -> tuple[pd.DataFrame, Step]:
+        step = await self.get_step_by_id(db, step_id)
+        if not step:
+            raise ValueError(f"Step {step_id} not found")
+
+        data = step.data
+        if not data or 'rows' not in data or 'columns' not in data:
+            return pd.DataFrame(), step
+
+        rows = data.get('rows', [])
+        columns = data.get('columns', [])
+
+        if not rows or not columns:
+            return pd.DataFrame(), step
+
+        headers = [col.get('headerName', col.get('field', '')) for col in columns if 'field' in col]
+        fields = [col['field'] for col in columns if 'field' in col]
+
+        data_for_df = []
+        for row in rows:
+            data_for_df.append([row.get(field) for field in fields])
+
+        df = pd.DataFrame(data_for_df, columns=headers)
+        return df, step
 
     async def create_step(self, db: AsyncSession, widget_id: str, completion_id: str) -> StepSchema:
 

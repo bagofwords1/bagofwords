@@ -6,6 +6,7 @@ from .step_schema import StepSchema
 
 class PromptSchema(BaseModel):
     content: str = ""  # Default to an empty string
+    reasoning: Optional[str] = None  # Default to None
     widget_id: Optional[str] = None  # Default to None
     step_id: Optional[str] = None  # Default to None
     mentions: Optional[List[dict]] = None  # Default to None
@@ -25,6 +26,8 @@ class CompletionSchema(CompletionBase):
     model: str = "gpt4o"
     status: str = "success"
     turn_index: int = 0
+    feedback_score: int = 0
+    sigkill: Optional[datetime] = None
     parent_id: Optional[str]
     message_type: str = "ai_completion"
     role: str = "system"
@@ -35,6 +38,9 @@ class CompletionSchema(CompletionBase):
     main_router: str = "table"
     step_id: Optional[str] = None
     step: Optional[StepSchema] = None
+    external_platform: Optional[str] = None
+    external_message_id: Optional[str] = None
+    external_user_id: Optional[str] = None
 
     class Config:
         from_attributes = True

@@ -6,6 +6,10 @@ import argparse
 import uuid
 import time
 
+from tenacity import retry, stop_after_attempt, wait_exponential
+from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+
 # Add this before app initialization
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', type=str, help='Path to custom config file')
@@ -18,9 +22,10 @@ if args.config:
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
+from fastapi.openapi.utils import get_openapi
 
 from app.core.auth import get_user_manager, auth_backend, create_fastapi_users, SECRET
-from app.dependencies import get_async_session
+from app.dependencies import get_db, async_session_maker
 from app.schemas.user_schema import UserCreate, UserRead, UserUpdate
 from app.settings.config import settings
 from app.settings.logging_config import setup_logging, get_logger
@@ -41,7 +46,12 @@ from app.routes import (
     llm,
     git_repository,
     organization_settings,
-    metadata_resource
+    metadata_resource,
+    bow_settings,
+    external_platform,
+    external_user_mapping,
+    slack_webhook,
+    step
 )
 
 # Initialize logging
@@ -59,8 +69,6 @@ enable_google_oauth = settings.bow_config.google_oauth.enabled
 google_client_id = settings.bow_config.google_oauth.client_id
 google_client_secret = settings.bow_config.google_oauth.client_secret
 
-
-
 # Initialize FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME, 
@@ -77,7 +85,9 @@ app = FastAPI(
         {"name": "llm", "description": "LLM and their providers settings"},
         {"name": "memories", "description": "Memory management"},
         {"name": "git", "description": "Git repository and data source integration"},
-    ]
+        {"name": "settings", "description": "Settings management"},
+    ],
+    swagger_ui_oauth2_redirect_url="/api/auth/jwt/login"
 )
 
 init_cors(app)
@@ -128,6 +138,7 @@ app.include_router(
     prefix="/api/users",
     tags=["users"],
 )
+
 if google_oauth_client:
     oauth_router = fastapi_users.get_oauth_router(
         google_oauth_client,
@@ -156,9 +167,92 @@ app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
 app.include_router(metadata_resource.router, prefix="/api")
+app.include_router(bow_settings.router, prefix="/api")
+app.include_router(external_platform.router, prefix="/api")
+app.include_router(external_user_mapping.router, prefix="/api")
+app.include_router(slack_webhook.router)
+app.include_router(step.router, prefix="/api")
+# Remove the direct assignment of app.openapi_schema and replace with this function
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=settings.PROJECT_NAME,
+        version=settings.PROJECT_VERSION,
+        description="Bag of Words API",
+        routes=app.routes,
+    )
+
+    # Add security schemes
+    openapi_schema["components"]["securitySchemes"] = {
+        "OAuth2PasswordBearer": {
+            "type": "oauth2",
+            "flows": {
+                "password": {
+                    "tokenUrl": "/api/auth/jwt/login",
+                    "scopes": {}
+                }
+            }
+        },
+        "X-Organization-ID": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-Organization-ID",
+            "description": "Organization ID header"
+        }
+    }
+
+    # Add global security requirements
+    openapi_schema["security"] = [
+        {
+            "OAuth2PasswordBearer": [],
+            "X-Organization-ID": []
+        }
+    ]
+
+    # Make sure the security requirement is applied to all paths
+    for path in openapi_schema["paths"].values():
+        for operation in path.values():
+            operation["security"] = [
+                {
+                    "OAuth2PasswordBearer": [],
+                    "X-Organization-ID": []
+                }
+            ]
+
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+# Assign the custom function to app.openapi
+app.openapi = custom_openapi
+
+# Add this function before the startup_event
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    reraise=True
+)
+async def check_db_connection():
+    """Verify database connection with retries"""
+    try:
+        async with async_session_maker() as session:
+            # Try a simple query to verify the connection
+            await session.execute(text("SELECT 1"))
+            await session.commit()
+            logger.info("✅ Database connection successful")
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {str(e)}")
+        raise
 
 @app.on_event("startup")
 async def startup_event():
+    try:
+        # Check database connection first with retries
+        await check_db_connection()
+    except Exception as e:
+        logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
+        exit(1)
     logger.info(
         "Application starting",
         extra={
@@ -190,7 +284,6 @@ async def startup_event():
     - Deployment Type: {settings.bow_config.deployment.type}
     - Version: {settings.PROJECT_VERSION}
     
-    >>>>>
     You can now start using the app at {settings.bow_config.base_url}
     """)
 

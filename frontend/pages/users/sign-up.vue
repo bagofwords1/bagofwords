@@ -54,10 +54,11 @@
 
 <script setup lang="ts">
 import qs from 'qs'
-import { ref } from 'vue'
-import { definePageMeta, useAuth, useRuntimeConfig } from '#imports'
+import { ref, onMounted } from 'vue'
+import { definePageMeta, useAuth, useRuntimeConfig, useRoute } from '#imports'
 const { rawToken } = useAuthState()
 const toast = useToast()
+const route = useRoute()
 
 definePageMeta({
 auth: {
@@ -78,6 +79,14 @@ const googleSignIn = ref(config.public.googleSignIn);
 
 const { signIn, getSession } = useAuth();
 const { ensureOrganization, fetchOrganization } = useOrganization()
+
+// Pre-fill email from URL query parameter
+onMounted(() => {
+  const emailFromQuery = route.query.email as string
+  if (emailFromQuery) {
+    email.value = emailFromQuery
+  }
+})
 
 async function signInWithCredentials(email: string, password: string) {
   const credentials = {

@@ -1,0 +1,55 @@
+image: bagofwords/bagofwords:latest
+host: app.bagofwords.com
+registry:
+  name: bow-app-registry
+  url: docker.io
+postgresql:
+  auth:
+    username: ""
+    password: ""
+    database: ""
+    existingSecret: ""
+  primary:
+    persistence:
+      size: 20Gi
+    nodeSelector: {}
+ingress:
+  enabled: true
+  className: nginx
+  tls: true
+  clusterIssuerName: prod-cluster-issuer
+serviceAccount:
+  name: bowapp
+  imagePullSecret: bowapp-pull-secret
+  annotations: {}
+config:
+  secretRef: ""
+  googleOauthEnabled: false
+  googleClientId: ""
+  googleClientSecret: ""
+  encryptionKey: ""
+  intercomEnabled: false
+  baseUrl: ""
+  allowUninvitedSignups: false
+  allowMultipleOrganizations: false
+  verifyEmails: false
+  smtp:
+    host: ""
+    port: ""
+    username: ""
+    password: ""
+    from_name: ""
+    from_email: ""
+    use_tls: true
+    use_ssl: false
+    use_credentials: true
+    validate_certs: true
+
+
+
+resources:
+  requests:
+    cpu: 2
+    memory: 900Mi
+  limits:
+    memory: 1100Mi

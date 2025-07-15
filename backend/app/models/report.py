@@ -22,6 +22,9 @@ class Report(BaseSchema):
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
     organization = relationship("Organization", back_populates="reports")
 
+    external_platform_id = Column(String(36), ForeignKey('external_platforms.id'), nullable=True, index=True, default=None)
+    external_platform = relationship("ExternalPlatform", back_populates="reports", lazy="selectin")
+
     widgets = relationship("Widget", back_populates="report", lazy="selectin")
     text_widgets = relationship("TextWidget", back_populates="report", lazy="selectin")
     completions = relationship("Completion", back_populates="report", lazy="selectin")

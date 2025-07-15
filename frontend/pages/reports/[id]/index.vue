@@ -75,6 +75,12 @@
                                     @update:selectedWidgetId="handleSelectedWidgetId"
                                     @addWidget="handleAddWidget"
                                 />
+                                <div v-if="completion.role == 'system' && completion.status === 'in_progress' && !completion.completion?.sigkill" class="text-gray-500 py-4 text-center flex justify-center items-center">
+                                    <button @click="sigkill(completion)" class="text-gray-500 text-xs hover:text-gray-700 flex justify-center items-center gap-1 border border-gray-200 rounded-md px-2 py-1">
+                                        <Icon name="heroicons-stop-circle" class="w-3.5 h-3.5" />
+                                        <span>{{ isStoppingGeneration ? 'Stopping...' : 'Stop Generation' }}</span>
+                                    </button>
+                                </div>
                             </li>
                         </ul>
                     </div>
@@ -116,14 +122,18 @@
              ]">
             <div>
                 <DashboardComponent 
+                    ref="dashboardRef"
                     @removeWidget="removeWidget"
-                    v-if="widgets.length"
+                    v-if="reportLoaded && widgets"
                     :report="report" 
                     :edit="true" 
                     :widgets="widgets.filter(widget => widget.status === 'published')" 
                     :textWidgetsIds="textWidgetsIds"
                     @toggleSplitScreen="toggleSplitScreen"
                 />
+                <div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500">
+                    No dashboard items yet.
+                </div>
             </div>
         </div>
     </div>
@@ -134,6 +144,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 
 import PromptBoxExcel from '@/components/excel/PromptBoxExcel.vue';
 import GoBackChevron from '@/components/excel/GoBackChevron.vue';
+import DashboardComponent from '~/components/DashboardComponent.vue';
 
 const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
 const { organization, setOrganization } = useOrganization()
@@ -153,6 +164,7 @@ const completions = ref([])
 const isLoading = ref(false)
 const report_id = route.params.id
 const reportTitleInput = ref(null)
+const isStoppingGeneration = ref(false)
 
 const report = ref({
     title: '',
@@ -162,6 +174,27 @@ const report = ref({
 
 const shareModalOpen = ref(false)
 
+const sigkill = async (completion: any) => {
+    isStoppingGeneration.value = true;
+    try {
+        await useMyFetch(`/api/completions/${completion.id}/sigkill`, {
+            method: 'POST'
+        });
+        // After successful sigkill, update the local completion state
+        completion.value = {
+            ...completion.value,
+            status: 'stopped', 
+            sigkill: true,
+            completion: {
+                ...completion.value.completion
+            }
+        };
+    } catch (error) {
+        console.error('Error updating sigkill:', error);
+    } finally {
+        isStoppingGeneration.value = false;
+    }
+}
 const applyToExcel = (completion: any) => {
     // Serialize the entire completion object
     const serializedData = JSON.stringify(completion);
@@ -264,7 +297,7 @@ async function submitCompletion(promptValue) {
     const requestBody = {
         prompt: {
             content: promptValue.text,
-            mentions: mentions.value,
+            mentions: promptValue.mentions,
             widget_id: selectedWidgetId.value.widgetId,
             step_id: selectedWidgetId.value.stepId
         }
@@ -294,7 +327,7 @@ async function submitCompletion(promptValue) {
             completions.value.push({
                 id: `system-${Date.now()}`,
                 role: 'system',
-                completion: { content: response.error.value.data.detail  + " " + "Click 'Upgrade' to continue." },
+                completion: { content: response.error.value.data.detail  + " " + "Sign in to continue." },
                 status: 'error'
             })
         }
@@ -308,7 +341,7 @@ async function loadWidgets() {
         if (data.value) {
             widgets.value = data.value.map(widget => ({
                 ...widget,
-                key: Date.now() + widget.id
+                key: Date.now() + widget.id + String(Math.random())
             }));
             // check if widget is published and if in not split screen, set isSplitScreen to true
             if (widgets.value.filter(widget => widget.status === 'published').length > 0 && !isSplitScreen.value) {
@@ -338,14 +371,16 @@ async function updateCompletion(updated: any) {
     loadCompletions();
     return;
   }
-
   // Update in place
   completions.value[index] = {
     ...completions.value[index],
     completion: {
       ...completions.value[index].completion,
-      content: updated.completion?.content || ''
-    }
+      content: updated.completion?.content || '',
+      reasoning: updated.completion?.reasoning || '',
+    },
+    status: updated.status || '',
+    sigkill: updated.sigkill || false
   };
 }
 
@@ -390,7 +425,8 @@ function connectWebSocket() {
                 newCompletion.value = {
                     id: data.id,
                     role: role.value, 
-                    completion: { content: data.completion.content || "" }
+                    status: data.status,
+                    completion: { content: data.completion.content || "", reasoning: data.completion.reasoning || "" }
                 }
                 // if last completion id is prefix system, dont add
                 if (completions.value.length > 0 && completions.value[completions.value.length - 1].id.startsWith("system-") && completions.value[completions.value.length - 1].completion.content.length == 0) {
@@ -419,7 +455,12 @@ function connectWebSocket() {
                 loadWidgets()
                 break;
             case 'insert_text_widget':
-                textWidgetsIds.value.push(data.text_widget_id)
+                console.log("Index.vue: Received insert_text_widget, calling refresh...");
+                if (dashboardRef.value) {
+                    dashboardRef.value.refreshTextWidgets();
+                } else {
+                    console.warn("Dashboard component ref not available to refresh text widgets.");
+                }
                 break;
             case 'update_step':
                 updateStep(data)
@@ -601,6 +642,9 @@ const shouldAnimateTitle = ref(false)
 
 // Add ref for PromptBoxExcel component
 const promptBoxRef = ref(null);
+
+// Add ref for DashboardComponent
+const dashboardRef = ref(null);
 
 // Add function to handle example click
 function handleExampleClick(starter: string) {

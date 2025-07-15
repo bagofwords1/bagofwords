@@ -43,6 +43,12 @@ class SMTPSettings(BaseModel):
     port: int = 587
     username: str = "resend"
     password: str
+    from_name: str = "Bag of words"
+    from_email: str = "hi@bagofwords.com"
+    use_tls: bool = True
+    use_ssl: bool = False
+    use_credentials: bool = True
+    validate_certs: bool = True
 
 class Stripe(BaseModel):
     api_key: str = None
@@ -75,6 +81,7 @@ class BowConfig(BaseModel):
     )
     stripe: Stripe = Stripe()
     database: Database = Database()
+    intercom: Intercom = Intercom()
 
     @validator('encryption_key')
     def validate_encryption_key(cls, v):

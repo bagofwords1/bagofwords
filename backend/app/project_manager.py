@@ -7,7 +7,7 @@ from app.models.widget import Widget
 from app.models.step import Step
 from app.models.plan import Plan
 from app.models.report import Report
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 class ProjectManager:
 
@@ -22,7 +22,9 @@ class ProjectManager:
             message_type="error",
             role="system",
             report_id=head_completion.report_id if head_completion.report_id else None,
-            widget_id=head_completion.widget_id if head_completion.widget_id else None
+            widget_id=head_completion.widget_id if head_completion.widget_id else None,
+            external_platform=head_completion.external_platform,
+            external_user_id=head_completion.external_user_id
         )
 
         db.add(error_completion)
@@ -30,21 +32,28 @@ class ProjectManager:
         await db.refresh(error_completion)
         return error_completion
 
-    async def create_message(self, db, report, message, completion, widget, role, step=None):
-        
-        completion_message = PromptSchema(content=message).dict()
+    async def create_message(self, db, report, message=None, reasoning=None, completion=None, widget=None, role="system", step=None, external_platform=None, external_user_id=None):
+        completion_message = PromptSchema(content="", reasoning="")
+        if message is not None:
+            completion_message.content = message
+        if reasoning is not None:
+            completion_message.reasoning = reasoning
+
+        completion_message = completion_message.dict()
 
         new_completion = Completion(
             completion=completion_message,
             model="gpt4o",
-            status="success",
+            status="in_progress",
             turn_index=0,
-            parent_id=None,
+            parent_id=completion.id if completion else None,
             message_type="ai_completion",
             role=role,
             report_id=report.id,  # Assuming 'report' is an instance of the Report model
             widget_id=widget.id if widget else None,   # or pass a widget ID if available
-            step_id=step.id if step else None
+            step_id=step.id if step else None,
+            external_platform=external_platform,
+            external_user_id=external_user_id
         )
 
         db.add(new_completion)
@@ -67,18 +76,18 @@ class ProjectManager:
         await db.refresh(completion)
         return completion
     
-    async def update_message(self, db, completion, message):
+    async def update_message(self, db, completion, message=None, reasoning=None):
         # Handle the case where completion.completion might be a string
         if isinstance(completion.completion, str):
-            completion.completion = {'content': message}
+            completion.completion = {'content': message, 'reasoning': reasoning}
         else:
             # Create a new dictionary to ensure SQLAlchemy detects the change
             completion.completion = {
                 **completion.completion,  # Spread existing completion data
-                'content': message        # Update content
+                'content': message,
+                'reasoning': reasoning
             }
-        
-        # Mark as modified to ensure SQLAlchemy picks up the change
+        #  Mark as modified to ensure SQLAlchemy picks up the change
         db.add(completion)
         await db.commit()
         await db.refresh(completion)
@@ -91,8 +100,8 @@ class ProjectManager:
             status="draft",
             x=0,
             y=0,
-            width=400,
-            height=400,
+            width=5,
+            height=9,
             slug=title.lower().replace(" ", "-")
         )
 
@@ -170,6 +179,14 @@ class ProjectManager:
 
         return text_widget
     
+    async def delete_text_widgets_for_report(self, db, report_id):
+        """Deletes all TextWidget entries associated with a given report_id."""
+        stmt = delete(TextWidget).where(TextWidget.report_id == report_id)
+        await db.execute(stmt)
+        await db.commit()
+        # No object to refresh after deletion
+        print(f"Deleted existing text widgets for report {report_id}") # Optional logging
+    
     async def update_report_title(self, db, report, title):
         # Instead of merging, let's fetch a fresh instance
         stmt = select(Report).where(Report.id == report.id)
@@ -198,3 +215,19 @@ class ProjectManager:
         await db.refresh(plan)
 
         return plan
+    
+    async def update_plan(self, db, plan, content):
+        plan.content = content
+        db.add(plan)
+        await db.commit()
+        await db.refresh(plan)
+        return plan
+    
+
+    async def update_completion_status(self, db, completion, status):
+        completion.status = status
+        db.add(completion)
+        await db.commit()
+        await db.refresh(completion)
+        return completion
+        

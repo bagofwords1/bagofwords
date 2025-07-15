@@ -19,16 +19,27 @@
         <!-- Configuration content -->
         <div v-if="!loading && !error" class="space-y-5">
             <!-- General Features -->
-            <div v-for="(feature, key) in configFeatures" :key="key" class="flex flex-col md:w-2/3  ">
+            <div v-for="(feature, key) in configFeatures" :key="key" class="flex flex-col md:w-2/3">
                 <div class="flex items-center justify-between">
                     <div class="font-medium flex items-center">
                         {{ feature.name }}
                         <UTooltip v-if="feature.is_lab" text="Beta feature">
                             <Icon name="heroicons:beaker" class="ml-2 w-4 h-4" />
                         </UTooltip>
+                        <UTooltip v-if="feature.state === 'locked'" text="This setting is locked and cannot be changed.">
+                            <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                        </UTooltip>
                     </div>
-                    <UToggle v-model="feature.enabled" :disabled="!feature.editable"
-                        @change="updateFeature(key)" />
+                    <UToggle
+                        v-if="typeof feature.value === 'boolean'"
+                        v-model="feature.value"
+                        :disabled="!feature.editable || feature.state === 'locked'"
+                        @change="updateFeature(key, feature)"
+                    />
+                    <!-- Optionally handle non-boolean values here, e.g., UInput -->
+                    <span v-else class="text-sm text-gray-600">
+                        {{ feature.value }} ({{ feature.editable && feature.state !== 'locked' ? 'Editable via API' : 'Not directly editable' }})
+                    </span>
                 </div>
                 <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
             </div>
@@ -37,11 +48,25 @@
 </template>
 
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useToast } from '#imports' // Ensure useToast is imported if not globally available
+
+// Define feature interface matching backend FeatureConfig (including value, state)
+interface Feature {
+    name: string
+    description: string
+    value: any // Changed from enabled: boolean
+    state: 'enabled' | 'disabled' | 'locked'
+    editable: boolean
+    is_lab: boolean
+}
+
 definePageMeta({ auth: true, permissions: ['modify_settings'], layout: 'settings' })
 
 const loading = ref(true)
 const error = ref('')
-const configFeatures = ref({})
+// Use the Feature interface
+const configFeatures = ref<Record<string, Feature>>({})
 
 const toast = useToast()
 
@@ -51,20 +76,35 @@ const fetchSettings = async () => {
     error.value = ''
     try {
         const response = await useMyFetch('/api/organization/settings')
-        if (!response.status.value == 'success') throw new Error('Failed to fetch settings')
-        const data = response.data.value
-        // Extract configuration features
-        configFeatures.value = {
-            allow_llm_see_data: data.config.allow_llm_see_data,
-            allow_file_upload: data.config.allow_file_upload,
-            allow_code_editing: data.config.allow_code_editing
+        // Ensure status check is correct based on useMyFetch implementation
+        if (response.status.value !== 'success') { // Example check, adjust if needed
+             const errorData = response.error?.value?.data || { message: 'Failed to fetch settings' }
+             throw new Error(errorData.message || errorData.detail || 'Failed to fetch settings')
         }
-    } catch (err) {
+        const data = response.data.value
+
+        // Extract configuration features directly from config object
+        // Filter out ai_features as they are handled elsewhere
+        const allConfig = data.config || {};
+        const generalConfig = {};
+        for (const key in allConfig) {
+            if (key !== 'ai_features' && typeof allConfig[key] === 'object' && allConfig[key]?.name) {
+                 // Assuming top-level keys are FeatureConfig objects
+                 generalConfig[key] = allConfig[key];
+            }
+            // Add handling for non-feature config items if needed
+        }
+        configFeatures.value = generalConfig;
+
+
+    } catch (err: any) {
         error.value = err.message || 'An error occurred while fetching settings'
         toast.add({
-            title: 'Error',
+            title: 'Error Fetching Settings',
             description: error.value,
-            color: 'danger'
+            color: 'red',
+            timeout: 5000,
+            icon: 'i-heroicons-exclamation-circle'
         })
     } finally {
         loading.value = false
@@ -72,11 +112,14 @@ const fetchSettings = async () => {
 }
 
 // Update feature setting
-const updateFeature = async (featureKey) => {
+const updateFeature = async (featureKey: string, feature: Feature) => {
+    // Store the original value in case of revert
+    const originalValue = !feature.value;
     try {
         const payload = { config: {} }
+        // Send the 'value' field in the update payload
         payload.config[featureKey] = {
-            enabled: configFeatures.value[featureKey].enabled
+            value: configFeatures.value[featureKey].value // Send the new value
         }
 
         const response = await useMyFetch('/api/organization/settings', {
@@ -87,18 +130,50 @@ const updateFeature = async (featureKey) => {
             body: JSON.stringify(payload)
         })
 
-        if (response.status.value !== 'success') throw new Error('Failed to update settings')
-    } catch (err) {
+        // Adjust status check as needed
+        if (response.status.value !== 'success') {
+            const errorData = response.error?.value?.data || { message: 'Failed to update setting' }
+            throw new Error(errorData.message || errorData.detail || 'Failed to update setting')
+        }
+
+        // Update the local state fully from the response if possible, or just the value/state
+        const updatedConfig = response.data?.value?.config;
+        if (updatedConfig && updatedConfig[featureKey]) {
+             configFeatures.value[featureKey] = updatedConfig[featureKey];
+        } else {
+             // Fallback: manually update state based on new value if full object not returned
+             configFeatures.value[featureKey].state = configFeatures.value[featureKey].value ? 'enabled' : 'disabled';
+        }
+
+
+        // Show success toast using the new value
+        toast.add({
+            title: 'Success',
+            description: `${feature.name} has been set to ${feature.value ? 'enabled' : 'disabled'}`,
+            color: 'green',
+            timeout: 3000
+        })
+    } catch (err: any) {
+        // Revert the toggle using the stored original value
+        configFeatures.value[featureKey].value = originalValue;
+        // Also revert state if possible
+        configFeatures.value[featureKey].state = originalValue ? 'enabled' : 'disabled';
+
+
+        // Show error toast
         error.value = err.message || 'An error occurred while updating settings'
-        // Revert the toggle if there was an error
-        configFeatures.value[featureKey].enabled = !configFeatures.value[featureKey].enabled
+        toast.add({
+            title: 'Error Updating Setting',
+            description: error.value,
+            color: 'red',
+            timeout: 5000,
+            icon: 'i-heroicons-exclamation-circle'
+        })
     }
 }
 
 // Fetch settings when the component is mounted
-onMounted(
-    async () => {
-        await fetchSettings()
-    }
-)
+onMounted(async () => {
+    await fetchSettings()
+})
 </script> 

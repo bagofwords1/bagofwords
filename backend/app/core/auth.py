@@ -59,31 +59,32 @@ class UserManager(BaseUserManager[User, str]):
                     headers={"Location": redirect_url},
                 )
 
+    async def _attach_open_memberships(self, user: User, session: AsyncSession):
+        stmt = select(Membership).where(
+            and_(
+                Membership.email == user.email,
+                Membership.user_id.is_(None)
+            )
+        )
+        open_memberships = (await session.execute(stmt)).scalars().all()
+        
+        if open_memberships:
+            user.is_verified = True
+
+        # Update each open membership with the new user
+        for membership in open_memberships:
+            membership.user_id = user.id
+            membership.email = None  # Clear the email since we now have a user
+
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
         
         # Get open memberships and attach user
         async with self.user_db.session as session:
-            # Find any open memberships for this user's email
-            stmt = select(Membership).where(
-                and_(
-                    Membership.email == user.email,
-                    Membership.user_id.is_(None)
-                )
-            )
-            open_memberships = (await session.execute(stmt)).scalars().all()
-            
-            if open_memberships:
-                # If memberships exist, verify the user
-                user.is_verified = True
+            await self._attach_open_memberships(user, session)
             
             if not settings.bow_config.features.verify_emails:
                 user.is_verified = True
-
-            # Update each open membership with the new user
-            for membership in open_memberships:
-                membership.user_id = user.id
-                membership.email = None  # Clear the email since we now have a user
             
             await session.commit()
 
@@ -149,6 +150,10 @@ class UserManager(BaseUserManager[User, str]):
                             "is_superuser": False,
                         }
                     )
+                    
+                    # Attach any open memberships
+                    await self._attach_open_memberships(user, session)
+                    
                     oauth_account = OAuthAccount(
                         oauth_name=oauth_name,
                         access_token=access_token,
@@ -166,7 +171,31 @@ class UserManager(BaseUserManager[User, str]):
     async def on_after_forgot_password(
         self, user: User, token: str, request: Optional[Request] = None
     ):
-        pass
+        await self._send_reset_password_email(user, token, request)
+
+    async def _send_reset_password_email(self, user: User, token: str, request: Optional[Request] = None):
+        import asyncio
+        
+        base_url = settings.bow_config.base_url
+            
+        reset_url = f"{base_url}/users/reset-password?token={token}"
+        
+        message = MessageSchema(
+            subject="Reset your password",
+            recipients=[user.email],
+            body=f"Hello {user.name},<br /><br />You have requested to reset your password for Bag of words. Click the link below to reset your password:<br /><br /> <a href='{reset_url}'>{reset_url}</a><br /><br />If you didn't request this, please ignore this email.<br /><br />Best regards,<br />Bag of words team",
+            subtype="html"
+        )
+        fm = settings.email_client
+        
+        async def send_email():
+            try:
+                await fm.send_message(message)
+            except Exception as e:
+                print(f"Error sending reset password email: {e}")
+        
+        # Create task without awaiting it
+        asyncio.create_task(send_email())
 
     async def on_after_request_verify(
         self, user: User, token: str, request: Optional[Request] = None

@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{.Release.Name}}
+  namespace: {{.Release.Namespace}}
+  labels:
+    app: bowapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bowapp
+  template:
+    metadata:
+      labels:
+        app: bowapp
+    spec:
+      {{- if .Values.postgresql.primary.nodeSelector }}
+      nodeSelector: {{ .Values.postgresql.primary.nodeSelector | toJson }}
+      {{- end }}
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      containers:
+      - name: bowapp
+        image: {{.Values.image}}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 3000
+        resources:
+          {{- toYaml .Values.resources | nindent 12 }}
+        envFrom:
+          - configMapRef:
+              name: bowapp
+          {{- if not (empty .Values.config.secretRef) }}
+          - secretRef:
+              name: {{ .Values.config.secretRef }}
+          {{- end }}
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 30
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        volumeMounts:
+          - name: bow-config
+            mountPath: /app/bow-config.yaml
+            subPath: bowConfig
+      volumes:
+        - name: bow-config
+          configMap:
+            name: bowapp
+

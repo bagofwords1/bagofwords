@@ -18,6 +18,9 @@ from fastapi import Request
 from fastapi_mail import FastMail, MessageSchema
 import asyncio
 from typing import Optional
+from app.settings.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class OrganizationService:
 
@@ -76,6 +79,9 @@ class OrganizationService:
         user = await db.execute(select(User).where(User.email == membership_data.email))
         user = user.scalar_one_or_none()
 
+        # Store the email for invitation before potentially setting it to None
+        invitation_email = membership_data.email
+
         if user:
             membership_data.user_id = user.id
             membership_data.email = None
@@ -93,6 +99,11 @@ class OrganizationService:
             .where(Membership.id == membership.id)
         )
         membership_with_user = result.scalar_one()
+        
+        # Send invitation email if email client is configured
+        if hasattr(settings, 'email_client') and settings.email_client and invitation_email:
+            await self._send_invitation_email(membership_with_user, invitation_email)
+            
         return MembershipSchema.from_orm(membership_with_user)
     
     async def get_user_organizations(self, db: AsyncSession, current_user: User) -> List[OrganizationAndRoleSchema]:
@@ -165,21 +176,163 @@ class OrganizationService:
 
         return len(admin_members)
     
-    async def _send_invitation_email(self, membership: Membership):
-
-        sign_up_url = settings.bow_config.base_url + "/users/sign-up?email=" + membership.email
+    async def _send_invitation_email(self, membership: Membership, email: str):
+        sign_up_url = settings.bow_config.base_url + "/users/sign-up?email=" + email
 
         message = MessageSchema(
             subject="You are invited to Bag of words",
-            recipients=[membership.email],
+            recipients=[email],
             body=f"You have been invited to join an organization on Bag of words. Click to sign up: <br /> {sign_up_url}",
             subtype="html")
         fm = settings.email_client
+        logger.info(f"Using email client: {fm}")
 
         async def send_email():
+            logger.info(f"Sending invitation email to: {email}")
             try:
                 await fm.send_message(message)
+                logger.info(f"Invitation email sent successfully to: {email}")
             except Exception as e:
-                print(f"Error sending invitation email: {e}")
+                logger.error(f"Error sending invitation email: {e}")
 
         asyncio.create_task(send_email())
+
+    async def get_organization_metrics(self, db: AsyncSession, organization: Organization) -> dict:
+        """Get organization metrics including total messages, queries, and thumbs"""
+        from app.models.completion import Completion
+        from app.models.report import Report
+        from app.models.step import Step
+        from app.models.widget import Widget
+        from sqlalchemy import func
+        
+        # Count total messages (completions)
+        messages_result = await db.execute(
+            select(func.count(Completion.id))
+            .join(Report)
+            .where(Report.organization_id == organization.id)
+        )
+        total_messages = messages_result.scalar()
+        
+        # Count total queries (steps)
+        queries_result = await db.execute(
+            select(func.count(Step.id))
+            .join(Widget)
+            .join(Report)
+            .where(Report.organization_id == organization.id)
+        )
+        total_queries = queries_result.scalar()
+        
+        # Count total thumbs (feedback scores)
+        thumbs_result = await db.execute(
+            select(func.count(Completion.id))
+            .join(Report)
+            .where(
+                Report.organization_id == organization.id,
+                Completion.feedback_score != 0
+            )
+        )
+        total_thumbs = thumbs_result.scalar()
+        
+        return {
+            "total_messages": total_messages,
+            "total_queries": total_queries,
+            "total_thumbs": total_thumbs
+        }
+
+    async def get_recent_widgets(self, db: AsyncSession, organization: Organization, offset: int = 0, limit: int = 10) -> dict:
+        """Get recent widgets with user, time, code, output sample, steps count, and thumbs with pagination"""
+        from app.models.widget import Widget
+        from app.models.report import Report
+        from app.models.step import Step
+        from app.models.completion import Completion
+        from app.models.user import User
+        from sqlalchemy import func
+        
+        # Get total count first
+        count_result = await db.execute(
+            select(func.count(Widget.id))
+            .join(Report, Widget.report_id == Report.id)
+            .where(Report.organization_id == organization.id)
+        )
+        total_count = count_result.scalar()
+        
+        # Get recent widgets with related data
+        result = await db.execute(
+            select(
+                Widget,
+                Report,
+                User.name.label('user_name'),
+                func.count(Step.id).label('steps_count'),
+                func.count(Completion.id).filter(Completion.feedback_score != 0).label('thumbs_count')
+            )
+            .join(Report, Widget.report_id == Report.id)
+            .join(User, Report.user_id == User.id)
+            .outerjoin(Step, Widget.id == Step.widget_id)
+            .outerjoin(Completion, Widget.id == Completion.widget_id)
+            .where(Report.organization_id == organization.id)
+            .group_by(Widget.id, Report.id, User.name)
+            .order_by(Widget.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        
+        widgets_data = result.all()
+        
+        # Format the data
+        formatted_widgets = []
+        for widget_data in widgets_data:
+            widget, report, user_name, steps_count, thumbs_count = widget_data
+            
+            # Get the last step for code and output sample
+            last_step_result = await db.execute(
+                select(Step)
+                .where(Step.widget_id == widget.id)
+                .order_by(Step.created_at.desc())
+                .limit(1)
+            )
+            last_step = last_step_result.scalar_one_or_none()
+            
+            # Get completion ID and prompt (first completion for this widget)
+            completion_result = await db.execute(
+                select(Completion.id, Completion.prompt, Completion.completion)
+                .where(Completion.widget_id == widget.id)
+                .order_by(Completion.created_at.asc())
+                .limit(1)
+            )
+            completion_data = completion_result.first()
+            completion_id = completion_data[0] if completion_data else None
+            original_prompt = completion_data[1] if completion_data else None
+            completion_prompt = completion_data[2] if completion_data else None
+            
+            # Get sample output and row count
+            output_sample = None
+            row_count = 0
+            if last_step and last_step.data and 'rows' in last_step.data and last_step.data['rows']:
+                row_count = len(last_step.data['rows'])
+                # Return the actual data structure instead of converting to string
+                output_sample = {
+                    'columns': last_step.data.get('columns', []),
+                    'rows': last_step.data['rows'][:10]  # First 10 rows for sample
+                }
+            
+            formatted_widgets.append({
+                "id": widget.id,
+                "title": widget.title,
+                "user_name": user_name,
+                "created_at": widget.created_at.isoformat() if widget.created_at else None,
+                "completion_id": completion_id,
+                "prompt": original_prompt,
+                "completion_prompt": completion_prompt,
+                "code": last_step.code if last_step else "",
+                "output_sample": output_sample,
+                "row_count": row_count,
+                "steps_count": steps_count or 0,
+                "thumbs_count": thumbs_count or 0
+            })
+        
+        return {
+            "items": formatted_widgets,
+            "total": total_count,
+            "offset": offset,
+            "limit": limit
+        }
