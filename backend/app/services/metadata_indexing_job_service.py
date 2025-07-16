@@ -209,7 +209,6 @@ class MetadataIndexingJobService:
             
             # Extract all resources
             resources_dict, columns_by_resource, docs_by_resource = extractor.extract_all_resources()
-            
             # Debug: Log what we found
             logger.debug(f"Extracted resources: {extractor.get_summary()}")
             
@@ -217,15 +216,23 @@ class MetadataIndexingJobService:
             for resource_type, resources in resources_dict.items():
                 logger.debug(f"Processing {len(resources)} {resource_type}")
                 for resource_item in resources:
+                    # Construct the lookup key to get columns for this resource
+                    item_name = resource_item.get('name')
+                    item_type_from_resource = resource_item.get('resource_type', resource_type)
+                    lookup_key = f"{item_type_from_resource}.{item_name}"
+                    
+                    # Get columns from the separate dictionary, similar to DBT parsing
+                    item_columns = columns_by_resource.get(lookup_key, [])
+
                     # Create/update the metadata resource
                     metadata_resource = await self._create_or_update_metadata_resource(
                         db=db,
                         item=resource_item, # Pass the entire resource item
-                        resource_type=resource_item.get('resource_type', resource_type), # Use specific type if available
+                        resource_type=item_type_from_resource, # Use specific type if available
                         data_source_id=data_source_id,
                         job_id=job_id,
-                        # Pass other fields if they are not nested in 'item' by the parser
-                        columns=resource_item.get('columns', []),
+                        # Pass the columns we just looked up
+                        columns=item_columns,
                         depends_on=resource_item.get('depends_on', [])
                     )
                     
