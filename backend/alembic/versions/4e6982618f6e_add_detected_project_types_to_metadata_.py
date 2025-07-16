@@ -99,7 +99,7 @@ def upgrade() -> None:
                             print(f"Warning: No organization found for repo {repo.id}")
                             continue
                         
-                        print(f"Triggering re-index for repo {repo.id} ({repo.name})")
+                        print(f"Triggering re-index for repo {repo.id} ({repo.repo_url})")
                         
                         # Trigger re-indexing using the existing service
                         result = await git_service.index_git_repository(
