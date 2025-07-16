@@ -418,7 +418,6 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
-        
         metadata_indexing_job = await db.execute(
             select(MetadataIndexingJob)
             .filter(
@@ -430,7 +429,7 @@ class DataSourceService:
             .limit(1)
         )
         metadata_indexing_job = metadata_indexing_job.scalar_one_or_none()
-
+        
         if not metadata_indexing_job:
             raise HTTPException(status_code=404, detail="Metadata indexing job not found")
         

@@ -17,7 +17,6 @@ class ResourceContextBuilder:
         context = []
         # Extract keywords from the prompt
         keywords = self._extract_keywords_from_prompt(self.prompt_content)
-
         # For each data source, check if there's a git repository
         for data_source in data_sources:
             # Find the git repository connected to this data source
@@ -41,7 +40,7 @@ class ResourceContextBuilder:
             )
 
             latest_index_job = latest_index_job.scalars().first()
-            
+
             if not latest_index_job:
                 continue
                 
@@ -55,7 +54,6 @@ class ResourceContextBuilder:
             
             # Filter resources based on keywords
             relevant_resources = self._filter_resources_by_keywords(all_resources, keywords)
-            
             # Add relevant resources to context
             if relevant_resources:
                 context.append("<relevant_metadata_resources>")
@@ -94,7 +92,7 @@ class ResourceContextBuilder:
             # Check if any keyword is in the searchable text
             if any(keyword.lower() in searchable_text.lower() for keyword in keywords):
                 relevant_resources.append(resource)
-               
+        
         # Limit to top 5 most relevant resources to avoid context overload
         return relevant_resources[:5]
 

@@ -49,35 +49,28 @@ class LookMLResourceExtractor:
         return self.resources, self.columns_by_resource, self.docs_by_resource
 
     def _parse_lookml_content(self, content, file_path):
-        """Recursively parse LookML content dictionary."""
-        if isinstance(content, dict):
-            for key, value in content.items():
-                # Handle top-level definitions (models, views, explores)
-                if key == 'model':
-                    self._extract_model(value, file_path)
-                elif key == 'view':
-                    self._extract_view(value, file_path)
-                elif key == 'explore':
-                     # Explores are often defined within models, handle that there
-                     pass # Explores are typically inside models
-                # Potentially handle other top-level keys if necessary
-                
-                # Recurse for nested structures (though most definitions are top-level lists)
-                self._parse_lookml_content(value, file_path)
-                
-        elif isinstance(content, list):
-            for item in content:
-                 # Handle lists of definitions (common pattern in LookML)
-                 if isinstance(item, dict):
-                     if 'model' in item:
-                         self._extract_model(item['model'], file_path)
-                     elif 'view' in item:
-                         self._extract_view(item['view'], file_path)
-                     elif 'explore' in item:
-                         # Explores are often defined within models, handle that there
-                         pass # Explores are typically inside models
-                 # Recurse into list items if they are complex structures
-                 self._parse_lookml_content(item, file_path)
+        """Parses the content of a single LookML file."""
+        if not isinstance(content, dict):
+            return
+
+        # lkml library returns lists of resources under plural keys
+        if 'models' in content and isinstance(content.get('models'), list):
+            for model_data in content['models']:
+                if isinstance(model_data, dict):
+                    self._extract_model(model_data, file_path)
+        
+        if 'views' in content and isinstance(content.get('views'), list):
+            for view_data in content['views']:
+                if isinstance(view_data, dict):
+                    self._extract_view(view_data, file_path)
+        
+        # Standalone explores are handled by _extract_model, which is the common pattern.
+        # If explores are ever found at the top level, they would be handled here.
+        if 'explores' in content and isinstance(content.get('explores'), list):
+            logger.debug(f"Found standalone explores in {file_path}, which are not currently processed independently of a model.")
+            # The _extract_explore method requires a model_name, so we cannot process
+            # standalone explores without more logic to determine their parent model.
+            pass
 
     def _extract_model(self, model_data, file_path):
         """Extracts information from a LookML model definition."""
