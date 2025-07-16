@@ -6,8 +6,10 @@ Create Date: 2025-04-07 21:17:23.537003
 
 """
 from typing import Sequence, Union
-from datetime import datetime
-import uuid
+import asyncio
+import tempfile
+import shutil
+import os
 
 from alembic import op
 import sqlalchemy as sa
@@ -52,154 +54,86 @@ def upgrade() -> None:
     with op.batch_alter_table('metadata_indexing_jobs', schema=None) as batch_op:
         batch_op.add_column(sa.Column('detected_project_types', sa.JSON(), nullable=True))
 
-    # ### Data Migration: Copy dbt_resources to metadata_resources ###
-    connection = op.get_bind()
-    
-    # Check if dbt_resources table exists and has data
-    inspector = sa.inspect(connection)
-    if 'dbt_resources' in inspector.get_table_names():
-        # Get count of dbt_resources to migrate
-        result = connection.execute(sa.text("SELECT COUNT(*) FROM dbt_resources WHERE deleted_at IS NULL"))
-        dbt_count = result.scalar()
-        
-        if dbt_count > 0:
-            print(f"Migrating {dbt_count} dbt_resources to metadata_resources...")
-            
-            # Create placeholder indexing jobs for data sources that don't have them
-            # First, get all unique data_source_ids from dbt_resources
-            data_sources_result = connection.execute(sa.text("""
-                SELECT DISTINCT data_source_id, organization_id 
-                FROM dbt_resources 
-                WHERE deleted_at IS NULL
-            """))
-            data_sources = data_sources_result.fetchall()
-            
-            # Create placeholder indexing jobs
-            for data_source_id, organization_id in data_sources:
-                # Check if indexing job already exists
-                job_result = connection.execute(sa.text("""
-                    SELECT id FROM metadata_indexing_jobs 
-                    WHERE data_source_id = :data_source_id 
-                    AND status = 'completed'
-                    LIMIT 1
-                """), {"data_source_id": data_source_id})
-                existing_job = job_result.fetchone()
-                
-                if not existing_job:
-                    # Create placeholder job for migrated data
-                    job_id = str(uuid.uuid4())
-                    current_time = datetime.utcnow()
-                    connection.execute(sa.text("""
-                        INSERT INTO metadata_indexing_jobs (
-                            id, data_source_id, organization_id, job_type, status,
-                            detected_project_types, started_at, completed_at,
-                            total_resources, processed_resources, is_active,
-                            created_at, updated_at
-                        ) VALUES (
-                            :job_id, :data_source_id, :organization_id, 'dbt', 'completed',
-                            :detected_types, :started_at, :completed_at,
-                            0, 0, true, :created_at, :updated_at
-                        )
-                    """), {
-                        "job_id": job_id,
-                        "data_source_id": data_source_id,
-                        "organization_id": organization_id,
-                        "detected_types": '["dbt"]',
-                        "started_at": current_time,
-                        "completed_at": current_time,
-                        "created_at": current_time,
-                        "updated_at": current_time
-                    })
-                else:
-                    job_id = existing_job[0]
-                
-                # Migrate dbt_resources for this data source
-                connection.execute(sa.text("""
-                    INSERT INTO metadata_resources (
-                        id, name, resource_type, path, description, raw_data,
-                        sql_content, source_name, database, schema, columns,
-                        depends_on, is_active, last_synced_at, data_source_id,
-                        metadata_indexing_job_id, created_at, updated_at, deleted_at
-                    )
-                    SELECT 
-                        id, name, 
-                        CASE 
-                            WHEN resource_type = 'model' THEN 'dbt_model'
-                            WHEN resource_type = 'source' THEN 'dbt_source'
-                            WHEN resource_type = 'seed' THEN 'dbt_seed'
-                            WHEN resource_type = 'macro' THEN 'dbt_macro'
-                            WHEN resource_type = 'test' THEN 'dbt_test'
-                            WHEN resource_type = 'metric' THEN 'dbt_metric'
-                            WHEN resource_type = 'exposure' THEN 'dbt_exposure'
-                            ELSE CONCAT('dbt_', resource_type)
-                        END as resource_type,
-                        path, description, raw_data, sql_content, source_name,
-                        database, schema, columns, depends_on, is_active,
-                        last_synced_at, data_source_id, :job_id,
-                        created_at, updated_at, deleted_at
-                    FROM dbt_resources 
-                    WHERE data_source_id = :data_source_id 
-                    AND deleted_at IS NULL
-                """), {"data_source_id": data_source_id, "job_id": job_id})
-            
-            print(f"Successfully migrated {dbt_count} dbt_resources to metadata_resources")
-
     # Drop the old dbt_resources table
     with op.batch_alter_table('dbt_resources', schema=None) as batch_op:
         batch_op.drop_index('ix_dbt_resources_id')
 
     op.drop_table('dbt_resources')
 
+    # ### Trigger re-indexing for all repositories ###
+    print("Migration completed. Triggering re-indexing for all repositories...")
+    
+    # Import here to avoid circular imports
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    
+    from app.dependencies import async_session_maker
+    from app.models.git_repository import GitRepository
+    from app.services.git_repository_service import GitRepositoryService
+    from app.models.organization import Organization
+    from sqlalchemy import select
+    
+    async def reindex_all_repositories():
+        async with async_session_maker() as db:
+            try:
+                # Get all active git repositories
+                result = await db.execute(
+                    select(GitRepository).where(GitRepository.is_active == True)
+                )
+                repositories = result.scalars().all()
+                
+                print(f"Found {len(repositories)} repositories to re-index")
+                
+                git_service = GitRepositoryService()
+                
+                for repo in repositories:
+                    try:
+                        # Get organization for this repo
+                        org_result = await db.execute(
+                            select(Organization).where(Organization.id == repo.organization_id)
+                        )
+                        organization = org_result.scalar_one()
+                        
+                        if not organization:
+                            print(f"Warning: No organization found for repo {repo.id}")
+                            continue
+                        
+                        print(f"Triggering re-index for repo {repo.id} ({repo.name})")
+                        
+                        # Trigger re-indexing using the existing service
+                        result = await git_service.index_git_repository(
+                            db=db,
+                            repository_id=repo.id,
+                            data_source_id=repo.data_source_id,
+                            organization=organization
+                        )
+                        
+                        print(f"Successfully triggered re-index for repo {repo.id}: {result}")
+                        
+                    except Exception as e:
+                        print(f"Failed to re-index repo {repo.id}: {e}")
+                        continue
+                
+                print("Re-indexing trigger completed")
+                
+            except Exception as e:
+                print(f"Re-indexing script failed: {e}")
+                raise
+    
+    # Run the async function
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    
+    loop.run_until_complete(reindex_all_repositories())
+
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
-    # ### Data Migration: Copy metadata_resources back to dbt_resources ###
-    connection = op.get_bind()
-    
-    # Check if metadata_resources table exists and has dbt data
-    inspector = sa.inspect(connection)
-    if 'metadata_resources' in inspector.get_table_names():
-        # Get count of dbt metadata_resources to migrate back
-        result = connection.execute(sa.text("""
-            SELECT COUNT(*) FROM metadata_resources 
-            WHERE resource_type LIKE 'dbt_%' AND deleted_at IS NULL
-        """))
-        metadata_count = result.scalar()
-        
-        if metadata_count > 0:
-            print(f"Migrating {metadata_count} dbt metadata_resources back to dbt_resources...")
-            
-            # Migrate dbt metadata_resources back to dbt_resources
-            connection.execute(sa.text("""
-                INSERT INTO dbt_resources (
-                    id, name, resource_type, path, description, raw_data,
-                    sql_content, source_name, database, schema, columns,
-                    depends_on, is_active, last_synced_at, data_source_id,
-                    metadata_indexing_job_id, created_at, updated_at, deleted_at
-                )
-                SELECT 
-                    id, name, 
-                    CASE 
-                        WHEN resource_type = 'dbt_model' THEN 'model'
-                        WHEN resource_type = 'dbt_source' THEN 'source'
-                        WHEN resource_type = 'dbt_seed' THEN 'seed'
-                        WHEN resource_type = 'dbt_macro' THEN 'macro'
-                        WHEN resource_type = 'dbt_test' THEN 'test'
-                        WHEN resource_type = 'dbt_metric' THEN 'metric'
-                        WHEN resource_type = 'dbt_exposure' THEN 'exposure'
-                        ELSE SUBSTRING(resource_type, 5) -- Remove 'dbt_' prefix
-                    END as resource_type,
-                    path, description, raw_data, sql_content, source_name,
-                    database, schema, columns, depends_on, is_active,
-                    last_synced_at, data_source_id, metadata_indexing_job_id,
-                    created_at, updated_at, deleted_at
-                FROM metadata_resources 
-                WHERE resource_type LIKE 'dbt_%' AND deleted_at IS NULL
-            """))
-            
-            print(f"Successfully migrated {metadata_count} dbt metadata_resources back to dbt_resources")
-
     with op.batch_alter_table('metadata_indexing_jobs', schema=None) as batch_op:
         batch_op.drop_column('detected_project_types')
 
