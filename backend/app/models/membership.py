@@ -34,7 +34,8 @@ MEMBER_PERMISSIONS = {
     'view_llm_settings',
     'view_organization_members',
     'view_files',
-    'manage_organization_external_platforms'
+    'manage_organization_external_platforms',
+    'view_instructions',
 }
 
 ADMIN_PERMISSIONS = {
@@ -51,7 +52,11 @@ ADMIN_PERMISSIONS = {
     'view_data_source_full_schema',
     'manage_organization_settings',
     'view_organization_settings',
-    'view_organization_overview'
+    'view_organization_overview',
+    'create_instructions',
+    'update_instructions',
+    'delete_instructions'
+    
 }
 
 # Combine permissions for roles

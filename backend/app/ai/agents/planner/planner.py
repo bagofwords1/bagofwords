@@ -4,11 +4,14 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 import tiktoken 
 import json
 from partialjson.json_parser import JSONParser
+from app.ai.context.instruction_context_builder import InstructionContextBuilder
+
 class Planner:
 
-    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig) -> None:
+    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder: InstructionContextBuilder) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
+        self.instruction_context_builder = instruction_context_builder
 
         # Handle tokenizer selection with better fallback logic
         try:
@@ -29,7 +32,14 @@ class Planner:
             return 0
         return len(self.tokenizer.encode(text))
 
-    async def execute(self, schemas, persona, prompt, memories, previous_messages, observation_data=None, widget=None, step=None, external_platform=None):
+    async def execute(self, schemas, persona, prompt, memories, previous_messages,
+                      observation_data=None, widget=None, step=None,
+                      external_platform=None):
+        # --------------------------------------------------------------
+        # NEW – fetch organization-wide instructions once at the top
+        # --------------------------------------------------------------
+        instructions_context = await self.instruction_context_builder.get_instructions_context()
+        
         # Generate observation context if observation_data is provided
         observation_context = ""
         if observation_data and "widgets" in observation_data and observation_data["widgets"]:
@@ -168,6 +178,10 @@ class Planner:
 
         Metadata about the user:
         - external_platform: {external_platform}
+
+        **General Organization Instructions**:
+        **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
+        {instructions_context}
 
         **Context**:
         - **Schemas**:
@@ -481,7 +495,6 @@ class Planner:
 
         # Add examples to the prompt
         text += "\n" + example_complete_analysis + "\n" + example_continue_analysis
-        
         # Count tokens in the prompt
         prompt_tokens = self.count_tokens(text)
         print(f"Prompt tokens: {prompt_tokens}")

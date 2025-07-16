@@ -4,12 +4,14 @@ from app.models.llm_model import LLMModel
 import re
 import json
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+from app.ai.context.instruction_context_builder import InstructionContextBuilder
 
 class Coder:
-    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig) -> None:
+    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder: InstructionContextBuilder) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
         self.enable_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
+        self.instruction_context_builder = instruction_context_builder
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages):
         # Implementation left out as not requested.
@@ -28,6 +30,8 @@ class Coder:
         retries,
         prev_data_model_code_pair
     ):
+        instructions_context = await self.instruction_context_builder.get_instructions_context()
+
         # Build a section with existing widget data if applicable
         modify_existing_widget_text = ""
         if prev_data_model_code_pair:
@@ -78,6 +82,10 @@ class Coder:
         Your goal: Given a data model and context, generate a Python function named `generate_df(ds_clients, excel_files)`
         that produces a Pandas DataFrame according to the data model specifications only.
         Use the previous messages to understand the user's intent/context and the data model to generate the correct dataframe.
+
+        **General Organization Instructions**:
+        **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
+        {instructions_context}
 
         **Context and Inputs**:
         - Data Model (newly generated):

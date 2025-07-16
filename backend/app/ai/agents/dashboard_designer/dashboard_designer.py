@@ -4,12 +4,14 @@ from app.models.llm_model import LLMModel
 from app.models.step import Step
 from app.models.widget import Widget
 from typing import List, Optional
+from app.ai.context.instruction_context_builder import InstructionContextBuilder
 import json
 
 class DashboardDesigner:
 
-    def __init__(self, model: LLMModel) -> None:
+    def __init__(self, model: LLMModel, instruction_context_builder: InstructionContextBuilder) -> None:
         self.llm = LLM(model)
+        self.instruction_context_builder = instruction_context_builder
 
     async def execute(self, prompt: str, widgets: List[Widget], steps: Optional[List[Step]], previous_messages: str):
         parser = JSONParser()
@@ -73,6 +75,10 @@ class DashboardDesigner:
         text = f"""
         You are an expert dashboard / report analyst and designer. Your task is to create a dashboard layout based on a user's request, the available data widgets, the analysis steps performed, and the conversation history.
         The goal is NOT just to place widgets, but to arrange them **thoughtfully** and add explanatory **text widgets** to create a clear, compelling narrative that summarizes the analysis and directly addresses the user's initial prompt.
+
+        **General Organization Instructions**:
+        **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
+        {self.instruction_context_builder.get_instructions_context()}
 
         **Context Provided**:
 

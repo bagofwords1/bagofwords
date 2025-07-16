@@ -1,0 +1,119 @@
+from typing import List, Optional
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.instruction import (
+    Instruction,
+    InstructionCategory,
+    InstructionStatus,
+)
+
+
+class InstructionContextBuilder:
+    """
+    Helper for fetching instructions that should be supplied to the LLM.
+
+    Usage example
+    -------------
+    ```python
+    builder = InstructionContextBuilder(db_session)
+    # All published instructions, regardless of category
+    all_instructions = await builder.load_instructions()
+
+    # Only published code-generation instructions
+    code_gen_instructions = await builder.load_instructions(
+        category=InstructionCategory.CODE_GEN
+    )
+
+    # Draft data-modelling instructions
+    draft_dm_instructions = await builder.load_instructions(
+        status=InstructionStatus.DRAFT,
+        category=InstructionCategory.DATA_MODELING,
+    )
+    ```
+    """
+
+    def __init__(self, db: AsyncSession):
+        self.db = db
+
+    async def load_instructions(
+        self,
+        *,
+        status: InstructionStatus = InstructionStatus.PUBLISHED,
+        category: Optional[InstructionCategory] = None,
+    ) -> List[Instruction]:
+        """
+        Load instructions from the database.
+
+        Parameters
+        ----------
+        status : InstructionStatus, optional
+            Filter by status (defaults to `PUBLISHED`).
+        category : InstructionCategory | None, optional
+            If provided, restrict the results to this category.
+
+        Returns
+        -------
+        List[Instruction]
+            Matching Instruction ORM objects.
+        """
+        stmt = select(Instruction).where(Instruction.status == status)
+
+        if category is not None:
+            stmt = stmt.where(Instruction.category == category)
+
+        result = await self.db.execute(stmt)
+        return result.scalars().all()
+
+    async def build_context(
+        self,
+        *,
+        status: InstructionStatus = InstructionStatus.PUBLISHED,
+        category: Optional[InstructionCategory] = None,
+    ) -> str:
+        """
+        Convenience wrapper that returns the instructions as a single string
+        block ready to be appended to an LLM prompt.
+
+        The XML-like tags are purely to delimit the section and make parsing
+        simpler on the model side.
+
+        Example output
+        --------------
+        <instructions>
+          <instruction id="123" category="code_gen">
+            Create SQL that sums revenue by month …
+          </instruction>
+          ...
+        </instructions>
+        """
+        instructions = await self.load_instructions(status=status, category=category)
+        if not instructions:
+            return ""
+
+        lines: list[str] = ["<instructions>"]
+        for inst in instructions:
+            lines.append(self._format_instruction(inst))
+        lines.append("</instructions>")
+        return "\n".join(lines)
+
+    # --------------------------------------------------------------------- #
+    # Private helpers                                                       #
+    # --------------------------------------------------------------------- #
+    @staticmethod
+    def _format_instruction(instruction: Instruction) -> str:
+        """
+        Render a single instruction in a minimal, self-describing format.
+        """
+        return (
+            f"  <instruction id=\"{instruction.id}\" "
+            f"category=\"{instruction.category.value}\" "
+            f"thumbs_up=\"{instruction.thumbs_up}\">\n"
+            f"    {instruction.text.strip()}\n"
+            f"  </instruction>"
+        )
+
+    async def get_instructions_context(self):
+        text = await self.build_context()
+        return text

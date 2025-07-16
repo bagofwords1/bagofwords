@@ -4,6 +4,6 @@ definePageMeta({
 })
 
 onMounted(() => {
-    navigateTo('/settings/overview')
+    navigateTo('/settings/members')
 })
 </script>

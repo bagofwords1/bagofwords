@@ -309,10 +309,6 @@ interface PaginatedResponse {
     limit: number
 }
 
-const { organization } = useOrganization()
-
-definePageMeta({ auth: true, permissions: ['view_organization_overview'], layout: 'settings' })
-
 const metrics = ref<Metrics>({
     total_messages: 0,
     total_queries: 0,
@@ -523,5 +519,4 @@ onMounted(async () => {
         console.error('Error fetching data:', err)
     }
 })
-
 </script> 

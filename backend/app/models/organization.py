@@ -8,6 +8,7 @@ from app.models.git_repository import GitRepository
 from app.models.prompt import Prompt
 from app.models.external_platform import ExternalPlatform
 from app.models.external_user_mapping import ExternalUserMapping
+from app.models.instruction import Instruction
 
 class Organization(BaseSchema):
     __tablename__ = "organizations"
@@ -30,7 +31,9 @@ class Organization(BaseSchema):
     # External platform relationships
     external_platforms = relationship("ExternalPlatform", back_populates="organization", cascade="all, delete-orphan")
     external_user_mappings = relationship("ExternalUserMapping", back_populates="organization", cascade="all, delete-orphan")
-    
+
+    instructions = relationship("Instruction", back_populates="organization")
+
     async def get_default_llm_model(self, db):
         """Get the default LLM model for the organization.
         

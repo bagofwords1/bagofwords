@@ -1,17 +1,23 @@
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
-
+from app.ai.context.instruction_context_builder import InstructionContextBuilder
 class Answer:
 
-    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig) -> None:
+    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder: InstructionContextBuilder) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
         self.code_reviewer = organization_settings.get_config("code_reviewer").value
         self.search_context = organization_settings.get_config("search_context").value
         self.allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
+        self.instruction_context_builder = instruction_context_builder
 
     async def execute(self, prompt, schemas, memories, previous_messages, widget=None, observation_data=None, external_platform=None):
+        # --------------------------------------------------------------
+        # NEW – fetch instruction context
+        # --------------------------------------------------------------
+        instructions_context = await self.instruction_context_builder.get_instructions_context()
+        
         # Build observation context similar to planner
         
         observation_context = ""
@@ -74,6 +80,10 @@ Metadata about the user:
 - The user sent a message via {external_platform} platform. Make sure to format the output and style based on the platform -- use `mrkdwn` formatting ONLY, no HTML.
 
 The planner agent decided that you should answer the question below with the data and schemas provided.
+
+Instructions:
+**VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
+{instructions_context}
 
 You have been given:
 

@@ -67,7 +67,12 @@ function getPermissionsForRole(role: string): string[] {
       'view_completion_plan',
       'view_organization_overview',
       'manage_organization_external_platforms',
-      'view_llm_settings'
+      'view_llm_settings',
+      'view_console',
+      'view_instructions',
+      'create_instructions',
+      'update_instructions',
+      'delete_instructions',
     ],
     member: [
       'view_data_source',
@@ -95,7 +100,8 @@ function getPermissionsForRole(role: string): string[] {
       'rerun_memory_step',
       'view_organizations',
       'view_llm_settings',
-      'view_organization_members'
+      'view_organization_members',
+      'view_instructions'
     ],
     // Add more roles and permissions as needed
   }

@@ -26,6 +26,8 @@ from app.project_manager import ProjectManager
 from app.ai.agents.coder.coder import Coder
 from app.ai.agents.reporter.reporter import Reporter
 
+from app.ai.context.instruction_context_builder import InstructionContextBuilder
+
 from sqlalchemy import select
 
 from app.settings.logging_config import get_logger
@@ -56,6 +58,7 @@ class Agent:
         self.system_completion = system_completion  # Store the initial system completion
         self.external_platform = None
         self.external_user_id = None
+        self.instruction_context_builder = InstructionContextBuilder(self.db)
 
         if head_completion:
             self.head_completion = head_completion
@@ -78,13 +81,12 @@ class Agent:
         self.llm = LLM(model=model)
         self.organization_settings = organization_settings
 
-        self.planner = Planner(model=model, organization_settings=self.organization_settings)
-        self.answer = Answer(model=model, organization_settings=self.organization_settings)
-        self.dashboard_designer = DashboardDesigner(model=model)
+        self.planner = Planner(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)
+        self.answer = Answer(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)
+        self.dashboard_designer = DashboardDesigner(model=model, instruction_context_builder=self.instruction_context_builder)
         self.project_manager = ProjectManager()
-        self.coder = Coder(model=model, organization_settings=self.organization_settings)
+        self.coder = Coder(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)
         self.reporter = Reporter(model=model)
-
         # Create code execution manager with all required dependencies
         self.code_execution_manager = CodeExecutionManager(
             logger=logger,

@@ -39,7 +39,6 @@ const route = useRoute()
 
 // All available tabs with their required permissions
 const allTabs = [
-    { name: "overview", label: "Overview", requiredPermission: "view_organization_overview" },
     { name: 'members', label: 'Members', requiredPermission: "view_organization_members" },
     { name: 'models', label: 'Models', requiredPermission: "view_llm_settings" },
     { name: 'configuration', label: 'Configuration', requiredPermission: "view_organization_overview" },

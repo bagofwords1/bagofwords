@@ -150,6 +150,12 @@ class DataSource(BaseSchema):
     )
     metadata_resources = relationship("MetadataResource", back_populates="data_source")
     metadata_indexing_jobs = relationship("MetadataIndexingJob", back_populates="data_source")
+
+    instructions = relationship(
+    "Instruction", 
+    secondary="instruction_data_source_association", 
+    back_populates="data_sources",
+    lazy="selectin")
     
     def get_client(self):
         try:

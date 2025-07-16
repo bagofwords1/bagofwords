@@ -28,6 +28,16 @@
             </UTooltip>
           </div>
         </li>
+
+        <li class="" v-if="currentUser?.organizations[0]?.role === 'admin'">
+          <a href="/console" class="flex items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
+            <UTooltip text="Console" :popper="{ placement: 'right' }">
+              <span class="font-medium text-lg ">
+                <UIcon name="heroicons-cpu-chip" />
+              </span>
+            </UTooltip>
+          </a>
+        </li>
         <li class="">
           <a href="/reports" class="flex items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
             <UTooltip text="Reports" :popper="{ placement: 'right' }">
@@ -86,7 +96,7 @@
                 Organization: {{ organization?.name }}
               </template>
               <span class="font-medium text-lg">
-                <UIcon name="heroicons-building-office" />
+                <UIcon name="heroicons-cog-6-tooth" />
               </span>
             </UTooltip>
           </a>
