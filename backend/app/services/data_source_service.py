@@ -2,13 +2,13 @@ import importlib
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource, DATA_SOURCE_DETAILS
-from app.models.dbt_resource import DBTResource
+from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate
-from app.schemas.dbt_resource_schema import DBTResourceSchema
+from app.schemas.metadata_resource_schema import MetadataResourceSchema
 
 from pydantic import BaseModel
 from app.ai.agents.data_source.data_source import DataSourceAgent
@@ -418,7 +418,6 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
-        
         metadata_indexing_job = await db.execute(
             select(MetadataIndexingJob)
             .filter(
@@ -430,11 +429,11 @@ class DataSourceService:
             .limit(1)
         )
         metadata_indexing_job = metadata_indexing_job.scalar_one_or_none()
-
+        
         if not metadata_indexing_job:
             raise HTTPException(status_code=404, detail="Metadata indexing job not found")
         
-        resources = await db.execute(select(DBTResource).filter(DBTResource.data_source_id == data_source_id))
+        resources = await db.execute(select(MetadataResource).filter(MetadataResource.data_source_id == data_source_id))
         resources = resources.scalars().all()
         
         # Import the schema
@@ -455,7 +454,7 @@ class DataSourceService:
             "data_source_id": metadata_indexing_job.data_source_id,
             "created_at": metadata_indexing_job.created_at,
             "updated_at": metadata_indexing_job.updated_at,
-            "resources": [DBTResourceSchema.from_orm(resource) for resource in resources],
+            "resources": [MetadataResourceSchema.from_orm(resource) for resource in resources],
             "config": {}
         }
         
@@ -471,9 +470,9 @@ class DataSourceService:
         
         for resource in resources:
             resource_object = await db.execute(
-                select(DBTResource).filter(
-                    DBTResource.id == resource.get('id'),
-                    DBTResource.data_source_id == data_source_id
+                select(MetadataResource).filter(
+                    MetadataResource.id == resource.get('id'),
+                    MetadataResource.data_source_id == data_source_id
                 )
             )
             resource_object = resource_object.scalar_one_or_none()
@@ -484,7 +483,7 @@ class DataSourceService:
                 await db.refresh(resource_object)
         
         # Return updated resources
-        resources = await db.execute(select(DBTResource).filter(DBTResource.data_source_id == data_source_id))
+        resources = await db.execute(select(MetadataResource).filter(MetadataResource.data_source_id == data_source_id))
         resources = resources.scalars().all()
 
         # Get the metadata indexing job

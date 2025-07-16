@@ -1,6 +1,8 @@
 import git
 import tempfile
 import os
+import logging
+from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -12,11 +14,14 @@ from app.schemas.git_repository_schema import GitRepositoryCreate, GitRepository
 from app.models.user import User
 from app.models.organization import Organization
 from app.services.metadata_indexing_job_service import MetadataIndexingJobService
+from app.models.metadata_indexing_job import MetadataIndexingJob
+from app.models.metadata_resource import MetadataResource
 
 class GitRepositoryService:
 
     def __init__(self):
         self.metadata_indexing_job_service = MetadataIndexingJobService()
+        self.logger = logging.getLogger(__name__)
 
     async def _verify_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
         """Verify data source exists and belongs to organization"""
@@ -186,13 +191,66 @@ class GitRepositoryService:
         data_source_id: str,
         organization: Organization
     ):
-        """Delete a Git repository integration"""
+        """Delete a Git repository and associated indexing jobs and resources"""
         repository = await self._verify_repository(db, repository_id, data_source_id, organization)
+
+        # 1. Find related indexing jobs
+        indexing_jobs_result = await self.metadata_indexing_job_service.get_indexing_jobs(db, data_source_id, organization)
+        # Assuming the result structure is {'items': [...], 'total': ...} based on the service method
+        metadata_indexing_jobs = indexing_jobs_result.get("items", []) if isinstance(indexing_jobs_result, dict) else []
+
+        # 2. Find resources linked to these jobs (or directly to the data source if jobs might be missing)
+        job_ids = [job.id for job in metadata_indexing_jobs]
         
+        # Find resources linked either to the jobs OR directly to the data source being deleted
+        resources_to_delete_stmt = select(MetadataResource).where(
+            (MetadataResource.metadata_indexing_job_id.in_(job_ids)) |
+            (MetadataResource.data_source_id == data_source_id)
+        )
+        resources_result = await db.execute(resources_to_delete_stmt)
+        resources_to_delete = resources_result.scalars().all()
+
+        # 3. Delete resources
+        for resource in resources_to_delete:
+            await db.delete(resource)
+            self.logger.info(f"Deleting MetadataResource {resource.id} ({resource.name}) linked to data source {data_source_id}")
+
+        # 4. Delete indexing jobs
+        for job in metadata_indexing_jobs:
+             await db.delete(job)
+             self.logger.info(f"Deleting MetadataIndexingJob {job.id} linked to data source {data_source_id}")
+
+        # 5. Delete the repository itself
         await db.delete(repository)
-        await db.commit()
+        await db.commit() # Commit all deletions
+
+        self.logger.info(f"Deleted GitRepository {repository_id} and associated data for data source {data_source_id}")
+        return {"message": "Repository and associated data deleted successfully"}
+
+    def _detect_project_types(self, repo_path: str) -> list[str]:
+        """Detect known project types within the cloned repository path."""
+        detected_types = []
+        repo_root = Path(repo_path)
         
-        return {"status": "success", "message": "Git repository deleted successfully"}
+        # Check for DBT
+        if (repo_root / 'dbt_project.yml').is_file():
+            detected_types.append('dbt')
+            self.logger.info(f"Detected DBT project in {repo_path}")
+
+        # Check for LookML
+        # Check for *.model.lkml or any *.lkml file as indicators
+        if list(repo_root.glob('**/*.model.lkml')) or list(repo_root.glob('**/*.lkml')):
+            detected_types.append('lookml')
+            self.logger.info(f"Detected LookML project in {repo_path}")
+        
+        # Add checks for other types (e.g., Airflow) here
+        # if (repo_root / 'dags').is_dir():
+        #     detected_types.append('airflow')
+
+        if not detected_types:
+             self.logger.warning(f"No known project type (DBT, LookML) detected in {repo_path}")
+
+        return detected_types
 
     async def index_git_repository(
         self,
@@ -211,9 +269,29 @@ class GitRepositoryService:
             # Clone repo
             repo = await self.clone_git_repo(repository, temp_dir)
             
-            # Start index in background
+            # Detect project types
+            detected_types = self._detect_project_types(temp_dir)
+
+            if not detected_types:
+                # Handle case where nothing is detected - maybe skip indexing or log prominently
+                self.logger.warning(f"No project types detected in repository {repository_id}, skipping indexing job creation.")
+                # Optionally update repo status to 'completed' or 'empty'?
+                # repository.status = "completed" # Or a new status like 'no_projects_found'
+                # await db.commit()
+                # Clean up temp dir if no job is started
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                # Return a specific message
+                return {"status": "skipped", "message": "No known project types (DBT, LookML) found in the repository."}
+
+            # Start index in background, passing detected types
             job = await self.metadata_indexing_job_service.start_indexing_background(
-                db, repository.id, temp_dir, data_source_id, organization
+                db=db,
+                repository_id=repository.id,
+                repo_path=temp_dir,
+                data_source_id=data_source_id,
+                organization=organization,
+                detected_project_types=detected_types # Pass detected types
             )
 
             # Update repository status

@@ -1,24 +1,33 @@
+import logging
+from collections import defaultdict
 from fastapi import HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from datetime import datetime
 from typing import Optional, Dict, List, Any
 import tempfile
 import asyncio
 import shutil
+from pathlib import Path
 
 from app.models.metadata_indexing_job import MetadataIndexingJob
-from app.models.dbt_resource import DBTResource
+from app.models.metadata_resource import MetadataResource
 from app.models.git_repository import GitRepository
 from app.models.data_source import DataSource
 from app.models.organization import Organization
-from app.schemas.dbt_resource_schema import DBTResourceCreate
+from app.schemas.metadata_resource_schema import MetadataResourceCreate
 from app.core.dbt_parser import DBTResourceExtractor
-from app.schemas.dbt_config_schema import DBTResourcesSchema, ColumnSchema
+from app.core.lookml_parser import LookMLResourceExtractor
+from app.dependencies import async_session_maker # Import the session maker
+
+logger = logging.getLogger(__name__)
 
 class MetadataIndexingJobService:
     def __init__(self):
-        pass
+        self.parsers = {
+            'dbt': DBTResourceExtractor,
+            'lookml': LookMLResourceExtractor,
+        }
 
     async def _verify_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
         """Verify data source exists and belongs to organization"""
@@ -51,14 +60,15 @@ class MetadataIndexingJobService:
         self,
         db: AsyncSession,
         repo_id: str,
-        temp_dir: str,
         data_source_id: str,
-        organization: Organization
+        organization: Organization,
+        detected_project_types: List[str]
     ):
-        """Start a metadata indexing job for a data source"""
+        """Creates the MetadataIndexingJob record before background processing starts."""
         # Verify data source exists
         await self._verify_data_source(db, data_source_id, organization)
 
+        # Get the GitRepository to link the job
         git_repository = await db.execute(
             select(GitRepository).where(
                 GitRepository.data_source_id == data_source_id,
@@ -67,50 +77,31 @@ class MetadataIndexingJobService:
             )
         )
         git_repository = git_repository.scalar_one_or_none()
-        # Get git repository
-        # Create a new indexing job
+        if not git_repository:
+             # This case should ideally be caught earlier, but double-check
+             raise HTTPException(status_code=404, detail=f"Git repository {repo_id} not found for data source {data_source_id}")
+
+        # Create a new indexing job record
         job = MetadataIndexingJob(
             data_source_id=data_source_id,
             organization_id=organization.id,
             git_repository_id=git_repository.id,
-            status="running",
-            started_at=datetime.utcnow()
+            status="running", # Start as running
+            started_at=datetime.utcnow(),
+            detected_project_types=detected_project_types # Store detected types
         )
-        
         db.add(job)
-        await db.commit()
-        await db.refresh(job)
-
-
         try:
-            # Parse DBT resources
-            resources = await self._parse_dbt_resources(
-                db=db,
-                temp_dir=temp_dir,
-                data_source_id=data_source_id,
-                job_id=job.id,
-            )
-            # Update job status
-            await db.execute(
-                update(MetadataIndexingJob)
-                .where(MetadataIndexingJob.id == job.id)
-                .values(
-                    status="completed",
-                    completed_at=datetime.utcnow()
-                )
-            )
             await db.commit()
             await db.refresh(job)
-            
+            logger.info(f"Created MetadataIndexingJob {job.id} for repo {repo_id}, types: {detected_project_types}")
             return job
         except Exception as e:
-            # Update job status on failure
-            job.status = "failed"
-            job.error_message = str(e)
-            job.completed_at = datetime.utcnow()
-            await db.commit()
-            raise HTTPException(status_code=500, detail=f"Failed to index metadata: {str(e)}")
-    
+            await db.rollback()
+            logger.error(f"Failed to create MetadataIndexingJob record for repo {repo_id}: {e}", exc_info=True)
+            # Re-raise or handle appropriately - maybe raise HTTPException
+            raise HTTPException(status_code=500, detail=f"Failed to create indexing job record: {e}")
+
     async def _parse_dbt_resources(
         self,
         db: AsyncSession,
@@ -118,168 +109,275 @@ class MetadataIndexingJobService:
         data_source_id: str,
         job_id: str,
     ):
-        """Parse DBT resources from a cloned repository"""
-        created_resources = []
-        # Parse DBT resources using the updated extractor
-        extractor = DBTResourceExtractor(temp_dir)
-        resources_dict = extractor.extract_all_resources()
-        # Convert the dictionary to a DBTResourcesSchema object
-        resources_schema = DBTResourcesSchema(
-            metrics=resources_dict.get('metrics', []),
-            models=resources_dict.get('models', []),
-            sources=resources_dict.get('sources', []),
-            seeds=resources_dict.get('seeds', []),
-            macros=resources_dict.get('macros', []),
-            tests=resources_dict.get('tests', []),
-            exposures=resources_dict.get('exposures', []),
-            columns_by_resource=extractor.columns_by_resource,
-            docs_by_resource=extractor.docs_by_resource
-        )
-        
-        # Create DBT resource records for each resource type
-        resource_types = {
-            'metrics': resources_schema.metrics if hasattr(resources_schema, 'metrics') else [],
-            'models': resources_schema.models if hasattr(resources_schema, 'models') else [],
-            'sources': resources_schema.sources if hasattr(resources_schema, 'sources') else [],
-            'seeds': resources_schema.seeds if hasattr(resources_schema, 'seeds') else [],
-            'macros': resources_schema.macros if hasattr(resources_schema, 'macros') else [],
-            'tests': resources_schema.tests if hasattr(resources_schema, 'tests') else [],
-            'exposures': resources_schema.exposures if hasattr(resources_schema, 'exposures') else []
-        }
-        
-        for resource_type, resource_list in resource_types.items():
-            for item in resource_list:
-                # Get columns for this resource
-                resource_key = f"{resource_type[:-1]}.{item.name if hasattr(item, 'name') else item['name']}"
-                columns = resources_schema.columns_by_resource.get(resource_key, []) if hasattr(resources_schema, 'columns_by_resource') else []
-                
-                # Convert item to dict if it's a Pydantic model
-                item_dict = item.dict() if hasattr(item, 'dict') else item
-                # Clean up the path - remove temp directory
-                if temp_dir and 'path' in item_dict:
-                    item_dict['path'] = item_dict['path'].replace(temp_dir, '').lstrip('/')
-                
-                # Create or update DBT resource
-                resource = await self._create_or_update_dbt_resource(
-                    db=db,
-                    item=item_dict,
-                    resource_type=resource_type,
-                    data_source_id=data_source_id,
-                    job_id=job_id,
-                    columns=[col.dict() if hasattr(col, 'dict') else col for col in columns],
-                    temp_dir=temp_dir
-                )
-                created_resources.append(resource)
-        
-        # Update the job with the resource count
-        result = await db.execute(
-            select(MetadataIndexingJob).where(MetadataIndexingJob.id == job_id)
-        )
-        job = result.scalar_one_or_none()
-        if job:
-            job.total_resources = len(created_resources)
-            job.processed_resources = len(created_resources)
-            await db.commit()
-        
-        return created_resources
-    
-    async def _create_or_update_dbt_resource(
+        """Parse DBT resources from a cloned repository and save using MetadataResource."""
+        created_or_updated_resources = []
+        try:
+            logger.info(f"Starting DBT resource parsing for job {job_id} in {temp_dir}")
+            extractor = DBTResourceExtractor(temp_dir)
+            # Assuming extract_all_resources returns (resources_dict, columns_by_resource, docs_by_resource)
+            resources_dict, columns_by_resource, docs_by_resource = extractor.extract_all_resources()
+
+            # Mapping from DBT parser output keys to MetadataResource types
+            # Ensure these types match what's expected elsewhere (e.g., frontend)
+            resource_type_map = {
+                'metrics': 'metric',
+                'models': 'model',
+                'sources': 'source',
+                'seeds': 'seed',
+                'macros': 'macro',
+                'tests': 'test', # Includes singular_tests which parser might put here
+                'exposures': 'exposure'
+            }
+
+            for parser_key, resource_type_singular in resource_type_map.items():
+                resource_list = resources_dict.get(parser_key, [])
+                for item in resource_list:
+                    if not isinstance(item, dict):
+                        logger.warning(f"Skipping non-dict item in {parser_key}: {item}")
+                        continue
+
+                    item_name = item.get('name', '')
+                    if not item_name:
+                        logger.warning(f"Skipping item with no name in {parser_key}: {item}")
+                        continue
+
+                    # Construct the fully qualified resource key for columns/docs lookup
+                    # Needs refinement based on how keys are actually generated in parser
+                    # Example: 'model.my_model', 'source.my_source.my_table'
+                    resource_key_prefix = resource_type_singular
+                    if parser_key == 'tests' and item.get('type') == 'singular_test':
+                         resource_key_prefix = 'singular_test' # Or adjust based on parser's keys
+
+                    # Ensure item_name is used correctly for the key
+                    resource_lookup_key = f"{resource_key_prefix}.{item_name}"
+                    # Special case for sources which have compound names
+                    if parser_key == 'sources':
+                         resource_lookup_key = f"source.{item_name}"
+
+
+                    # Get columns and depends_on (adjust based on actual keys in item)
+                    columns = columns_by_resource.get(resource_lookup_key, [])
+                    depends_on = item.get('depends_on', []) # DBT extractor might put this directly in item
+
+                    # Create or update the resource using the unified method
+                    resource = await self._create_or_update_metadata_resource(
+                        db=db,
+                        item=item, # Pass the raw item dictionary
+                        resource_type=f"dbt_{resource_type_singular}", # Add 'dbt_' prefix
+                        data_source_id=data_source_id,
+                        job_id=job_id,
+                        columns=[col for col in columns if isinstance(col, dict)], # Ensure columns are dicts
+                        depends_on=[dep for dep in depends_on if isinstance(dep, str)] if isinstance(depends_on, list) else [],
+                        sql_content=item.get('sql_content'),
+                        # Pass source-specific fields if applicable
+                        source_name=item.get('source_name') if parser_key == 'sources' else None,
+                        database=item.get('database') if parser_key == 'sources' else None,
+                        schema=item.get('schema') if parser_key == 'sources' else None
+                    )
+                    if resource:
+                        created_or_updated_resources.append(resource)
+
+            logger.info(f"Finished DBT resource parsing for job {job_id}. Found {len(created_or_updated_resources)} resources.")
+
+        except Exception as e:
+            logger.error(f"Error during DBT resource parsing for job {job_id}: {e}", exc_info=True)
+            # Decide if parsing failure should fail the whole job or just log
+            # For now, re-raise to let the main job handler catch it
+            raise
+
+        return created_or_updated_resources
+
+    async def _parse_lookml_resources(
         self,
         db: AsyncSession,
-        item: Dict[str, Any],
-        resource_type: str,
+        temp_dir: str,
         data_source_id: str,
         job_id: str,
-        columns: List[Dict[str, Any]] = None,
-        temp_dir: str = None
     ):
-        
-        """Create or update a DBT resource"""
-        # Extract source name for sources
-        source_name = None
-        if resource_type == 'sources' and '.' in item.get('name', ''):
-            source_name = item['name'].split('.')[0]
-        # Prepare resource data
-        resource_data = DBTResourceCreate(
-            name=item.get('name', ''),
-            resource_type=resource_type.rstrip('s'),  # Convert plural to singular
-            path=item.get('path', ''),
-            description=item.get('description', ''),
-            raw_data=item,  # item already has the cleaned path
-            sql_content=item.get('sql_content', ''),
-            source_name=source_name,
-            database=item.get('database', ''),
-            schema=item.get('schema', ''),
-            columns=columns or [],
-            depends_on=item.get('depends_on', []),
-            is_active=True,
-            data_source_id=data_source_id,
-            metadata_indexing_job_id=job_id
+        """Parse LookML resources from a cloned repository."""
+        created_resources = []
+        try:
+            logger.info(f"Starting LookML parsing for job {job_id} in {temp_dir}")
+            
+            # Initialize the LookML extractor
+            extractor = LookMLResourceExtractor(temp_dir)
+            
+            # Debug: Log the directory structure
+            logger.debug(f"LookML project structure:")
+            for path in Path(temp_dir).rglob('*.lkml'):
+                logger.debug(f"Found LookML file: {path.relative_to(temp_dir)}")
+            
+            # Extract all resources
+            resources_dict, columns_by_resource, docs_by_resource = extractor.extract_all_resources()
+            # Debug: Log what we found
+            logger.debug(f"Extracted resources: {extractor.get_summary()}")
+            
+            # Process each resource type
+            for resource_type, resources in resources_dict.items():
+                logger.debug(f"Processing {len(resources)} {resource_type}")
+                for resource_item in resources:
+                    # Construct the lookup key to get columns for this resource
+                    item_name = resource_item.get('name')
+                    item_type_from_resource = resource_item.get('resource_type', resource_type)
+                    lookup_key = f"{item_type_from_resource}.{item_name}"
+                    
+                    # Get columns from the separate dictionary, similar to DBT parsing
+                    item_columns = columns_by_resource.get(lookup_key, [])
+
+                    # Create/update the metadata resource
+                    metadata_resource = await self._create_or_update_metadata_resource(
+                        db=db,
+                        item=resource_item, # Pass the entire resource item
+                        resource_type=item_type_from_resource, # Use specific type if available
+                        data_source_id=data_source_id,
+                        job_id=job_id,
+                        # Pass the columns we just looked up
+                        columns=item_columns,
+                        depends_on=resource_item.get('depends_on', [])
+                    )
+                    
+                    if metadata_resource:
+                        created_resources.append(metadata_resource)
+                        logger.debug(f"Created/updated {resource_type} resource: {resource_item.get('name')}")
+
+            logger.info(f"Completed LookML parsing for job {job_id}. Created/updated {len(created_resources)} resources")
+            return created_resources
+
+        except Exception as e:
+            logger.error(f"Error during LookML parsing for job {job_id}: {e}", exc_info=True)
+            raise
+
+    async def _create_or_update_metadata_resource(
+        self,
+        db: AsyncSession,
+        item: Dict[str, Any], # Raw dictionary from the parser
+        resource_type: str, # Should include prefix like 'dbt_model' or 'lookml_view'
+        data_source_id: str,
+        job_id: str,
+        columns: Optional[List[Dict[str, Any]]] = None,
+        depends_on: Optional[List[str]] = None,
+        sql_content: Optional[str] = None,
+        source_name: Optional[str] = None, # DBT source specific
+        database: Optional[str] = None,    # DBT source specific
+        schema: Optional[str] = None       # DBT source specific
+    ):
+        """Create or update a generic MetadataResource"""
+        resource_name = item.get('name', '')
+        if not resource_name:
+             logger.warning(f"Skipping resource creation/update due to missing name. Type: {resource_type}, Item: {item}")
+             return None
+
+        # Clean path relative to project root - IMPORTANT: Ensure this is done consistently!
+        # The parser might already do this, or it should be done here.
+        # Assuming path is already relative IF it exists in item.
+        resource_path = item.get('path', '') # Path should be relative here
+
+        resource_data = MetadataResourceCreate(
+             name=resource_name,
+             resource_type=resource_type,
+             path=resource_path,
+             description=item.get('description', ''),
+             raw_data=item, # Store the original extracted item
+             sql_content=sql_content, # Pass specific SQL content if available
+             # Pass DBT source specific fields if provided
+             source_name=source_name,
+             database=database,
+             schema=schema,
+             # Pass columns/depends_on if provided
+             columns=columns or [],
+             depends_on=depends_on or [],
+             is_active=True, # Default to active on create/update
+             data_source_id=data_source_id,
+             metadata_indexing_job_id=job_id
         )
-        
-        # Check if resource already exists
-        result = await db.execute(
-            select(DBTResource).where(
-                DBTResource.name == resource_data.name,
-                DBTResource.resource_type == resource_data.resource_type,
-                DBTResource.data_source_id == data_source_id
-            )
-        )
-        existing_resource = result.scalar_one_or_none()
-        
-        if existing_resource:
-            # Update existing resource
-            for key, value in resource_data.dict(exclude_unset=True).items():
-                setattr(existing_resource, key, value)
-            existing_resource.last_synced_at = datetime.utcnow()
-            await db.commit()
-            return existing_resource
-        else:
-            # Create new resource
-            dbt_resource = DBTResource(**resource_data.dict())
-            dbt_resource.last_synced_at = datetime.utcnow()
-            db.add(dbt_resource)
-            await db.commit()
-            return dbt_resource
-    
-    async def get_dbt_resources(
+
+        try:
+            # Check if resource already exists (using name, type, and data_source_id as unique key)
+            stmt = select(MetadataResource).where(
+                 MetadataResource.name == resource_data.name,
+                 MetadataResource.resource_type == resource_data.resource_type,
+                 MetadataResource.data_source_id == data_source_id
+             )
+            result = await db.execute(stmt)
+            existing_resource = result.scalar_one_or_none()
+
+            current_time = datetime.utcnow()
+
+            if existing_resource:
+                # Update existing resource
+                logger.debug(f"Updating existing resource: {resource_type} {resource_data.name}")
+                update_data = resource_data.dict(exclude_unset=True)
+                # Ensure essential fields like raw_data, columns, depends_on are updated
+                update_data['raw_data'] = resource_data.raw_data
+                update_data['columns'] = resource_data.columns
+                update_data['depends_on'] = resource_data.depends_on
+                update_data['last_synced_at'] = current_time
+                update_data['metadata_indexing_job_id'] = job_id # Link to the latest job
+                update_data['is_active'] = True # Mark as active on update
+                update_data['updated_at'] = current_time # Explicitly set updated_at
+
+                # Apply updates
+                for key, value in update_data.items():
+                     setattr(existing_resource, key, value)
+
+                db.add(existing_resource) # Add to session to track changes
+                await db.commit()
+                await db.refresh(existing_resource)
+                return existing_resource
+            else:
+                # Create new resource
+                logger.debug(f"Creating new resource: {resource_type} {resource_data.name}")
+                new_resource = MetadataResource(**resource_data.dict())
+                new_resource.last_synced_at = current_time
+                # created_at and updated_at should be handled by BaseSchema default/onupdate if configured,
+                # otherwise set them explicitly if needed:
+                # new_resource.created_at = current_time
+                # new_resource.updated_at = current_time
+                db.add(new_resource)
+                await db.commit()
+                await db.refresh(new_resource)
+                return new_resource
+        except Exception as db_error:
+             logger.error(f"Database error creating/updating resource {resource_type} {resource_name}: {db_error}", exc_info=True)
+             await db.rollback() # Rollback on error for this specific resource
+             return None # Indicate failure for this resource
+
+    async def get_metadata_resources(
         self,
         db: AsyncSession,
         data_source_id: str,
         organization: Organization,
-        resource_type: Optional[str] = None,
+        resource_type: Optional[str] = None, # Can filter by 'dbt_model', 'lookml_view', etc.
         skip: int = 0,
         limit: int = 100
     ):
-        """Get DBT resources for a data source"""
-        # Verify data source exists
+        """Get active MetadataResources for a data source, optionally filtered by type."""
         await self._verify_data_source(db, data_source_id, organization)
-        
-        # Build query
-        query = select(DBTResource).where(
-            DBTResource.data_source_id == data_source_id,
-            DBTResource.is_active == True
+
+        # Base query for active resources linked to the data source
+        query = select(MetadataResource).where(
+             MetadataResource.data_source_id == data_source_id,
+             MetadataResource.is_active == True
         )
-        
-        # Filter by resource type if provided
+
+
+        # Apply type filter if provided
         if resource_type:
-            query = query.where(DBTResource.resource_type == resource_type)
-        
-        # Get total count
-        result = await db.execute(query)
-        total = len(result.scalars().all())
-        
+             query = query.where(MetadataResource.resource_type == resource_type)
+
+        # Get total count for pagination
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await db.execute(count_query)
+        total = total_result.scalar_one()
+
         # Get paginated results
-        result = await db.execute(
-            query
-            .order_by(DBTResource.name)
-            .offset(skip)
-            .limit(limit)
-        )
+        query = query.order_by(MetadataResource.name).offset(skip).limit(limit)
+        result = await db.execute(query)
         resources = result.scalars().all()
-        
+
+
         return {"items": resources, "total": total}
-    
+
     async def get_indexing_jobs(
         self,
         db: AsyncSession,
@@ -315,92 +413,169 @@ class MetadataIndexingJobService:
         jobs = result.scalars().all()
         
         return {"items": jobs, "total": total}
-    
+
     async def start_indexing_background(
         self,
         db: AsyncSession,
         repository_id: str,
         repo_path: str,
         data_source_id: str,
-        organization
+        organization,
+        detected_project_types: List[str] # Add detected_project_types here
     ):
         """Start indexing a Git repository in the background"""
-        # Create a task that runs in the background
-        asyncio.create_task(
-            self._run_indexing_job(db, repository_id, repo_path, data_source_id, organization)
+        # Call start_indexing first to create the job record synchronously
+        job = await self.start_indexing(
+            db=db,
+            repo_id=repository_id,
+            data_source_id=data_source_id,
+            organization=organization,
+            detected_project_types=detected_project_types
         )
-        
-        return {"status": "started", "message": "Indexing job started in background"}
-    
+
+        # Now schedule the background task to perform the actual parsing
+        asyncio.create_task(
+            self._run_indexing_job(
+                # The db session is no longer passed here
+                repository_id=repository_id,
+                repo_path=repo_path,
+                data_source_id=data_source_id,
+                organization=organization,
+                detected_project_types=detected_project_types,
+                job_id=job.id
+            )
+        )
+
+        logger.info(f"Scheduled background indexing task for job {job.id}")
+        return {"status": "started", "message": "Indexing job started in background", "job_id": job.id}
+
     async def _run_indexing_job(
         self,
-        db: AsyncSession,
+        # The db: AsyncSession parameter is removed from the signature
         repository_id: str,
         repo_path: str,
         data_source_id: str,
-        organization
+        organization,
+        detected_project_types: List[str],
+        job_id: str
     ):
         """Run the actual indexing job and update repository status when complete"""
-        try:
-            # Create a new session for this background task
-            async_session = AsyncSession(bind=db.bind, expire_on_commit=False)
-            
+        job_status = "failed"  # Default status
+        job_error_message = None
+        all_created_resources = []
+
+        # Create a new, independent session for this background task, just like in the slack service
+        async with async_session_maker() as db:
             try:
-                # Perform the indexing work
-                await self.start_indexing(
-                    db=async_session, 
-                    repo_id=repository_id, 
-                    temp_dir=repo_path, 
-                    data_source_id=data_source_id, 
-                    organization=organization
-                )
-                
-                # Get the specific repository first
-                result = await async_session.execute(
-                    select(GitRepository).where(
-                        GitRepository.id == repository_id,
-                        GitRepository.data_source_id == data_source_id,
-                        GitRepository.organization_id == organization.id
+                logger.info(f"Background job {job_id}: Starting parsing for types {detected_project_types}")
+
+                # --- Trigger DBT Parsing ---
+                if 'dbt' in detected_project_types:
+                    dbt_resources = await self._parse_dbt_resources(
+                        db=db,
+                        temp_dir=repo_path,
+                        data_source_id=data_source_id,
+                        job_id=job_id,
                     )
+                    all_created_resources.extend(dbt_resources or [])
+
+                # --- Trigger LookML Parsing ---
+                if 'lookml' in detected_project_types:
+                    lookml_resources = await self._parse_lookml_resources(
+                        db=db,
+                        temp_dir=repo_path,
+                        data_source_id=data_source_id,
+                        job_id=job_id,
+                    )
+                    all_created_resources.extend(lookml_resources or [])
+
+                if not detected_project_types:
+                    logger.warning(f"Job {job_id}: No project types were detected, nothing to parse.")
+                    job_status = "completed"
+                    job_error_message = "No project types detected."
+                elif not all_created_resources:
+                    logger.warning(f"Job {job_id}: Project types {detected_project_types} detected, but no resources were parsed.")
+                    job_status = "failed"
+                    job_error_message = f"Detected {detected_project_types} but no resources parsed."
+                else:
+                    logger.info(f"Job {job_id}: Parsing completed successfully. Parsed {len(all_created_resources)} resources.")
+                    job_status = "completed"
+
+                # All database operations below will use the new session
+                await db.execute(
+                    update(MetadataIndexingJob)
+                    .where(MetadataIndexingJob.id == job_id)
+                    .values({
+                        "status": job_status,
+                        "completed_at": datetime.utcnow(),
+                        "total_resources": len(all_created_resources),
+                        "processed_resources": len(all_created_resources),
+                        "error_message": job_error_message
+                    })
                 )
-                repo = result.scalar_one_or_none()
-                
-                if repo:
-                    repo.status = "completed"
-                    repo.updated_at = datetime.utcnow()
-                    await async_session.commit()
+
+                repo_status = "completed" if job_status == "completed" else "failed"
+                await db.execute(
+                    update(GitRepository)
+                    .where(GitRepository.id == repository_id)
+                    .values({
+                        "status": repo_status,
+                        "updated_at": datetime.utcnow()
+                    })
+                )
+                await db.commit()
+
+            except Exception as e:
+                logger.error(f"Job {job_id}: Error during parsing: {e}", exc_info=True)
+                # Handle error state
+                await db.rollback()
+                error_message = f"Parsing failed: {str(e)[:500]}"
+                await db.execute(
+                    update(MetadataIndexingJob)
+                    .where(MetadataIndexingJob.id == job_id)
+                    .values({
+                        "status": "failed",
+                        "completed_at": datetime.utcnow(),
+                        "error_message": error_message
+                    })
+                )
+                await db.execute(
+                    update(GitRepository)
+                    .where(GitRepository.id == repository_id)
+                    .values({
+                        "status": "failed",
+                        "updated_at": datetime.utcnow()
+                    })
+                )
+                await db.commit()
 
             finally:
-                await async_session.close()
-                
-        except Exception as e:
-            try:
-                # Create a new session for error handling
-                async_session = AsyncSession(bind=db.bind, expire_on_commit=False)
                 try:
-                    # Get the specific repository first
-                    result = await async_session.execute(
-                        select(GitRepository).where(
-                            GitRepository.id == repository_id,
-                            GitRepository.data_source_id == data_source_id,
-                            GitRepository.organization_id == organization.id
-                        )
-                    )
-                    repo = result.scalar_one_or_none()
-                    
-                    if repo:
-                        repo.status = "failed"
-                        repo.error_message = str(e)
-                        repo.updated_at = datetime.utcnow()
-                        await async_session.commit()
-                finally:
-                    await async_session.close()
-            except Exception as inner_e:
-                print(f"Error updating repository status: {str(e)}")
-                print(f"Inner exception: {str(inner_e)}")
-        finally:
-            # Clean up the temporary directory
-            try:
-                shutil.rmtree(repo_path)
-            except Exception as e:
-                print(f"Error cleaning up temporary directory: {str(e)}")
+                    shutil.rmtree(repo_path)
+                    logger.info(f"Job {job_id}: Cleaned up temporary directory: {repo_path}")
+                except Exception as cleanup_e:
+                    logger.error(f"Job {job_id}: Error cleaning up temporary directory {repo_path}: {cleanup_e}")
+
+    async def deactivate_metadata_indexing_job(
+        self,
+        db: AsyncSession,
+        job_id: str,
+        data_source_id: str,
+        organization: Organization
+    ):
+        
+        metadata_indexing_job = await db.execute(
+            select(MetadataIndexingJob).where(
+                MetadataIndexingJob.id == job_id,
+                MetadataIndexingJob.data_source_id == data_source_id,
+                MetadataIndexingJob.organization_id == organization.id
+            )
+        )
+        metadata_indexing_job = metadata_indexing_job.scalar_one_or_none()
+
+        if metadata_indexing_job:
+            metadata_indexing_job.is_active = False
+            await db.commit()
+            return metadata_indexing_job
+        else:
+            raise HTTPException(status_code=404, detail="Metadata indexing job not found")

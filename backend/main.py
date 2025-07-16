@@ -46,6 +46,7 @@ from app.routes import (
     llm,
     git_repository,
     organization_settings,
+    metadata_resource,
     bow_settings,
     external_platform,
     external_user_mapping,
@@ -165,6 +166,7 @@ app.include_router(memory.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
+app.include_router(metadata_resource.router, prefix="/api")
 app.include_router(bow_settings.router, prefix="/api")
 app.include_router(external_platform.router, prefix="/api")
 app.include_router(external_user_mapping.router, prefix="/api")
@@ -282,7 +284,6 @@ async def startup_event():
     - Deployment Type: {settings.bow_config.deployment.type}
     - Version: {settings.PROJECT_VERSION}
     
-    >>>>>
     You can now start using the app at {settings.bow_config.base_url}
     """)
 

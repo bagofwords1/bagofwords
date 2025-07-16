@@ -111,7 +111,7 @@ class ProjectConfigSchema(BaseModel):
     metrics: Optional[Dict[str, Any]] = None
 
 
-class DBTResourcesSchema(BaseModel):
+class DBTProjectResourcesSchema(BaseModel):
     """Schema for all DBT resources extracted from a project"""
     metrics: List[MetricSchema] = Field(default_factory=list)
     models: List[ModelSchema] = Field(default_factory=list)

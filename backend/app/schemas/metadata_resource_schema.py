@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 
-class DBTResourceSchema(BaseModel):
+class MetadataResourceSchema(BaseModel):
     id: Optional[str] = None
     name: str
     resource_type: str
@@ -40,7 +40,7 @@ class DBTResourceSchema(BaseModel):
         orm_mode = True
 
 
-class DBTResourceCreate(BaseModel):
+class MetadataResourceCreate(BaseModel):
     name: str
     resource_type: str
     path: Optional[str] = None
@@ -57,7 +57,7 @@ class DBTResourceCreate(BaseModel):
     metadata_indexing_job_id: Optional[str] = None
 
 
-class DBTResourceUpdate(BaseModel):
+class MetadataResourceUpdate(BaseModel):
     name: Optional[str] = None
     resource_type: Optional[str] = None
     path: Optional[str] = None
@@ -73,12 +73,12 @@ class DBTResourceUpdate(BaseModel):
     last_synced_at: Optional[datetime] = None
 
 
-class DBTResourceResponse(DBTResourceSchema):
+class MetadataResourceResponse(MetadataResourceSchema):
     pass
 
 
-class DBTResourceList(BaseModel):
-    items: List[DBTResourceSchema]
+class MetadataResourceList(BaseModel):
+    items: List[MetadataResourceSchema]
     total: int
 
 

@@ -27,8 +27,20 @@ class DBTResourceExtractor:
         self._parse_sql_models()
         self._find_macros()
         self._find_seeds()
+        
+        # Clean paths relative to project root
+        for resource_type in self.resources:
+            for resource in self.resources[resource_type]:
+                if 'path' in resource and isinstance(resource['path'], str):
+                    try:
+                        absolute_path = Path(resource['path']).resolve()
+                        relative_path = absolute_path.relative_to(self.project_dir.resolve())
+                        resource['path'] = str(relative_path)
+                    except ValueError:
+                        # If path is not within project_dir, keep the original (or log warning)
+                        pass 
 
-        return self.resources
+        return self.resources, self.columns_by_resource, self.docs_by_resource
     
     def _parse_yaml_files(self):
         """Parse all YAML files to extract metrics, sources, and other YAML-defined resources"""
