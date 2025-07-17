@@ -35,7 +35,6 @@ async def export_step(
         return response
 
     except ValueError as e:
-        breakpoint()
         logging.warning(f"Value error in export_step route for step {step_id}: {str(e)}")
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
