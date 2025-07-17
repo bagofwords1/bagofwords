@@ -29,15 +29,6 @@
           </div>
         </li>
 
-        <li class="" v-if="currentUser?.organizations[0]?.role === 'admin'">
-          <a href="/console" class="flex items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
-            <UTooltip text="Console" :popper="{ placement: 'right' }">
-              <span class="font-medium text-lg ">
-                <UIcon name="heroicons-cpu-chip" />
-              </span>
-            </UTooltip>
-          </a>
-        </li>
         <li class="">
           <a href="/reports" class="flex items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
             <UTooltip text="Reports" :popper="{ placement: 'right' }">
@@ -47,7 +38,7 @@
             </UTooltip>
           </a>
         </li>
-        <li>
+        <li class="hidden">
           <NuxtLink to="/memory" class="flex mt-1 items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
             <UTooltip text="Memory" :popper="{ placement: 'right' }">
               <span class="font-medium text-lg">
@@ -66,6 +57,15 @@
           </NuxtLink>
         </li>
 
+        <li class="" v-if="currentUser?.organizations[0]?.role === 'admin'">
+          <a href="/console" class="flex items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
+            <UTooltip text="Console" :popper="{ placement: 'right' }">
+              <span class="font-medium text-lg ">
+                <UIcon name="heroicons-cpu-chip" />
+              </span>
+            </UTooltip>
+          </a>
+        </li>
       </ul>
       <ul class="font-normal text-sm">
         <li>

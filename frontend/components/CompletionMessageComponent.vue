@@ -132,6 +132,8 @@
                                             <Icon name="heroicons-bookmark" />
                                             Save
                                         </button>
+
+    
                                     </div>
                                 </div>
                             </div>
@@ -144,7 +146,16 @@
                                     :completion="localCompletion" 
                                     :feedbackScore="localCompletion.feedback_score || 0" 
                                 />
-         
+                                <UButton
+                                    v-if="useCan('create_instructions')" 
+                                    icon="i-heroicons-document-text"
+                                    label="Add Instructions"
+                                    color="gray"
+                                    variant="ghost"
+                                    size="xs"
+                                    @click="openInstructionModal"
+                                    class="ml-1.5"
+                                />
                         </div>
 
                 </div>
@@ -260,11 +271,19 @@
         </div>
     </UModal>
 
+    <!-- Add Instruction Modal -->
+    <InstructionModalComponent
+        v-model="showInstructionModal"
+        :instruction="null"
+        @instructionSaved="handleInstructionSaved"
+    />
+
 </template>
 
 <script lang="ts" setup>
 import { ref, watch, computed } from 'vue';
 import { useCan } from '~/composables/usePermissions';
+import InstructionModalComponent from '~/components/InstructionModalComponent.vue';
 
 const props = defineProps<{
     completion: Object,
@@ -510,6 +529,20 @@ const switchPlan = (index) => {
         plan_reasoning.value = plan_content.value.reasoning;
         plan_analysis_complete.value = plan_content.value.analysis_complete;
     }
+}
+
+// Add new reactive variables for instruction modal
+const showInstructionModal = ref(false);
+
+// Add new methods for instruction modal
+const openInstructionModal = () => {
+    showInstructionModal.value = true;
+}
+
+const handleInstructionSaved = (savedInstruction: any) => {
+    // Handle the saved instruction - you can add any logic here
+    console.log('Instruction saved:', savedInstruction);
+    showInstructionModal.value = false;
 }
 
 </script>

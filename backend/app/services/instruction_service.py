@@ -85,6 +85,7 @@ class InstructionService:
             )
             .offset(skip)
             .limit(limit)
+            .order_by(Instruction.created_at.desc())
         )
         
         # Apply filters
@@ -265,7 +266,7 @@ class InstructionService:
                     (~Instruction.data_sources.any())
                 )
             )
-        )
+        ).order_by(Instruction.created_at.desc())
         
         result = await db.execute(query)
         instructions = result.scalars().all()
