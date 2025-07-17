@@ -56,6 +56,28 @@ async def get_instructions(
         data_source_id=data_source_id
     )
 
+# SPECIFIC ROUTES MUST COME BEFORE PARAMETERIZED ROUTES
+@router.get("/instructions/categories", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_categories(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Get all available instruction categories"""
+    return [category.value for category in InstructionCategory]
+
+@router.get("/instructions/statuses", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_statuses(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Get all available instruction statuses"""
+    return [status.value for status in InstructionStatus]
+
+# PARAMETERIZED ROUTES COME AFTER SPECIFIC ROUTES
 @router.get("/instructions/{instruction_id}", response_model=InstructionSchema)
 @requires_permission('view_instructions', model=Instruction)
 async def get_instruction(
@@ -114,13 +136,3 @@ async def get_instructions_for_data_source(
     return await instruction_service.get_instructions_for_data_source(
         db, data_source_id, organization, current_user, status=status
     )
-
-@router.get("/instructions/categories", response_model=List[str])
-async def get_instruction_categories():
-    """Get all available instruction categories"""
-    return [category.value for category in InstructionCategory]
-
-@router.get("/instructions/statuses", response_model=List[str])
-async def get_instruction_statuses():
-    """Get all available instruction statuses"""
-    return [status.value for status in InstructionStatus]

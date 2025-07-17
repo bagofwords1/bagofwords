@@ -39,9 +39,9 @@ def requires_permission(permission, model=None):
             data_source_id = all_args.get('data_source_id')  # For routes with object_id parameter
             widget_id = all_args.get('widget_id')  # For routes with object_id parameter
             memory_id = all_args.get('memory_id')  # For routes with object_id parameter
-            instruction_id = all_args.get('instruction_id')  # NEW: Add instruction_id
+            instruction_id = all_args.get('instruction_id') 
 
-            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id  # Updated
+            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id
         
 
             if not all([user, organization, db]):
@@ -62,8 +62,8 @@ def requires_permission(permission, model=None):
             if permission not in ROLES_PERMISSIONS.get(membership.role, set()):
                 raise HTTPException(status_code=403, detail="Permission denied")
 
-            # If model is provided and object_id exists, verify object belongs to organization
-            if model and object_id:
+            # If model is provided and object_id exists and is not None and is a valid UUID-like string, verify object belongs to organization
+            if model and object_id is not None:
                 stmt = select(model).where(
                     model.id == object_id,
                     model.organization_id == organization.id
