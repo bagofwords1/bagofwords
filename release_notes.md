@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.171 (July 17th, 2025)
+## Version 0.0.172 (July 17th, 2025)
 - Slack integration! Now admins can integrate their Slack organization account and have users converse with bow via slack. Includes user-level authorization, formatting, charts, and tables
 - LookML support for git integration indexing
 - Download steps data as CSV is now available in UI
