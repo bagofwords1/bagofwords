@@ -4,9 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instruction import (
-    Instruction,
-    InstructionCategory,
-    InstructionStatus,
+    Instruction
 )
 
 
@@ -23,13 +21,13 @@ class InstructionContextBuilder:
 
     # Only published code-generation instructions
     code_gen_instructions = await builder.load_instructions(
-        category=InstructionCategory.CODE_GEN
+        category="code_gen"
     )
 
     # Draft data-modelling instructions
     draft_dm_instructions = await builder.load_instructions(
-        status=InstructionStatus.DRAFT,
-        category=InstructionCategory.DATA_MODELING,
+        status="draft",
+        category="data_modeling",
     )
     ```
     """
@@ -40,8 +38,8 @@ class InstructionContextBuilder:
     async def load_instructions(
         self,
         *,
-        status: InstructionStatus = InstructionStatus.PUBLISHED,
-        category: Optional[InstructionCategory] = None,
+        status: str = "published",
+        category: Optional[str] = None,
     ) -> List[Instruction]:
         """
         Load instructions from the database.
@@ -69,8 +67,8 @@ class InstructionContextBuilder:
     async def build_context(
         self,
         *,
-        status: InstructionStatus = InstructionStatus.PUBLISHED,
-        category: Optional[InstructionCategory] = None,
+        status: str = "published",
+        category: Optional[str] = None,
     ) -> str:
         """
         Convenience wrapper that returns the instructions as a single string
@@ -108,7 +106,7 @@ class InstructionContextBuilder:
         """
         return (
             f"  <instruction id=\"{instruction.id}\" "
-            f"category=\"{instruction.category.value}\" "
+            f"category=\"{instruction.category}\" "
             f"thumbs_up=\"{instruction.thumbs_up}\">\n"
             f"    {instruction.text.strip()}\n"
             f"  </instruction>"

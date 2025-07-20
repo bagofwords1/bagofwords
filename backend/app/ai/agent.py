@@ -59,7 +59,6 @@ class Agent:
         self.external_platform = None
         self.external_user_id = None
         self.instruction_context_builder = InstructionContextBuilder(self.db)
-
         if head_completion:
             self.head_completion = head_completion
             self.external_platform = head_completion.external_platform
@@ -82,7 +81,9 @@ class Agent:
         self.organization_settings = organization_settings
 
         self.planner = Planner(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)
+
         self.answer = Answer(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)
+
         self.dashboard_designer = DashboardDesigner(model=model, instruction_context_builder=self.instruction_context_builder)
         self.project_manager = ProjectManager()
         self.coder = Coder(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)

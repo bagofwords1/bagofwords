@@ -1,17 +1,6 @@
-from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, Enum, Table
+from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, Table
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
-import enum
-
-class InstructionStatus(enum.Enum):
-    DRAFT = "draft"
-    PUBLISHED = "published"
-    ARCHIVED = "archived"
-
-class InstructionCategory(enum.Enum):
-    CODE_GEN = "code_gen"
-    DATA_MODELING = "data_modeling"
-    GENERAL = "general"
 
 # Association table for many-to-many relationship between instructions and data sources
 instruction_data_source_association = Table(
@@ -31,10 +20,10 @@ class Instruction(BaseSchema):
     thumbs_up = Column(Integer, nullable=False, default=0)
     
     # Status management
-    status = Column(Enum(InstructionStatus), nullable=False, default=InstructionStatus.DRAFT)
+    status = Column(String(50), nullable=False, default="draft")
     
     # Categorization
-    category = Column(Enum(InstructionCategory), nullable=False, default=InstructionCategory.GENERAL)
+    category = Column(String(50), nullable=False, default="general")
     
     # User who created the instruction
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
@@ -53,7 +42,7 @@ class Instruction(BaseSchema):
     organization = relationship("Organization")
     
     def __repr__(self):
-        return f"<Instruction {self.category.value}:{self.text[:50]}...>"
+        return f"<Instruction {self.category}:{self.text[:50]}...>"
     
     @property
     def is_global(self) -> bool:

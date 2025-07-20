@@ -8,8 +8,6 @@ from fastapi import HTTPException
 from app.models.instruction import (
     Instruction,
     instruction_data_source_association,
-    InstructionStatus as ModelStatus,
-    InstructionCategory as ModelCategory,
 )
 from app.models.data_source import DataSource
 from app.models.user import User
@@ -18,9 +16,6 @@ from app.schemas.instruction_schema import (
     InstructionCreate, 
     InstructionUpdate, 
     InstructionSchema, 
-    InstructionListSchema,
-    InstructionStatus,
-    InstructionCategory
 )
 
 class InstructionService:
@@ -38,13 +33,8 @@ class InstructionService:
         if instruction_data.data_source_ids:
             await self._validate_data_sources(db, instruction_data.data_source_ids, organization)
         
-        # Convert enum strings coming from the API to real Enum members
+        # Convert enum strings coming from the API and extract their values
         raw = instruction_data.dict(exclude={'data_source_ids'})
-        if isinstance(raw.get("status"), str):
-            raw["status"] = ModelStatus[raw["status"].upper()]
-        if isinstance(raw.get("category"), str):
-            raw["category"] = ModelCategory[raw["category"].upper()]
-
         instruction = Instruction(**raw)
         instruction.user_id = current_user.id
         instruction.organization_id = organization.id
@@ -68,8 +58,8 @@ class InstructionService:
         current_user: User,
         skip: int = 0, 
         limit: int = 100,
-        status: Optional[InstructionStatus] = None,
-        category: Optional[InstructionCategory] = None,
+        status: Optional[str] = None,
+        category: Optional[str] = None,
         data_source_id: Optional[str] = None
     ) -> List[InstructionSchema]:
         """Get instructions with optional filtering"""
@@ -164,12 +154,6 @@ class InstructionService:
         
         update_data = instruction_data.dict(exclude_unset=True, exclude={'data_source_ids'})
 
-        # Convert enum strings (if present) to Enum members
-        if "status" in update_data and isinstance(update_data["status"], str):
-            update_data["status"] = ModelStatus[update_data["status"].upper()]
-        if "category" in update_data and isinstance(update_data["category"], str):
-            update_data["category"] = ModelCategory[update_data["category"].upper()]
-
         for field, value in update_data.items():
             setattr(instruction, field, value)
         
@@ -246,7 +230,7 @@ class InstructionService:
         data_source_id: str, 
         organization: Organization,
         current_user: User,
-        status: InstructionStatus = InstructionStatus.PUBLISHED
+        status: str = "published"
     ) -> List[InstructionSchema]:
         """Get all instructions that apply to a specific data source (including global ones)"""
         

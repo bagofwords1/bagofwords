@@ -18,8 +18,8 @@ class InstructionCategory(str, Enum):
 class InstructionBase(BaseModel):
     text: str
     thumbs_up: int = 0
-    status: InstructionStatus = InstructionStatus.DRAFT
-    category: InstructionCategory = InstructionCategory.GENERAL
+    status: str = "draft"
+    category: str = "general"
 
 class InstructionCreate(InstructionBase):
     data_source_ids: Optional[List[str]] = []  # Empty list means applies to all data sources
@@ -27,8 +27,8 @@ class InstructionCreate(InstructionBase):
 class InstructionUpdate(BaseModel):
     text: Optional[str] = None
     thumbs_up: Optional[int] = None
-    status: Optional[InstructionStatus] = None
-    category: Optional[InstructionCategory] = None
+    status: Optional[str] = None
+    category: Optional[str] = None
     data_source_ids: Optional[List[str]] = None
 
 class InstructionSchema(InstructionBase):
@@ -58,8 +58,8 @@ class InstructionListSchema(BaseModel):
     id: str
     text: str
     thumbs_up: int
-    status: InstructionStatus
-    category: InstructionCategory
+    status: str
+    category: str
     user_id: str
     organization_id: str
     data_source_count: int = 0  # Number of associated data sources

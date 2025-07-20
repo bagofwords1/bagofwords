@@ -5,7 +5,8 @@ deployment:
 base_url: http://localhost:3000
 
 database:
-  url: sqlite:///db/app.db
+  # url: sqlite:///db/app.db
+  url: ${BOW_DATABASE_URL}
   
 features:
   allow_uninvited_signups: false
