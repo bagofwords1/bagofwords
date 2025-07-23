@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.174 (July 23rd, 2025)
+- Filters and pagination for reports
+- Reports are now invisible for other users when not published
+
+
 ## Version 0.0.172 (July 17th, 2025)
 - Slack integration! Now admins can integrate their Slack organization account and have users converse with bow via slack. Includes user-level authorization, formatting, charts, and tables
 - LookML support for git integration indexing

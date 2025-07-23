@@ -5,6 +5,7 @@ from app.schemas.user_schema import UserSchema
 from datetime import datetime
 from app.schemas.data_source_schema import DataSourceSchema
 from app.schemas.external_platform_schema import ExternalPlatformSchema
+
 class ReportBase(BaseModel):
     title: str
 
@@ -32,3 +33,15 @@ class ReportSchema(ReportBase):
 
     class Config:
         from_attributes = True
+
+class PaginationMeta(BaseModel):
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    has_next: bool
+    has_prev: bool
+
+class ReportListResponse(BaseModel):
+    reports: List[ReportSchema]
+    meta: PaginationMeta

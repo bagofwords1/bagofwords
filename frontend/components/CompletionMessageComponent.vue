@@ -146,16 +146,6 @@
                                     :completion="localCompletion" 
                                     :feedbackScore="localCompletion.feedback_score || 0" 
                                 />
-                                <UButton
-                                    v-if="useCan('create_instructions')" 
-                                    icon="i-heroicons-document-text"
-                                    label="Add Instructions"
-                                    color="gray"
-                                    variant="ghost"
-                                    size="xs"
-                                    @click="openInstructionModal"
-                                    class="ml-1.5"
-                                />
                         </div>
 
                 </div>

@@ -18,6 +18,15 @@
                     <DataSourceSelectorComponentExcel v-model:selectedDataSources="selectedDataSources" :report_id="report_id" />
                     <FileUploadExcelComponent v-model:uploadedFiles="uploaded_files" :report_id="report_id" />
                     <div>
+                      <button
+                                    v-if="useCan('create_instructions')" 
+                                    class="text-gray-500 hover:text-gray-400 hover:bg-gray-100 border border-gray-200 ml-2 text-[11px] px-2 py-1 rounded-md"
+                                    @click="openInstructionModal"
+                                >
+                                    <Icon name="heroicons-document-text" /> Add Instructions
+                                </button>
+                    </div>
+                    <div>
                 <button
                     class="text-gray-500 hover:text-gray-400 hover:bg-gray-100 border border-gray-200 ml-2 text-[11px] px-2 py-1 rounded-md"
                     @click="openPromptGuidelines"
@@ -68,6 +77,11 @@
                 @ Mention to add things from memory
             </div>
             <PromptGuidelinesModal ref="promptGuidelinesModalRef" />
+            <InstructionModalComponent
+        v-model="showInstructionModal"
+        :instruction="null"
+        @instructionSaved="handleInstructionSaved"
+    />
         </div>
     </div>
 </template>
@@ -129,6 +143,20 @@ const currentMentionStartIndex = ref(-1);
 const memories = ref([]);
 const files = ref([]);
 const dataSources = ref([]);
+
+// Add new reactive variables for instruction modal
+const showInstructionModal = ref(false);
+
+// Add new methods for instruction modal
+const openInstructionModal = () => {
+    showInstructionModal.value = true;
+}
+
+const handleInstructionSaved = (savedInstruction: any) => {
+    // Handle the saved instruction - you can add any logic here
+    console.log('Instruction saved:', savedInstruction);
+    showInstructionModal.value = false;
+}
 
 async function getFiles() {
   const response = await useMyFetch(`/api/files`, {

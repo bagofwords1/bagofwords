@@ -7,15 +7,18 @@ from app.models.membership import Membership, ROLES_PERMISSIONS
 from app.settings.config import settings
 
 
-def requires_permission(permission, model=None):
+def requires_permission(permission, model=None, owner_only=False, allow_public=False):
     """
     Enhanced decorator that checks:
     1. User has sufficient role-based permission
     2. User belongs to the organization
     3. If model is provided, checks if object belongs to organization
+    4. If owner_only=True, checks if user is the owner of the object
+    5. If allow_public=True, allows access to published reports even for non-owners
     
     Usage:
-    @requires_permission("read:project", model=Project)  # For object-level checks
+    @requires_permission("delete_reports", model=Report, owner_only=True)  # Only owner can delete
+    @requires_permission("view_reports", model=Report, owner_only=True, allow_public=True)  # Owner or public
     @requires_permission("create:project")  # For general permission checks
     """
     def decorator(func):
@@ -73,6 +76,20 @@ def requires_permission(permission, model=None):
                 
                 if not obj:
                     raise HTTPException(status_code=404, detail="Object not found or access denied")
+                
+                # Check ownership if required
+                if owner_only:
+                    # Check if object has user_id field (for ownership)
+                    if hasattr(obj, 'user_id'):
+                        is_owner = obj.user_id == user.id
+                        
+                        # If allow_public is True and it's a Report with published status, allow access
+                        if allow_public and hasattr(obj, 'status') and obj.status == 'published':
+                            pass  # Allow access to published reports
+                        elif not is_owner:
+                            raise HTTPException(status_code=403, detail="Only the owner can perform this action")
+                    else:
+                        raise HTTPException(status_code=500, detail="Object does not support ownership checks")
 
             return await func(*args, **kwargs)
         return wrapper

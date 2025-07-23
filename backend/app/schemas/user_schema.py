@@ -26,6 +26,7 @@ class UserRead(schemas.BaseUser[uuid.UUID]):
       #  orm_mode = True  # Allows the output model to be compatible with ORM objects
 
 class UserSchema(BaseModel):
+    id: str
     name: str
     email: str
     external_user_mappings: List[ExternalUserMappingMinimalSchema] = []

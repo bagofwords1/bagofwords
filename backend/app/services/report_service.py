@@ -17,7 +17,7 @@ from app.models.report_file_association import report_file_association
 from fastapi import HTTPException
 
 import uuid
-from sqlalchemy import select
+from sqlalchemy import select, or_, func
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
@@ -154,26 +154,70 @@ class ReportService:
         
         return ReportSchema.from_orm(report)
 
-    async def get_reports(self, db: AsyncSession, current_user: User, organization: Organization):
-        query = select(Report).where(
-            (Report.organization_id == organization.id) & 
-            (Report.status != 'archived')
-        ).options(
+    async def get_reports(self, db: AsyncSession, current_user: User, organization: Organization, page: int = 1, limit: int = 10, filter: str = "my"):
+        # Calculate offset
+        offset = (page - 1) * limit
+        
+        # Build filter conditions based on filter parameter
+        base_conditions = [
+            Report.organization_id == organization.id,
+            Report.status != 'archived'
+        ]
+        
+        if filter == "my":
+            # Show only reports owned by current user
+            base_conditions.append(Report.user_id == current_user.id)
+        elif filter == "published":
+            # Show only published reports
+            base_conditions.append(Report.status == 'published')
+        else:
+            # Default: show reports user can view (owned by user OR published)
+            base_conditions.append(
+                or_(Report.status == 'published', Report.user_id == current_user.id)
+            )
+        
+        # Base query for filtering
+        base_query = select(Report).where(*base_conditions)
+        
+        # Count total items
+        count_query = select(func.count(Report.id)).where(*base_conditions)
+        
+        total_result = await db.execute(count_query)
+        total = total_result.scalar()
+        
+        # Get paginated results
+        query = base_query.options(
             selectinload(Report.user), 
             selectinload(Report.widgets)
-        ).order_by(Report.created_at.desc()).limit(10)
+        ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
+        
         result = await db.execute(query)
-
-
         reports = result.scalars().all()
 
+        # Convert to schemas
         report_schemas = []
         for report in reports:
             report_schema = ReportSchema.from_orm(report)
             report_schema.user = UserSchema.from_orm(report.user)
             report_schemas.append(report_schema)
 
-        return report_schemas
+        # Calculate pagination metadata
+        total_pages = (total + limit - 1) // limit  # Ceiling division
+        has_next = page < total_pages
+        has_prev = page > 1
+
+        from app.schemas.report_schema import PaginationMeta, ReportListResponse
+        
+        meta = PaginationMeta(
+            total=total,
+            page=page,
+            limit=limit,
+            total_pages=total_pages,
+            has_next=has_next,
+            has_prev=has_prev
+        )
+
+        return ReportListResponse(reports=report_schemas, meta=meta)
 
     async def _set_slug_for_report(self, db: AsyncSession, report: Report):
         title_slug = report.title.replace(" ", "-").lower()
