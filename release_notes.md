@@ -1,9 +1,14 @@
 # Release Notes
 
+## Version 0.0.175 (July 26, 2025)
+- Added ability for users to suggest new instructions and view published instructions
+- Added workflow for admins and privileged users to review, approve, or reject suggested instructions
+- Enhanced instruction management with data source associations - instructions can now be set globally or scoped to specific data sources
+- Added visibility controls allowing admins to hide certain instructions from unprivileged users
+
 ## Version 0.0.174 (July 23rd, 2025)
 - Filters and pagination for reports
 - Reports are now invisible for other users when not published
-
 
 ## Version 0.0.172 (July 17th, 2025)
 - Slack integration! Now admins can integrate their Slack organization account and have users converse with bow via slack. Includes user-level authorization, formatting, charts, and tables
