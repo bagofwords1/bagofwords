@@ -14,6 +14,8 @@ from app.schemas.instruction_schema import (
     InstructionSchema,
     InstructionListSchema,
     InstructionStatus,
+    InstructionPrivateStatus,
+    InstructionGlobalStatus,
     InstructionCategory
 )
 from app.models.instruction import Instruction
@@ -21,63 +23,105 @@ from app.models.instruction import Instruction
 router = APIRouter(tags=["instructions"])
 instruction_service = InstructionService()
 
+# CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
-@requires_permission('create_instructions') 
-async def create_instruction(
+@requires_permission('create_private_instructions') 
+async def create_private_instruction(
     instruction: InstructionCreate,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Create a new instruction"""
-    return await instruction_service.create_instruction(db, instruction, current_user, organization)
+    """Create a new private instruction (auto-published) - Private Published: published, null, published"""
+    return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=False)
 
-@router.get("/instructions", response_model=List[InstructionSchema])
-@requires_permission('view_instructions') 
-async def get_instructions(
-    skip: int = Query(0, ge=0, description="Number of instructions to skip"),
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of instructions to return"),
-    status: Optional[InstructionStatus] = Query(None, description="Filter by status"),
-    category: Optional[InstructionCategory] = Query(None, description="Filter by category"),
-    data_source_id: Optional[str] = Query(None, description="Filter by data source (includes global instructions)"),
+@router.post("/instructions/global", response_model=InstructionSchema)
+@requires_permission('create_instructions') 
+async def create_global_instruction(
+    instruction: InstructionCreate,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get instructions with optional filtering"""
+    """Create a new global instruction (admin only) - Global Draft/Published: null, approved, draft/published"""
+    return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=True)
+
+# LIST INSTRUCTIONS
+@router.get("/instructions", response_model=List[InstructionSchema])
+@requires_permission('view_instructions')
+async def get_instructions(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=1000),
+    status: Optional[InstructionStatus] = Query(None),
+    category: Optional[InstructionCategory] = Query(None),
+    include_own: bool = Query(True),
+    include_drafts: bool = Query(False),
+    include_archived: bool = Query(False), 
+    include_hidden: bool = Query(False),
+    user_id: Optional[str] = Query(None),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Get instructions with automatic permission-based filtering"""
     return await instruction_service.get_instructions(
-        db, 
-        organization, 
-        current_user, 
-        skip=skip, 
-        limit=limit,
-        status=status,
-        category=category,
-        data_source_id=data_source_id
+        db, organization, current_user,
+        skip=skip, limit=limit,
+        status=status.value if status else None,
+        category=category.value if category else None,
+        include_own=include_own,
+        include_drafts=include_drafts,
+        include_archived=include_archived,
+        include_hidden=include_hidden,
+        user_id=user_id
     )
 
-# SPECIFIC ROUTES MUST COME BEFORE PARAMETERIZED ROUTES
-@router.get("/instructions/categories", response_model=List[str])
-@requires_permission('view_instructions')
-async def get_instruction_categories(
+# SUGGESTION WORKFLOW
+@router.post("/instructions/{instruction_id}/suggest", response_model=InstructionSchema)
+@requires_permission('suggest_instructions')
+async def suggest_instruction(
+    instruction_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get all available instruction categories"""
-    return [category.value for category in InstructionCategory]
+    """User promotes their private instruction to suggestion - Private Published -> Suggested"""
+    return await instruction_service.suggest_instruction(db, instruction_id, current_user, organization)
 
-@router.get("/instructions/statuses", response_model=List[str])
-@requires_permission('view_instructions')
-async def get_instruction_statuses(
+@router.post("/instructions/{instruction_id}/withdraw", response_model=InstructionSchema)
+@requires_permission('suggest_instructions')
+async def withdraw_suggestion(
+    instruction_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get all available instruction statuses"""
-    return [status.value for status in InstructionStatus]
+    """User withdraws their suggestion back to private - Suggested -> Private Published"""
+    return await instruction_service.withdraw_suggestion(db, instruction_id, current_user, organization)
 
-# PARAMETERIZED ROUTES COME AFTER SPECIFIC ROUTES
+@router.post("/instructions/{instruction_id}/approve", response_model=InstructionSchema)
+@requires_permission('review_suggestions')
+async def approve_suggestion(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Admin approves suggestion, making it global - Suggested -> Global Published"""
+    return await instruction_service.approve_suggestion(db, instruction_id, current_user, organization)
+
+@router.post("/instructions/{instruction_id}/reject", response_model=InstructionSchema)
+@requires_permission('review_suggestions')
+async def reject_suggestion(
+    instruction_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Admin rejects suggestion, returning it to private - Suggested -> Private Published"""
+    return await instruction_service.reject_suggestion(db, instruction_id, current_user, organization)
+
+# STANDARD CRUD
 @router.get("/instructions/{instruction_id}", response_model=InstructionSchema)
 @requires_permission('view_instructions', model=Instruction)
 async def get_instruction(
@@ -101,7 +145,7 @@ async def update_instruction(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Update an instruction"""
+    """Update an instruction (only if private and user owns it)"""
     updated_instruction = await instruction_service.update_instruction(
         db, instruction_id, instruction, organization, current_user
     )
@@ -110,29 +154,40 @@ async def update_instruction(
     return updated_instruction
 
 @router.delete("/instructions/{instruction_id}")
-@requires_permission('delete_instructions', model=Instruction)
+@requires_permission('delete_instructions', model=Instruction, owner_only=False)
 async def delete_instruction(
     instruction_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Delete an instruction (soft delete)"""
+    """Delete an instruction (only if private and user owns it)"""
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
         raise HTTPException(status_code=404, detail="Instruction not found")
     return {"message": "Instruction deleted successfully"}
 
-@router.get("/data_sources/{data_source_id}/instructions", response_model=List[InstructionSchema])
-@requires_permission('view_data_source')
-async def get_instructions_for_data_source(
-    data_source_id: str,
-    status: InstructionStatus = Query(InstructionStatus.PUBLISHED, description="Filter by status"),
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization)
-):
-    """Get all instructions that apply to a specific data source (including global ones)"""
-    return await instruction_service.get_instructions_for_data_source(
-        db, data_source_id, organization, current_user, status=status
-    )
+# UTILITY ROUTES
+@router.get("/instructions/categories", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_categories():
+    """Get all available instruction categories"""
+    return [category.value for category in InstructionCategory]
+
+@router.get("/instructions/statuses", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_statuses():
+    """Get all available instruction statuses"""
+    return [status.value for status in InstructionStatus]
+
+@router.get("/instructions/private-statuses", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_private_statuses():
+    """Get all available private instruction statuses"""
+    return [status.value for status in InstructionPrivateStatus]
+
+@router.get("/instructions/global-statuses", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_global_statuses():
+    """Get all available global instruction statuses"""
+    return [status.value for status in InstructionGlobalStatus]

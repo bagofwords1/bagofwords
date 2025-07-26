@@ -18,7 +18,7 @@
                             activeFilter === 'my' 
                                 ? 'bg-white text-gray-900 shadow-sm' 
                                 : 'text-gray-500 hover:text-gray-900',
-                            'px-3 py-2 text-sm font-medium rounded-md transition-all duration-200'
+                            'px-3 py-2 text-xs font-medium rounded-md transition-all duration-200'
                         ]"
                     >
                         My Reports
@@ -29,10 +29,10 @@
                             activeFilter === 'published' 
                                 ? 'bg-white text-gray-900 shadow-sm' 
                                 : 'text-gray-500 hover:text-gray-900',
-                            'px-3 py-2 text-sm font-medium rounded-md transition-all duration-200'
+                            'px-3 py-2 text-xs font-medium rounded-md transition-all duration-200'
                         ]"
                     >
-                        {{ currentUser.organizations[0]?.name }} Reports
+                        All Organization Reports
                     </button>
                 </div>
             </div>

@@ -19,11 +19,11 @@
                     <FileUploadExcelComponent v-model:uploadedFiles="uploaded_files" :report_id="report_id" />
                     <div>
                       <button
-                                    v-if="useCan('create_instructions')" 
+                                    v-if="canViewInstructions" 
                                     class="text-gray-500 hover:text-gray-400 hover:bg-gray-100 border border-gray-200 ml-2 text-[11px] px-2 py-1 rounded-md"
-                                    @click="openInstructionModal"
+                                    @click="openInstructionsListModal"
                                 >
-                                    <Icon name="heroicons-document-text" /> Add Instructions
+                                    <Icon name="heroicons-document-text" /> Instructions
                                 </button>
                     </div>
                     <div>
@@ -77,6 +77,7 @@
                 @ Mention to add things from memory
             </div>
             <PromptGuidelinesModal ref="promptGuidelinesModalRef" />
+            <InstructionsListModalComponent ref="instructionsListModalRef" />
             <InstructionModalComponent
         v-model="showInstructionModal"
         :instruction="null"
@@ -92,6 +93,8 @@ import DataSourceSelectorComponentExcel from './DataSourceSelectorComponentExcel
 import FileUploadExcelComponent from './FileUploadExcelComponent.vue';
 import MentionComponent from './MentionComponent.vue';
 import PromptGuidelinesModal from '../PromptGuidelinesModal.vue';
+import InstructionsListModalComponent from '../InstructionsListModalComponent.vue';
+import { usePermissionsLoaded } from '~/composables/usePermissions'
 
 const props = defineProps({
     promptsSuggestions: Array,
@@ -282,10 +285,27 @@ defineExpose({
 });
 
 const promptGuidelinesModalRef = ref(null);
+const instructionsListModalRef = ref(null);
 
 function openPromptGuidelines() {
     promptGuidelinesModalRef.value?.openModal();
 }
+
+function openInstructionsListModal() {
+    instructionsListModalRef.value?.openModal();
+}
+
+// Computed property that waits for permissions to load
+const canViewInstructions = computed(() => {
+  const permissionsLoaded = usePermissionsLoaded()
+  
+  // Only check permissions after they're loaded
+  if (!permissionsLoaded.value) {
+    return false
+  }
+  
+  return useCan('create_instructions') || useCan('view_instructions')
+})
 </script>
 
 <style scoped>

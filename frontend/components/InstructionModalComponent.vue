@@ -8,112 +8,36 @@
             <p class="text-sm text-gray-500">Create or modify instructions for AI agents</p>
             <hr class="my-4" />
 
-            <form @submit.prevent="submitForm" class="space-y-4">
-                <!-- Instruction Text -->
-                <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">
-                        Instruction <span class="text-red-500">*</span>
-                    </label>
-                    <UTextarea 
-                        v-model="instructionForm.text"
-                        :rows="4"
-                        placeholder="Enter the instruction text..."
-                        class="w-full"
-                        required
-                    />
-                </div>
-
-                <!-- Status -->
-                <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">
-                        Status <span class="text-red-500">*</span>
-                    </label>
-                    <USelectMenu 
-                        v-model="instructionForm.status" 
-                        :options="statusOptions" 
-                        option-attribute="label"
-                        value-attribute="value"
-                        class="w-full"
-                        required
-                    >
-                        <UButton color="gray" class="flex-1 justify-start">
-                            <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-1 text-xs font-medium rounded-full mr-2">
-                                {{ formatStatus(instructionForm.status) }}
-                            </span>
-                        </UButton>
-
-                        <template #option="{ option }">
-                            <div class="flex items-center gap-2">
-                                <span :class="getStatusClass(option.value)" class="inline-flex px-2 py-1 text-xs font-medium rounded-full">
-                                    {{ option.label }}
-                                </span>
-                            </div>
-                        </template>
-                    </USelectMenu>
-                </div>
-
-                <!-- Category -->
-                <div class="flex flex-col">
-                    <label class="text-sm font-medium text-gray-700 mb-2">
-                        Category <span class="text-red-500">*</span>
-                    </label>
-                    <USelectMenu 
-                        v-model="instructionForm.category" 
-                        :options="categoryOptions" 
-                        option-attribute="label"
-                        value-attribute="value"
-                        class="w-full"
-                        required
-                    >
-                        <UButton color="gray" class="flex-1 justify-start">
-                            <Icon :name="getCategoryIcon(instructionForm.category)" class="w-4 h-4 mr-2" />
-                            {{ formatCategory(instructionForm.category) }}
-                        </UButton>
-
-                        <template #option="{ option }">
-                            <div class="flex items-center gap-2">
-                                <Icon :name="getCategoryIcon(option.value)" class="w-4 h-4" />
-                                <span>{{ option.label }}</span>
-                            </div>
-                        </template>
-                    </USelectMenu>
-                </div>
-
-                <!-- Form Actions -->
-                <div class="flex justify-between items-center pt-4">
-                    <!-- NEW: Delete button (only show when editing) -->
-                    <UButton 
-                        v-if="isEditing"
-                        label="Delete Instruction" 
-                        color="red" 
-                        variant="soft" 
-                        @click="confirmDelete"
-                        :loading="isDeleting"
-                    />
-                    
-                    <!-- Existing buttons moved to right side -->
-                    <div class="flex space-x-2">
-                        <UButton 
-                            label="Cancel" 
-                            color="gray" 
-                            variant="soft" 
-                            @click="closeModal" 
-                        />
-                        <UButton 
-                            type="submit" 
-                            :label="isEditing ? 'Update Instruction' : 'Create Instruction'"  
-                            class="!bg-blue-500 !text-white"
-                            :loading="isSubmitting"
-                        />
-                    </div>
-                </div>
-            </form>
+            <!-- Conditional rendering based on the computed selectedInstructionType -->
+            <InstructionGlobalCreateComponent 
+                v-if="selectedInstructionType === 'global'"
+                :instruction="instruction"
+                :shared-form="sharedForm"
+                :selected-data-sources="selectedDataSources"
+                @instruction-saved="handleInstructionSaved"
+                @cancel="closeModal"
+                @update-form="updateSharedForm"
+                @update-data-sources="updateSelectedDataSources"
+            />
+            <InstructionPrivateCreateComponent 
+                v-else-if="selectedInstructionType === 'private'"
+                :instruction="instruction"
+                :shared-form="sharedForm"
+                :selected-data-sources="selectedDataSources"
+                :is-suggestion="props.isSuggestion"
+                @instruction-saved="handleInstructionSaved"
+                @cancel="closeModal"
+                @update-form="updateSharedForm"
+                @update-data-sources="updateSelectedDataSources"
+            />
         </div>
     </UModal>
 </template>
 
 <script setup lang="ts">
-import DataSourceSelectorComponent from '~/components/DataSourceSelectorComponent.vue'
+import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
+import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCreateComponent.vue'
+import { usePermissionsLoaded } from '~/composables/usePermissions'
 
 // Define interfaces
 interface DataSource {
@@ -122,220 +46,116 @@ interface DataSource {
     type: string
 }
 
-interface InstructionForm {
+interface SharedForm {
     text: string
     status: 'draft' | 'published' | 'archived'
     category: 'code_gen' | 'data_modeling' | 'general'
+    is_seen: boolean
+    can_user_toggle: boolean
 }
 
 // Props and Emits
 const props = defineProps<{
     modelValue: boolean
-    instruction?: any // For editing existing instruction
+    instruction?: any
+    initialType?: 'global' | 'private'
+    isSuggestion?: boolean
 }>()
 
 const emit = defineEmits(['update:modelValue', 'instructionSaved'])
 
 // Reactive state
-const toast = useToast()
-const isSubmitting = ref(false)
-const isDeleting = ref(false)  // NEW
-const selectedDataSources = ref<DataSource[]>([])
-
-// Form data
-const instructionForm = ref<InstructionForm>({
+const selectedDataSources = ref<string[]>([])
+const sharedForm = ref<SharedForm>({
     text: '',
     status: 'draft',
-    category: 'general'
+    category: 'general',
+    is_seen: true,
+    can_user_toggle: true
 })
 
 // Computed properties
+const isEditing = computed(() => !!props.instruction)
+
 const instructionModalOpen = computed({
     get: () => props.modelValue,
     set: (value) => emit('update:modelValue', value)
 })
 
-const isEditing = computed(() => !!props.instruction)
-
-// Options for dropdowns
-const statusOptions = [
-    { label: 'Draft', value: 'draft' },
-    { label: 'Published', value: 'published' },
-    { label: 'Archived', value: 'archived' }
-]
-
-const categoryOptions = [
-    { label: 'General', value: 'general' },
-    { label: 'Code Generation', value: 'code_gen' },
-    { label: 'Data Modeling', value: 'data_modeling' }
-]
-
-// Helper functions
-const formatStatus = (status: string) => {
-    const statusMap = {
-        draft: 'Draft',
-        published: 'Published',
-        archived: 'Archived'
+const selectedInstructionType = computed(() => {
+    // 1. If we are editing an existing instruction, its status is the source of truth.
+    if (isEditing.value && props.instruction) {
+        const inst = props.instruction
+        // The "global" component handles approved global instructions and suggestions pending review.
+        const isHandledByGlobalComponent = inst.global_status === 'approved' || inst.global_status === 'suggested'
+        return isHandledByGlobalComponent ? 'global' : 'private'
     }
-    return statusMap[status as keyof typeof statusMap] || status
-}
-
-const formatCategory = (category: string) => {
-    const categoryMap = {
-        code_gen: 'Code Generation',
-        data_modeling: 'Data Modeling',
-        general: 'General'
+    
+    // 2. If creating a new instruction, the `initialType` prop takes precedence.
+    if (props.initialType) {
+        return props.initialType
     }
-    return categoryMap[category as keyof typeof categoryMap] || category
-}
-
-const getStatusClass = (status: string) => {
-    const statusClasses = {
-        draft: 'bg-yellow-100 text-yellow-800',
-        published: 'bg-green-100 text-green-800',
-        archived: 'bg-gray-100 text-gray-800'
+    
+    // 3. Otherwise, fall back to the user's permission level, waiting for them to load.
+    const permissionsLoaded = usePermissionsLoaded()
+    if (!permissionsLoaded.value) {
+        // Default to private to avoid flashing the admin UI. It will correct itself once permissions load.
+        return 'private' 
     }
-    return statusClasses[status as keyof typeof statusClasses] || 'bg-gray-100 text-gray-800'
-}
-
-const getCategoryIcon = (category: string) => {
-    const categoryIcons = {
-        code_gen: 'heroicons:code-bracket',
-        data_modeling: 'heroicons:cube',
-        general: 'heroicons:document-text'
-    }
-    return categoryIcons[category as keyof typeof categoryIcons] || 'heroicons:document-text'
-}
+    return useCan('create_instructions') ? 'global' : 'private'
+})
 
 // Event handlers
-const handleDataSourceChange = (dataSources: DataSource[]) => {
-    selectedDataSources.value = dataSources
+const closeModal = () => {
+    instructionModalOpen.value = false
+    // resetForm is now called by the watcher below
 }
 
 const resetForm = () => {
-    instructionForm.value = {
+    sharedForm.value = {
         text: '',
         status: 'draft',
-        category: 'general'
+        category: 'general',
+        is_seen: true,
+        can_user_toggle: true
     }
     selectedDataSources.value = []
-    isSubmitting.value = false
 }
 
-const closeModal = () => {
-    resetForm()
-    instructionModalOpen.value = false
+const updateSharedForm = (formData: Partial<SharedForm>) => {
+    Object.assign(sharedForm.value, formData)
 }
 
-const submitForm = async () => {
-    if (isSubmitting.value) return
-    
-    isSubmitting.value = true
-    
-    try {
-        // Prepare the payload
-        const payload = {
-            text: instructionForm.value.text,
-            status: instructionForm.value.status,
-            category: instructionForm.value.category,
-            data_source_ids: selectedDataSources.value.map(ds => ds.id)
-        }
-
-        let response
-        if (isEditing.value) {
-            // Update existing instruction
-            response = await useMyFetch(`/api/instructions/${props.instruction.id}`, {
-                method: 'PUT',
-                body: payload
-            })
-        } else {
-            // Create new instruction
-            response = await useMyFetch('/api/instructions', {
-                method: 'POST',
-                body: payload
-            })
-        }
-
-        if (response.status.value === 'success') {
-            toast.add({
-                title: 'Success',
-                description: `Instruction ${isEditing.value ? 'updated' : 'created'} successfully`,
-                color: 'green'
-            })
-            
-            emit('instructionSaved', response.data.value)
-            closeModal()
-        } else {
-            throw new Error('Failed to save instruction')
-        }
-    } catch (error) {
-        console.error('Error saving instruction:', error)
-        toast.add({
-            title: 'Error',
-            description: `Failed to ${isEditing.value ? 'update' : 'create'} instruction`,
-            color: 'red'
-        })
-    } finally {
-        isSubmitting.value = false
-    }
+const updateSelectedDataSources = (dataSources: string[]) => {
+    selectedDataSources.value = dataSources
 }
 
-// NEW: Delete confirmation and handler
-const confirmDelete = async () => {
-    if (!props.instruction?.id) return
-    
-    const confirmed = window.confirm(
-        `Are you sure you want to delete the instruction "${props.instruction.text.substring(0, 50)}${props.instruction.text.length > 50 ? '...' : ''}"?`
-    )
-    
-    if (!confirmed) return
-    
-    isDeleting.value = true
-    
-    try {
-        const response = await useMyFetch(`/api/instructions/${props.instruction.id}`, {
-            method: 'DELETE'
-        })
-        
-        if (response.status.value === 'success') {
-            toast.add({
-                title: 'Success',
-                description: 'Instruction deleted successfully',
-                color: 'green'
-            })
-            
-            emit('instructionSaved', { deleted: true, id: props.instruction.id })
-            closeModal()
-        } else {
-            throw new Error('Failed to delete instruction')
-        }
-    } catch (error) {
-        console.error('Error deleting instruction:', error)
-        toast.add({
-            title: 'Error',
-            description: 'Failed to delete instruction',
-            color: 'red'
-        })
-    } finally {
-        isDeleting.value = false
-    }
+const handleInstructionSaved = (data: any) => {
+    emit('instructionSaved', data)
+    closeModal()
 }
 
 // Watchers
 watch(() => props.instruction, (newInstruction) => {
     if (newInstruction) {
-        // Populate form when editing
-        instructionForm.value = {
+        // Populate the form when an instruction to edit is passed in.
+        sharedForm.value = {
             text: newInstruction.text || '',
             status: newInstruction.status || 'draft',
-            category: newInstruction.category || 'general'
+            category: newInstruction.category || 'general',
+            is_seen: newInstruction.is_seen !== undefined ? newInstruction.is_seen : true,
+            can_user_toggle: newInstruction.can_user_toggle !== undefined ? newInstruction.can_user_toggle : true
         }
-        selectedDataSources.value = newInstruction.data_sources || []
+        selectedDataSources.value = newInstruction.data_sources?.map((ds: DataSource) => ds.id) || []
+    } else {
+        // If the instruction prop is cleared, reset the form for a clean 'create' state.
+        resetForm()
     }
 }, { immediate: true })
 
-watch(instructionModalOpen, (newValue) => {
-    if (!newValue) {
+// Reset the form state only when the modal is closed.
+watch(instructionModalOpen, (isOpen) => {
+    if (!isOpen) {
         resetForm()
     }
 })

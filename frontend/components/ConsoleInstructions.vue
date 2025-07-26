@@ -94,9 +94,14 @@
                                 </div>
                             </td>
                             <td class="px-6 py-4">
-                                <span :class="getStatusClass(instruction.status)" class="inline-flex px-2 py-1 text-xs font-medium rounded-full">
-                                    {{ formatStatus(instruction.status) }}
-                                </span>
+                                <div class="flex flex-col">
+                                    <span :class="getStatusClass(instruction)" class="inline-flex px-2 py-1 text-xs font-medium rounded-full w-fit">
+                                        {{ getDisplayStatus(instruction) }}
+                                    </span>
+                                    <span v-if="getSubStatus(instruction)" class="text-xs text-gray-500 mt-1">
+                                        {{ getSubStatus(instruction) }}
+                                    </span>
+                                </div>
                             </td>
                             <td class="px-6 py-4">
                                 <span class="text-sm text-gray-600">
@@ -215,6 +220,14 @@ interface Instruction {
     data_sources: DataSource[]
     created_at: string
     updated_at: string
+    
+    // Dual-status lifecycle fields
+    private_status: string | null  // draft, published, archived (null for global-only)
+    global_status: string | null   // null, suggested, approved, rejected
+    is_seen: boolean
+    can_user_toggle: boolean
+    reviewed_by_user_id: string | null
+    reviewed_by?: User  // Add this to get
 }
 
 // Reactive state
@@ -272,21 +285,27 @@ const visiblePages = computed(() => {
 })
 
 // Methods
+// Simple admin view using the new clean parameters
 const fetchInstructions = async () => {
     isLoading.value = true
     try {
-        const { data, error } = await useMyFetch<Instruction[]>('/api/instructions', {
+        const response = await useMyFetch<Instruction[]>('/api/instructions', {
             method: 'GET',
             query: {
-                limit: 1000 // Get all instructions for client-side pagination
+                limit: 1000,
+                include_own: true,
+                include_drafts: true,   // Admins see drafts
+                include_hidden: true    // Admins see hidden
             }
         })
         
-        if (error.value) {
-            console.error('Failed to fetch instructions:', error.value)
-        } else if (data.value) {
-            instructions.value = data.value
+        if (response.error.value) {
+            console.error('Error fetching instructions:', response.error.value)
+        } else if (response.data.value) {
+            console.log('Instructions found:', response.data.value.length)
+            instructions.value = response.data.value
         }
+        
     } catch (err) {
         console.error('Error fetching instructions:', err)
     } finally {
@@ -335,13 +354,49 @@ const formatCategory = (category: string) => {
     return categoryMap[category as keyof typeof categoryMap] || category
 }
 
-const getStatusClass = (status: string) => {
-    const statusClasses = {
-        draft: 'bg-yellow-100 text-yellow-800',
-        published: 'bg-green-100 text-green-800',
-        archived: 'bg-gray-100 text-gray-800'
+const getStatusClass = (instruction: Instruction) => {
+
+        // Regular status colors
+        const statusClasses = {
+            draft: 'bg-yellow-100 text-yellow-800',
+            published: 'bg-green-100 text-green-800',
+            archived: 'bg-gray-100 text-gray-800'
+        }
+        return statusClasses[instruction.status as keyof typeof statusClasses] || 'bg-gray-100 text-gray-800'
+}
+
+const getDisplayStatus = (instruction: Instruction) => {
+    // Just return the main status without brackets
+    return formatStatus(instruction.status) // Draft/Published/Archived
+}
+
+const getSubStatus = (instruction: Instruction) => {
+    // Show sub-status based on global_status and reviewer
+    if (instruction.global_status === 'suggested') {
+        return 'Pending Review'
+    } else if (instruction.reviewed_by_user_id && instruction.global_status) {
+        const reviewerName = instruction.reviewed_by?.name || 'Admin'
+        
+        if (instruction.global_status === 'approved') {
+            return `Approved by ${reviewerName}`
+        } else if (instruction.global_status === 'rejected') {
+            return `Rejected by ${reviewerName}`
+        }
     }
-    return statusClasses[status as keyof typeof statusClasses] || 'bg-gray-100 text-gray-800'
+    
+    return null // No sub-status to show
+}
+
+const getInstructionType = (instruction: Instruction): string => {
+    if (instruction.private_status && !instruction.global_status) {
+        return 'private'
+    } else if (instruction.private_status && instruction.global_status === 'suggested') {
+        return 'suggested'
+    } else if (!instruction.private_status && instruction.global_status === 'approved') {
+        return 'global'
+    } else {
+        return 'unknown'
+    }
 }
 
 const formatDate = (dateString: string) => {

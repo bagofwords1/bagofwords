@@ -36,6 +36,11 @@ MEMBER_PERMISSIONS = {
     'view_files',
     'manage_organization_external_platforms',
     'view_instructions',
+    'create_private_instructions',
+    'update_private_instructions',
+    'delete_private_instructions',
+    'view_global_instructions',
+    'view_private_instructions',
 }
 
 ADMIN_PERMISSIONS = {
@@ -55,8 +60,8 @@ ADMIN_PERMISSIONS = {
     'view_organization_overview',
     'create_instructions',
     'update_instructions',
-    'delete_instructions'
-    
+    'delete_instructions',
+    'view_hidden_instructions'
 }
 
 # Combine permissions for roles

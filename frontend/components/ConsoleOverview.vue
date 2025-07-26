@@ -23,75 +23,96 @@
             <h2 class="text-lg font-medium mb-4">Recent Data</h2>
             
             <!-- Loading state -->
-            <div v-if="isLoading" class="flex items-center justify-center py-8">
+            <div v-if="isLoading" class="flex items-center justify-center py-12">
                 <div class="flex items-center space-x-2">
                     <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                     <span class="text-gray-600">Loading widgets...</span>
                 </div>
             </div>
             
-            <!-- Table -->
-            <div v-else class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Widget</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">User</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Time</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Completion ID</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Row Count</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Revisions</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Feedback</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        <tr v-for="widget in recentWidgets" :key="widget.id" class="hover:bg-gray-50">
-                            <td class="px-3 py-4 cursor-pointer" @click="openModal(widget)">
-                                <div class="text-sm font-medium text-gray-900 truncate" :title="widget.title">
-                                    {{ widget.title }}
-                                </div>
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 truncate cursor-pointer" :title="widget.user_name" @click="openModal(widget)">
-                                {{ widget.user_name }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                {{ formatDate(widget.created_at) }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                <div class="truncate max-w-32">
-                                    {{ widget.completion_id || 'N/A' }}
-                                </div>
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                {{ widget.row_count || 0 }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 text-center cursor-pointer" @click="openModal(widget)">
-                                {{ widget.steps_count }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500">
-                                <div class="flex items-center" @click.stop>
-                                    <span class="text-center min-w-[20px]">{{ widget.thumbs_count }}</span>
-                                    <UButton
-                                        icon="i-heroicons-hand-thumb-up"
-                                        color="green"
-                                        variant="ghost"
-                                        size="xs"
-                                        @click="sendFeedback(widget.completion_id, 1)"
-                                        :disabled="!widget.completion_id"
-                                    />
-                                    <UButton
-                                        icon="i-heroicons-hand-thumb-down"
-                                        color="red"
-                                        variant="ghost"
-                                        size="xs"
-                                        @click="sendFeedback(widget.completion_id, -1)"
-                                        :disabled="!widget.completion_id"
-                                    />
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+            <!-- Table Container with improved styling -->
+            <div v-else class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Widget</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Time</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completion ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Row Count</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revisions</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            <tr v-for="widget in recentWidgets" :key="widget.id" class="hover:bg-gray-50 cursor-pointer" @click="openModal(widget)">
+                                <td class="px-6 py-4">
+                                    <div class="text-sm font-medium text-gray-900 max-w-md">
+                                        <p class="truncate" :title="widget.title">
+                                            {{ widget.title }}
+                                        </p>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-sm text-gray-900 truncate" :title="widget.user_name">
+                                        {{ widget.user_name }}
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="text-sm text-gray-500">
+                                        {{ formatDate(widget.created_at) }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-sm text-gray-500 truncate max-w-32">
+                                        {{ widget.completion_id || 'N/A' }}
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="text-sm text-gray-500">
+                                        {{ widget.row_count || 0 }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="text-sm text-gray-500 text-center">
+                                        {{ widget.steps_count }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4" @click.stop>
+                                    <div class="flex items-center space-x-1">
+                                        <span class="text-sm text-gray-500 min-w-[20px]">{{ widget.thumbs_count }}</span>
+                                        <UButton
+                                            icon="i-heroicons-hand-thumb-up"
+                                            color="green"
+                                            variant="ghost"
+                                            size="xs"
+                                            @click="sendFeedback(widget.completion_id, 1)"
+                                            :disabled="!widget.completion_id"
+                                        />
+                                        <UButton
+                                            icon="i-heroicons-hand-thumb-down"
+                                            color="red"
+                                            variant="ghost"
+                                            size="xs"
+                                            @click="sendFeedback(widget.completion_id, -1)"
+                                            :disabled="!widget.completion_id"
+                                        />
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Empty state -->
+                <div v-if="recentWidgets.length === 0" class="text-center py-12">
+                    <UIcon name="i-heroicons-chart-bar" class="mx-auto h-12 w-12 text-gray-400" />
+                    <h3 class="mt-2 text-sm font-medium text-gray-900">No widgets found</h3>
+                    <p class="mt-1 text-sm text-gray-500">
+                        Start creating reports to see widget data here.
+                    </p>
+                </div>
             </div>
             
             <!-- Pagination Controls -->

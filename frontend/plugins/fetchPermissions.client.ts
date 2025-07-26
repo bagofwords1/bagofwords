@@ -1,15 +1,17 @@
-import { usePermissions } from '~/composables/usePermissions'
+import { usePermissions, usePermissionsLoaded } from '~/composables/usePermissions'
 export default defineNuxtPlugin(async (nuxtApp) => {
   try {
     const { getSession } = useAuth()
     const { organization, ensureOrganization } = useOrganization()
     const permissions = usePermissions()
+    const permissionsLoaded = usePermissionsLoaded()
 
     const session = await getSession()
     await ensureOrganization()
 
     if (!session) {
       console.warn('Session data is undefined. Ensure the user is authenticated.')
+      permissionsLoaded.value = true // Set to true even if no session
       return
     }
 
@@ -19,11 +21,15 @@ export default defineNuxtPlugin(async (nuxtApp) => {
       )?.role
       const rolePermissions = getPermissionsForRole(userRole)
       permissions.value = rolePermissions
+      permissionsLoaded.value = true // Mark as loaded
     } else {
       console.warn('No organizations found in session data.')
+      permissionsLoaded.value = true // Set to true even if no organizations
     }
   } catch (error) {
     console.error('Error fetching session data:', error)
+    const permissionsLoaded = usePermissionsLoaded()
+    permissionsLoaded.value = true // Set to true even on error to avoid infinite loading
   }
 })
 
@@ -73,6 +79,7 @@ function getPermissionsForRole(role: string): string[] {
       'create_instructions',
       'update_instructions',
       'delete_instructions',
+      'view_hidden_instructions'
     ],
     member: [
       'view_data_source',
@@ -101,7 +108,8 @@ function getPermissionsForRole(role: string): string[] {
       'view_organizations',
       'view_llm_settings',
       'view_organization_members',
-      'view_instructions'
+      'view_instructions',
+      'create_private_instructions'
     ],
     // Add more roles and permissions as needed
   }
