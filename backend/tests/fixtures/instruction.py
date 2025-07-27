@@ -1,4 +1,7 @@
 import pytest
+from fastapi.testclient import TestClient
+from main import app
+import os
 
 @pytest.fixture
 def create_instruction(test_client):
@@ -29,6 +32,36 @@ def create_instruction(test_client):
         return response.json()
     
     return _create_instruction
+
+@pytest.fixture
+def create_global_instruction(test_client):
+    def _create_global_instruction(text="Test Instruction", user_token=None, org_id=None, status="draft", category="general", data_source_ids=None):
+        if user_token is None:
+            pytest.fail("User token is required for create_instruction")
+        if org_id is None:
+            pytest.fail("Organization ID is required for create_instruction")
+        
+        payload = {
+            "text": text,
+            "status": status,
+            "category": category,
+            "data_source_ids": data_source_ids or []
+        }
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
+        response = test_client.post(
+            "/api/instructions/global",
+            json=payload,
+            headers=headers
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _create_global_instruction
 
 @pytest.fixture
 def get_instructions(test_client):

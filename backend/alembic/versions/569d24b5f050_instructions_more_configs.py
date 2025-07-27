@@ -53,7 +53,7 @@ def downgrade() -> None:
         batch_op.drop_constraint('fk_instruction_source', type_='foreignkey')
         batch_op.create_index('ix_instructions_text', ['text'], unique=False)
         batch_op.drop_column('source_instruction_id')
-        batch_op.drop_column('approved_by_user_id')
+        batch_op.drop_column('reviewed_by_user_id')
         batch_op.drop_column('can_user_toggle')
         batch_op.drop_column('is_seen')
         batch_op.drop_column('global_status')

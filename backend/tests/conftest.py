@@ -19,7 +19,7 @@ from tests.fixtures.llm import create_llm_provider_and_models, get_models, get_d
 from tests.fixtures.report import create_report, get_reports, get_report, update_report, delete_report, publish_report, rerun_report, schedule_report, get_public_report
 from tests.fixtures.completion import create_completion, get_completions
 from tests.fixtures.data_source import create_data_source, get_data_sources, test_connection
-from tests.fixtures.instruction import create_instruction, get_instructions, get_instruction, update_instruction, delete_instruction, get_instructions_for_data_source, get_instruction_categories, get_instruction_statuses
+from tests.fixtures.instruction import create_instruction, create_global_instruction, get_instructions, get_instruction, update_instruction, delete_instruction, get_instructions_for_data_source, get_instruction_categories, get_instruction_statuses
 
 from main import app
 
