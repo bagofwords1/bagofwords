@@ -34,7 +34,6 @@ class CompletionFeedbackService:
         )
         completion_result = await db.execute(completion_stmt)
         completion = completion_result.scalar_one_or_none()
-        
         if not completion:
             raise HTTPException(status_code=404, detail="Completion not found")
         
@@ -69,6 +68,7 @@ class CompletionFeedbackService:
             db.add(feedback)
             await db.commit()
             await db.refresh(feedback)
+
             return CompletionFeedbackSchema.from_orm(feedback)
     
     async def get_feedback_summary(
@@ -178,47 +178,3 @@ class CompletionFeedbackService:
         feedbacks = feedbacks_result.scalars().all()
         
         return [CompletionFeedbackSchema.from_orm(feedback) for feedback in feedbacks]
-    
-    async def migrate_legacy_feedback_scores(self, db: AsyncSession, organization: Organization) -> int:
-        """Migrate existing feedback_score values to the new feedback system as 'system' feedbacks."""
-        
-        # Find completions with non-zero feedback_score that belong to this organization
-        completions_stmt = select(Completion).where(
-            Completion.feedback_score != 0,
-            Completion.report.has(organization_id=organization.id)
-        )
-        completions_result = await db.execute(completions_stmt)
-        completions = completions_result.scalars().all()
-        
-        migrated_count = 0
-        
-        for completion in completions:
-            # Check if we already have system feedback for this completion
-            existing_system_feedback_stmt = select(CompletionFeedback).where(
-                CompletionFeedback.completion_id == completion.id,
-                CompletionFeedback.user_id.is_(None),  # System feedback has null user_id
-                CompletionFeedback.organization_id == organization.id
-            )
-            existing_result = await db.execute(existing_system_feedback_stmt)
-            existing_system_feedback = existing_result.scalar_one_or_none()
-            
-            if not existing_system_feedback and completion.feedback_score != 0:
-                # Create system feedback based on the legacy feedback_score
-                # For positive scores, create upvotes; for negative, create downvotes
-                feedback_score = completion.feedback_score
-                direction = 1 if feedback_score > 0 else -1
-                
-                # Create one feedback entry with the direction representing the aggregate
-                system_feedback = CompletionFeedback(
-                    user_id=None,  # System feedback
-                    completion_id=completion.id,
-                    organization_id=organization.id,
-                    direction=direction,
-                    message=f"Legacy feedback score: {feedback_score}"
-                )
-                
-                db.add(system_feedback)
-                migrated_count += 1
-        
-        await db.commit()
-        return migrated_count 

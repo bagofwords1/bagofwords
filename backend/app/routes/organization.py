@@ -64,4 +64,4 @@ async def get_recent_widgets(
     current_user: User = Depends(current_user)
 ):
     """Get recent widgets for the organization with pagination"""
-    return await organization_service.get_recent_widgets(db, organization, offset, limit)
+    return await organization_service.get_recent_widgets(db, organization, current_user, offset, limit)

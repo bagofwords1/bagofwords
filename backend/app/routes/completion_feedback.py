@@ -20,7 +20,7 @@ feedback_service = CompletionFeedbackService()
 
 
 @router.post("/completions/{completion_id}/feedback")
-@requires_permission('view_reports', model=Report)
+@requires_permission('create_completion_feedback')
 async def create_or_update_feedback(
     completion_id: str,
     feedback_data: CompletionFeedbackCreate,
@@ -35,7 +35,7 @@ async def create_or_update_feedback(
 
 
 @router.get("/completions/{completion_id}/feedback/summary")
-@requires_permission('view_reports', model=Report)
+@requires_permission('create_completion_feedback')
 async def get_feedback_summary(
     completion_id: str,
     current_user: User = Depends(current_user),
@@ -49,7 +49,7 @@ async def get_feedback_summary(
 
 
 @router.get("/completions/{completion_id}/feedback")
-@requires_permission('view_reports', model=Report)
+@requires_permission('create_completion_feedback')
 async def get_completion_feedbacks(
     completion_id: str,
     current_user: User = Depends(current_user),
@@ -63,7 +63,7 @@ async def get_completion_feedbacks(
 
 
 @router.delete("/completions/{completion_id}/feedback")
-@requires_permission('view_reports', model=Report)
+@requires_permission('create_completion_feedback')
 async def delete_feedback(
     completion_id: str,
     current_user: User = Depends(current_user),
@@ -75,21 +75,3 @@ async def delete_feedback(
         db, completion_id, current_user, organization
     )
     return {"success": success}
-
-
-@router.post("/organizations/{organization_id}/migrate-feedback")
-@requires_permission('modify_settings')
-async def migrate_legacy_feedback(
-    organization_id: str,
-    current_user: User = Depends(current_user),
-    organization: Organization = Depends(get_current_organization),
-    db: AsyncSession = Depends(get_async_db)
-) -> dict:
-    """Migrate legacy feedback_score values to the new feedback system."""
-    if organization.id != organization_id:
-        raise HTTPException(status_code=403, detail="Access denied")
-    
-    migrated_count = await feedback_service.migrate_legacy_feedback_scores(
-        db, organization
-    )
-    return {"migrated_count": migrated_count} 

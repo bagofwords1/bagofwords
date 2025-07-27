@@ -6,9 +6,12 @@ Create Date: 2025-07-27 07:28:44.973477
 
 """
 from typing import Sequence, Union
+import uuid
+from datetime import datetime
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import text
 
 
 # revision identifiers, used by Alembic.
@@ -26,6 +29,8 @@ def upgrade() -> None:
     sa.Column('organization_id', sa.String(length=36), nullable=False),
     sa.Column('direction', sa.Integer(), nullable=False),
     sa.Column('message', sa.Text(), nullable=True),
+    sa.Column('reviewed_at', sa.DateTime(), nullable=True),
+    sa.Column('reviewed_by', sa.String(length=36), nullable=True),
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
@@ -38,10 +43,90 @@ def upgrade() -> None:
     with op.batch_alter_table('completion_feedbacks', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_completion_feedbacks_id'), ['id'], unique=True)
 
+    # Data migration: migrate legacy feedback_score values to new feedback system
+    migrate_legacy_feedback_scores()
+
     # ### end Alembic commands ###
 
 
+def migrate_legacy_feedback_scores() -> None:
+    """Migrate existing feedback_score values to the new feedback system as 'system' feedbacks."""
+    
+    connection = op.get_bind()
+    
+    # Find completions with non-zero feedback_score
+    completions_query = text("""
+        SELECT c.id, c.feedback_score, r.organization_id
+        FROM completions c
+        JOIN reports r ON c.report_id = r.id
+        WHERE c.feedback_score != 0
+    """)
+    
+    completions_result = connection.execute(completions_query)
+    completions = completions_result.fetchall()
+    
+    current_time = datetime.utcnow()
+    
+    for completion in completions:
+        completion_id = completion.id
+        feedback_score = completion.feedback_score
+        organization_id = completion.organization_id
+        
+        # Check if we already have system feedback for this completion
+        existing_feedback_query = text("""
+            SELECT id FROM completion_feedbacks
+            WHERE completion_id = :completion_id
+            AND user_id IS NULL
+            AND organization_id = :organization_id
+        """)
+        
+        existing_result = connection.execute(
+            existing_feedback_query, 
+            {
+                'completion_id': completion_id, 
+                'organization_id': organization_id
+            }
+        )
+        existing_feedback = existing_result.fetchone()
+        
+        if not existing_feedback and feedback_score != 0:
+            # Create system feedback based on the legacy feedback_score
+            direction = 1 if feedback_score > 0 else -1
+            feedback_id = str(uuid.uuid4())
+            
+            insert_feedback_query = text("""
+                INSERT INTO completion_feedbacks 
+                (id, user_id, completion_id, organization_id, direction, message, created_at, updated_at)
+                VALUES 
+                (:id, NULL, :completion_id, :organization_id, :direction, :message, :created_at, :updated_at)
+            """)
+            
+            connection.execute(
+                insert_feedback_query,
+                {
+                    'id': feedback_id,
+                    'completion_id': completion_id,
+                    'organization_id': organization_id,
+                    'direction': direction,
+                    'message': f"Legacy feedback score: {feedback_score}",
+                    'created_at': current_time,
+                    'updated_at': current_time
+                }
+            )
+
+
 def downgrade() -> None:
+    # Remove migrated system feedbacks before dropping the table
+    connection = op.get_bind()
+    
+    # Delete system feedbacks that were created from legacy feedback_score
+    delete_system_feedbacks_query = text("""
+        DELETE FROM completion_feedbacks
+        WHERE user_id IS NULL
+        AND message LIKE 'Legacy feedback score:%'
+    """)
+    
+    connection.execute(delete_system_feedbacks_query)
 
     with op.batch_alter_table('completion_feedbacks', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_completion_feedbacks_id'))

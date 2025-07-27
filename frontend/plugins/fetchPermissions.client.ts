@@ -109,7 +109,8 @@ function getPermissionsForRole(role: string): string[] {
       'view_llm_settings',
       'view_organization_members',
       'view_instructions',
-      'create_private_instructions'
+      'create_private_instructions',
+      'create_completion_feedback'
     ],
     // Add more roles and permissions as needed
   }

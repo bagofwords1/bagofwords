@@ -28,12 +28,18 @@ class CompletionFeedbackUpdate(BaseModel):
             raise ValueError('Direction must be 1 (upvote) or -1 (downvote)')
         return v
 
+class CompletionFeedbackReview(BaseModel):
+    reviewed_at: datetime
+    reviewed_by: str
+
 
 class CompletionFeedbackSchema(CompletionFeedbackBase):
     id: str
     user_id: Optional[str] = None
     completion_id: str
     organization_id: str
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

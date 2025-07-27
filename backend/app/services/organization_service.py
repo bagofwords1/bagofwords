@@ -223,13 +223,14 @@ class OrganizationService:
         total_queries = queries_result.scalar()
         
         # Count total thumbs (feedback scores)
+        from app.models.completion_feedback import CompletionFeedback
+        
+        # Count total thumbs (feedback scores) - now using CompletionFeedback model
         thumbs_result = await db.execute(
-            select(func.count(Completion.id))
-            .join(Report)
-            .where(
-                Report.organization_id == organization.id,
-                Completion.feedback_score != 0
-            )
+            select(func.count(CompletionFeedback.id))
+            .join(Completion, CompletionFeedback.completion_id == Completion.id)
+            .join(Report, Completion.report_id == Report.id)
+            .where(Report.organization_id == organization.id)
         )
         total_thumbs = thumbs_result.scalar()
         
@@ -239,14 +240,15 @@ class OrganizationService:
             "total_thumbs": total_thumbs
         }
 
-    async def get_recent_widgets(self, db: AsyncSession, organization: Organization, offset: int = 0, limit: int = 10) -> dict:
-        """Get recent widgets with user, time, code, output sample, steps count, and thumbs with pagination"""
+    async def get_recent_widgets(self, db: AsyncSession, organization: Organization, current_user: User, offset: int = 0, limit: int = 10) -> dict:
+        """Get recent widgets with user, time, code, output sample, steps count, thumbs, and user feedback with pagination"""
         from app.models.widget import Widget
         from app.models.report import Report
         from app.models.step import Step
         from app.models.completion import Completion
+        from app.models.completion_feedback import CompletionFeedback
         from app.models.user import User
-        from sqlalchemy import func
+        from sqlalchemy import func, case
         
         # Get total count first
         count_result = await db.execute(
@@ -256,19 +258,26 @@ class OrganizationService:
         )
         total_count = count_result.scalar()
         
-        # Get recent widgets with related data
+        # Get recent widgets with related data including feedback
         result = await db.execute(
             select(
                 Widget,
                 Report,
                 User.name.label('user_name'),
                 func.count(Step.id).label('steps_count'),
-                func.count(Completion.id).filter(Completion.feedback_score != 0).label('thumbs_count')
+                func.count(CompletionFeedback.id).label('total_feedbacks'),
+                func.sum(case((CompletionFeedback.direction == 1, 1), else_=0)).label('total_upvotes'),
+                func.sum(case((CompletionFeedback.direction == -1, 1), else_=0)).label('total_downvotes'),
+                func.sum(CompletionFeedback.direction).label('net_score'),
+                func.max(case((CompletionFeedback.user_id == current_user.id, CompletionFeedback.direction), else_=None)).label('user_feedback_direction'),
+                func.max(case((CompletionFeedback.user_id == current_user.id, CompletionFeedback.message), else_=None)).label('user_feedback_message'),
+                func.max(case((CompletionFeedback.user_id == current_user.id, CompletionFeedback.id), else_=None)).label('user_feedback_id')
             )
             .join(Report, Widget.report_id == Report.id)
             .join(User, Report.user_id == User.id)
             .outerjoin(Step, Widget.id == Step.widget_id)
             .outerjoin(Completion, Widget.id == Completion.widget_id)
+            .outerjoin(CompletionFeedback, Completion.id == CompletionFeedback.completion_id)
             .where(Report.organization_id == organization.id)
             .group_by(Widget.id, Report.id, User.name)
             .order_by(Widget.created_at.desc())
@@ -281,7 +290,8 @@ class OrganizationService:
         # Format the data
         formatted_widgets = []
         for widget_data in widgets_data:
-            widget, report, user_name, steps_count, thumbs_count = widget_data
+            (widget, report, user_name, steps_count, total_feedbacks, total_upvotes, 
+             total_downvotes, net_score, user_feedback_direction, user_feedback_message, user_feedback_id) = widget_data
             
             # Get the last step for code and output sample
             last_step_result = await db.execute(
@@ -315,6 +325,27 @@ class OrganizationService:
                     'rows': last_step.data['rows'][:10]  # First 10 rows for sample
                 }
             
+            # Build feedback summary
+            feedback_summary = {
+                "completion_id": completion_id,
+                "total_upvotes": int(total_upvotes or 0),
+                "total_downvotes": int(total_downvotes or 0),
+                "net_score": int(net_score or 0),
+                "total_feedbacks": int(total_feedbacks or 0),
+                "user_feedback": None
+            }
+            
+            # Add user feedback if exists
+            if user_feedback_direction is not None and completion_id:
+                feedback_summary["user_feedback"] = {
+                    "id": user_feedback_id,
+                    "direction": int(user_feedback_direction),
+                    "message": user_feedback_message,
+                    "user_id": current_user.id,
+                    "completion_id": completion_id,
+                    "organization_id": organization.id
+                }
+            
             formatted_widgets.append({
                 "id": widget.id,
                 "title": widget.title,
@@ -327,7 +358,8 @@ class OrganizationService:
                 "output_sample": output_sample,
                 "row_count": row_count,
                 "steps_count": steps_count or 0,
-                "thumbs_count": thumbs_count or 0
+                "thumbs_count": total_feedbacks or 0,
+                "feedback_summary": feedback_summary
             })
         
         return {
