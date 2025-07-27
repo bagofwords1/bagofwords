@@ -42,6 +42,7 @@ from app.models.external_platform import ExternalPlatform
 from app.models.external_user_mapping import ExternalUserMapping
 from app.models.instruction import Instruction
 from app.models.instruction import instruction_data_source_association
+from app.models.completion_feedback import CompletionFeedback
 
 from app.settings.config import settings
 

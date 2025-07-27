@@ -37,6 +37,7 @@ from app.routes import (
     report,
     widget,
     completion,
+    completion_feedback,
     file,
     organization,
     data_source,
@@ -160,6 +161,7 @@ app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(widget.router, prefix="/api")
 app.include_router(completion.router)
+app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(text_widget.router, prefix="/api")
@@ -174,6 +176,7 @@ app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)
 app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
+
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():

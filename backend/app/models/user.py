@@ -18,6 +18,7 @@ class User(SQLAlchemyBaseUserTable[str], Base):
 
     reports = relationship("Report", back_populates="user")
     completions = relationship("Completion", back_populates="user")
+    completion_feedbacks = relationship("CompletionFeedback", back_populates="user", cascade="all, delete-orphan", lazy="select")
     memberships = relationship("Membership", back_populates="user")
     organizations = relationship("Organization", secondary="memberships", back_populates="users")
     files = relationship("File", back_populates="user")
