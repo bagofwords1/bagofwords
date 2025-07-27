@@ -38,67 +38,81 @@
             </div>
 
             <div class="mt-6">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data Sources</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        <tr v-for="report in reports" :key="report.id" class="hover:bg-gray-50">
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <NuxtLink :to="`/reports/${report.id}`" class="text-blue-500 hover:underline">
-                                    {{ report.title }}
-                                </NuxtLink>
-                                <div v-if="report.external_platform && report.external_platform.platform_type == 'slack'" class="ml-2 h-3 inline mr-2">
-                                    <img src="/icons/slack.png" class="h-3 inline mr-2" />
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                <UTooltip :text="data_source.name" v-for="data_source in report.data_sources">
-                                    <DataSourceIcon :type="data_source.type" class="h-3 inline mr-2" />
-                                </UTooltip>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                <div class="flex items-center">
-                                    <span
-                                        :class="[
-                                            report.status === 'published' ? 'bg-green-100 text-green-800' : 
-                                            report.status === 'draft' ? 'bg-gray-100 text-gray-800' : 
-                                            'bg-gray-100 text-gray-800',
-                                            'px-2 py-1 text-xs font-medium rounded-full capitalize'
-                                        ]"
-                                    >
-                                        {{ report.status }}
-                                    </span>
-                                    <a target="_blank" :href="`/r/${report.id}`" v-if="report.status === 'published'" class="text-green-800">
-                                        <Icon name="heroicons:arrow-top-right-on-square" class="inline-block w-4 h-4 ml-1" />
-                                    </a>
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {{ report.created_at.split('T')[0].split('-').reverse().join('/') }}
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {{ report.user.name }}
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <button 
-                                    @click="confirmDelete(report.id)" 
-                                    v-if="canDeleteReport(report)"
-                                    class="text-red-600 hover:text-red-900 font-medium transition-colors duration-150"
-                                >
-                                    <Icon name="heroicons:archive-box" class="inline-block w-4 h-4 mr-1" /> Archive
-                                </button>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+                <!-- Styled table container with shadow, border, and rounded corners -->
+                <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data Sources</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Created</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                <tr v-for="report in reports" :key="report.id" class="hover:bg-gray-50">
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <NuxtLink :to="`/reports/${report.id}`" class="text-blue-500 hover:underline">
+                                            {{ report.title }}
+                                        </NuxtLink>
+                                        <div v-if="report.external_platform && report.external_platform.platform_type == 'slack'" class="ml-2 h-3 inline mr-2">
+                                            <img src="/icons/slack.png" class="h-3 inline mr-2" />
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <UTooltip :text="data_source.name" v-for="data_source in report.data_sources">
+                                            <DataSourceIcon :type="data_source.type" class="h-3 inline mr-2" />
+                                        </UTooltip>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <div class="flex items-center">
+                                            <span
+                                                :class="[
+                                                    report.status === 'published' ? 'bg-green-100 text-green-800' : 
+                                                    report.status === 'draft' ? 'bg-gray-100 text-gray-800' : 
+                                                    'bg-gray-100 text-gray-800',
+                                                    'px-2 py-1 text-xs font-medium rounded-full capitalize'
+                                                ]"
+                                            >
+                                                {{ report.status }}
+                                            </span>
+                                            <a target="_blank" :href="`/r/${report.id}`" v-if="report.status === 'published'" class="text-green-800">
+                                                <Icon name="heroicons:arrow-top-right-on-square" class="inline-block w-4 h-4 ml-1" />
+                                            </a>
+                                        </div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {{ report.created_at.split('T')[0].split('-').reverse().join('/') }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {{ report.user.name }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <button 
+                                            @click="confirmDelete(report.id)" 
+                                            v-if="canDeleteReport(report)"
+                                            class="text-red-600 hover:text-red-900 font-medium transition-colors duration-150"
+                                        >
+                                            <Icon name="heroicons:archive-box" class="inline-block w-4 h-4 mr-1" /> Archive
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Empty state (if needed) -->
+                    <div v-if="reports.length === 0" class="text-center py-12">
+                        <Icon name="heroicons:document-text" class="mx-auto h-12 w-12 text-gray-400" />
+                        <h3 class="mt-2 text-sm font-medium text-gray-900">No reports found</h3>
+                        <p class="mt-1 text-sm text-gray-500">
+                            Get started by creating your first report.
+                        </p>
+                    </div>
+                </div>
 
                 <!-- Custom Pagination -->
                 <div v-if="pagination.total_pages > 1" class="mt-6 flex justify-center">
