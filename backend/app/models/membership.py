@@ -41,6 +41,7 @@ MEMBER_PERMISSIONS = {
     'delete_private_instructions',
     'view_global_instructions',
     'view_private_instructions',
+    'create_completion_feedback'
 }
 
 ADMIN_PERMISSIONS = {
@@ -61,7 +62,8 @@ ADMIN_PERMISSIONS = {
     'create_instructions',
     'update_instructions',
     'delete_instructions',
-    'view_hidden_instructions'
+    'view_hidden_instructions',
+    'view_all_completion_feedbacks'
 }
 
 # Combine permissions for roles

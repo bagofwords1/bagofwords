@@ -27,6 +27,7 @@ class Organization(BaseSchema):
     git_repositories = relationship("GitRepository", back_populates="organization")
     prompts = relationship("Prompt", back_populates="organization")
     settings = relationship("OrganizationSettings", uselist=False, back_populates="organization", cascade="all, delete-orphan")
+    completion_feedbacks = relationship("CompletionFeedback", back_populates="organization", cascade="all, delete-orphan", lazy='select')
     
     # External platform relationships
     external_platforms = relationship("ExternalPlatform", back_populates="organization", cascade="all, delete-orphan")

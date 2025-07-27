@@ -357,12 +357,37 @@ class CompletionService:
         return plans
 
     async def update_completion_feedback(self, db: AsyncSession, completion_id: str, vote: int):
+        """Legacy endpoint - now redirects to new feedback system"""
+        from app.services.completion_feedback_service import CompletionFeedbackService
+        from app.schemas.completion_feedback_schema import CompletionFeedbackCreate
+        
+        # For legacy support, we'll create a system feedback (no user)
+        feedback_service = CompletionFeedbackService()
+        
+        # Get the completion and organization for context
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()
 
         if not completion:
             raise HTTPException(status_code=404, detail="Completion not found")
-
+        
+        # Get organization from completion.report
+        if not completion.report:
+            raise HTTPException(status_code=400, detail="Completion has no associated report")
+        
+        organization = completion.report.organization
+        
+        # Create feedback using new system (as system feedback with no user)
+        feedback_data = CompletionFeedbackCreate(
+            direction=vote,
+            message="Legacy feedback"
+        )
+        
+        feedback = await feedback_service.create_or_update_feedback(
+            db, completion_id, feedback_data, None, organization
+        )
+        
+        # Update the completion's feedback_score for backward compatibility
         completion.feedback_score = completion.feedback_score + vote
         await db.commit()
         await db.refresh(completion)

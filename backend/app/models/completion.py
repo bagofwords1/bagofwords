@@ -54,6 +54,7 @@ class Completion(BaseSchema):
     main_router = Column(String, nullable=False, default='table')
 
     mentions = relationship("Mention", back_populates="completion", lazy='selectin')
+    feedbacks = relationship("CompletionFeedback", back_populates="completion", cascade="all, delete-orphan", lazy='select')
     
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
