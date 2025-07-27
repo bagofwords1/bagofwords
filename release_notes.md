@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.176 (July 26, 2025)
+- Added ability to provide detailed feedback messages when submitting negative feedback on AI completions
+
 ## Version 0.0.175 (July 26, 2025)
 - Added ability for users to suggest new instructions and view published instructions
 - Added workflow for admins and privileged users to review, approve, or reject suggested instructions
