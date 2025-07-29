@@ -89,7 +89,7 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 text-xs">
-                        <tr v-for="item in diagnosisItems" :key="item.id" class="hover:bg-gray-50">
+                        <tr v-for="item in diagnosisItems" :key="item.id" class="hover:bg-gray-50 cursor-pointer" @click="openTrace(item)">
                             <!-- Issue Type -->
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span class="inline-flex px-1 py-0.5 text-xs font-medium rounded-full"
@@ -145,11 +145,10 @@
                             <!-- Actions -->
                             <td class="px-6 py-4 whitespace-nowrap text-xs font-medium">
                                 <UButton
-                                    v-if="item.trace_url"
-                                    :to="item.trace_url"
                                     variant="outline"
                                     size="xs"
                                     color="blue"
+                                    @click="openTrace(item)"
                                 >
                                     Trace
                                 </UButton>
@@ -226,11 +225,19 @@
                 </UButton>
             </div>
         </div>
+        
+        <!-- Trace Modal -->
+        <TraceModal
+            v-model="showTraceModal"
+            :report-id="selectedTraceItem?.report_id || ''"
+            :completion-id="selectedTraceItem?.id || ''"
+        />
     </div>
 </template>
 
 <script setup lang="ts">
 import DateRangePicker from '~/components/console/DateRangePicker.vue'
+import TraceModal from '~/components/console/TraceModal.vue'
 
 definePageMeta({
     layout: 'console'
@@ -294,6 +301,10 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const totalItems = ref(0)
 const debugInfo = ref('')
+
+// Add these to the state section
+const showTraceModal = ref(false)
+const selectedTraceItem = ref<DiagnosisItemData | null>(null)
 
 // Date range state (same as ConsoleOverview)
 const selectedPeriod = ref({ label: 'Last 30 Days', value: '30_days' })
@@ -477,6 +488,12 @@ const getDateRangeDays = () => {
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
     
     return diffDays.toString()
+}
+
+// Add this method
+const openTrace = (item: DiagnosisItemData) => {
+    selectedTraceItem.value = item
+    showTraceModal.value = true
 }
 
 // Watch for page changes

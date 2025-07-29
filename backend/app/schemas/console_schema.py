@@ -135,3 +135,43 @@ class DiagnosisMetrics(BaseModel):
     failed_steps_count: int
     negative_feedback_count: int
     date_range: DateRange
+
+# Trace Schemas
+class TraceCompletionData(BaseModel):
+    completion_id: str
+    role: str
+    content: Optional[str] = None
+    reasoning: Optional[str] = None
+    created_at: datetime
+    status: Optional[str] = None
+    has_issue: bool = False
+    issue_type: Optional[str] = None
+
+class TraceStepData(BaseModel):
+    step_id: str
+    title: str
+    status: str
+    code: Optional[str] = None
+    data_model: Optional[Dict] = None
+    data: Optional[Dict] = None
+    created_at: datetime
+    completion_id: str
+    has_issue: bool = False
+
+class TraceFeedbackData(BaseModel):
+    feedback_id: str
+    direction: int
+    message: Optional[str] = None
+    created_at: datetime
+    completion_id: str
+
+class TraceData(BaseModel):
+    report_id: str
+    head_completion: TraceCompletionData
+    completions: List[TraceCompletionData]
+    steps: List[TraceStepData]
+    feedbacks: List[TraceFeedbackData]
+    issue_completion_id: str
+    issue_type: str
+    user_name: str
+    user_email: Optional[str] = None

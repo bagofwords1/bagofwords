@@ -15,7 +15,7 @@
                                 :key="tab.name"
                                 :to="`/console/${tab.name}`"
                                 :class="[
-                                    route.path === `/console/${tab.name}` || (route.path === '/console' && tab.name === 'overview')
+                                    isTabActive(tab.name)
                                         ? 'border-blue-500 text-blue-600'
                                         : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
                                     'whitespace-nowrap border-b-2 py-2 px-2 text-sm font-medium flex items-center space-x-2'
@@ -38,6 +38,9 @@
 <script setup lang="ts">
 const route = useRoute()
 
+// Make route path reactive
+const currentPath = computed(() => route.path)
+
 // All available tabs with their required permissions
 const allTabs = [
     { name: '', label: 'Explore', icon: 'i-heroicons-chart-bar', requiredPermission: "view_console" },
@@ -51,4 +54,14 @@ const visibleTabs = computed(() => {
         return useCan(tab.requiredPermission)
     })
 })
+
+// Helper function to check if tab is active
+const isTabActive = (tabName: string) => {
+    const path = currentPath.value
+    if (tabName === '') {
+        // For the first tab (Explore), it's active when on /console or /console/
+        return path === '/console' || path === '/console/'
+    }
+    return path === `/console/${tabName}`
+}
 </script> 

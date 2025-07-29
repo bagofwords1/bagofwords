@@ -13,7 +13,8 @@ from app.schemas.console_schema import (
     TimeSeriesPoint, TimeSeriesPointFloat, DateRange,
     TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData,
     TopUserData, TopUsersMetrics, RecentNegativeFeedbackData, RecentNegativeFeedbackMetrics,
-    DiagnosisItemData, DiagnosisStepData, DiagnosisFeedbackData, DiagnosisMetrics
+    DiagnosisItemData, DiagnosisStepData, DiagnosisFeedbackData, DiagnosisMetrics,
+    TraceData, TraceCompletionData, TraceStepData, TraceFeedbackData
 )
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
@@ -808,6 +809,167 @@ class ConsoleService:
                 start=start_date.isoformat(),
                 end=end_date.isoformat()
             )
+        )
+
+    async def get_trace_data(
+        self, 
+        db: AsyncSession, 
+        organization: Organization, 
+        report_id: str,
+        issue_completion_id: str
+    ) -> TraceData:
+        """Get detailed trace data for a specific report and issue"""
+        
+        # Get the report
+        report_query = select(Report).where(
+            Report.id == report_id,
+            Report.organization_id == organization.id
+        )
+        report_result = await db.execute(report_query)
+        report = report_result.scalar_one_or_none()
+        
+        if not report:
+            raise ValueError(f"Report {report_id} not found")
+        
+        # Get user info
+        user = None
+        if report.user_id:
+            user_query = select(User).where(User.id == report.user_id)
+            user_result = await db.execute(user_query)
+            user = user_result.scalar_one_or_none()
+        
+        # Get all completions for this report
+        completions_query = (
+            select(Completion)
+            .where(Completion.report_id == report_id)
+            .order_by(Completion.created_at.asc())
+        )
+        completions_result = await db.execute(completions_query)
+        completions = completions_result.scalars().all()
+        
+        # Get all steps for this report
+        steps_query = (
+            select(Step)
+            .join(Widget, Step.widget_id == Widget.id)
+            .where(Widget.report_id == report_id)
+            .order_by(Step.created_at.asc())
+        )
+        steps_result = await db.execute(steps_query)
+        steps = steps_result.scalars().all()
+        
+        # Get all feedback for completions in this report
+        completion_ids = [c.id for c in completions]
+        feedbacks_query = (
+            select(CompletionFeedback)
+            .where(CompletionFeedback.completion_id.in_(completion_ids))
+            .order_by(CompletionFeedback.created_at.asc())
+        )
+        feedbacks_result = await db.execute(feedbacks_query)
+        feedbacks = feedbacks_result.scalars().all()
+        
+        # Determine issue type
+        issue_type = "unknown"
+        
+        # Check if the issue completion has failed steps
+        failed_steps = [s for s in steps if any(c.id == issue_completion_id and c.step_id == s.id for c in completions) and s.status == 'error']
+        negative_feedbacks = [f for f in feedbacks if f.completion_id == issue_completion_id and f.direction == -1]
+        
+        if failed_steps and negative_feedbacks:
+            issue_type = "both"
+        elif failed_steps:
+            issue_type = "failed_step"
+        elif negative_feedbacks:
+            issue_type = "negative_feedback"
+        
+        # Build completion data
+        head_completion = None
+        completion_data = []
+        
+        for completion in completions:
+            # Get content
+            content = ""
+            if completion.completion and isinstance(completion.completion, dict):
+                content = completion.completion.get('content', '')
+            elif completion.completion:
+                content = str(completion.completion)
+            
+            # Get prompt content for user completions
+            if completion.role == 'user' and completion.prompt:
+                if isinstance(completion.prompt, dict):
+                    content = completion.prompt.get('content', '')
+                else:
+                    content = str(completion.prompt)
+            
+            # Get reasoning
+            reasoning = ""
+            if completion.completion and isinstance(completion.completion, dict):
+                reasoning = completion.completion.get('reasoning', '')
+            
+            # Check if this completion has issues
+            has_issue = completion.id == issue_completion_id
+            completion_issue_type = None
+            if has_issue:
+                completion_issue_type = issue_type
+            
+            trace_completion = TraceCompletionData(
+                completion_id=str(completion.id),
+                role=completion.role,
+                content=content,
+                reasoning=reasoning,
+                created_at=completion.created_at,
+                status=completion.status,
+                has_issue=has_issue,
+                issue_type=completion_issue_type
+            )
+            
+            completion_data.append(trace_completion)
+            
+            # Set head completion (first user completion)
+            if completion.role == 'user' and head_completion is None:
+                head_completion = trace_completion
+        
+        # Build step data
+        step_data = []
+        for step in steps:
+            # Find completion that belongs to this step
+            step_completion = next((c for c in completions if c.step_id == step.id), None)
+            has_issue = step.status == 'error' and step_completion and step_completion.id == issue_completion_id
+            
+            trace_step = TraceStepData(
+                step_id=str(step.id),
+                title=step.title,
+                status=step.status,
+                code=step.code,
+                data_model=step.data_model,
+                data=step.data,
+                created_at=step.created_at,
+                completion_id=str(step_completion.id) if step_completion else "",
+                has_issue=has_issue
+            )
+            step_data.append(trace_step)
+        
+        # Build feedback data
+        feedback_data = []
+        for feedback in feedbacks:
+            trace_feedback = TraceFeedbackData(
+                feedback_id=str(feedback.id),
+                direction=feedback.direction,
+                message=feedback.message,
+                created_at=feedback.created_at,
+                completion_id=str(feedback.completion_id)
+            )
+            feedback_data.append(trace_feedback)
+        
+        return TraceData(
+            report_id=report_id,
+            head_completion=head_completion or completion_data[0] if completion_data else None,
+            completions=completion_data,
+            steps=step_data,
+            feedbacks=feedback_data,
+            issue_completion_id=issue_completion_id,
+            issue_type=issue_type,
+            user_name=user.name if user else "Unknown User",
+            user_email=user.email if user else None
         )
 
     def _extract_tables_from_data_model(self, data_model: dict) -> set:

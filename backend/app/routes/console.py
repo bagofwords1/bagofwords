@@ -18,7 +18,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 import json
-from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, DiagnosisMetrics
+from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, DiagnosisMetrics, TraceData
 
 logger = logging.getLogger(__name__)
 
@@ -127,3 +127,15 @@ async def get_diagnosis_metrics(
 ):
     """Get diagnosis metrics for failed steps and negative feedback"""
     return await console_service.get_diagnosis_metrics(db, organization, params, page, page_size)
+
+@router.get("/console/trace/{report_id}/{completion_id}", response_model=TraceData)
+@requires_permission("view_organization_overview")
+async def get_trace_data(
+    report_id: str,
+    completion_id: str,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get detailed trace data for debugging"""
+    return await console_service.get_trace_data(db, organization, report_id, completion_id)
