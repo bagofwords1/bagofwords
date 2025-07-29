@@ -1,670 +1,597 @@
 <template>
     <div class="mt-6">
-        <!-- Metrics -->
-        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-            <div class="text-left p-4 border rounded">
-                <div class="text-2xl font-semibold text-gray-900">{{ metrics.total_messages || 0 }}</div>
-                <div class="text-sm text-gray-600">Messages</div>
-            </div>
+        <!-- Date Range Picker -->
+        <DateRangePicker
+            :selected-period="selectedPeriod"
+            :custom-date-range="customDateRange"
+            :date-range="dateRange"
+            @period-change="handlePeriodChange"
+            @custom-range-change="handleCustomDateChange"
+            @apply-custom-range="applyCustomRange"
+        />
             
-            <div class="text-left p-4 border rounded">
-                <div class="text-2xl font-semibold text-gray-900">{{ metrics.total_queries || 0 }}</div>
-                <div class="text-sm text-gray-600">Queries</div>
-            </div>
-            
-            <div class="text-left p-4 border rounded">
-                <div class="text-2xl font-semibold text-gray-900">{{ metrics.total_thumbs || 0 }}</div>
-                <div class="text-sm text-gray-600">Thumbs</div>
-            </div>
-        </div>
-        
-        <!-- Recent Widgets Table -->
-        <div class="mt-6">
-            <h2 class="text-lg font-medium mb-4">Recent Data</h2>
-            
-            <!-- Loading state -->
-            <div v-if="isLoading" class="flex items-center justify-center py-8">
-                <div class="flex items-center space-x-2">
-                    <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                    <span class="text-gray-600">Loading widgets...</span>
-                </div>
-            </div>
-            
-            <!-- Table -->
-            <div v-else class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Widget</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">User</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Time</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Completion ID</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Row Count</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Revisions</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Feedback</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        <tr v-for="widget in recentWidgets" :key="widget.id" class="hover:bg-gray-50">
-                            <td class="px-3 py-4 cursor-pointer" @click="openModal(widget)">
-                                <div class="text-sm font-medium text-gray-900 truncate" :title="widget.title">
-                                    {{ widget.title }}
-                                </div>
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 truncate cursor-pointer" :title="widget.user_name" @click="openModal(widget)">
-                                {{ widget.user_name }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                {{ formatDate(widget.created_at) }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                <div class="truncate max-w-32">
-                                    {{ widget.completion_id || 'N/A' }}
-                                </div>
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                {{ widget.row_count || 0 }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 text-center cursor-pointer" @click="openModal(widget)">
-                                {{ widget.steps_count }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500">
-                                <div class="flex items-center gap-1" @click.stop>
-                                    <span class="text-center min-w-[20px]">{{ widget.thumbs_count }}</span>
-                                    <UButton
-                                        :icon="widget.feedback_summary?.user_feedback?.direction === 1 ? 'i-heroicons-hand-thumb-up-solid' : 'i-heroicons-hand-thumb-up'"
-                                        :color="widget.feedback_summary?.user_feedback?.direction === 1 ? 'black' : 'gray'"
-                                        variant="ghost"
-                                        size="xs"
-                                        @click="sendFeedback(widget.completion_id, 1)"
-                                        :disabled="!widget.completion_id"
-                                        :loading="feedbackLoading[widget.completion_id || '']"
-                                    />
-                                    <UButton
-                                        :icon="widget.feedback_summary?.user_feedback?.direction === -1 ? 'i-heroicons-hand-thumb-down-solid' : 'i-heroicons-hand-thumb-down'"
-                                        :color="widget.feedback_summary?.user_feedback?.direction === -1 ? 'black' : 'gray'"
-                                        variant="ghost"
-                                        size="xs"
-                                        @click="handleNegativeFeedback(widget.completion_id, widget.feedback_summary?.user_feedback)"
-                                        :disabled="!widget.completion_id"
-                                        :loading="feedbackLoading[widget.completion_id || '']"
-                                    />
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            
-            <!-- Pagination Controls -->
-            <div v-if="totalItems > 0" class="mt-6 flex items-center justify-between">
-                <div class="text-sm text-gray-700">
-                    Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, totalItems) }} of {{ totalItems }} results
-                </div>
-                <div class="flex items-center space-x-2">
-                    <UButton
-                        icon="i-heroicons-chevron-left"
-                        color="gray"
-                        variant="ghost"
-                        size="sm"
-                        @click="handlePageChange(currentPage - 1)"
-                        :disabled="!hasPrevPage"
-                    >
-                        Previous
-                    </UButton>
-                    
-                    <!-- Page numbers -->
-                    <div class="flex items-center space-x-1">
-                        <template v-for="page in getVisiblePages()" :key="page">
-                            <UButton
-                                v-if="typeof page === 'number'"
-                                :color="page === currentPage ? 'blue' : 'gray'"
-                                :variant="page === currentPage ? 'solid' : 'ghost'"
-                                size="sm"
-                                @click="handlePageChange(page)"
-                                class="min-w-[32px]"
-                            >
-                                {{ page }}
-                            </UButton>
-                            <span v-else class="px-2 text-gray-500">...</span>
-                        </template>
-                    </div>
-                    
-                    <UButton
-                        icon="i-heroicons-chevron-right"
-                        color="gray"
-                        variant="ghost"
-                        size="sm"
-                        @click="handlePageChange(currentPage + 1)"
-                        :disabled="!hasNextPage"
-                    >
-                        Next
-                    </UButton>
-                </div>
-            </div>
+        <!-- Metrics Cards -->
+        <MetricsCards :metrics-comparison="metricsComparison" />
+
+        <!-- Main Charts Section -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <!-- Activity Chart -->
+            <ActivityChart
+                :activity-metrics="timeSeriesData?.activity_metrics || null"
+                :is-loading="isLoadingCharts"
+            />
+
+            <!-- Performance Chart -->
+            <PerformanceChart
+                :performance-metrics="timeSeriesData?.performance_metrics || null"
+                :is-loading="isLoadingCharts"
+            />
         </div>
 
-        <!-- Modal -->
-        <UModal v-model="isModalOpen" :ui="{ width: 'w-[95vw] max-w-none' }">
-            <UCard v-if="selectedWidget" class="max-h-[95vh] overflow-hidden">
-                <template #header>
-                    <div class="flex items-center justify-between">
-                        <h3 class="text-lg font-semibold">{{ selectedWidget.title }}</h3>
-                        <UButton icon="i-heroicons-x-mark" color="gray" variant="ghost" @click="isModalOpen = false" />
-                    </div>
-                </template>
-
-                <div class="overflow-y-auto max-h-[calc(95vh-120px)]">
-                    <!-- Widget Info -->
-                    <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6 p-4 bg-gray-50 rounded">
-                        <div>
-                            <div class="text-sm font-medium text-gray-500">Completion ID</div>
-                            <div class="text-sm text-gray-900">{{ selectedWidget.completion_id || 'N/A' }}</div>
-                        </div>
-                        <div>
-                            <div class="text-sm font-medium text-gray-500">User</div>
-                            <div class="text-sm text-gray-900">{{ selectedWidget.user_name }}</div>
-                        </div>
-                        <div>
-                            <div class="text-sm font-medium text-gray-500">Date</div>
-                            <div class="text-sm text-gray-900">{{ formatDate(selectedWidget.created_at) }}</div>
-                        </div>
-                        <div>
-                            <div class="text-sm font-medium text-gray-500">Widget ID</div>
-                            <div class="text-sm text-gray-900">{{ selectedWidget.id }}</div>
-                        </div>
-                        <div>
-                            <div class="text-sm font-medium text-gray-500">Total Steps</div>
-                            <div class="text-sm text-gray-900">{{ selectedWidget.steps_count }}</div>
-                        </div>
-                        <div>
-                            <div class="text-sm font-medium text-gray-500">Row Count</div>
-                            <div class="text-sm text-gray-900">{{ selectedWidget.row_count || 0 }}</div>
-                        </div>
-                        <div>
-                            <div class="text-sm font-medium text-gray-500">Thumbs</div>
-                            <div class="text-sm text-gray-900">{{ selectedWidget.thumbs_count }}</div>
-                        </div>
-                        <div>
-                            <div class="text-sm font-medium text-gray-500">Feedback</div>
-                            <div class="flex items-center gap-1">
-                                <UButton
-                                    :icon="selectedWidget.feedback_summary?.user_feedback?.direction === 1 ? 'i-heroicons-hand-thumb-up-solid' : 'i-heroicons-hand-thumb-up'"
-                                    :color="selectedWidget.feedback_summary?.user_feedback?.direction === 1 ? 'black' : 'gray'"
-                                    variant="ghost"
-                                    size="xs"
-                                    @click="sendFeedback(selectedWidget.completion_id, 1)"
-                                    :disabled="!selectedWidget.completion_id"
-                                    :loading="feedbackLoading[selectedWidget.completion_id || '']"
-                                />
-                                <UButton
-                                    :icon="selectedWidget.feedback_summary?.user_feedback?.direction === -1 ? 'i-heroicons-hand-thumb-down-solid' : 'i-heroicons-hand-thumb-down'"
-                                    :color="selectedWidget.feedback_summary?.user_feedback?.direction === -1 ? 'black' : 'gray'"
-                                    variant="ghost"
-                                    size="xs"
-                                    @click="handleNegativeFeedback(selectedWidget.completion_id, selectedWidget.feedback_summary?.user_feedback)"
-                                    :disabled="!selectedWidget.completion_id"
-                                    :loading="feedbackLoading[selectedWidget.completion_id || '']"
-                                />
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Original Prompt -->
-                    <div v-if="selectedWidget.prompt" class="mb-4">
-                        <h4 class="text-sm font-medium text-gray-700 mb-2">Original Prompt</h4>
-                        <div class="p-3 bg-gray-50 rounded border text-sm">
-                            {{ selectedWidget.prompt?.content || selectedWidget.prompt }}
-                        </div>
-                    </div>
-
-                    <!-- Completion Prompt -->
-                    <div v-if="selectedWidget.completion_prompt" class="mb-4">
-                        <h4 class="text-sm font-medium text-gray-700 mb-2">AI Response</h4>
-                        <div class="p-3 bg-gray-50 rounded border text-sm">
-                            {{ selectedWidget.completion_prompt?.content || selectedWidget.completion_prompt }}
-                        </div>
-                    </div>
-
-                    <!-- Collapsible Code -->
-                    <div class="mb-4">
-                        <UButton
-                            :icon="codeExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                            color="gray"
-                            variant="ghost"
-                            @click="codeExpanded = !codeExpanded"
-                            class="mb-2"
-                        >
-                            Code
-                        </UButton>
-                        <div v-if="codeExpanded" class="p-4 bg-gray-50 rounded border">
-                            <pre class="text-sm text-gray-900 whitespace-pre-wrap overflow-x-auto">{{ selectedWidget.code || 'No code available' }}</pre>
-                        </div>
-                    </div>
-
-                    <!-- Collapsible Data -->
-                    <div>
-                        <UButton
-                            :icon="dataExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'"
-                            color="gray"
-                            variant="ghost"
-                            @click="toggleData"
-                            class="mb-2"
-                        >
-                            Data Sample
-                        </UButton>
-                        <div v-if="dataExpanded" class="h-[500px]">
-                            <!-- Loading Spinner -->
-                            <div v-if="isDataLoading" class="flex items-center justify-center h-full">
-                                <div class="flex items-center space-x-2">
-                                    <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                                    <span class="text-gray-600">Loading data...</span>
-                                </div>
-                            </div>
-                            
-                            <!-- Data Table -->
-                            <RenderTable 
-                                v-else-if="parsedStepData"
-                                :widget="selectedWidget" 
-                                :step="parsedStepData" 
-                            />
-                            
-                            <!-- No Data Message -->
-                            <div v-else class="p-4 bg-gray-50 rounded border text-sm text-gray-500 flex items-center justify-center h-full">
-                                No data available or data format not supported
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </UCard>
-        </UModal>
-
-        <!-- Negative Feedback Modal -->
-        <UModal v-model="showNegativeFeedbackModal" :ui="{ width: 'max-w-md' }">
-            <div class="p-6">
-                <div class="flex justify-between items-center mb-4">
-                    <h2 class="text-lg font-bold text-gray-900">
-                        What went wrong?
-                    </h2>
-                    <button @click="showNegativeFeedbackModal = false" class="text-gray-500 hover:text-gray-700">
-                        <Icon name="heroicons-x-mark" class="w-5 h-5" />
-                    </button>
-                </div>
-                
-                <p class="text-sm text-gray-600 mb-4">
-                    Help us improve by letting us know what went wrong with this response.
-                </p>
-                
-                <UTextarea
-                    v-model="feedbackMessage"
-                    placeholder="Type more details here..."
-                    :rows="4"
-                    class="mb-4"
-                    :maxlength="500"
+        <!-- Secondary Charts Section -->
+        <div class="space-y-6 mb-8">
+            <!-- First Row: Table Usage (Bar Chart) + Table Joins Heatmap -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Table Usage Chart -->
+                <TableUsageChart
+                    :table-usage-data="tableUsageData"
+                    :is-loading="isLoadingTableCharts"
                 />
                 
-                <div class="flex justify-end gap-2">
-                    <UButton
-                        color="gray"
-                        variant="ghost"
-                        size="xs"
-                        @click="showNegativeFeedbackModal = false"
-                    >
-                        Cancel
-                    </UButton>
-                    <UButton
-                        color="red"
-                        size="xs"
-                        @click="submitNegativeFeedback"
-                        :loading="isSubmittingNegativeFeedback"
-                    >
-                        Submit Feedback
-                    </UButton>
-                </div>
+                <!-- Table Joins Heatmap -->
+                <TableJoinsHeatmap
+                    :table-joins-data="tableJoinsData"
+                    :is-loading="isLoadingTableCharts"
+                />
             </div>
-        </UModal>
+
+            <!-- Second Row: Failed Queries + Negative Feedback -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <!-- Recently Failed Queries -->
+                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div class="p-6 border-b border-gray-50">
+                        <h3 class="text-lg font-semibold text-gray-900">Recently Failed Queries</h3>
+                        <p class="text-sm text-gray-500 mt-1">Latest query failures - for more go to <nuxt-link to="/console/diagnosis" class="text-blue-600 hover:text-blue-800">diagnosis</nuxt-link> page</p>
+                    </div>
+                    <div class="p-0">
+                        <div class="overflow-hidden">
+                            <table class="min-w-full">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failure Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="(query, index) in mockFailedQueries" :key="index" class="hover:bg-gray-50">
+                                        <td class="px-6 py-4">
+                                            <div class="text-sm text-gray-900 max-w-xs truncate" :title="query.prompt">
+                                                {{ query.prompt }}
+                                            </div>
+                                            <div class="text-xs text-gray-500">
+                                                {{ new Date(query.timestamp).toLocaleString() }}
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-4 whitespace-nowrap">
+                                            <div class="flex items-center">
+                                                <Icon 
+                                                    :name="query.failure_reason === 'validation' ? 'heroicons-exclamation-triangle' : 'heroicons-x-circle'"
+                                                    :class="[
+                                                        'w-4 h-4 mr-2',
+                                                        query.failure_reason === 'validation' ? 'text-yellow-500' : 'text-red-500'
+                                                    ]"
+                                                />
+                                                <span :class="[
+                                                    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
+                                                    query.failure_reason === 'validation' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                                                ]">
+                                                    {{ query.failure_reason }}
+                                                </span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Negative Feedback -->
+                <RecentNegativeFeedbackTable
+                    :negative-feedback-data="negativeFeedbackData"
+                    :is-loading="isLoadingWidgets"
+                />
+            </div>
+
+            <!-- Third Row: Top Users + Top Prompt Types (50%-50%) -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Top Users -->
+                <TopUsersTable
+                    :top-users-data="topUsersData"
+                    :is-loading="isLoadingWidgets"
+                />
+                
+                <!-- Top Prompt Types -->
+                <TopPromptTypesChart
+                    :prompt-types-data="mockPromptTypesData"
+                />
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
-import RenderTable from '~/components/RenderTable.vue'
+// Import components
+import DateRangePicker from '~/components/console/DateRangePicker.vue'
+import MetricsCards from '~/components/console/MetricsCards.vue'
+import ActivityChart from '~/components/console/ActivityChart.vue'
+import PerformanceChart from '~/components/console/PerformanceChart.vue'
+import TableUsageChart from '~/components/console/TableUsageChart.vue'
+import TableJoinsHeatmap from '~/components/console/TableJoinsHeatmap.vue'
+import TopPromptTypesChart from '~/components/console/TopPromptTypesChart.vue'
+import TopUsersTable from '~/components/console/TopUsersTable.vue'
+import RecentNegativeFeedbackTable from '~/components/console/RecentNegativeFeedbackTable.vue'
 
-// Define interfaces for type safety
-interface UserFeedback {
-    id: string;
-    direction: number;
-    message?: string;
-    user_id?: string;
-    completion_id: string;
-    organization_id: string;
-}
-
-interface FeedbackSummary {
-    completion_id: string;
-    total_upvotes: number;
-    total_downvotes: number;
-    net_score: number;
-    total_feedbacks: number;
-    user_feedback?: UserFeedback;
-}
-
-interface Widget {
-    id: string
-    title: string
-    user_name: string
-    created_at: string
-    completion_id: string | null
-    prompt: any
-    completion_prompt: any
-    code: string
-    output_sample: any
-    row_count: number
-    steps_count: number
-    thumbs_count: number
-    feedback_summary: FeedbackSummary
-}
-
-interface Metrics {
+// Interfaces
+interface SimpleMetrics {
     total_messages: number
     total_queries: number
-    total_thumbs: number
+    total_feedbacks: number
+    accuracy: string
+    instructions_coverage: string
+    active_users: number
+    // Removed instructions_efficiency and feedback_efficiency
 }
 
-interface PaginatedResponse {
-    items: Widget[]
-    total: number
-    offset: number
-    limit: number
+interface MetricChange {
+    absolute: number
+    percentage: number
 }
 
-const metrics = ref<Metrics>({
-    total_messages: 0,
-    total_queries: 0,
-    total_thumbs: 0
+interface MetricsComparison {
+    current: SimpleMetrics
+    previous: SimpleMetrics
+    changes: Record<string, MetricChange>
+    period_days: number
+}
+
+interface TimeSeriesPoint {
+    date: string
+    value: number
+}
+
+interface TimeSeriesPointFloat {
+    date: string
+    value: number
+}
+
+interface DateRange {
+    start: string
+    end: string
+}
+
+interface ActivityMetrics {
+    messages: TimeSeriesPoint[]
+    queries: TimeSeriesPoint[]
+}
+
+interface PerformanceMetrics {
+    accuracy: TimeSeriesPointFloat[]
+    instructions_efficiency: TimeSeriesPointFloat[]
+    positive_feedback_rate: TimeSeriesPointFloat[]
+}
+
+interface TimeSeriesMetrics {
+    date_range: DateRange
+    activity_metrics: ActivityMetrics
+    performance_metrics: PerformanceMetrics
+}
+
+// Add these interfaces after the existing ones
+interface TableUsageData {
+    table_name: string
+    usage_count: number
+    database_name?: string
+}
+
+interface TableUsageMetrics {
+    top_tables: TableUsageData[]
+    total_queries_analyzed: number
+    date_range: DateRange
+}
+
+interface TableJoinData {
+    table1: string
+    table2: string
+    join_count: number
+}
+
+interface TableJoinsHeatmap {
+    table_pairs: TableJoinData[]
+    unique_tables: string[]
+    total_queries_analyzed: number
+    date_range: DateRange
+}
+
+interface TopUserData {
+    user_id: string
+    name: string
+    email?: string
+    role?: string
+    messages_count: number
+    queries_count: number
+    trend_percentage: number
+}
+
+interface TopUsersMetrics {
+    top_users: TopUserData[]
+    total_users_analyzed: number
+    date_range: DateRange
+}
+
+interface RecentNegativeFeedbackData {
+    id: string
+    description: string
+    user_name: string
+    user_id: string
+    completion_id: string
+    prompt?: string
+    created_at: string
+    trace?: string
+}
+
+interface RecentNegativeFeedbackMetrics {
+    recent_feedbacks: RecentNegativeFeedbackData[]
+    total_negative_feedbacks: number
+    date_range: DateRange
+}
+
+// State
+const metricsComparison = ref<MetricsComparison | null>(null)
+const dateRange = ref({
+    start: '',
+    end: ''
 })
+const isLoadingCharts = ref(false)
+const timeSeriesData = ref<TimeSeriesMetrics | null>(null)
 
-const recentWidgets = ref<Widget[]>([])
-const isModalOpen = ref(false)
-const selectedWidget = ref<Widget | null>(null)
-const codeExpanded = ref(false)
-const dataExpanded = ref(false)
-const isDataLoading = ref(false)
+// Add these missing state definitions:
+const selectedPeriod = ref({ label: 'All Time', value: 'all_time' })
+const customDateRange = ref()
 
-// Feedback state
-const feedbackLoading = ref<Record<string, boolean>>({})
+const periodOptions = [
+    { label: 'All Time', value: 'all_time' },
+    { label: 'Last 30 Days', value: '30_days' },
+    { label: 'Last 90 Days', value: '90_days' },
+    { label: 'Custom Range', value: 'custom' }
+]
 
-// Negative feedback modal state
-const showNegativeFeedbackModal = ref(false)
-const feedbackMessage = ref('')
-const isSubmittingNegativeFeedback = ref(false)
-const currentFeedbackCompletionId = ref<string | null>(null)
+// Replace the mock data state with real data state
+const tableUsageData = ref<TableUsageMetrics | null>(null)
+const tableJoinsData = ref<TableJoinsHeatmap | null>(null)
+const isLoadingTableCharts = ref(false)
 
-// Pagination state
-const currentPage = ref(1)
-const pageSize = ref(10)
-const totalItems = ref(0)
-const isLoading = ref(false)
+const topUsersData = ref<TopUsersMetrics | null>(null)
+const negativeFeedbackData = ref<RecentNegativeFeedbackMetrics | null>(null)
+const isLoadingWidgets = ref(false)
 
-// Format date helper
-const formatDate = (dateString: string) => {
-    if (!dateString) return ''
-    const date = new Date(dateString)
-    return date.toLocaleDateString()
+// Keep the other mock data for widgets that don't have backend yet
+const mockLeaderboardData = ref([
+    { name: 'Alice Johnson', role: 'Data Analyst', messages: 156, queries: 89, trend: 12 },
+    { name: 'Bob Smith', role: 'Business Analyst', messages: 134, queries: 76, trend: 8 },
+    { name: 'Carol Davis', role: 'Product Manager', messages: 98, queries: 54, trend: -3 },
+    { name: 'David Wilson', role: 'Data Scientist', messages: 87, queries: 62, trend: 15 },
+    { name: 'Eva Brown', role: 'Marketing', messages: 73, queries: 41, trend: 6 },
+])
+
+const mockPromptTypesData = ref([
+    { type: 'Data Analysis', count: 245 },
+    { type: 'Report Generation', count: 189 },
+    { type: 'Chart Creation', count: 156 },
+    { type: 'Data Exploration', count: 134 },
+    { type: 'KPI Tracking', count: 98 },
+    { type: 'Trend Analysis', count: 87 },
+    { type: 'Comparison', count: 76 }
+].sort((a, b) => b.count - a.count))
+
+const mockFailedQueries = ref([
+    { 
+        prompt: 'Show me sales data for Q4 2024', 
+        failure_reason: 'validation', 
+        error_detail: 'Date range not found in database',
+        timestamp: '2024-01-15 14:30:22'
+    },
+    { 
+        prompt: 'Generate revenue chart by region', 
+        failure_reason: 'code error', 
+        error_detail: 'Column "region_id" does not exist',
+        timestamp: '2024-01-15 13:45:18'
+    },
+    { 
+        prompt: 'Calculate customer churn rate', 
+        failure_reason: 'validation', 
+        error_detail: 'Insufficient data permissions',
+        timestamp: '2024-01-15 12:20:15'
+    },
+    { 
+        prompt: 'Export user analytics to Excel', 
+        failure_reason: 'code error', 
+        error_detail: 'Memory limit exceeded',
+        timestamp: '2024-01-15 11:55:42'
+    },
+    { 
+        prompt: 'Show top performing products', 
+        failure_reason: 'validation', 
+        error_detail: 'Product table access denied',
+        timestamp: '2024-01-15 10:30:08'
+    }
+])
+
+const mockNegativeFeedback = ref([
+    {
+        description: 'Chart colors are too similar, hard to distinguish',
+        trace: 'dashboard_designer.create_chart',
+        user: 'Alice Johnson',
+        timestamp: '2024-01-15 15:20:30'
+    },
+    {
+        description: 'Query took too long to execute',
+        trace: 'data_source.execute_query',
+        user: 'Bob Smith',
+        timestamp: '2024-01-15 14:45:12'
+    },
+    {
+        description: 'Incorrect data aggregation in report',
+        trace: 'reporter.generate_report',
+        user: 'Carol Davis',
+        timestamp: '2024-01-15 13:30:45'
+    },
+    {
+        description: 'Missing data validation in form',
+        trace: 'excel.process_upload',
+        user: 'David Wilson',
+        timestamp: '2024-01-15 12:15:20'
+    },
+    {
+        description: 'Export functionality not working',
+        trace: 'completion.export_results',
+        user: 'Eva Brown',
+        timestamp: '2024-01-15 11:40:55'
+    }
+])
+
+// Helper functions for date range formatting
+const formatDateRange = () => {
+    if (!dateRange.value.start || selectedPeriod.value.value === 'all_time') {
+        return ''
+    }
+    
+    const start = new Date(dateRange.value.start)
+    const end = new Date(dateRange.value.end)
+    
+    return `${start.toLocaleDateString()} - ${end.toLocaleDateString()}`
 }
 
-// Handle negative feedback - now takes existing feedback as parameter
-const handleNegativeFeedback = (completionId: string | null, existingFeedback?: UserFeedback) => {
-    if (!completionId) return
-    
-    // If user already has negative feedback, just toggle it off
-    if (existingFeedback?.direction === -1) {
-        sendFeedback(completionId, -1)
-    } else {
-        // Show modal for new negative feedback
-        currentFeedbackCompletionId.value = completionId
-        feedbackMessage.value = ''
-        showNegativeFeedbackModal.value = true
+const initializeDateRange = () => {
+    // Default to all time
+    selectedPeriod.value = { label: 'All Time', value: 'all_time' }
+    dateRange.value = {
+        start: '',
+        end: new Date().toISOString().split('T')[0]
     }
 }
 
-// Simplified sendFeedback - no need to fetch feedback summary separately
-const sendFeedback = async (completionId: string | null, vote: number) => {
-    if (!completionId) {
-        const toast = useToast()
-        toast.add({
-            title: 'Error',
-            description: 'No completion ID available for feedback',
-            color: 'red',
-            timeout: 3000
-        })
+const handlePeriodChange = (period: { label: string, value: string }) => {
+    if (period.value === 'custom') {
+        // Don't change dateRange yet, wait for custom selection
         return
     }
-
-    if (feedbackLoading.value[completionId]) return
-
-    feedbackLoading.value[completionId] = true
-
-    try {
-        const response = await useMyFetch(`/api/completions/${completionId}/feedback`, {
-            method: 'POST',
-            body: {
-                direction: vote,
-                message: null
-            }
-        })
-
-        if (response.status.value !== 'success') throw new Error('Failed to submit feedback')
-
-        // Refresh the widgets list to get updated feedback data
-        await fetchWidgets(currentPage.value)
-
-        const toast = useToast()
-        toast.add({
-            title: 'Success',
-            description: vote > 0 ? 'Successfully upvoted AI response' : 'Successfully downvoted AI response',
-            color: 'green',
-            timeout: 3000
-        })
-    } catch (err) {
-        const toast = useToast()
-        toast.add({
-            title: 'Error',
-            description: 'Failed to submit feedback',
-            color: 'red',
-            timeout: 5000,
-            icon: 'i-heroicons-exclamation-circle'
-        })
-    } finally {
-        feedbackLoading.value[completionId] = false
-    }
-}
-
-// Submit negative feedback with message
-const submitNegativeFeedback = async () => {
-    if (isSubmittingNegativeFeedback.value || !currentFeedbackCompletionId.value) return
-
-    isSubmittingNegativeFeedback.value = true
-
-    try {
-        const response = await useMyFetch(`/api/completions/${currentFeedbackCompletionId.value}/feedback`, {
-            method: 'POST',
-            body: {
-                direction: -1,
-                message: feedbackMessage.value.trim() || null
-            }
-        })
-
-        if (response.status.value !== 'success') throw new Error('Failed to submit feedback')
-
-        // Close modal and refresh widgets
-        showNegativeFeedbackModal.value = false
-        await fetchWidgets(currentPage.value)
-
-        const toast = useToast()
-        toast.add({
-            title: 'Success',
-            description: 'Thank you for your feedback!',
-            color: 'green',
-            timeout: 3000
-        })
-    } catch (err) {
-        const toast = useToast()
-        toast.add({
-            title: 'Error',
-            description: 'Failed to submit feedback',
-            color: 'red',
-            timeout: 5000,
-            icon: 'i-heroicons-exclamation-circle'
-        })
-    } finally {
-        isSubmittingNegativeFeedback.value = false
-        currentFeedbackCompletionId.value = null
-    }
-}
-
-// Parse data for RenderTable component
-const parsedStepData = computed(() => {
-    if (!selectedWidget.value?.output_sample) {
-        return null
+    
+    const end = new Date()
+    let start: Date | null = null
+    
+    switch (period.value) {
+        case '30_days':
+            start = new Date()
+            start.setDate(start.getDate() - 30)
+            break
+        case '90_days':
+            start = new Date()
+            start.setDate(start.getDate() - 90)
+            break
+        case 'all_time':
+        default:
+            start = null
+            break
     }
     
-    // Check if output_sample is already an object with the right structure
-    if (selectedWidget.value.output_sample && 
-        typeof selectedWidget.value.output_sample === 'object' &&
-        selectedWidget.value.output_sample.columns &&
-        selectedWidget.value.output_sample.rows) {
-        
-        return {
-            data: selectedWidget.value.output_sample
-        }
+    dateRange.value = {
+        start: start ? start.toISOString().split('T')[0] : '',
+        end: end.toISOString().split('T')[0]
     }
     
-    // Fallback: try to parse as JSON string
+    refreshData()
+}
+
+const fetchTimeSeriesData = async () => {
+    isLoadingCharts.value = true
     try {
-        const data = JSON.parse(selectedWidget.value.output_sample)
-        
-        if (data && data.columns && data.rows) {
-            return {
-                data: data
-            }
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
         
-        return null
-    } catch (e) {
-        console.log('Failed to parse output_sample:', e)
-        return null
-    }
-})
-
-// Open modal with widget data
-const openModal = async (widget: Widget) => {
-    selectedWidget.value = widget
-    isModalOpen.value = true
-    codeExpanded.value = false
-    dataExpanded.value = false
-    isDataLoading.value = false
-}
-
-// Handle data expansion with loading
-const toggleData = async () => {
-    if (!dataExpanded.value) {
-        isDataLoading.value = true
-        // Simulate a small delay to show loading state
-        await new Promise(resolve => setTimeout(resolve, 100))
-    }
-    dataExpanded.value = !dataExpanded.value
-    isDataLoading.value = false
-}
-
-// Simplified fetchWidgets - no need for separate feedback calls
-const fetchWidgets = async (page: number = 1) => {
-    isLoading.value = true
-    try {
-        const offset = (page - 1) * pageSize.value
-        const { data: widgetsData, error: widgetsError } = await useMyFetch<PaginatedResponse>(`/api/organizations/recent-widgets?offset=${offset}&limit=${pageSize.value}`, {
+        const { data, error } = await useMyFetch<TimeSeriesMetrics>(`/api/console/metrics/timeseries?${params}`, {
             method: 'GET'
         })
         
-        if (widgetsError.value) {
-            console.error('Failed to fetch recent widgets:', widgetsError.value)
-        } else if (widgetsData.value) {
-            recentWidgets.value = widgetsData.value.items
-            totalItems.value = widgetsData.value.total
-            currentPage.value = page
+        if (error.value) {
+            console.error('Failed to fetch timeseries data:', error.value)
+        } else if (data.value) {
+            timeSeriesData.value = data.value
         }
     } catch (err) {
-        console.error('Error fetching widgets:', err)
+        console.error('Error fetching timeseries data:', err)
     } finally {
-        isLoading.value = false
+        isLoadingCharts.value = false
     }
 }
 
-// Handle page change
-const handlePageChange = (page: number) => {
-    fetchWidgets(page)
+const fetchTableUsageData = async () => {
+    isLoadingTableCharts.value = true
+    try {
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
+        }
+        
+        const { data, error } = await useMyFetch<TableUsageMetrics>(`/api/console/metrics/table-usage?${params}`, {
+            method: 'GET'
+        })
+        
+        if (error.value) {
+            console.error('Failed to fetch table usage data:', error.value)
+        } else if (data.value) {
+            tableUsageData.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching table usage data:', err)
+    } finally {
+        isLoadingTableCharts.value = false
+    }
 }
 
-// Computed properties for pagination
-const totalPages = computed(() => Math.ceil(totalItems.value / pageSize.value))
-const hasNextPage = computed(() => currentPage.value < totalPages.value)
-const hasPrevPage = computed(() => currentPage.value > 1)
-
-// Get visible page numbers for pagination
-const getVisiblePages = () => {
-    const pages: (number | string)[] = []
-    const total = totalPages.value
-    
-    if (total <= 7) {
-        // Show all pages if 7 or fewer
-        for (let i = 1; i <= total; i++) {
-            pages.push(i)
+const fetchTableJoinsData = async () => {
+    try {
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
         }
-    } else {
-        // Always show first page
-        pages.push(1)
-        
-        if (currentPage.value > 4) {
-            pages.push('...')
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
         
-        // Show pages around current page
-        const start = Math.max(2, currentPage.value - 1)
-        const end = Math.min(total - 1, currentPage.value + 1)
+        const { data, error } = await useMyFetch<TableJoinsHeatmap>(`/api/console/metrics/table-joins-heatmap?${params}`, {
+            method: 'GET'
+        })
         
-        for (let i = start; i <= end; i++) {
-            pages.push(i)
+        if (error.value) {
+            console.error('Failed to fetch table joins data:', error.value)
+        } else if (data.value) {
+            tableJoinsData.value = data.value
         }
-        
-        if (currentPage.value < total - 3) {
-            pages.push('...')
-        }
-        
-        // Always show last page
-        if (total > 1) {
-            pages.push(total)
-        }
+    } catch (err) {
+        console.error('Error fetching table joins data:', err)
     }
-    
-    return pages
+}
+
+const fetchTopUsers = async () => {
+    isLoadingWidgets.value = true
+    try {
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
+        }
+        
+        const { data, error } = await useMyFetch<TopUsersMetrics>(`/api/console/metrics/top-users?${params}`, {
+            method: 'GET'
+        })
+        
+        if (error.value) {
+            console.error('Failed to fetch top users:', error.value)
+        } else if (data.value) {
+            topUsersData.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching top users:', err)
+    } finally {
+        isLoadingWidgets.value = false
+    }
+}
+
+const fetchNegativeFeedback = async () => {
+    try {
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
+        }
+        
+        const { data, error } = await useMyFetch<RecentNegativeFeedbackMetrics>(`/api/console/metrics/recent-negative-feedback?${params}`, {
+            method: 'GET'
+        })
+        
+        if (error.value) {
+            console.error('Failed to fetch negative feedback:', error.value)
+        } else if (data.value) {
+            negativeFeedbackData.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching negative feedback:', err)
+    }
+}
+
+const refreshData = async () => {
+    await Promise.all([
+        fetchTimeSeriesData(),
+        fetchTableUsageData(),
+        fetchTableJoinsData(),
+        fetchTopUsers(),
+        fetchNegativeFeedback()
+    ])
+}
+
+// Add custom date functions
+const handleCustomDateChange = (dates: Date[]) => {
+    customDateRange.value = dates
+}
+
+const applyCustomRange = (newDateRange: DateRange) => {
+    dateRange.value = newDateRange
+    refreshData()
 }
 
 onMounted(async () => {
+    initializeDateRange()
     try {
-        // Fetch metrics
-        const { data: metricsData, error: metricsError } = await useMyFetch<Metrics>('/api/organizations/metrics', {
+        const { data: metricsData, error: metricsError } = await useMyFetch<MetricsComparison>('/api/console/metrics/comparison', {
             method: 'GET'
         })
         
         if (metricsError.value) {
             console.error('Failed to fetch metrics:', metricsError.value)
         } else if (metricsData.value) {
-            metrics.value = metricsData.value
+            metricsComparison.value = metricsData.value
         }
         
-        // Fetch initial widgets
-        await fetchWidgets(1)
+        // Fetch all data in parallel
+        await Promise.all([
+            fetchTimeSeriesData(),
+            fetchTableUsageData(),
+            fetchTableJoinsData(),
+            fetchTopUsers(),
+            fetchNegativeFeedback()
+        ])
     } catch (err) {
         console.error('Error fetching data:', err)
     }
 })
-</script> 
+</script>
+
+<style scoped>
+.chart {
+    width: 100%;
+    height: 100%;
+}
+</style> 

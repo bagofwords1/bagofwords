@@ -43,25 +43,3 @@ async def update_member(organization_id: str, membership_id: str, membership: Me
 @router.get("/organizations", response_model=List[OrganizationAndRoleSchema])
 async def get_organizations(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
     return await organization_service.get_user_organizations(db, current_user)
-
-@router.get("/organizations/metrics")
-@requires_permission('view_organization_overview')
-async def get_organization_metrics(
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization),
-    current_user: User = Depends(current_user)
-):
-    """Get organization metrics"""
-    return await organization_service.get_organization_metrics(db, organization)
-
-@router.get("/organizations/recent-widgets")
-@requires_permission('view_organization_overview')
-async def get_recent_widgets(
-    offset: int = 0,
-    limit: int = 10,
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization),
-    current_user: User = Depends(current_user)
-):
-    """Get recent widgets for the organization with pagination"""
-    return await organization_service.get_recent_widgets(db, organization, current_user, offset, limit)
