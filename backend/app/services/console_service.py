@@ -21,10 +21,28 @@ from collections import Counter, defaultdict
 import json
 import re
 from pydantic import BaseModel
+from app.models.membership import Membership
 
 logger = get_logger(__name__)
 
 class ConsoleService:
+    
+    def _normalize_date_range(self, start_date: Optional[datetime], end_date: Optional[datetime]) -> tuple[datetime, datetime]:
+        """Normalize date range to ensure end_date includes the full day"""
+        
+        # Default to last 30 days if no dates provided
+        if not end_date:
+            end_date = datetime.now()
+        if not start_date:
+            start_date = end_date - timedelta(days=30)
+            
+        # Ensure end_date includes the full day (set to end of day)
+        end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # Ensure start_date starts from beginning of day  
+        start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        return start_date, end_date
     
     async def get_organization_metrics(
         self, 
@@ -34,26 +52,17 @@ class ConsoleService:
     ) -> SimpleMetrics:
         """Get organization metrics with optional date filtering"""
         
-        start_date = params.start_date
-        end_date = params.end_date
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         
         # Base filters
         report_filter = Report.organization_id == organization.id
         
-        # Add date filtering if provided
-        date_filters = []
-        if start_date:
-            date_filters.append(start_date)
-        if end_date:
-            date_filters.append(end_date)
-        
         # Count total messages (completions)
-        messages_query = select(func.count(Completion.id)).join(Report).where(report_filter)
-        if date_filters:
-            if start_date:
-                messages_query = messages_query.where(Completion.created_at >= start_date)
-            if end_date:
-                messages_query = messages_query.where(Completion.created_at <= end_date)
+        messages_query = select(func.count(Completion.id)).join(Report).where(
+            report_filter,
+            Completion.created_at >= start_date,
+            Completion.created_at <= end_date
+        )
         
         messages_result = await db.execute(messages_query)
         total_messages = messages_result.scalar() or 0
@@ -62,13 +71,12 @@ class ConsoleService:
         queries_query = (
             select(func.count(Step.id))
             .join(Widget).join(Report)
-            .where(report_filter)
+            .where(
+                report_filter,
+                Step.created_at >= start_date,
+                Step.created_at <= end_date
+            )
         )
-        if date_filters:
-            if start_date:
-                queries_query = queries_query.where(Step.created_at >= start_date)
-            if end_date:
-                queries_query = queries_query.where(Step.created_at <= end_date)
         
         queries_result = await db.execute(queries_query)
         total_queries = queries_result.scalar() or 0
@@ -78,24 +86,22 @@ class ConsoleService:
             select(func.count(CompletionFeedback.id))
             .join(Completion, CompletionFeedback.completion_id == Completion.id)
             .join(Report, Completion.report_id == Report.id)
-            .where(report_filter)
+            .where(
+                report_filter,
+                CompletionFeedback.created_at >= start_date,
+                CompletionFeedback.created_at <= end_date
+            )
         )
-        if date_filters:
-            if start_date:
-                feedbacks_query = feedbacks_query.where(CompletionFeedback.created_at >= start_date)
-            if end_date:
-                feedbacks_query = feedbacks_query.where(CompletionFeedback.created_at <= end_date)
         
         feedbacks_result = await db.execute(feedbacks_query)
         total_feedbacks = feedbacks_result.scalar() or 0
         
         # Count active users
-        users_query = select(func.count(func.distinct(Report.user_id))).where(report_filter)
-        if date_filters:
-            if start_date:
-                users_query = users_query.where(Report.created_at >= start_date)
-            if end_date:
-                users_query = users_query.where(Report.created_at <= end_date)
+        users_query = select(func.count(func.distinct(Report.user_id))).where(
+            report_filter,
+            Report.created_at >= start_date,
+            Report.created_at <= end_date
+        )
         
         users_result = await db.execute(users_query)
         active_users = users_result.scalar() or 0
@@ -184,8 +190,7 @@ class ConsoleService:
     ) -> TimeSeriesMetrics:
         """Get time-series metrics data for charts"""
         
-        end_date = params.end_date or datetime.now()
-        start_date = params.start_date or (end_date - timedelta(days=30))
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         
         # Generate daily intervals
         intervals = []
@@ -291,8 +296,7 @@ class ConsoleService:
     ) -> TableUsageMetrics:
         """Get table usage statistics from step data models"""
         
-        end_date = params.end_date or datetime.now()
-        start_date = params.start_date or (end_date - timedelta(days=30))
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         
         # Get all steps within date range for this organization
         steps_query = (
@@ -357,8 +361,7 @@ class ConsoleService:
     ) -> TableJoinsHeatmap:
         """Get table joins heatmap showing which tables are used together"""
         
-        end_date = params.end_date or datetime.now()
-        start_date = params.start_date or (end_date - timedelta(days=30))
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         
         # Get all steps within date range for this organization
         steps_query = (
@@ -430,46 +433,23 @@ class ConsoleService:
         organization: Organization, 
         params: MetricsQueryParams
     ) -> TopUsersMetrics:
-        """Get top users by activity with trend analysis"""
+        """Get top users by activity"""
         
-        end_date = params.end_date or datetime.now()
-        start_date = params.start_date or (end_date - timedelta(days=30))
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         
-        # Calculate previous period for trend analysis
-        period_length = end_date - start_date
-        prev_end_date = start_date
-        prev_start_date = start_date - period_length
-        
-        # Get current period user metrics
+        # Get current period user metrics (simplified without trend calculation)
         current_users = await self._get_user_metrics_for_period(db, organization, start_date, end_date)
-        
-        # Get previous period user metrics for trend calculation
-        previous_users = await self._get_user_metrics_for_period(db, organization, prev_start_date, prev_end_date)
-        
-        # Calculate trends
-        prev_users_dict = {user['user_id']: user for user in previous_users}
         
         top_users_data = []
         for user in current_users[:10]:  # Top 10 users
-            prev_user = prev_users_dict.get(user['user_id'], {'messages_count': 0})
-            
-            # Calculate trend percentage
-            prev_messages = prev_user['messages_count']
-            current_messages = user['messages_count']
-            
-            if prev_messages > 0:
-                trend_percentage = ((current_messages - prev_messages) / prev_messages) * 100
-            else:
-                trend_percentage = 100.0 if current_messages > 0 else 0.0
-            
             top_users_data.append(TopUserData(
                 user_id=user['user_id'],
                 name=user['name'],
                 email=user['email'],
                 role=user['role'],
                 messages_count=user['messages_count'],
-                queries_count=user['queries_count'],
-                trend_percentage=round(trend_percentage, 1)
+                queries_count=user['queries_count']
+                # Remove trend_percentage
             ))
         
         return TopUsersMetrics(
@@ -490,27 +470,29 @@ class ConsoleService:
     ) -> List[Dict]:
         """Get user metrics for a specific period"""
         
-        # Get user activity with messages and queries count
+        # Get user activity with messages and queries count, and role from membership
         result = await db.execute(
             select(
                 User.id.label('user_id'),
                 User.name,
                 User.email,
-                User.type.label('role'),
+                Membership.role.label('role'),  # Fix: Use Membership.role instead of User.type
                 func.count(func.distinct(Completion.id)).label('messages_count'),
                 func.count(func.distinct(Step.id)).label('queries_count')
             )
             .select_from(User)
+            .join(Membership, User.id == Membership.user_id)  # Join with Membership to get role
             .join(Report, User.id == Report.user_id)
             .outerjoin(Completion, Report.id == Completion.report_id)
             .outerjoin(Widget, Report.id == Widget.report_id)
             .outerjoin(Step, Widget.id == Step.widget_id)
             .where(
+                Membership.organization_id == organization.id,  # Filter by organization through membership
                 Report.organization_id == organization.id,
                 Report.created_at >= start_date,
                 Report.created_at <= end_date
             )
-            .group_by(User.id, User.name, User.email, User.type)
+            .group_by(User.id, User.name, User.email, Membership.role)
             .order_by(func.count(func.distinct(Completion.id)).desc())
         )
         
@@ -535,24 +517,20 @@ class ConsoleService:
     ) -> RecentNegativeFeedbackMetrics:
         """Get recent negative feedback with completion context"""
         
-        end_date = params.end_date or datetime.now()
-        start_date = params.start_date or (end_date - timedelta(days=30))
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         
-        # Get recent negative feedbacks with completion and user details
+        # Simplified query - just join with User
         result = await db.execute(
             select(
                 CompletionFeedback.id,
                 CompletionFeedback.message.label('description'),
                 CompletionFeedback.created_at,
                 CompletionFeedback.completion_id,
-                User.name.label('user_name'),
-                User.id.label('user_id'),
-                Completion.prompt
+                func.coalesce(User.name, 'System').label('user_name'),
+                func.coalesce(User.id, 'system').label('user_id')
             )
             .select_from(CompletionFeedback)
-            .join(Completion, CompletionFeedback.completion_id == Completion.id)
-            .join(Report, Completion.report_id == Report.id)
-            .join(User, CompletionFeedback.user_id == User.id)
+            .outerjoin(User, CompletionFeedback.user_id == User.id)  # Only join with User
             .where(
                 CompletionFeedback.organization_id == organization.id,
                 CompletionFeedback.direction == -1,  # Negative feedback only
@@ -566,16 +544,17 @@ class ConsoleService:
         
         feedbacks = result.all()
         
+        print(f"Found {len(feedbacks)} negative feedbacks")
+        print(f"Date range: {start_date} to {end_date}")
+        print(f"Organization ID: {organization.id}")
+        
         # Get total count for the period
         total_count_result = await db.execute(
             select(func.count(CompletionFeedback.id))
-            .join(Completion, CompletionFeedback.completion_id == Completion.id)
-            .join(Report, Completion.report_id == Report.id)
             .where(
                 CompletionFeedback.organization_id == organization.id,
                 CompletionFeedback.direction == -1,
-                CompletionFeedback.created_at >= start_date,
-                CompletionFeedback.created_at <= end_date
+                CompletionFeedback.created_at >= start_date
             )
         )
         total_negative_feedbacks = total_count_result.scalar() or 0
@@ -587,9 +566,9 @@ class ConsoleService:
                 user_name=feedback.user_name,
                 user_id=feedback.user_id,
                 completion_id=feedback.completion_id,
-                prompt=feedback.prompt,
+                prompt=None,  # We don't have prompt anymore, set to None
                 created_at=feedback.created_at,
-                trace=f"/reports/{feedback.completion_id}"  # Link to completion for diagnosis
+                trace=f"/reports/{feedback.completion_id}"
             )
             for feedback in feedbacks
         ]

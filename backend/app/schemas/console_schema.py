@@ -76,7 +76,7 @@ class TopUserData(BaseModel):
     role: Optional[str] = None
     messages_count: int
     queries_count: int
-    trend_percentage: float  # Percentage change from previous period
+    # Remove trend_percentage field
 
 class TopUsersMetrics(BaseModel):
     top_users: List[TopUserData]
