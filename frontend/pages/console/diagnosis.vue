@@ -1,158 +1,492 @@
 <template>
-    <div class="p-6">
-        <div class="mb-6">
-            <h1 class="text-2xl font-bold text-gray-900">Diagnosis</h1>
-            <p class="text-gray-600 mt-1">Detailed analysis of system activity and performance</p>
-        </div>
+    <div class="mt-6">
+        <!-- Date Range Picker (same as ConsoleOverview) -->
+        <DateRangePicker
+            :selected-period="selectedPeriod"
+            :custom-date-range="customDateRange"
+            :date-range="dateRange"
+            @period-change="handlePeriodChange"
+            @custom-range-change="handleCustomDateChange"
+            @apply-custom-range="applyCustomRange"
+        />
 
-        <!-- Recent Widgets Table -->
-        <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div class="p-6 border-b border-gray-50">
-                <h2 class="text-lg font-semibold text-gray-900">Recent Activity</h2>
-                <p class="text-sm text-gray-500 mt-1">Latest widgets and user interactions</p>
+        <!-- Summary Cards (matching MetricsCards.vue style) -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+            <!-- Failed Queries -->
+            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-gray-900">
+                    {{ metrics?.failed_steps_count || 0 }}
+                </div>
+                <div class="text-sm font-medium text-gray-600 mt-1">Failed Queries</div>
             </div>
             
-            <!-- Loading state -->
-            <div v-if="isLoading" class="flex items-center justify-center py-8">
-                <div class="flex items-center space-x-2">
-                    <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                    <span class="text-gray-600">Loading widgets...</span>
+            <!-- Negative Feedback -->
+            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-gray-900">
+                    {{ metrics?.negative_feedback_count || 0 }}
+                </div>
+                <div class="text-sm font-medium text-gray-600 mt-1">Negative Feedback</div>
+            </div>
+            
+            <!-- Resolution Rate -->
+            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-gray-900">
+                    {{ getResolutionRate() }}
+                </div>
+                <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+                    Instruction Efficiency
+                    <UTooltip text="Percentage of issues that have been addressed or resolved">
+                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                    </UTooltip>
                 </div>
             </div>
             
-            <!-- Table -->
-            <div v-else class="overflow-x-auto">
+            <!-- Total Issues -->
+            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
+                <div class="text-2xl font-bold text-gray-900">
+                    {{ metrics?.total_items || 0 }}
+                </div>
+                <div class="text-sm font-medium text-gray-600 mt-1">Total Issues</div>
+            </div>
+        </div>
+
+        <!-- Loading state -->
+        <div v-if="isLoading" class="flex items-center justify-center py-12">
+            <div class="flex items-center space-x-2">
+                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                <span class="text-gray-600">Loading diagnosis data...</span>
+            </div>
+        </div>
+
+        <!-- Diagnosis Table -->
+        <div v-else class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+            <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Widget</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">User</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Time</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Completion ID</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/6">Row Count</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Revisions</th>
-                            <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/12">Feedback</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Issue Type
+                            </th>
+
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Head Prompt
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Query
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Feedback
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                User
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Created
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Actions
+                            </th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        <tr v-for="widget in recentWidgets" :key="widget.id" class="hover:bg-gray-50">
-                            <td class="px-3 py-4 cursor-pointer" @click="openModal(widget)">
-                                <div class="text-sm font-medium text-gray-900 truncate" :title="widget.title">
-                                    {{ widget.title }}
+                    <tbody class="bg-white divide-y divide-gray-200 text-xs">
+                        <tr v-for="item in diagnosisItems" :key="item.id" class="hover:bg-gray-50">
+                            <!-- Issue Type -->
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span class="inline-flex px-1 py-0.5 text-xs font-medium rounded-full"
+                                      :class="getIssueTypeClass(item.issue_type)">
+                                    {{ getIssueTypeLabel(item.issue_type) }}
+                                </span>
+                            </td>
+                            
+                            <!-- Head Completion -->
+                            <td class="px-6 py-4">
+                                <div class="text-xs text-gray-900 max-w-md">
+                                    <p class="truncate" :title="item.head_completion_prompt">
+                                        {{ item.head_completion_prompt || 'No prompt available' }}
+                                    </p>
                                 </div>
                             </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 truncate cursor-pointer" :title="widget.user_name" @click="openModal(widget)">
-                                {{ widget.user_name }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                {{ formatDate(widget.created_at) }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                <div class="truncate max-w-32">
-                                    {{ widget.completion_id || 'N/A' }}
+                            
+                            <!-- Step Info -->
+                            <td class="px-3 py-1">
+                                <div v-if="item.step_info" class="text-xs">
+                                    <div class="text-gray-900">{{ item.step_info.step_title }}</div>
+                                    <div class="text-gray-500">Status: {{ item.step_info.step_status }}</div>
                                 </div>
+                                <div v-else class="text-xs text-gray-400">N/A</div>
                             </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 cursor-pointer" @click="openModal(widget)">
-                                {{ widget.row_count || 0 }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500 text-center cursor-pointer" @click="openModal(widget)">
-                                {{ widget.steps_count }}
-                            </td>
-                            <td class="px-3 py-4 text-sm text-gray-500">
-                                <div class="flex items-center gap-1" @click.stop>
-                                    <span class="text-center min-w-[20px]">{{ widget.thumbs_count }}</span>
-                                    <UButton
-                                        :icon="widget.feedback_summary?.user_feedback?.direction === 1 ? 'i-heroicons-hand-thumb-up-solid' : 'i-heroicons-hand-thumb-up'"
-                                        :color="widget.feedback_summary?.user_feedback?.direction === 1 ? 'black' : 'gray'"
-                                        variant="ghost"
-                                        size="xs"
-                                        @click="sendFeedback(widget.completion_id, 1)"
-                                        :disabled="!widget.completion_id"
-                                        :loading="feedbackLoading[widget.completion_id || '']"
-                                    />
-                                    <UButton
-                                        :icon="widget.feedback_summary?.user_feedback?.direction === -1 ? 'i-heroicons-hand-thumb-down-solid' : 'i-heroicons-hand-thumb-down'"
-                                        :color="widget.feedback_summary?.user_feedback?.direction === -1 ? 'black' : 'gray'"
-                                        variant="ghost"
-                                        size="xs"
-                                        @click="handleNegativeFeedback(widget.completion_id, widget.feedback_summary?.user_feedback)"
-                                        :disabled="!widget.completion_id"
-                                        :loading="feedbackLoading[widget.completion_id || '']"
-                                    />
+                            
+                            <!-- Feedback -->
+                            <td class="px-3 py-1">
+                                <div v-if="item.feedback_info" class="text-xs">
+                                    <div class="flex items-center">
+                                        <UIcon name="i-heroicons-hand-thumb-down" class="w-4 h-4 text-red-500 mr-2" />
+            <div class="text-gray-500 max-w-xs truncate" :title="item.feedback_info.message">
+                                        {{ item.feedback_info.message || 'No message' }}
+                                    </div>
+                                    </div>
+                        
                                 </div>
+                                <div v-else class="text-xs text-gray-400">No feedback</div>
+                            </td>
+                            
+                            <!-- User -->
+                            <td class="px-2 py-1">
+                                <div class="text-xs text-gray-900">{{ item.user_name }}</div>
+                            </td>
+                            
+                            <!-- Time -->
+                            <td class="px-3 py-1">
+                                <span class="text-xs text-gray-500">
+                                    {{ formatDate(item.created_at) }}
+                                </span>
+                            </td>
+                            
+                            <!-- Actions -->
+                            <td class="px-6 py-4 whitespace-nowrap text-xs font-medium">
+                                <UButton
+                                    v-if="item.trace_url"
+                                    :to="item.trace_url"
+                                    variant="outline"
+                                    size="xs"
+                                    color="blue"
+                                >
+                                    Trace
+                                </UButton>
+                                <UButton
+                                    v-if="item.trace_url"
+                                    :to="item.trace_url"
+                                    variant="outline"
+                                    size="xs"
+                                    color="blue"
+                                    class="ml-2"
+                                >
+                                    AI Instruction
+                                </UButton>
                             </td>
                         </tr>
                     </tbody>
                 </table>
             </div>
-            
-            <!-- Pagination Controls -->
-            <div v-if="totalItems > 0" class="px-6 py-4 border-t border-gray-100">
-                <div class="flex items-center justify-between">
-                    <div class="text-sm text-gray-700">
-                        Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, totalItems) }} of {{ totalItems }} results
-                    </div>
-                    <div class="flex items-center space-x-2">
-                        <UButton
-                            icon="i-heroicons-chevron-left"
-                            color="gray"
-                            variant="ghost"
-                            size="sm"
-                            @click="handlePageChange(currentPage - 1)"
-                            :disabled="!hasPrevPage"
-                        >
-                            Previous
-                        </UButton>
-                        
-                        <!-- Page numbers -->
-                        <div class="flex items-center space-x-1">
-                            <template v-for="page in getVisiblePages()" :key="page">
-                                <UButton
-                                    v-if="typeof page === 'number'"
-                                    :color="page === currentPage ? 'blue' : 'gray'"
-                                    :variant="page === currentPage ? 'solid' : 'ghost'"
-                                    size="sm"
-                                    @click="handlePageChange(page)"
-                                    class="min-w-[32px]"
-                                >
-                                    {{ page }}
-                                </UButton>
-                                <span v-else class="px-2 text-gray-500">...</span>
-                            </template>
-                        </div>
-                        
-                        <UButton
-                            icon="i-heroicons-chevron-right"
-                            color="gray"
-                            variant="ghost"
-                            size="sm"
-                            @click="handlePageChange(currentPage + 1)"
-                            :disabled="!hasNextPage"
-                        >
-                            Next
-                        </UButton>
-                    </div>
+
+            <!-- Empty state -->
+            <div v-if="diagnosisItems.length === 0 && !isLoading" class="text-center py-12">
+                <UIcon name="i-heroicons-clipboard-document-check" class="mx-auto h-12 w-12 text-gray-400" />
+                <h3 class="mt-2 text-sm font-medium text-gray-900">No issues found</h3>
+                <p class="mt-1 text-sm text-gray-500">
+                    No failed steps or negative feedback found for the selected period.
+                </p>
+                <div class="mt-2 text-xs text-gray-400">
+                    Debug: {{ debugInfo }}
                 </div>
             </div>
         </div>
 
-        <!-- Move your existing modal and negative feedback modal code here too -->
+        <!-- Pagination -->
+        <div v-if="diagnosisItems.length > 0" class="mt-6 flex items-center justify-between">
+            <div class="text-sm text-gray-700">
+                Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, totalItems) }} of {{ totalItems }} results
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <UButton
+                    icon="i-heroicons-chevron-left"
+                    color="gray"
+                    variant="ghost"
+                    size="sm"
+                    @click="currentPage--"
+                    :disabled="currentPage === 1"
+                >
+                    Previous
+                </UButton>
+                
+                <div class="flex items-center space-x-1">
+                    <UButton
+                        v-for="page in visiblePages"
+                        :key="page"
+                        :color="page === currentPage ? 'blue' : 'gray'"
+                        :variant="page === currentPage ? 'solid' : 'ghost'"
+                        size="sm"
+                        @click="currentPage = page"
+                        class="min-w-[32px]"
+                    >
+                        {{ page }}
+                    </UButton>
+                </div>
+                
+                <UButton
+                    icon="i-heroicons-chevron-right"
+                    color="gray"
+                    variant="ghost"
+                    size="sm"
+                    @click="currentPage++"
+                    :disabled="currentPage === totalPages"
+                >
+                    Next
+                </UButton>
+            </div>
+        </div>
     </div>
 </template>
 
 <script setup lang="ts">
-// Move all the widgets table logic from ConsoleOverview.vue here
-// This includes:
-// - All widget-related interfaces
-// - recentWidgets state
-// - pagination state and logic
-// - modal state and functions
-// - feedback functions
-// - fetchWidgets function
+import DateRangePicker from '~/components/console/DateRangePicker.vue'
 
 definePageMeta({
     layout: 'console'
 })
 
-// Add all the logic here...
+// Types
+interface DiagnosisStepData {
+    step_id: string
+    step_title: string
+    step_status: string
+    step_code?: string
+    step_data_model?: any
+    created_at: string
+}
+
+interface DiagnosisFeedbackData {
+    feedback_id: string
+    direction: number
+    message?: string
+    created_at: string
+}
+
+interface DiagnosisItemData {
+    id: string
+    head_completion_id: string
+    head_completion_prompt: string
+    problematic_completion_id: string
+    problematic_completion_content?: string
+    user_id: string
+    user_name: string
+    user_email?: string
+    report_id: string
+    issue_type: string
+    step_info?: DiagnosisStepData
+    feedback_info?: DiagnosisFeedbackData
+    created_at: string
+    trace_url?: string
+}
+
+interface DiagnosisMetrics {
+    diagnosis_items: DiagnosisItemData[]
+    total_items: number
+    failed_steps_count: number
+    negative_feedback_count: number
+    date_range: {
+        start: string
+        end: string
+    }
+}
+
+interface DateRange {
+    start: string
+    end: string
+}
+
+// State (same as ConsoleOverview)
+const isLoading = ref(false)
+const metrics = ref<DiagnosisMetrics | null>(null)
+const diagnosisItems = ref<DiagnosisItemData[]>([])
+const currentPage = ref(1)
+const pageSize = ref(10)
+const totalItems = ref(0)
+const debugInfo = ref('')
+
+// Date range state (same as ConsoleOverview)
+const selectedPeriod = ref({ label: 'Last 30 Days', value: '30_days' })
+const customDateRange = ref<Date[]>()
+const dateRange = ref<DateRange>({
+    start: '',
+    end: ''
+})
+
+// Computed
+const totalPages = computed(() => Math.ceil(totalItems.value / pageSize.value))
+
+const visiblePages = computed(() => {
+    const pages = []
+    const total = totalPages.value
+    const current = currentPage.value
+    
+    // Show maximum 5 pages
+    let start = Math.max(1, current - 2)
+    let end = Math.min(total, start + 4)
+    
+    // Adjust start if we're near the end
+    if (end - start < 4) {
+        start = Math.max(1, end - 4)
+    }
+    
+    for (let i = start; i <= end; i++) {
+        pages.push(i)
+    }
+    
+    return pages
+})
+
+// Methods (same pattern as ConsoleOverview)
+const initializeDateRange = () => {
+    // Default to last 30 days
+    const end = new Date()
+    const start = new Date()
+    start.setDate(start.getDate() - 30)
+    
+    dateRange.value = {
+        start: start.toISOString().split('T')[0],
+        end: end.toISOString().split('T')[0]
+    }
+}
+
+const handlePeriodChange = (period: { label: string, value: string }) => {
+    selectedPeriod.value = period
+    
+    if (period.value === 'custom') {
+        return
+    }
+    
+    const end = new Date()
+    let start: Date | null = null
+    
+    switch (period.value) {
+        case '30_days':
+            start = new Date()
+            start.setDate(start.getDate() - 30)
+            break
+        case '90_days':
+            start = new Date()
+            start.setDate(start.getDate() - 90)
+            break
+        case 'all_time':
+        default:
+            start = null
+            break
+    }
+    
+    dateRange.value = {
+        start: start ? start.toISOString().split('T')[0] : '',
+        end: end.toISOString().split('T')[0]
+    }
+    
+    currentPage.value = 1
+    fetchDiagnosisData()
+}
+
+const handleCustomDateChange = (dates: Date[]) => {
+    customDateRange.value = dates
+}
+
+const applyCustomRange = (newDateRange: DateRange) => {
+    dateRange.value = newDateRange
+    currentPage.value = 1
+    fetchDiagnosisData()
+}
+
+const fetchDiagnosisData = async () => {
+    isLoading.value = true
+    try {
+        const params = new URLSearchParams({
+            page: currentPage.value.toString(),
+            page_size: pageSize.value.toString()
+        })
+        
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
+        }
+        
+        debugInfo.value = `Fetching with params: ${params.toString()}`
+        
+        const response = await useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`)
+        
+        if (response.error.value) {
+            console.error('Error fetching diagnosis data:', response.error.value)
+            debugInfo.value = `Error: ${response.error.value}`
+            metrics.value = null
+            diagnosisItems.value = []
+            totalItems.value = 0
+        } else if (response.data.value) {
+            metrics.value = response.data.value
+            diagnosisItems.value = response.data.value.diagnosis_items || []
+            totalItems.value = response.data.value.total_items || 0
+            debugInfo.value = `Loaded ${diagnosisItems.value.length} items, total: ${totalItems.value}`
+        }
+    } catch (error) {
+        console.error('Failed to fetch diagnosis data:', error)
+        debugInfo.value = `Exception: ${error}`
+        metrics.value = null
+        diagnosisItems.value = []
+        totalItems.value = 0
+    } finally {
+        isLoading.value = false
+    }
+}
+
+const getIssueTypeClass = (issueType: string) => {
+    switch (issueType) {
+        case 'failed_step':
+            return 'bg-red-100 text-red-800'
+        case 'negative_feedback':
+            return 'bg-orange-100 text-orange-800'
+        case 'both':
+            return 'bg-purple-100 text-purple-800'
+        default:
+            return 'bg-gray-100 text-gray-800'
+    }
+}
+
+const getIssueTypeLabel = (issueType: string) => {
+    switch (issueType) {
+        case 'failed_step':
+            return 'Failed Step'
+        case 'negative_feedback':
+            return 'Negative Feedback'
+        case 'both':
+            return 'Both Issues'
+        default:
+            return 'Unknown'
+    }
+}
+
+const formatDate = (dateString: string) => {
+    if (!dateString) return ''
+    const date = new Date(dateString)
+    return date.toLocaleDateString()
+}
+
+// Add these methods to the existing script section
+
+const getResolutionRate = () => {
+    // Mock resolution rate for now - this could be calculated based on actual resolution data
+    if (!metrics.value?.total_items) return 'N/A'
+    
+    // For demo purposes, assume 85% resolution rate
+    return '85%'
+}
+
+const getDateRangeDays = () => {
+    if (!dateRange.value.start || !dateRange.value.end) return '30'
+    
+    const start = new Date(dateRange.value.start)
+    const end = new Date(dateRange.value.end)
+    const diffTime = Math.abs(end.getTime() - start.getTime())
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    
+    return diffDays.toString()
+}
+
+// Watch for page changes
+watch(currentPage, () => {
+    fetchDiagnosisData()
+})
+
+// Initialize
+onMounted(() => {
+    initializeDateRange()
+    fetchDiagnosisData()
+})
 </script>

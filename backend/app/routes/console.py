@@ -18,7 +18,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 import json
-from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics
+from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, DiagnosisMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -113,3 +113,17 @@ async def get_recent_negative_feedback(
 ):
     """Get recent negative feedback with completion context"""
     return await console_service.get_recent_negative_feedback_metrics(db, organization, params)
+
+
+@router.get("/console/metrics/diagnosis", response_model=DiagnosisMetrics)
+@requires_permission("view_organization_overview")
+async def get_diagnosis_metrics(
+    params: MetricsQueryParams = Depends(),
+    page: int = 1,
+    page_size: int = 50,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get diagnosis metrics for failed steps and negative feedback"""
+    return await console_service.get_diagnosis_metrics(db, organization, params, page, page_size)

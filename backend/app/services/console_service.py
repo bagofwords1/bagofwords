@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text, literal
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.completion import Completion
@@ -12,7 +12,8 @@ from app.schemas.console_schema import (
     TimeSeriesMetrics, ActivityMetrics, PerformanceMetrics,
     TimeSeriesPoint, TimeSeriesPointFloat, DateRange,
     TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData,
-    TopUserData, TopUsersMetrics, RecentNegativeFeedbackData, RecentNegativeFeedbackMetrics
+    TopUserData, TopUsersMetrics, RecentNegativeFeedbackData, RecentNegativeFeedbackMetrics,
+    DiagnosisItemData, DiagnosisStepData, DiagnosisFeedbackData, DiagnosisMetrics
 )
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
@@ -576,6 +577,233 @@ class ConsoleService:
         return RecentNegativeFeedbackMetrics(
             recent_feedbacks=feedback_data,
             total_negative_feedbacks=total_negative_feedbacks,
+            date_range=DateRange(
+                start=start_date.isoformat(),
+                end=end_date.isoformat()
+            )
+        )
+
+    async def get_diagnosis_metrics(
+        self, 
+        db: AsyncSession, 
+        organization: Organization, 
+        params: MetricsQueryParams,
+        page: int = 1,
+        page_size: int = 50
+    ) -> DiagnosisMetrics:
+        """Get completions with failed steps or negative feedback for diagnosis"""
+        
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        
+        print(f"Debug: Fetching diagnosis data for org {organization.id} from {start_date} to {end_date}")
+        
+        # Separate query for failed steps
+        failed_steps_query = (
+            select(
+                Completion.id.label('completion_id'),
+                Completion.completion.label('completion_content'),
+                Completion.created_at.label('completion_created_at'),
+                Report.user_id,
+                Report.id.label('report_id'),
+                func.coalesce(User.name, 'Unknown User').label('user_name'),
+                func.coalesce(User.email, '').label('user_email'),
+                Step.id.label('step_id'),
+                Step.title.label('step_title'),
+                Step.status.label('step_status'),
+                Step.code.label('step_code'),
+                Step.data_model.label('step_data_model'),
+                Step.created_at.label('step_created_at')
+            )
+            .select_from(Completion)
+            .join(Report, Completion.report_id == Report.id)
+            .outerjoin(User, Report.user_id == User.id)
+            .join(Step, Completion.step_id == Step.id)
+            .where(
+                Report.organization_id == organization.id,
+                Step.status == 'error',
+                Completion.created_at >= start_date,
+                Completion.created_at <= end_date
+            )
+            .order_by(Completion.created_at.desc())
+        )
+        
+        # Separate query for negative feedback - Remove created_at filter temporarily for debugging
+        negative_feedback_query = (
+            select(
+                Completion.id.label('completion_id'),
+                Completion.completion.label('completion_content'),
+                Completion.created_at.label('completion_created_at'),
+                Report.user_id,
+                Report.id.label('report_id'),
+                func.coalesce(User.name, 'Unknown User').label('user_name'),
+                func.coalesce(User.email, '').label('user_email'),
+                CompletionFeedback.id.label('feedback_id'),
+                CompletionFeedback.direction.label('feedback_direction'),
+                CompletionFeedback.message.label('feedback_message'),
+                CompletionFeedback.created_at.label('feedback_created_at')
+            )
+            .select_from(Completion)
+            .join(Report, Completion.report_id == Report.id)
+            .outerjoin(User, Report.user_id == User.id)
+            .join(CompletionFeedback, Completion.id == CompletionFeedback.completion_id)
+            .where(
+                Report.organization_id == organization.id,
+                CompletionFeedback.direction == -1
+                # Temporarily remove date filters to see if we get data
+                # CompletionFeedback.created_at >= start_date,
+                # CompletionFeedback.created_at <= end_date
+            )
+            .order_by(CompletionFeedback.created_at.desc())
+        )
+        
+        # Execute both queries
+        failed_steps_result = await db.execute(failed_steps_query)
+        failed_steps_rows = failed_steps_result.all()
+        
+        negative_feedback_result = await db.execute(negative_feedback_query)
+        negative_feedback_rows = negative_feedback_result.all()
+        
+        print(f"Debug: Found {len(failed_steps_rows)} failed steps and {len(negative_feedback_rows)} negative feedback items")
+        
+        # Combine and process results
+        all_items = []
+        
+        # Process failed steps
+        for row in failed_steps_rows:
+            item_data = {
+                'completion_id': row.completion_id,
+                'completion_content': row.completion_content,
+                'completion_created_at': row.completion_created_at,
+                'user_id': row.user_id,
+                'report_id': row.report_id,
+                'user_name': row.user_name,
+                'user_email': row.user_email,
+                'issue_type': 'failed_step',
+                'step_id': row.step_id,
+                'step_title': row.step_title,
+                'step_status': row.step_status,
+                'step_code': row.step_code,
+                'step_data_model': row.step_data_model,
+                'step_created_at': row.step_created_at,
+                'feedback_id': None,
+                'feedback_direction': None,
+                'feedback_message': None,
+                'feedback_created_at': None
+            }
+            all_items.append(item_data)
+        
+        # Process negative feedback
+        for row in negative_feedback_rows:
+            item_data = {
+                'completion_id': row.completion_id,
+                'completion_content': row.completion_content,
+                'completion_created_at': row.completion_created_at,
+                'user_id': row.user_id,
+                'report_id': row.report_id,
+                'user_name': row.user_name,
+                'user_email': row.user_email,
+                'issue_type': 'negative_feedback',
+                'step_id': None,
+                'step_title': None,
+                'step_status': None,
+                'step_code': None,
+                'step_data_model': None,
+                'step_created_at': None,
+                'feedback_id': row.feedback_id,
+                'feedback_direction': row.feedback_direction,
+                'feedback_message': row.feedback_message,
+                'feedback_created_at': row.feedback_created_at
+            }
+            all_items.append(item_data)
+        
+        # Sort by creation date and apply pagination
+        all_items.sort(key=lambda x: x['completion_created_at'], reverse=True)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_items = all_items[start_idx:end_idx]
+        
+        # Get count metrics
+        failed_steps_count = len(failed_steps_rows)
+        negative_feedback_count = len(negative_feedback_rows)
+        
+        # Process the results and build diagnosis items
+        diagnosis_items = []
+        
+        for item_data in paginated_items:
+            # Build step info if available
+            step_info = None
+            if item_data['step_id']:
+                step_info = DiagnosisStepData(
+                    step_id=str(item_data['step_id']),
+                    step_title=item_data['step_title'] or "",
+                    step_status=item_data['step_status'] or "",
+                    step_code=item_data['step_code'],
+                    step_data_model=item_data['step_data_model'],
+                    created_at=item_data['step_created_at'] or item_data['completion_created_at']
+                )
+            
+            # Build feedback info if available
+            feedback_info = None
+            if item_data['feedback_id']:
+                feedback_info = DiagnosisFeedbackData(
+                    feedback_id=str(item_data['feedback_id']),
+                    direction=item_data['feedback_direction'],
+                    message=item_data['feedback_message'],
+                    created_at=item_data['feedback_created_at'] or item_data['completion_created_at']
+                )
+            
+            # Get head completion (first completion in the report)
+            head_completion_query = (
+                select(Completion)
+                .where(
+                    Completion.report_id == item_data['report_id'],
+                    Completion.role == 'user'
+                )
+                .order_by(Completion.created_at.asc())
+                .limit(1)
+            )
+            head_completion_result = await db.execute(head_completion_query)
+            head_completion = head_completion_result.scalar_one_or_none()
+            
+            head_completion_prompt = ""
+            if head_completion and head_completion.prompt:
+                if isinstance(head_completion.prompt, dict):
+                    head_completion_prompt = head_completion.prompt.get('content', '')
+                else:
+                    head_completion_prompt = str(head_completion.prompt)
+            
+            # Get completion content
+            completion_content = ""
+            if item_data['completion_content']:
+                if isinstance(item_data['completion_content'], dict):
+                    completion_content = item_data['completion_content'].get('content', '')
+                else:
+                    completion_content = str(item_data['completion_content'])
+            
+            diagnosis_item = DiagnosisItemData(
+                id=str(item_data['completion_id']),
+                head_completion_id=str(head_completion.id) if head_completion else "",
+                head_completion_prompt=head_completion_prompt,
+                problematic_completion_id=str(item_data['completion_id']),
+                problematic_completion_content=completion_content,
+                user_id=str(item_data['user_id']) if item_data['user_id'] else "",
+                user_name=item_data['user_name'],
+                user_email=item_data['user_email'],
+                report_id=str(item_data['report_id']),
+                issue_type=item_data['issue_type'],
+                step_info=step_info,
+                feedback_info=feedback_info,
+                created_at=item_data['completion_created_at'],
+                trace_url=f"/reports/{item_data['report_id']}"
+            )
+            
+            diagnosis_items.append(diagnosis_item)
+        
+        return DiagnosisMetrics(
+            diagnosis_items=diagnosis_items,
+            total_items=len(all_items),
+            failed_steps_count=failed_steps_count,
+            negative_feedback_count=negative_feedback_count,
             date_range=DateRange(
                 start=start_date.isoformat(),
                 end=end_date.isoformat()

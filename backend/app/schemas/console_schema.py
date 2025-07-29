@@ -97,3 +97,41 @@ class RecentNegativeFeedbackMetrics(BaseModel):
     recent_feedbacks: List[RecentNegativeFeedbackData]
     total_negative_feedbacks: int
     date_range: DateRange
+
+# Diagnosis Schemas
+class DiagnosisStepData(BaseModel):
+    step_id: str
+    step_title: str
+    step_status: str
+    step_code: Optional[str] = None
+    step_data_model: Optional[Dict] = None
+    created_at: datetime
+
+class DiagnosisFeedbackData(BaseModel):
+    feedback_id: str
+    direction: int
+    message: Optional[str] = None
+    created_at: datetime
+
+class DiagnosisItemData(BaseModel):
+    id: str
+    head_completion_id: str
+    head_completion_prompt: str
+    problematic_completion_id: str
+    problematic_completion_content: Optional[str] = None
+    user_id: str
+    user_name: str
+    user_email: Optional[str] = None
+    report_id: str
+    issue_type: str  # "failed_step", "negative_feedback", or "both"
+    step_info: Optional[DiagnosisStepData] = None
+    feedback_info: Optional[DiagnosisFeedbackData] = None
+    created_at: datetime
+    trace_url: Optional[str] = None
+
+class DiagnosisMetrics(BaseModel):
+    diagnosis_items: List[DiagnosisItemData]
+    total_items: int
+    failed_steps_count: int
+    negative_feedback_count: int
+    date_range: DateRange
