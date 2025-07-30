@@ -106,6 +106,7 @@ class CodeExecutionManager:
                                 report=self.report,
                                 db=self.db,
                                 message=f"Validation failed: {error_msg}",
+                                status="success",
                                 completion=self.head_completion,
                                 widget=self.widget,
                                 role="ai_agent"
@@ -123,6 +124,7 @@ class CodeExecutionManager:
                                 report=self.report,
                                 db=self.db,
                                 message=f"Validation passed",
+                                status="success",
                                 completion=self.head_completion,
                                 widget=self.widget,
                                 role="ai_agent"
@@ -168,6 +170,7 @@ class CodeExecutionManager:
                     report=self.report,
                     db=self.db,
                     message=f"Self-healing and optimizing code (attempt {retries+1}/{max_retries}): {str(e)}",
+                    status="success",
                     completion=self.head_completion,
                     widget=self.widget,
                     role="ai_agent"
@@ -371,6 +374,7 @@ class CodeExecutionManager:
                         report=self.report,
                         db=self.db,
                         message="I faced some issues while generating data. The result had no columns. Can you try explaining again?",
+                        status="success",
                         completion=self.head_completion,
                         widget=self.widget,
                         role="ai_agent"

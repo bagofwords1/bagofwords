@@ -32,7 +32,7 @@ class ProjectManager:
         await db.refresh(error_completion)
         return error_completion
 
-    async def create_message(self, db, report, message=None, reasoning=None, completion=None, widget=None, role="system", step=None, external_platform=None, external_user_id=None):
+    async def create_message(self, db, report, message=None, status="in_progress", reasoning=None, completion=None, widget=None, role="system", step=None, external_platform=None, external_user_id=None):
         completion_message = PromptSchema(content="", reasoning="")
         if message is not None:
             completion_message.content = message
@@ -44,7 +44,7 @@ class ProjectManager:
         new_completion = Completion(
             completion=completion_message,
             model="gpt4o",
-            status="in_progress",
+            status=status,
             turn_index=0,
             parent_id=completion.id if completion else None,
             message_type="ai_completion",

@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.177 (July 30, 2025)
+- Added comprehensive admin console with three main sections: Explore, Diagnose, and Instructions management
+- **Explore**: Organization analytics dashboard with real-time metrics, activity charts, performance tracking, table usage analysis, table joins heatmap, failed queries overview, recent instructions, top users, and prompt type analytics
+- **Diagnose**: Advanced troubleshooting interface featuring failed query tracking, negative feedback analysis, instructions effectiveness scoring, detailed trace debugging, and issue categorization with actionable insights
+- **Instructions**: Centralized instruction management system with search and filtering capabilities, add/edit functionality, data source associations, and user permission controls
+- Added LLM Judge system for automated quality assessment - scores instruction effectiveness and context relevance on a 1-5 scale, evaluates AI response quality against user intent, and provides detailed reasoning for continuous system improvement
+
 ## Version 0.0.176 (July 26, 2025)
 - Added ability to provide detailed feedback messages when submitting negative feedback on AI completions
 - Improved reports main page UI

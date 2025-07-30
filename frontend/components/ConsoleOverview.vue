@@ -67,9 +67,6 @@
                 />
                 
                 <!-- Top Prompt Types -->
-                <TopPromptTypesChart
-                    :prompt-types-data="mockPromptTypesData"
-                />
             </div>
         </div>
     </div>

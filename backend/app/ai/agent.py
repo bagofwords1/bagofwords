@@ -304,6 +304,7 @@ class Agent:
                                         report=self.report,
                                         db=self.db,
                                         message=action.get('prefix', f"Creating {action['details']['title']}..."),
+                                        status="success",
                                         completion=self.head_completion,
                                         widget=widget,
                                         role="system",
@@ -368,6 +369,7 @@ class Agent:
                                         report=self.report,
                                         db=self.db,
                                         message=action['prefix'],
+                                        status="success",
                                         completion=self.head_completion,
                                         widget=self.widget,
                                     role="system",
@@ -432,6 +434,7 @@ class Agent:
                                         report=self.report,
                                         db=self.db,
                                         message=action['prefix'],
+                                        status="success",
                                         reasoning=json_result.get('reasoning'),
                                         completion=self.head_completion,
                                         widget=None,
@@ -499,6 +502,7 @@ class Agent:
                                     report=self.report,
                                     db=self.db,
                                     message=f"I encountered an error while answering: {str(e)}",
+                                    status="success",
                                     completion=self.head_completion,
                                     widget=self.widget,
                                     role="ai_agent",
@@ -532,6 +536,7 @@ class Agent:
                                         report=self.report,
                                         db=self.db,
                                         message="Designing the dashboard layout...", # Initial message
+                                        status="success",
                                         completion=self.head_completion,
                                         widget=None,
                                         role="system",
@@ -784,11 +789,12 @@ class Agent:
 
             # Ensure we have a data model before proceeding
             if not data_model:
-                await self.project_manager.update_step_status(self.db, step, "error")
+                await self.project_manager.update_step_status(self.db, step, "error", status_reason="Failed to generate data model")
                 await self.project_manager.create_message(
                     report=self.report,
                     db=self.db,
                     message="Failed to generate data model",
+                    status="success",
                     completion=self.head_completion,
                     widget=self.widget,
                     role="ai_agent",
@@ -833,6 +839,7 @@ class Agent:
                         report=self.report,
                         db=self.db,
                         message=error_msg,
+                        status="error",
                         completion=self.head_completion,
                         widget=self.widget,
                         role="ai_agent",
@@ -868,11 +875,12 @@ class Agent:
             print(f"Error in _handle_generate_widget_data: {e}")
             
             # Update step status and create error message
-            await self.project_manager.update_step_status(self.db, step, "error")
+            await self.project_manager.update_step_status(self.db, step, "error", status_reason=str(e))
             await self.project_manager.create_message(
                 report=self.report,
                 db=self.db,
                 message=f"An error occurred while generating data: {str(e)}",
+                status="success",
                 completion=self.head_completion,
                 widget=self.widget,
                 role="ai_agent",
@@ -931,11 +939,12 @@ class Agent:
         
         # Handle errors and success similar to _handle_generate_widget_data
         if df.empty and code_and_error_messages:
-            await self.project_manager.update_step_status(self.db, step, "error")
+            await self.project_manager.update_step_status(self.db, step, "error", status_reason=str(code_and_error_messages))
             await self.project_manager.create_message(
                 report=self.report,
                 db=self.db,
                 message="I faced some issues while modifying the widget. Can you try explaining again?",
+                status="success",
                 completion=self.head_completion,
                 widget=self.widget,
                 role="ai_agent",
