@@ -52,7 +52,10 @@ interface TimeSeriesPointFloat {
 
 interface PerformanceMetrics {
     accuracy: TimeSeriesPointFloat[]
-    instructions_efficiency: TimeSeriesPointFloat[]
+    instructions_coverage: TimeSeriesPointFloat[]
+    instructions_effectiveness: TimeSeriesPointFloat[]
+    context_effectiveness: TimeSeriesPointFloat[]
+    response_quality: TimeSeriesPointFloat[]
     positive_feedback_rate: TimeSeriesPointFloat[]
 }
 
@@ -67,7 +70,7 @@ const chartOptions = computed((): EChartsOption | null => {
     if (!props.performanceMetrics) return null
     
     const accuracy = props.performanceMetrics.accuracy
-    const coverage = props.performanceMetrics.instructions_efficiency || []
+    const instructionsEffectiveness = props.performanceMetrics.instructions_effectiveness || []
     
     const dates = accuracy.map(item => {
         const date = new Date(item.date)
@@ -75,7 +78,7 @@ const chartOptions = computed((): EChartsOption | null => {
     })
     
     const accuracyData = accuracy.map(item => item.value)
-    const coverageData = coverage.map(item => item.value)
+    const instructionsEffectivenessData = instructionsEffectiveness.map(item => item.value)
     
     const numDates = dates.length
     let interval = 0
@@ -105,10 +108,12 @@ const chartOptions = computed((): EChartsOption | null => {
             formatter: (params: any) => {
                 let tooltip = `<div style="font-weight: 600; margin-bottom: 4px;">${params[0].axisValue}</div>`
                 params.forEach((param: any) => {
+                    const value = param.value
+                    const formattedValue = param.seriesName === 'Accuracy' ? `${value.toFixed(1)}%` : `${value.toFixed(1)}`
                     tooltip += `<div style="display: flex; align-items: center; margin-bottom: 2px;">
                         <span style="display: inline-block; width: 10px; height: 10px; background-color: ${param.color}; border-radius: 50%; margin-right: 8px;"></span>
                         <span style="margin-right: 8px;">${param.seriesName}:</span>
-                        <span style="font-weight: 600;">${param.value}%</span>
+                        <span style="font-weight: 600;">${formattedValue}</span>
                     </div>`
                 })
                 return tooltip
@@ -156,7 +161,11 @@ const chartOptions = computed((): EChartsOption | null => {
             axisLabel: {
                 color: '#666',
                 fontSize: 12,
-                formatter: '{value}%'
+                formatter: (value: number) => {
+                    // For accuracy (percentage), show with %
+                    // For judge scores (0-100), show as score
+                    return value.toFixed(0)
+                }
             },
             splitLine: {
                 show: true,
@@ -193,17 +202,17 @@ const chartOptions = computed((): EChartsOption | null => {
                 }
             },
             {
-                name: 'Instructions Coverage',
+                name: 'Instructions Effectiveness',
                 type: 'line',
-                data: coverageData,
+                data: instructionsEffectivenessData,
                 smooth: true,
                 showSymbol: false,
                 lineStyle: {
                     width: 3,
-                    color: '#f59e0b'
+                    color: '#3b82f6'
                 },
                 itemStyle: {
-                    color: '#f59e0b'
+                    color: '#3b82f6'
                 }
             }
         ]

@@ -6,6 +6,7 @@ class StepBase(BaseModel):
     title: str
     slug: str
     status: str
+    status_reason: Optional[str] = None
     prompt: str
     code: str
     description: Optional[str] = ""

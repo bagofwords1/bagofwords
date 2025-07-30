@@ -11,8 +11,10 @@ class SimpleMetrics(BaseModel):
     total_queries: int
     total_feedbacks: int
     accuracy: str
-    instructions_efficiency: str
-    feedback_efficiency: str
+    instructions_coverage: str  # Rename from instructions_efficiency
+    instructions_effectiveness: float  # New field for judge metrics
+    context_effectiveness: float  # New field for judge metrics
+    response_quality: float  # New field for judge metrics
     active_users: int
 
 class MetricsComparison(BaseModel):
@@ -40,7 +42,10 @@ class ActivityMetrics(BaseModel):
 
 class PerformanceMetrics(BaseModel):
     accuracy: List[TimeSeriesPointFloat]
-    instructions_efficiency: List[TimeSeriesPointFloat] 
+    instructions_coverage: List[TimeSeriesPointFloat]  # Rename from instructions_efficiency
+    instructions_effectiveness: List[TimeSeriesPointFloat]  # New judge metric
+    context_effectiveness: List[TimeSeriesPointFloat]  # New judge metric
+    response_quality: List[TimeSeriesPointFloat]  # New judge metric
     positive_feedback_rate: List[TimeSeriesPointFloat]
 
 class TimeSeriesMetrics(BaseModel):
@@ -146,6 +151,9 @@ class TraceCompletionData(BaseModel):
     status: Optional[str] = None
     has_issue: bool = False
     issue_type: Optional[str] = None
+    instructions_effectiveness: Optional[int] = None
+    context_effectiveness: Optional[int] = None
+    response_score: Optional[int] = None
 
 class TraceStepData(BaseModel):
     step_id: str

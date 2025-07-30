@@ -28,14 +28,14 @@
                 <div class="text-sm font-medium text-gray-600 mt-1">Negative Feedback</div>
             </div>
             
-            <!-- Resolution Rate -->
+            <!-- Instructions Effectiveness -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ getResolutionRate() }}
+                    {{ Math.round(getInstructionsEffectiveness()) }}%
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                    Instruction Efficiency
-                    <UTooltip text="Percentage of issues that have been addressed or resolved">
+                    Instructions Effectiveness
+                    <UTooltip text="AI judge score for how well instructions guide responses (20-100 scale, average for period)">
                         <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
                     </UTooltip>
                 </div>
@@ -301,6 +301,7 @@ const currentPage = ref(1)
 const pageSize = ref(10)
 const totalItems = ref(0)
 const debugInfo = ref('')
+const instructionsEffectiveness = ref<number | null>(null)
 
 // Add these to the state section
 const showTraceModal = ref(false)
@@ -412,18 +413,22 @@ const fetchDiagnosisData = async () => {
         
         debugInfo.value = `Fetching with params: ${params.toString()}`
         
-        const response = await useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`)
+        // Fetch both diagnosis data and judge metrics in parallel
+        const [diagnosisResponse] = await Promise.all([
+            useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`),
+            fetchJudgeMetrics()
+        ])
         
-        if (response.error.value) {
-            console.error('Error fetching diagnosis data:', response.error.value)
-            debugInfo.value = `Error: ${response.error.value}`
+        if (diagnosisResponse.error.value) {
+            console.error('Error fetching diagnosis data:', diagnosisResponse.error.value)
+            debugInfo.value = `Error: ${diagnosisResponse.error.value}`
             metrics.value = null
             diagnosisItems.value = []
             totalItems.value = 0
-        } else if (response.data.value) {
-            metrics.value = response.data.value
-            diagnosisItems.value = response.data.value.diagnosis_items || []
-            totalItems.value = response.data.value.total_items || 0
+        } else if (diagnosisResponse.data.value) {
+            metrics.value = diagnosisResponse.data.value
+            diagnosisItems.value = diagnosisResponse.data.value.diagnosis_items || []
+            totalItems.value = diagnosisResponse.data.value.total_items || 0
             debugInfo.value = `Loaded ${diagnosisItems.value.length} items, total: ${totalItems.value}`
         }
     } catch (error) {
@@ -471,12 +476,31 @@ const formatDate = (dateString: string) => {
 
 // Add these methods to the existing script section
 
-const getResolutionRate = () => {
-    // Mock resolution rate for now - this could be calculated based on actual resolution data
-    if (!metrics.value?.total_items) return 'N/A'
-    
-    // For demo purposes, assume 85% resolution rate
-    return '85%'
+const fetchJudgeMetrics = async () => {
+    try {
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
+        }
+        
+        const response = await useMyFetch<any>(`/api/console/metrics?${params}`)
+        
+        if (response.data.value) {
+            instructionsEffectiveness.value = response.data.value.instructions_effectiveness
+        }
+    } catch (error) {
+        console.error('Failed to fetch judge metrics:', error)
+    }
+}
+
+const getInstructionsEffectiveness = () => {
+    if (instructionsEffectiveness.value === null || instructionsEffectiveness.value === undefined) {
+        return 'N/A'
+    }
+    return instructionsEffectiveness.value.toFixed(1)
 }
 
 const getDateRangeDays = () => {

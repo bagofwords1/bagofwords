@@ -143,8 +143,9 @@ class ProjectManager:
         await db.refresh(step)
         return step
     
-    async def update_step_status(self, db, step, status):
+    async def update_step_status(self, db, step, status, status_reason=None):
         step.status = status
+        step.status_reason = status_reason
         db.add(step)
         await db.commit()
         await db.refresh(step)
@@ -226,6 +227,26 @@ class ProjectManager:
 
     async def update_completion_status(self, db, completion, status):
         completion.status = status
+        db.add(completion)
+        await db.commit()
+        await db.refresh(completion)
+        return completion
+        
+    async def update_completion_scores(self, db, completion, instructions_score=None, context_score=None):
+        """Update instructions and context effectiveness scores for a completion."""
+        if instructions_score is not None:
+            completion.instructions_effectiveness = instructions_score
+        if context_score is not None:
+            completion.context_effectiveness = context_score
+        
+        db.add(completion)
+        await db.commit()
+        await db.refresh(completion)
+        return completion
+
+    async def update_completion_response_score(self, db, completion, response_score):
+        """Update response score for a completion."""
+        completion.response_score = response_score
         db.add(completion)
         await db.commit()
         await db.refresh(completion)

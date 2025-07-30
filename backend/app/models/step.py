@@ -16,6 +16,7 @@ class Step(BaseSchema):
     title = Column(String, index=True, nullable=False, unique=False, default="")
     slug = Column(String, index=True, nullable=False, unique=True)
     status = Column(String, nullable=False, default='draft')
+    status_reason = Column(String, nullable=True, default=None)
     prompt = Column(Text, nullable=False, default="")
     code = Column(Text, nullable=False, default="")
     data = Column(JSON, nullable=True, default=dict)

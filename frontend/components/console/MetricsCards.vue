@@ -1,5 +1,5 @@
 <template>
-    <div class="grid grid-cols-1 md:grid-cols-6 gap-6 mb-8">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
         <!-- Messages -->
         <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
             <div class="text-2xl font-bold text-gray-900">
@@ -32,18 +32,64 @@
                 {{ metricsComparison?.current.accuracy || 'N/A' }}
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1">Accuracy</div>
+            <div v-if="metricsComparison?.changes.accuracy" class="text-xs mt-2">
+                <span :class="getChangeClass(metricsComparison.changes.accuracy.percentage)">
+                    {{ formatChange(metricsComparison.changes.accuracy) }}
+                </span>
+            </div>
         </div>
         
-        <!-- Instructions Coverage -->
+        <!-- Instructions Effectiveness -->
         <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
             <div class="text-2xl font-bold text-gray-900">
-                {{ metricsComparison?.current.instructions_coverage || 'N/A' }}
+                {{ Math.round(metricsComparison?.current.instructions_effectiveness) }}%
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                Instructions Coverage
-                <UTooltip text="Percentage of user queries that have matching instruction templates">
+                Instructions Effectiveness
+                <UTooltip text="AI judge score for how well instructions guide responses (20-100 scale)">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
                 </UTooltip>
+            </div>
+            <div v-if="metricsComparison?.changes.instructions_effectiveness" class="text-xs mt-2">
+                <span :class="getChangeClass(metricsComparison.changes.instructions_effectiveness.percentage)">
+                    {{ formatJudgeChange(metricsComparison.changes.instructions_effectiveness) }}
+                </span>
+            </div>
+        </div>
+        
+        <!-- Context Effectiveness -->
+        <div class="bg-white p-6 border hidden border-gray-200 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900">
+                {{ formatScore(metricsComparison?.current.context_effectiveness) }}
+            </div>
+            <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+                Context Effectiveness
+                <UTooltip text="AI judge score for context quality and relevance (0-100)">
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                </UTooltip>
+            </div>
+            <div v-if="metricsComparison?.changes.context_effectiveness" class="text-xs mt-2">
+                <span :class="getChangeClass(metricsComparison.changes.context_effectiveness.percentage)">
+                    {{ formatJudgeChange(metricsComparison.changes.context_effectiveness) }}
+                </span>
+            </div>
+        </div>
+        
+        <!-- Response Quality -->
+        <div class="bg-white p-6 border hidden border-gray-200 rounded-xl shadow-sm">
+            <div class="text-2xl font-bold text-gray-900">
+                {{ formatScore(metricsComparison?.current.response_quality) }}
+            </div>
+            <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+                Response Quality
+                <UTooltip text="AI judge score for overall response quality (0-100)">
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                </UTooltip>
+            </div>
+            <div v-if="metricsComparison?.changes.response_quality" class="text-xs mt-2">
+                <span :class="getChangeClass(metricsComparison.changes.response_quality.percentage)">
+                    {{ formatJudgeChange(metricsComparison.changes.response_quality) }}
+                </span>
             </div>
         </div>
         
@@ -87,6 +133,9 @@ interface SimpleMetrics {
     total_feedbacks: number
     accuracy: string
     instructions_coverage: string
+    instructions_effectiveness: number
+    context_effectiveness: number
+    response_quality: number
     active_users: number
 }
 
@@ -106,6 +155,16 @@ defineProps<Props>()
 const formatChange = (change: MetricChange) => {
     const sign = change.percentage > 0 ? '+' : ''
     return `${sign}${change.percentage.toFixed(1)}% (${sign}${change.absolute})`
+}
+
+const formatJudgeChange = (change: MetricChange) => {
+    const sign = change.percentage > 0 ? '+' : ''
+    return `${sign}${change.percentage.toFixed(1)}% (${sign}${change.absolute.toFixed(1)})`
+}
+
+const formatScore = (score: number | undefined) => {
+    if (score === undefined || score === null) return 'N/A'
+    return score.toFixed(1)
 }
 
 const getChangeClass = (percentage: number) => {

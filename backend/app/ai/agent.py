@@ -25,6 +25,7 @@ from app.models.widget import Widget
 from app.project_manager import ProjectManager
 from app.ai.agents.coder.coder import Coder
 from app.ai.agents.reporter.reporter import Reporter
+from app.ai.agents.judge import Judge
 
 from app.ai.context.instruction_context_builder import InstructionContextBuilder
 
@@ -88,6 +89,7 @@ class Agent:
         self.project_manager = ProjectManager()
         self.coder = Coder(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)
         self.reporter = Reporter(model=model)
+        self.judge = Judge(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)
         # Create code execution manager with all required dependencies
         self.code_execution_manager = CodeExecutionManager(
             logger=logger,
@@ -124,6 +126,18 @@ class Agent:
             memories = await self._build_memories_context()
             previous_messages = await self._build_messages_context()
             head_completion = self.head_completion
+            
+            # Early scoring: Instructions and Context effectiveness
+            try:
+                instructions_score, context_score = await self.judge.score_instructions_and_context(
+                    head_completion.prompt, schemas, memories, previous_messages
+                )
+                await self.project_manager.update_completion_scores(
+                    self.db, head_completion, instructions_score, context_score
+                )
+                logger.info(f"Early scoring complete - Instructions: {instructions_score}, Context: {context_score}")
+            except Exception as e:
+                logger.warning(f"Early scoring failed: {e}")
             
             # Initialize observation data and tracking
             observation_data = None
@@ -720,6 +734,21 @@ class Agent:
 
             #if self.system_completion: # Ensure system_completion exists before updating
              #   await self.project_manager.update_completion_status(self.db, self.system_completion, status)
+            
+            # Late scoring: Response quality assessment
+            try:
+                # Get all widgets and steps for scoring
+                all_widgets_and_steps = await self._get_report_widgets_and_steps(self.report.id)
+                response_score = await self.judge.score_response_quality(
+                    head_completion.prompt, all_widgets_and_steps, observation_data
+                )
+                await self.project_manager.update_completion_response_score(
+                    self.db, head_completion, response_score
+                )
+                logger.info(f"Response scoring complete - Score: {response_score}")
+            except Exception as e:
+                logger.warning(f"Response scoring failed: {e}")
+            
             logger.info(f"Main execution completed with status: {status}")
             
             # Clean up

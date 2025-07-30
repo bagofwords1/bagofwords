@@ -165,6 +165,25 @@
                                     </div>
                                 </div>
 
+                                <!-- AI Scoring Section -->
+                                <div v-if="selectedItem.role === 'user' && hasAnyScores(selectedItem)" class="bg-purple-50 border border-purple-200 rounded-lg p-3">
+                                    <label class="block text-xs font-medium text-purple-800 mb-3">AI Quality Scores (1-5 scale)</label>
+                                    <div class="grid grid-cols-3 gap-3">
+                                        <div v-if="selectedItem.instructions_effectiveness" class="text-center">
+                                            <div class="text-lg font-bold text-purple-700">{{ selectedItem.instructions_effectiveness }}</div>
+                                            <div class="text-xs text-purple-600">Instructions</div>
+                                        </div>
+                                        <div v-if="selectedItem.context_effectiveness" class="text-center">
+                                            <div class="text-lg font-bold text-purple-700">{{ selectedItem.context_effectiveness }}</div>
+                                            <div class="text-xs text-purple-600">Context</div>
+                                        </div>
+                                        <div v-if="selectedItem.response_score" class="text-center">
+                                            <div class="text-lg font-bold text-purple-700">{{ selectedItem.response_score }}</div>
+                                            <div class="text-xs text-purple-600">Response</div>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-xs font-medium text-gray-700 mb-1">Role</label>
@@ -278,6 +297,9 @@ interface TraceCompletionData {
     status?: string
     has_issue: boolean
     issue_type?: string
+    instructions_effectiveness?: number
+    context_effectiveness?: number
+    response_score?: number
 }
 
 interface TraceStepData {
@@ -436,6 +458,10 @@ const getSelectedItemTitle = () => {
 
 const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString()
+}
+
+const hasAnyScores = (item: any) => {
+    return item.instructions_effectiveness || item.context_effectiveness || item.response_score
 }
 
 // Watch for modal opening

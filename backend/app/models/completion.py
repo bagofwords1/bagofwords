@@ -53,6 +53,10 @@ class Completion(BaseSchema):
 
     main_router = Column(String, nullable=False, default='table')
 
+    instructions_effectiveness = Column(Integer, nullable=True, default=4)
+    context_effectiveness = Column(Integer, nullable=True, default=4)
+    response_score = Column(Integer, nullable=True, default=4)  # 1-5 rating of AI performance, where 1=poor and 5=excellent
+
     mentions = relationship("Mention", back_populates="completion", lazy='selectin')
     feedbacks = relationship("CompletionFeedback", back_populates="completion", cascade="all, delete-orphan", lazy='select')
     

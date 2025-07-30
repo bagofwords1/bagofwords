@@ -108,14 +108,53 @@ class ConsoleService:
         users_result = await db.execute(users_query)
         active_users = users_result.scalar() or 0
         
+        # Calculate judge metrics averages
+        judge_metrics_query = (
+            select(
+                func.avg(Completion.instructions_effectiveness).label('avg_instructions_effectiveness'),
+                func.avg(Completion.context_effectiveness).label('avg_context_effectiveness'), 
+                func.avg(Completion.response_score).label('avg_response_score')
+            )
+            .join(Report)
+            .where(
+                report_filter,
+                Completion.created_at >= start_date,
+                Completion.created_at <= end_date,
+                Completion.instructions_effectiveness.isnot(None)  # Only include completions with judge scores
+            )
+        )
+        
+        judge_result = await db.execute(judge_metrics_query)
+        judge_data = judge_result.first()
+        
+        # Calculate positive feedback rate
+        positive_feedbacks_query = (
+            select(func.count(CompletionFeedback.id))
+            .join(Completion, CompletionFeedback.completion_id == Completion.id)
+            .join(Report, Completion.report_id == Report.id)
+            .where(
+                report_filter,
+                CompletionFeedback.created_at >= start_date,
+                CompletionFeedback.created_at <= end_date,
+                CompletionFeedback.direction > 0
+            )
+        )
+        
+        positive_feedbacks_result = await db.execute(positive_feedbacks_query)
+        positive_feedbacks = positive_feedbacks_result.scalar() or 0
+        
+        accuracy_rate = (positive_feedbacks / total_feedbacks * 100) if total_feedbacks > 0 else 0
+        
         return SimpleMetrics(
             total_messages=total_messages,
             total_queries=total_queries,
             total_feedbacks=total_feedbacks,
             active_users=active_users,
-            accuracy="90%",  # Placeholder
-            instructions_efficiency="90%",  # Placeholder
-            feedback_efficiency="90%"  # Placeholder
+            accuracy=f"{accuracy_rate:.1f}%",
+            instructions_coverage="90%",  # Placeholder for instruction template coverage
+            instructions_effectiveness=(judge_data.avg_instructions_effectiveness or 0.0) * 20,
+            context_effectiveness=(judge_data.avg_context_effectiveness or 0.0) * 20,
+            response_quality=(judge_data.avg_response_score or 0.0) * 20
         )
 
     async def get_metrics_with_comparison(
@@ -156,7 +195,8 @@ class ConsoleService:
         """Calculate percentage and absolute changes between periods"""
         
         changes = {}
-        numeric_fields = ["total_messages", "total_queries", "total_feedbacks", "active_users"]
+        numeric_fields = ["total_messages", "total_queries", "total_feedbacks", "active_users", 
+                         "instructions_effectiveness", "context_effectiveness", "response_quality"]
         
         for field in numeric_fields:
             current_val = getattr(current, field)
@@ -166,7 +206,7 @@ class ConsoleService:
             percentage_change = (absolute_change / previous_val * 100) if previous_val > 0 else 0
             
             changes[field] = {
-                "absolute": absolute_change,
+                "absolute": round(absolute_change, 2),
                 "percentage": round(percentage_change, 1)
             }
         
@@ -206,8 +246,16 @@ class ConsoleService:
         messages_data = []
         queries_data = []
         accuracy_data = []
-        efficiency_data = []
+        coverage_data = []
+        instructions_effectiveness_data = []
+        context_effectiveness_data = []
+        response_quality_data = []
         feedback_data = []
+        
+        # For smoothing - keep track of last non-zero values
+        last_instructions_effectiveness = 0.0
+        last_context_effectiveness = 0.0
+        last_response_quality = 0.0
         
         for interval_start, interval_end in intervals:
             # Messages count for this day
@@ -263,6 +311,44 @@ class ConsoleService:
             # Calculate positive feedback rate
             positive_rate = (positive_feedbacks / total_feedbacks * 100) if total_feedbacks > 0 else 0
             
+            # Calculate judge metrics for this day
+            judge_metrics_result = await db.execute(
+                select(
+                    func.avg(Completion.instructions_effectiveness).label('avg_instructions_effectiveness'),
+                    func.avg(Completion.context_effectiveness).label('avg_context_effectiveness'),
+                    func.avg(Completion.response_score).label('avg_response_score')
+                )
+                .join(Report)
+                .where(
+                    Report.organization_id == organization.id,
+                    Completion.created_at >= interval_start,
+                    Completion.created_at < interval_end,
+                    Completion.instructions_effectiveness.isnot(None)
+                )
+            )
+            judge_data = judge_metrics_result.first()
+            
+            # Apply smoothing logic and convert to 1-100 scale
+            current_instructions_effectiveness = (judge_data.avg_instructions_effectiveness or 0.0) * 20
+            current_context_effectiveness = (judge_data.avg_context_effectiveness or 0.0) * 20
+            current_response_quality = (judge_data.avg_response_score or 0.0) * 20
+            
+            # For smoothing: if no queries (scores are 0), keep last non-zero value
+            if current_instructions_effectiveness > 0:
+                last_instructions_effectiveness = current_instructions_effectiveness
+            elif last_instructions_effectiveness > 0:
+                current_instructions_effectiveness = last_instructions_effectiveness
+                
+            if current_context_effectiveness > 0:
+                last_context_effectiveness = current_context_effectiveness
+            elif last_context_effectiveness > 0:
+                current_context_effectiveness = last_context_effectiveness
+                
+            if current_response_quality > 0:
+                last_response_quality = current_response_quality
+            elif last_response_quality > 0:
+                current_response_quality = last_response_quality
+            
             date_str = interval_start.strftime('%Y-%m-%d')
             
             # Create TimeSeriesPoint objects
@@ -270,8 +356,11 @@ class ConsoleService:
             queries_data.append(TimeSeriesPoint(date=date_str, value=queries_count))
             
             # Create TimeSeriesPointFloat objects for percentages
-            accuracy_data.append(TimeSeriesPointFloat(date=date_str, value=90.0))  # Placeholder
-            efficiency_data.append(TimeSeriesPointFloat(date=date_str, value=85.0))  # Placeholder
+            accuracy_data.append(TimeSeriesPointFloat(date=date_str, value=positive_rate))
+            coverage_data.append(TimeSeriesPointFloat(date=date_str, value=90.0))  # Placeholder for instruction coverage
+            instructions_effectiveness_data.append(TimeSeriesPointFloat(date=date_str, value=current_instructions_effectiveness))
+            context_effectiveness_data.append(TimeSeriesPointFloat(date=date_str, value=current_context_effectiveness))
+            response_quality_data.append(TimeSeriesPointFloat(date=date_str, value=current_response_quality))
             feedback_data.append(TimeSeriesPointFloat(date=date_str, value=positive_rate))
         
         return TimeSeriesMetrics(
@@ -285,7 +374,10 @@ class ConsoleService:
             ),
             performance_metrics=PerformanceMetrics(
                 accuracy=accuracy_data,
-                instructions_efficiency=efficiency_data,
+                instructions_coverage=coverage_data,
+                instructions_effectiveness=instructions_effectiveness_data,
+                context_effectiveness=context_effectiveness_data,
+                response_quality=response_quality_data,
                 positive_feedback_rate=feedback_data
             )
         )
@@ -919,7 +1011,10 @@ class ConsoleService:
                 created_at=completion.created_at,
                 status=completion.status,
                 has_issue=has_issue,
-                issue_type=completion_issue_type
+                issue_type=completion_issue_type,
+                instructions_effectiveness=completion.instructions_effectiveness,
+                context_effectiveness=completion.context_effectiveness,
+                response_score=completion.response_score
             )
             
             completion_data.append(trace_completion)

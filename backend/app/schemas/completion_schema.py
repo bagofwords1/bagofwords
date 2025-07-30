@@ -36,6 +36,9 @@ class CompletionSchema(CompletionBase):
     updated_at: datetime
     widget: Optional[WidgetSchema] = None
     main_router: str = "table"
+    instructions_effectiveness: Optional[int] = None
+    context_effectiveness: Optional[int] = None
+    response_score: Optional[int] = None
     step_id: Optional[str] = None
     step: Optional[StepSchema] = None
     external_platform: Optional[str] = None
