@@ -45,61 +45,16 @@
                 />
             </div>
 
-            <!-- Second Row: Failed Queries + Negative Feedback -->
+            <!-- Second Row: Failed Queries + Recent Instructions -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                 <!-- Recently Failed Queries -->
-                <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div class="p-6 border-b border-gray-50">
-                        <h3 class="text-lg font-semibold text-gray-900">Recently Failed Queries</h3>
-                        <p class="text-sm text-gray-500 mt-1">Latest query failures - for more go to <nuxt-link to="/console/diagnosis" class="text-blue-600 hover:text-blue-800">diagnosis</nuxt-link> page</p>
-                    </div>
-                    <div class="p-0">
-                        <div class="overflow-hidden">
-                            <table class="min-w-full">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Failure Reason</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="bg-white divide-y divide-gray-200">
-                                    <tr v-for="(query, index) in mockFailedQueries" :key="index" class="hover:bg-gray-50">
-                                        <td class="px-6 py-4">
-                                            <div class="text-sm text-gray-900 max-w-xs truncate" :title="query.prompt">
-                                                {{ query.prompt }}
-                                            </div>
-                                            <div class="text-xs text-gray-500">
-                                                {{ new Date(query.timestamp).toLocaleString() }}
-                                            </div>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <div class="flex items-center">
-                                                <Icon 
-                                                    :name="query.failure_reason === 'validation' ? 'heroicons-exclamation-triangle' : 'heroicons-x-circle'"
-                                                    :class="[
-                                                        'w-4 h-4 mr-2',
-                                                        query.failure_reason === 'validation' ? 'text-yellow-500' : 'text-red-500'
-                                                    ]"
-                                                />
-                                                <span :class="[
-                                                    'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                                                    query.failure_reason === 'validation' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
-                                                ]">
-                                                    {{ query.failure_reason }}
-                                                </span>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
+                <RecentQueries
+                    :date-range="dateRange"
+                />
 
-                <!-- Recent Negative Feedback -->
-                <RecentNegativeFeedbackTable
-                    :negative-feedback-data="negativeFeedbackData"
-                    :is-loading="isLoadingWidgets"
+                <!-- Recent Instructions -->
+                <RecentInstructions
+                    :date-range="dateRange"
                 />
             </div>
 
@@ -130,7 +85,8 @@ import TableUsageChart from '~/components/console/TableUsageChart.vue'
 import TableJoinsHeatmap from '~/components/console/TableJoinsHeatmap.vue'
 import TopPromptTypesChart from '~/components/console/TopPromptTypesChart.vue'
 import TopUsersTable from '~/components/console/TopUsersTable.vue'
-import RecentNegativeFeedbackTable from '~/components/console/RecentNegativeFeedbackTable.vue'
+import RecentInstructions from '~/components/console/RecentInstructions.vue'
+import RecentQueries from '~/components/console/RecentQueries.vue'
 
 // Interfaces
 interface SimpleMetrics {
@@ -229,23 +185,6 @@ interface TopUsersMetrics {
     date_range: DateRange
 }
 
-interface RecentNegativeFeedbackData {
-    id: string
-    description: string
-    user_name: string
-    user_id: string
-    completion_id: string
-    prompt?: string
-    created_at: string
-    trace?: string
-}
-
-interface RecentNegativeFeedbackMetrics {
-    recent_feedbacks: RecentNegativeFeedbackData[]
-    total_negative_feedbacks: number
-    date_range: DateRange
-}
-
 // State
 const metricsComparison = ref<MetricsComparison | null>(null)
 const dateRange = ref({
@@ -272,7 +211,6 @@ const tableJoinsData = ref<TableJoinsHeatmap | null>(null)
 const isLoadingTableCharts = ref(false)
 
 const topUsersData = ref<TopUsersMetrics | null>(null)
-const negativeFeedbackData = ref<RecentNegativeFeedbackMetrics | null>(null)
 const isLoadingWidgets = ref(false)
 
 // Keep the other mock data for widgets that don't have backend yet
@@ -294,38 +232,7 @@ const mockPromptTypesData = ref([
     { type: 'Comparison', count: 76 }
 ].sort((a, b) => b.count - a.count))
 
-const mockFailedQueries = ref([
-    { 
-        prompt: 'Show me sales data for Q4 2024', 
-        failure_reason: 'validation', 
-        error_detail: 'Date range not found in database',
-        timestamp: '2024-01-15 14:30:22'
-    },
-    { 
-        prompt: 'Generate revenue chart by region', 
-        failure_reason: 'code error', 
-        error_detail: 'Column "region_id" does not exist',
-        timestamp: '2024-01-15 13:45:18'
-    },
-    { 
-        prompt: 'Calculate customer churn rate', 
-        failure_reason: 'validation', 
-        error_detail: 'Insufficient data permissions',
-        timestamp: '2024-01-15 12:20:15'
-    },
-    { 
-        prompt: 'Export user analytics to Excel', 
-        failure_reason: 'code error', 
-        error_detail: 'Memory limit exceeded',
-        timestamp: '2024-01-15 11:55:42'
-    },
-    { 
-        prompt: 'Show top performing products', 
-        failure_reason: 'validation', 
-        error_detail: 'Product table access denied',
-        timestamp: '2024-01-15 10:30:08'
-    }
-])
+// Remove mockFailedQueries since we now use real data from RecentQueries component
 
 const mockNegativeFeedback = ref([
     {
@@ -518,37 +425,12 @@ const fetchTopUsers = async () => {
     }
 }
 
-const fetchNegativeFeedback = async () => {
-    try {
-        const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
-        
-        const { data, error } = await useMyFetch<RecentNegativeFeedbackMetrics>(`/api/console/metrics/recent-negative-feedback?${params}`, {
-            method: 'GET'
-        })
-        
-        if (error.value) {
-            console.error('Failed to fetch negative feedback:', error.value)
-        } else if (data.value) {
-            negativeFeedbackData.value = data.value
-        }
-    } catch (err) {
-        console.error('Error fetching negative feedback:', err)
-    }
-}
-
 const refreshData = async () => {
     await Promise.all([
         fetchTimeSeriesData(),
         fetchTableUsageData(),
         fetchTableJoinsData(),
-        fetchTopUsers(),
-        fetchNegativeFeedback()
+        fetchTopUsers()
     ])
 }
 
@@ -580,8 +462,7 @@ onMounted(async () => {
             fetchTimeSeriesData(),
             fetchTableUsageData(),
             fetchTableJoinsData(),
-            fetchTopUsers(),
-            fetchNegativeFeedback()
+            fetchTopUsers()
         ])
     } catch (err) {
         console.error('Error fetching data:', err)
