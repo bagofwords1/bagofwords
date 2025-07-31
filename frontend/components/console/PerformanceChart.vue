@@ -12,8 +12,14 @@
                         <span class="text-gray-600">Loading chart...</span>
                     </div>
                 </div>
+                <div v-else-if="!chartOptions" class="flex items-center justify-center h-full">
+                    <div class="text-center">
+                        <div class="text-gray-400 text-sm">No performance data available</div>
+                        <div class="text-gray-300 text-xs mt-1">No activity with performance metrics found</div>
+                    </div>
+                </div>
                 <VChart
-                    v-else-if="chartOptions"
+                    v-else
                     class="chart"
                     :option="chartOptions"
                     autoresize
@@ -72,13 +78,26 @@ const chartOptions = computed((): EChartsOption | null => {
     const accuracy = props.performanceMetrics.accuracy
     const instructionsEffectiveness = props.performanceMetrics.instructions_effectiveness || []
     
-    const dates = accuracy.map(item => {
+    // Filter out data points where both accuracy and instructions effectiveness are 0
+    const filteredData = accuracy.map((accuracyItem, index) => {
+        const instructionsItem = instructionsEffectiveness[index]
+        return {
+            date: accuracyItem.date,
+            accuracy: accuracyItem.value,
+            instructions: instructionsItem ? instructionsItem.value : 0
+        }
+    }).filter(item => item.accuracy > 0 || item.instructions > 0)
+    
+    // If no data points remain after filtering, return null
+    if (filteredData.length === 0) return null
+    
+    const dates = filteredData.map(item => {
         const date = new Date(item.date)
         return `${date.getMonth() + 1}/${date.getDate()}`
     })
     
-    const accuracyData = accuracy.map(item => item.value)
-    const instructionsEffectivenessData = instructionsEffectiveness.map(item => item.value)
+    const accuracyData = filteredData.map(item => item.accuracy)
+    const instructionsEffectivenessData = filteredData.map(item => item.instructions)
     
     const numDates = dates.length
     let interval = 0

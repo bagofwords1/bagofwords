@@ -3,11 +3,8 @@
         <!-- Date Range Picker (same as ConsoleOverview) -->
         <DateRangePicker
             :selected-period="selectedPeriod"
-            :custom-date-range="customDateRange"
             :date-range="dateRange"
             @period-change="handlePeriodChange"
-            @custom-range-change="handleCustomDateChange"
-            @apply-custom-range="applyCustomRange"
         />
 
         <!-- Summary Cards (matching MetricsCards.vue style) -->
@@ -15,7 +12,7 @@
             <!-- Failed Queries -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ metrics?.failed_steps_count || 0 }}
+                    {{ overallMetrics?.failed_steps_count || 0 }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1">Failed Queries</div>
             </div>
@@ -23,7 +20,7 @@
             <!-- Negative Feedback -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ metrics?.negative_feedback_count || 0 }}
+                    {{ overallMetrics?.negative_feedback_count || 0 }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1">Negative Feedback</div>
             </div>
@@ -31,7 +28,7 @@
             <!-- Instructions Effectiveness -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ Math.round(getInstructionsEffectiveness()) }}%
+                    {{ getInstructionsEffectiveness() }}%
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                     Instructions Effectiveness
@@ -44,9 +41,41 @@
             <!-- Total Issues -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ metrics?.total_items || 0 }}
+                    {{ overallMetrics?.total_items || 0 }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1">Total Issues</div>
+            </div>
+        </div>
+
+        <!-- Filter Tabs -->
+        <div class="mb-6">
+            <div class="border-b border-gray-200">
+                <nav class="-mb-px flex space-x-8">
+                    <button
+                        v-for="filter in filterOptions"
+                        :key="filter.value"
+                        @click="handleFilterChange(filter)"
+                        :class="[
+                            selectedFilter.value === filter.value
+                                ? 'border-blue-500 text-blue-600'
+                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+                            'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm'
+                        ]"
+                    >
+                        {{ filter.label }}
+                        <span
+                            v-if="filter.count !== undefined && filter.count >= 0"
+                            :class="[
+                                selectedFilter.value === filter.value
+                                    ? 'bg-blue-100 text-blue-600'
+                                    : 'bg-gray-100 text-gray-600',
+                                'ml-2 py-0.5 px-2 rounded-full text-xs font-medium'
+                            ]"
+                        >
+                            {{ filter.count }}
+                        </span>
+                    </button>
+                </nav>
             </div>
         </div>
 
@@ -65,7 +94,7 @@
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Issue Type
+                                Status
                             </th>
 
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -90,7 +119,7 @@
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 text-xs">
                         <tr v-for="item in diagnosisItems" :key="item.id" class="hover:bg-gray-50 cursor-pointer" @click="openTrace(item)">
-                            <!-- Issue Type -->
+                            <!-- Status -->
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <span class="inline-flex px-1 py-0.5 text-xs font-medium rounded-full"
                                       :class="getIssueTypeClass(item.issue_type)">
@@ -171,9 +200,9 @@
             <!-- Empty state -->
             <div v-if="diagnosisItems.length === 0 && !isLoading" class="text-center py-12">
                 <UIcon name="i-heroicons-clipboard-document-check" class="mx-auto h-12 w-12 text-gray-400" />
-                <h3 class="mt-2 text-sm font-medium text-gray-900">No issues found</h3>
+                <h3 class="mt-2 text-sm font-medium text-gray-900">No data found</h3>
                 <p class="mt-1 text-sm text-gray-500">
-                    No failed steps or negative feedback found for the selected period.
+                    No {{ selectedFilter.label.toLowerCase() }} found for the selected period.
                 </p>
                 <div class="mt-2 text-xs text-gray-400">
                     Debug: {{ debugInfo }}
@@ -280,8 +309,11 @@ interface DiagnosisItemData {
 interface DiagnosisMetrics {
     diagnosis_items: DiagnosisItemData[]
     total_items: number
+    total_queries_count: number
     failed_steps_count: number
     negative_feedback_count: number
+    code_errors_count: number
+    validation_errors_count: number
     date_range: {
         start: string
         end: string
@@ -296,6 +328,7 @@ interface DateRange {
 // State (same as ConsoleOverview)
 const isLoading = ref(false)
 const metrics = ref<DiagnosisMetrics | null>(null)
+const overallMetrics = ref<DiagnosisMetrics | null>(null) // Static metrics for top cards
 const diagnosisItems = ref<DiagnosisItemData[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
@@ -303,13 +336,22 @@ const totalItems = ref(0)
 const debugInfo = ref('')
 const instructionsEffectiveness = ref<number | null>(null)
 
+// Filter state
+const selectedFilter = ref({ label: 'All Issues', value: 'all' })
+const filterOptions = ref([
+    { label: 'All Issues', value: 'all', count: 0 },
+    { label: 'All Queries', value: 'all_queries', count: 0 },
+    { label: 'Negative Feedback', value: 'negative_feedback', count: 0 },
+    { label: 'Code Errors', value: 'code_errors', count: 0 },
+    { label: 'Validation Errors', value: 'validation_errors', count: 0 }
+])
+
 // Add these to the state section
 const showTraceModal = ref(false)
 const selectedTraceItem = ref<DiagnosisItemData | null>(null)
 
 // Date range state (same as ConsoleOverview)
-const selectedPeriod = ref({ label: 'Last 30 Days', value: '30_days' })
-const customDateRange = ref<Date[]>()
+const selectedPeriod = ref({ label: 'All Time', value: 'all_time' })
 const dateRange = ref<DateRange>({
     start: '',
     end: ''
@@ -341,23 +383,16 @@ const visiblePages = computed(() => {
 
 // Methods (same pattern as ConsoleOverview)
 const initializeDateRange = () => {
-    // Default to last 30 days
-    const end = new Date()
-    const start = new Date()
-    start.setDate(start.getDate() - 30)
-    
+    // Default to all time
+    selectedPeriod.value = { label: 'All Time', value: 'all_time' }
     dateRange.value = {
-        start: start.toISOString().split('T')[0],
-        end: end.toISOString().split('T')[0]
+        start: '',
+        end: new Date().toISOString().split('T')[0]
     }
 }
 
 const handlePeriodChange = (period: { label: string, value: string }) => {
     selectedPeriod.value = period
-    
-    if (period.value === 'custom') {
-        return
-    }
     
     const end = new Date()
     let start: Date | null = null
@@ -383,18 +418,14 @@ const handlePeriodChange = (period: { label: string, value: string }) => {
     }
     
     currentPage.value = 1
-    fetchDiagnosisData()
+    // Refresh both overall metrics and diagnosis data when date range changes
+    Promise.all([
+        fetchOverallMetrics(),
+        fetchDiagnosisData()
+    ])
 }
 
-const handleCustomDateChange = (dates: Date[]) => {
-    customDateRange.value = dates
-}
 
-const applyCustomRange = (newDateRange: DateRange) => {
-    dateRange.value = newDateRange
-    currentPage.value = 1
-    fetchDiagnosisData()
-}
 
 const fetchDiagnosisData = async () => {
     isLoading.value = true
@@ -411,13 +442,15 @@ const fetchDiagnosisData = async () => {
             params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
         
+        // Add filter parameter
+        if (selectedFilter.value.value !== 'all') {
+            params.append('filter', selectedFilter.value.value)
+        }
+        
         debugInfo.value = `Fetching with params: ${params.toString()}`
         
-        // Fetch both diagnosis data and judge metrics in parallel
-        const [diagnosisResponse] = await Promise.all([
-            useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`),
-            fetchJudgeMetrics()
-        ])
+        // Fetch diagnosis data
+        const diagnosisResponse = await useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`)
         
         if (diagnosisResponse.error.value) {
             console.error('Error fetching diagnosis data:', diagnosisResponse.error.value)
@@ -430,6 +463,9 @@ const fetchDiagnosisData = async () => {
             diagnosisItems.value = diagnosisResponse.data.value.diagnosis_items || []
             totalItems.value = diagnosisResponse.data.value.total_items || 0
             debugInfo.value = `Loaded ${diagnosisItems.value.length} items, total: ${totalItems.value}`
+            
+            // Update filter counts
+            updateFilterCounts(diagnosisResponse.data.value)
         }
     } catch (error) {
         console.error('Failed to fetch diagnosis data:', error)
@@ -445,11 +481,16 @@ const fetchDiagnosisData = async () => {
 const getIssueTypeClass = (issueType: string) => {
     switch (issueType) {
         case 'failed_step':
+        case 'code_error':
             return 'bg-red-100 text-red-800'
+        case 'validation_error':
+            return 'bg-yellow-100 text-yellow-800'
         case 'negative_feedback':
             return 'bg-orange-100 text-orange-800'
         case 'both':
             return 'bg-purple-100 text-purple-800'
+        case 'no_issue':
+            return 'bg-green-100 text-green-800'
         default:
             return 'bg-gray-100 text-gray-800'
     }
@@ -459,10 +500,16 @@ const getIssueTypeLabel = (issueType: string) => {
     switch (issueType) {
         case 'failed_step':
             return 'Failed Step'
+        case 'code_error':
+            return 'Code Error'
+        case 'validation_error':
+            return 'Validation Error'
         case 'negative_feedback':
             return 'Negative Feedback'
         case 'both':
             return 'Both Issues'
+        case 'no_issue':
+            return 'Success'
         default:
             return 'Unknown'
     }
@@ -476,7 +523,7 @@ const formatDate = (dateString: string) => {
 
 // Add these methods to the existing script section
 
-const fetchJudgeMetrics = async () => {
+const fetchOverallMetrics = async () => {
     try {
         const params = new URLSearchParams()
         if (dateRange.value.start) {
@@ -486,13 +533,21 @@ const fetchJudgeMetrics = async () => {
             params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
         
-        const response = await useMyFetch<any>(`/api/console/metrics?${params}`)
+        // Fetch overall metrics (without any filter) for the top cards
+        const [metricsResponse, judgeResponse] = await Promise.all([
+            useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`),
+            useMyFetch<any>(`/api/console/metrics?${params}`)
+        ])
         
-        if (response.data.value) {
-            instructionsEffectiveness.value = response.data.value.instructions_effectiveness
+        if (metricsResponse.data.value) {
+            overallMetrics.value = metricsResponse.data.value
+        }
+        
+        if (judgeResponse.data.value) {
+            instructionsEffectiveness.value = judgeResponse.data.value.instructions_effectiveness
         }
     } catch (error) {
-        console.error('Failed to fetch judge metrics:', error)
+        console.error('Failed to fetch overall metrics:', error)
     }
 }
 
@@ -500,7 +555,7 @@ const getInstructionsEffectiveness = () => {
     if (instructionsEffectiveness.value === null || instructionsEffectiveness.value === undefined) {
         return 'N/A'
     }
-    return instructionsEffectiveness.value.toFixed(1)
+    return Math.round(instructionsEffectiveness.value)
 }
 
 const getDateRangeDays = () => {
@@ -520,14 +575,35 @@ const openTrace = (item: DiagnosisItemData) => {
     showTraceModal.value = true
 }
 
+// Filter methods
+const handleFilterChange = (filter: { label: string, value: string }) => {
+    selectedFilter.value = filter
+    currentPage.value = 1
+    fetchDiagnosisData()
+}
+
+const updateFilterCounts = (data: DiagnosisMetrics) => {
+    filterOptions.value = [
+        { label: 'All Issues', value: 'all', count: data.total_items },
+        { label: 'All Queries', value: 'all_queries', count: data.total_queries_count },
+        { label: 'Negative Feedback', value: 'negative_feedback', count: data.negative_feedback_count },
+        { label: 'Code Errors', value: 'code_errors', count: data.code_errors_count },
+        { label: 'Validation Errors', value: 'validation_errors', count: data.validation_errors_count }
+    ]
+}
+
 // Watch for page changes
 watch(currentPage, () => {
     fetchDiagnosisData()
 })
 
 // Initialize
-onMounted(() => {
+onMounted(async () => {
     initializeDateRange()
-    fetchDiagnosisData()
+    // Fetch both overall metrics and diagnosis data on initial load
+    await Promise.all([
+        fetchOverallMetrics(),
+        fetchDiagnosisData()
+    ])
 })
 </script>

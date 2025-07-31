@@ -24,7 +24,7 @@
                 <div class="grid grid-cols-5 gap-6 flex-1 min-h-0">
                     <!-- Left Pane: Tree View (2/5 width) -->
                     <div class="col-span-2 border-r border-gray-200 pr-4 flex flex-col min-h-0">
-                        <h4 class="text-sm font-medium text-gray-900 mb-3 flex-shrink-0">Execution Flow</h4>
+                        <h4 class="text-sm font-medium text-gray-900 mb-3 flex-shrink-0">Agent Execution Flow</h4>
                         
                         <div class="flex-1 min-h-0 overflow-y-auto pr-2">
                             <div class="space-y-2">

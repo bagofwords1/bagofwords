@@ -880,7 +880,7 @@ class Agent:
                 report=self.report,
                 db=self.db,
                 message=f"An error occurred while generating data: {str(e)}",
-                status="success",
+                status="error",
                 completion=self.head_completion,
                 widget=self.widget,
                 role="ai_agent",

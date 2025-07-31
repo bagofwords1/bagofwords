@@ -3,11 +3,8 @@
         <!-- Date Range Picker -->
         <DateRangePicker
             :selected-period="selectedPeriod"
-            :custom-date-range="customDateRange"
             :date-range="dateRange"
             @period-change="handlePeriodChange"
-            @custom-range-change="handleCustomDateChange"
-            @apply-custom-range="applyCustomRange"
         />
             
         <!-- Metrics Cards -->
@@ -39,9 +36,9 @@
                 />
                 
                 <!-- Table Joins Heatmap -->
-                <TableJoinsHeatmap
-                    :table-joins-data="tableJoinsData"
-                    :is-loading="isLoadingTableCharts"
+                <TopUsersTable
+                    :top-users-data="topUsersData"
+                    :is-loading="isLoadingWidgets"
                 />
             </div>
 
@@ -58,16 +55,6 @@
                 />
             </div>
 
-            <!-- Third Row: Top Users + Top Prompt Types (50%-50%) -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <!-- Top Users -->
-                <TopUsersTable
-                    :top-users-data="topUsersData"
-                    :is-loading="isLoadingWidgets"
-                />
-                
-                <!-- Top Prompt Types -->
-            </div>
         </div>
     </div>
 </template>
@@ -93,7 +80,9 @@ interface SimpleMetrics {
     accuracy: string
     instructions_coverage: string
     active_users: number
-    // Removed instructions_efficiency and feedback_efficiency
+    instructions_effectiveness: number
+    context_effectiveness: number
+    response_quality: number
 }
 
 interface MetricChange {
@@ -130,7 +119,10 @@ interface ActivityMetrics {
 
 interface PerformanceMetrics {
     accuracy: TimeSeriesPointFloat[]
-    instructions_efficiency: TimeSeriesPointFloat[]
+    instructions_coverage: TimeSeriesPointFloat[]
+    instructions_effectiveness: TimeSeriesPointFloat[]
+    context_effectiveness: TimeSeriesPointFloat[]
+    response_quality: TimeSeriesPointFloat[]
     positive_feedback_rate: TimeSeriesPointFloat[]
 }
 
@@ -193,13 +185,11 @@ const timeSeriesData = ref<TimeSeriesMetrics | null>(null)
 
 // Add these missing state definitions:
 const selectedPeriod = ref({ label: 'All Time', value: 'all_time' })
-const customDateRange = ref()
 
 const periodOptions = [
     { label: 'All Time', value: 'all_time' },
     { label: 'Last 30 Days', value: '30_days' },
-    { label: 'Last 90 Days', value: '90_days' },
-    { label: 'Custom Range', value: 'custom' }
+    { label: 'Last 90 Days', value: '90_days' }
 ]
 
 // Replace the mock data state with real data state
@@ -286,10 +276,7 @@ const initializeDateRange = () => {
 }
 
 const handlePeriodChange = (period: { label: string, value: string }) => {
-    if (period.value === 'custom') {
-        // Don't change dateRange yet, wait for custom selection
-        return
-    }
+    selectedPeriod.value = period
     
     const end = new Date()
     let start: Date | null = null
@@ -431,15 +418,7 @@ const refreshData = async () => {
     ])
 }
 
-// Add custom date functions
-const handleCustomDateChange = (dates: Date[]) => {
-    customDateRange.value = dates
-}
 
-const applyCustomRange = (newDateRange: DateRange) => {
-    dateRange.value = newDateRange
-    refreshData()
-}
 
 onMounted(async () => {
     initializeDateRange()

@@ -137,8 +137,11 @@ class DiagnosisItemData(BaseModel):
 class DiagnosisMetrics(BaseModel):
     diagnosis_items: List[DiagnosisItemData]
     total_items: int
+    total_queries_count: int
     failed_steps_count: int
     negative_feedback_count: int
+    code_errors_count: int
+    validation_errors_count: int
     date_range: DateRange
 
 # Trace Schemas

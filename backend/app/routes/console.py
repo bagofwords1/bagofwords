@@ -121,12 +121,13 @@ async def get_diagnosis_metrics(
     params: MetricsQueryParams = Depends(),
     page: int = 1,
     page_size: int = 50,
+    filter: Optional[str] = None,
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Get diagnosis metrics for failed steps and negative feedback"""
-    return await console_service.get_diagnosis_metrics(db, organization, params, page, page_size)
+    return await console_service.get_diagnosis_metrics(db, organization, params, page, page_size, filter)
 
 @router.get("/console/trace/{report_id}/{completion_id}", response_model=TraceData)
 @requires_permission("view_organization_overview")
