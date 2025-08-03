@@ -100,6 +100,14 @@ class CodeExecutionManager:
                         if self.logger:
                             self.logger.warning(f"Validation failed (attempt {retries+1}/{max_retries}): {error_msg}")
                         
+                        # Update step status to error when validation fails
+                        if current_step:
+                            try:
+                                await self.project_manager.update_step_status(self.db, current_step, "error", status_reason=f"Validation failed: {error_msg}")
+                            except Exception as step_error:
+                                if self.logger:
+                                    self.logger.error(f"Error updating step status to error: {str(step_error)}")
+                        
                         # Create validation failed message
                         try:
                             await self.project_manager.create_message(
@@ -183,7 +191,7 @@ class CodeExecutionManager:
                     # Update step status to error if all retries failed
                     if current_step:
                         try:
-                            await self.project_manager.update_step_status(self.db, current_step, "error")
+                            await self.project_manager.update_step_status(self.db, current_step, "error", status_reason=f"Code execution failed: {error_msg}")
                         except Exception as status_error:
                             if self.logger:
                                 self.logger.error(f"Error updating step status: {str(status_error)}")

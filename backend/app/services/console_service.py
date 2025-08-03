@@ -768,6 +768,7 @@ class ConsoleService:
                     Step.id.label('step_id'),
                     Step.title.label('step_title'),
                     Step.status.label('step_status'),
+                    Step.status_reason.label('step_status_reason'),  # Add this line
                     Step.code.label('step_code'),
                     Step.data_model.label('step_data_model'),
                     Step.created_at.label('step_created_at')
@@ -837,6 +838,7 @@ class ConsoleService:
                     Step.id.label('step_id'),
                     Step.title.label('step_title'),
                     Step.status.label('step_status'),
+                    Step.status_reason.label('step_status_reason'),  # Add this line
                     Step.code.label('step_code'),
                     Step.data_model.label('step_data_model'),
                     Step.created_at.label('step_created_at'),
@@ -890,7 +892,11 @@ class ConsoleService:
                 issue_type = 'no_issue'  # Default for queries without issues
                 
                 if row.step_status == 'error':
-                    if row.step_code and ('validation' in str(row.step_code).lower() or 'invalid' in str(row.step_code).lower()):
+                    # First check status_reason for validation failed message
+                    if row.step_status_reason and 'Validation failed:' in str(row.step_status_reason):
+                        issue_type = 'validation_error'
+                    # Fallback to checking code content for validation keywords
+                    elif row.step_code and ('validation' in str(row.step_code).lower() or 'invalid' in str(row.step_code).lower()):
                         issue_type = 'validation_error'
                     else:
                         issue_type = 'code_error'
@@ -955,8 +961,11 @@ class ConsoleService:
                 if row.step_status == 'validation_error':
                     step_issue_type = 'validation_error'
                 elif row.step_status == 'error':
-                    # Check if the error is a validation error based on content
-                    if row.step_code and ('validation' in str(row.step_code).lower() or 'invalid' in str(row.step_code).lower()):
+                    # First check status_reason for validation failed message
+                    if row.step_status_reason and 'Validation failed:' in str(row.step_status_reason):
+                        step_issue_type = 'validation_error'
+                    # Fallback to checking code content for validation keywords
+                    elif row.step_code and ('validation' in str(row.step_code).lower() or 'invalid' in str(row.step_code).lower()):
                         step_issue_type = 'validation_error'
                     else:
                         step_issue_type = 'code_error'
@@ -973,6 +982,7 @@ class ConsoleService:
                     'step_id': row.step_id,
                     'step_title': row.step_title,
                     'step_status': row.step_status,
+                    'step_status_reason': row.step_status_reason,  # Include status_reason in item_data
                     'step_code': row.step_code,
                     'step_data_model': row.step_data_model,
                     'step_created_at': row.step_created_at,

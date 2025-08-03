@@ -181,16 +181,6 @@
                                 >
                                     Trace
                                 </UButton>
-                                <UButton
-                                    v-if="item.trace_url"
-                                    :to="item.trace_url"
-                                    variant="outline"
-                                    size="xs"
-                                    color="blue"
-                                    class="ml-2"
-                                >
-                                    AI Instruction
-                                </UButton>
                             </td>
                         </tr>
                     </tbody>
