@@ -1,8 +1,9 @@
 # Release Notes
 
 ## Version 0.0.178 (August 3, 2025)
-- Updated Dockerfile for latest security vulnerabilities
-- Added Claude 4 Sonnet and Opus
+- Enhanced security by updating Dockerfile with latest vulnerability patches
+- Integrated Claude 4 Sonnet and Opus language models
+- Implemented full support for Vertica database connectivity and querying
 
 ## Version 0.0.177 (July 30, 2025)
 - Added comprehensive admin console with three main sections: Explore, Diagnose, and Instructions management
