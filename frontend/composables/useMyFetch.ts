@@ -1,7 +1,5 @@
 // /composables/useMyFetch.ts
 
-import { Ref } from 'vue'
-
 export const useMyFetch: typeof useFetch = async (request, opts?) => {
   const config = useRuntimeConfig()
   const { token } = useAuth()

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.178 (August 3, 2025)
+- Updated Dockerfile for latest security vulnerabilities
+- Added Claude 4 Sonnet and Opus
+
 ## Version 0.0.177 (July 30, 2025)
 - Added comprehensive admin console with three main sections: Explore, Diagnose, and Instructions management
 - **Explore**: Organization analytics dashboard with real-time metrics, activity charts, performance tracking, table usage analysis, table joins heatmap, failed queries overview, recent instructions, top users, and prompt type analytics
