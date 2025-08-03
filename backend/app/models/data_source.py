@@ -110,6 +110,15 @@ DATA_SOURCE_DETAILS = [
         "config": "AWSCostConfig",
         "status": "active",
         "version": "beta"
+    },
+
+    {
+        "type": "vertica",
+        "title": "Vertica",
+        "description": "High-performance columnar analytics database optimized for large-scale data warehousing and analytics workloads.",
+        "config": "VerticaConfig",
+        "status": "active",
+        "version": "1.0.0"
     }
 
 

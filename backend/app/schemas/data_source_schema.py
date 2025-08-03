@@ -78,7 +78,8 @@ class DataSourceCreate(DataSourceBase):
             'GCP': GCPCredentials,
             'google_analytics': GoogleAnalyticsCredentials,
             'aws_cost': AWSCostCredentials,
-            'aws_athena': AWSAthenaCredentials
+            'aws_athena': AWSAthenaCredentials,
+            'vertica': VerticaCredentials
         }
         
         schema = credential_schemas.get(values['type'])
@@ -260,4 +261,15 @@ class AWSAthenaConfig(BaseModel):
     workgroup: str = "primary"
     s3_output_location: str  # S3 location where query results are stored
     data_source: str = "AwsDataCatalog"
+
+# Vertica
+class VerticaCredentials(BaseModel):
+    user: str
+    password: str
+
+class VerticaConfig(BaseModel):
+    host: str
+    port: int = Field(5433, ge=1, le=65535)
+    database: str
+    schema: str = Field(default="public", description="Schema name")
 
