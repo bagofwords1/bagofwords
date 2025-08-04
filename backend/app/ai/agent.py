@@ -36,6 +36,7 @@ logger = get_logger("app.agent")
 
 from app.ai.code_execution.code_execution import CodeExecutionManager
 from app.websocket_manager import websocket_manager
+from app.ai.logging import ExecutionLogger, LLMCallLogger
 
 class SigkillException(Exception):
     pass
@@ -78,7 +79,11 @@ class Agent:
             self.files = getattr(report, 'files', []) or []
         
 
-        self.llm = LLM(model=model)
+        # Initialize loggers
+        self.execution_logger = ExecutionLogger(self.db) if db else None
+        self.llm_call_logger = LLMCallLogger(self.db) if db else None
+        
+        self.llm = LLM(model=model, llm_call_logger=self.llm_call_logger)
         self.organization_settings = organization_settings
 
         self.planner = Planner(model=model, organization_settings=self.organization_settings, instruction_context_builder=self.instruction_context_builder)
@@ -119,6 +124,27 @@ class Agent:
 
     async def main_execution(self):
         logger.info("Starting main execution")
+        
+        # Start logging the main execution workflow
+        main_execution_log = None
+        if self.execution_logger:
+            main_execution_log = await self.execution_logger.start_execution(
+                agent_type="main_agent",
+                execution_step="main_execution",
+                action_type="agent_workflow",
+                report_id=str(self.report.id) if self.report else None,
+                completion_id=str(self.head_completion.id) if self.head_completion else None,
+                external_platform=self.external_platform,
+                external_user_id=self.external_user_id,
+                metadata={
+                    "organization_settings": {
+                        "limit_analysis_steps": self.organization_settings.get_config("limit_analysis_steps").value if self.organization_settings else None,
+                        "validator": self.organization_settings.get_config("validator").value if self.organization_settings else None,
+                        "allow_llm_see_data": self.organization_settings.get_config("allow_llm_see_data").value if self.organization_settings else None
+                    }
+                }
+            )
+        
         try:
             results = []
             action_results = {}
@@ -158,6 +184,29 @@ class Agent:
                     pass
                 
                 # 1. PLAN: Get actions from planner
+                planner_log = None
+                if self.execution_logger:
+                    planner_log = await self.execution_logger.start_execution(
+                        agent_type="planner",
+                        execution_step="plan",
+                        action_type="generate_plan",
+                        input_data={
+                            "schemas": schemas[:500] + "..." if len(schemas) > 500 else schemas,  # Truncate for logging
+                            "persona": self.persona,
+                            "prompt": head_completion.prompt,
+                            "has_observation_data": observation_data is not None,
+                            "widget_id": str(self.widget.id) if self.widget else None,
+                            "step_id": str(self.step.id) if self.step else None
+                        },
+                        report_id=str(self.report.id) if self.report else None,
+                        completion_id=str(head_completion.id),
+                        widget_id=str(self.widget.id) if self.widget else None,
+                        step_id=str(self.step.id) if self.step else None,
+                        external_platform=self.external_platform,
+                        external_user_id=self.external_user_id,
+                        execution_id=self.execution_logger.get_current_execution_id()
+                    )
+                    
                 plan_generator = self.planner.execute(
                     schemas, 
                     self.persona, 
@@ -217,6 +266,19 @@ class Agent:
                             self.head_completion
                         )
                         plan_complete = True
+                        
+                        # Complete planner logging
+                        if planner_log:
+                            await self.execution_logger.end_execution(
+                                planner_log,
+                                status="completed",
+                                output_data={
+                                    "plan": current_plan.get('plan', []),
+                                    "reasoning": current_plan.get('reasoning', ''),
+                                    "analysis_complete": current_plan.get('analysis_complete', False),
+                                    "token_usage": current_plan.get('token_usage', {})
+                                }
+                            )
                     
                     # Process each action in the plan
                     for i, action in enumerate(json_result['plan']):
@@ -756,12 +818,38 @@ class Agent:
             
             logger.info(f"Main execution completed with status: {status}")
             
+            # Complete main execution logging
+            if main_execution_log:
+                await self.execution_logger.end_execution(
+                    main_execution_log,
+                    status="completed" if status == "success" else status,
+                    output_data={
+                        "final_status": status,
+                        "action_results_count": len(action_results),
+                        "analysis_steps": analysis_step,
+                        "widgets_created": len([r for r in action_results.values() if r.get("widget")]),
+                        "steps_created": len([r for r in action_results.values() if r.get("step")])
+                    }
+                )
+            
             # Clean up
             websocket_manager.remove_handler(self._handle_completion_update)
             
             return action_results
         
         except Exception as e:
+            # Complete main execution logging with error
+            if main_execution_log:
+                await self.execution_logger.end_execution(
+                    main_execution_log,
+                    status="failed",
+                    error_message=str(e),
+                    output_data={
+                        "error_type": type(e).__name__,
+                        "analysis_step": locals().get('analysis_step', 0)
+                    }
+                )
+            
             error = await self.project_manager.create_error_completion(self.db, self.head_completion, str(e))
             print(f"Error in main_execution: {e}")
             raise e

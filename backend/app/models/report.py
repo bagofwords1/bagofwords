@@ -36,3 +36,5 @@ class Report(BaseSchema):
         lazy="selectin", 
         overlaps="git_repository,organization"
     )
+    execution_logs = relationship("ExecutionLog", back_populates="report", lazy="selectin")
+    llm_call_logs = relationship("LLMCallLog", back_populates="report", lazy="selectin")

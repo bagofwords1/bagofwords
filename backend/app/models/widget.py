@@ -25,6 +25,7 @@ class Widget(BaseSchema):
     steps = relationship("Step", back_populates="widget", lazy="selectin")
     completions = relationship("Completion", back_populates="widget")
     memories = relationship("Memory", back_populates="widget")
+    execution_logs = relationship("ExecutionLog", back_populates="widget", lazy="selectin")
 
 
 def after_update_widget(mapper, connection, target):

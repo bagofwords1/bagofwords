@@ -63,6 +63,9 @@ class Completion(BaseSchema):
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
     external_user_id = Column(String, nullable=True)  # Platform-specific user ID
+    
+    execution_logs = relationship("ExecutionLog", back_populates="completion", lazy="selectin")
+    llm_call_logs = relationship("LLMCallLog", back_populates="completion", lazy="selectin")
 
 # New async function to handle sending the DM safely
 async def send_final_slack_dm(completion_id: str):

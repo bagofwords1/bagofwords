@@ -29,6 +29,7 @@ class Step(BaseSchema):
     completions = relationship("Completion", back_populates="step")
 
     memories = relationship("Memory", back_populates="step")
+    execution_logs = relationship("ExecutionLog", back_populates="step", lazy="selectin")
 
 def after_update_step(mapper, connection, target):
     try:
