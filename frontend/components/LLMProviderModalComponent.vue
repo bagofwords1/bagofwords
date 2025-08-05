@@ -104,26 +104,37 @@
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
                             <div v-for="(field, key) in fieldsForProvider(providerForm.provider_type)" :key="key">
-                                <label class="text-sm font-medium uppercase text-gray-700 mb-2">{{ field.title }}</label>
+                                <label class="text-sm font-medium text-gray-700 mb-2">{{ field.title }}</label>
                                 <input v-model="providerForm.credentials[key]" type="text" required
+                                    :placeholder="field.description || ''"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div v-if="providerForm.provider_type && filteredModels.length > 0">
-                    <label class="text-sm font-medium text-gray-700 mb-2">
-                        Models
-                    </label>
-                    <ul>
-                        <li class="text-sm text-gray-500" v-for="model in filteredModels" :key="model.id">
-                            <span class="flex items-center gap-2">
-                                 {{ model.name }}
-                            </span>
-                        </li>
-                    </ul>
-                </div>
+                                        <div v-if="providerForm.provider_type && filteredModels.length > 0">
+                            <label class="text-sm font-medium text-gray-700 mb-2">
+                                Models
+                            </label>
+                            <div class="space-y-2">
+                                <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
+                                    <UCheckbox v-model="model.is_enabled" />
+                                    <div class="flex-1">
+                                        <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
+                                        <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
+                                    </div>
+                                    <div class="flex-1">
+                                        <input 
+                                            v-model="model.custom_name" 
+                                            type="text" 
+                                            placeholder="Custom name (optional)"
+                                            class="text-xs border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
                 <div class="flex justify-end space-x-2 pt-4">
                     <UButton label="Cancel" color="gray" variant="soft" @click="providerModalOpen = false" />
@@ -171,7 +182,11 @@ onMounted(async () => {
     
     providers.value = providersRes.data.value;
     organizationProviders.value = orgProvidersRes.data.value;
-    models.value = modelsRes.data.value;
+    models.value = modelsRes.data.value.map(model => ({
+      ...model,
+      is_enabled: false,
+      custom_name: ''
+    }));
   } catch (error) {
     console.error('Failed to fetch data:', error);
   }
@@ -223,6 +238,8 @@ const resetForm = () => {
     // Reset any selected models
     models.value.forEach(model => {
         model.selected = false;
+        model.is_enabled = false;
+        model.custom_name = '';
     });
 };
 
@@ -233,12 +250,12 @@ watch(providerModalOpen, (newValue) => {
 });
 
 async function createProvider() {
-    // Gather selected models
+    // Gather selected models with custom names
     const selectedModels = models.value
-        .filter(model => model.provider_type === providerForm.value.provider_type)
+        .filter(model => model.provider_type === providerForm.value.provider_type && model.is_enabled)
         .map(model => ({
             model_id: model.model_id,
-            name: model.name,
+            name: model.custom_name || model.name,
             is_custom: false
         }));
 

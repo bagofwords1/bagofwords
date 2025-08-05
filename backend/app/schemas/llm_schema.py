@@ -43,6 +43,7 @@ class LLMProviderCreate(LLMProviderBase):
             'anthropic': AnthropicCredentials,
             'openai': OpenAICredentials,
             'google': GoogleCredentials,
+            'azure': AzureCredentials,
         }
         
         schema = credential_schemas.get(values['provider_type'])
@@ -83,6 +84,14 @@ class GoogleConfig(BaseModel):
     temperature: Optional[float] = 0.7
     top_p: Optional[float] = 0.8
     top_k: Optional[int] = 40
+
+class AzureCredentials(BaseModel):
+    api_key: str
+    endpoint_url: str
+
+class AzureConfig(BaseModel):
+    max_tokens: Optional[int] = 2048
+    temperature: Optional[float] = 0.7
 
 # Model Classes
 class LLMModelBase(BaseModel):

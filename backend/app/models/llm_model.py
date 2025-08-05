@@ -110,6 +110,34 @@ LLM_MODEL_DETAILS = [
         "provider_type": "bow",
         "is_preset": False,
         "is_enabled": False
+    },
+    {
+        "name": "GPT-4 (Azure)",
+        "model_id": "gpt-4",
+        "provider_type": "azure",
+        "is_preset": True,
+        "is_enabled": True
+    },
+    {
+        "name": "GPT-4 Turbo (Azure)",
+        "model_id": "gpt-4-turbo",
+        "provider_type": "azure",
+        "is_preset": True,
+        "is_enabled": True
+    },
+    {
+        "name": "GPT-3.5 Turbo (Azure)",
+        "model_id": "gpt-35-turbo",
+        "provider_type": "azure",
+        "is_preset": True,
+        "is_enabled": True
+    },
+    {
+        "name": "GPT-4o (Azure)",
+        "model_id": "gpt-4o",
+        "provider_type": "azure",
+        "is_preset": True,
+        "is_enabled": True
     }
 ]
 

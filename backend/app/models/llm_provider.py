@@ -4,7 +4,7 @@ from app.models.base import BaseSchema
 import json
 from cryptography.fernet import Fernet
 from app.settings.config import settings
-from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials
+from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials
 
 # LLM Provider Classes
 
@@ -22,6 +22,13 @@ LLM_PROVIDER_DETAILS = [
         "description": "Anthropic's API for accessing their LLM models",
         "config": "AnthropicConfig",
         "credentials": AnthropicCredentials.schema()
+    },
+    {
+        "type": "azure",
+        "name": "Azure OpenAI",
+        "description": "Azure OpenAI Service for accessing OpenAI models",
+        "config": "AzureConfig",
+        "credentials": AzureCredentials.schema()
     } #,
     # {
     #     "type": "google",
