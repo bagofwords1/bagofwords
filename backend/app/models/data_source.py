@@ -119,8 +119,16 @@ DATA_SOURCE_DETAILS = [
         "config": "VerticaConfig",
         "status": "active",
         "version": "1.0.0"
-    }
+    },
 
+    {
+        "type": "aws_redshift",
+        "title": "AWS Redshift",
+        "description": "Fully managed, petabyte-scale data warehouse service in the cloud for analytics and business intelligence.",
+        "config": "AwsRedshiftConfig",
+        "status": "active",
+        "version": "1.0.0"
+    }
 
 ]
 

@@ -79,7 +79,8 @@ class DataSourceCreate(DataSourceBase):
             'google_analytics': GoogleAnalyticsCredentials,
             'aws_cost': AWSCostCredentials,
             'aws_athena': AWSAthenaCredentials,
-            'vertica': VerticaCredentials
+            'vertica': VerticaCredentials,
+            'aws_redshift': AwsRedshiftCredentials
         }
         
         schema = credential_schemas.get(values['type'])
@@ -272,4 +273,23 @@ class VerticaConfig(BaseModel):
     port: int = Field(5433, ge=1, le=65535)
     database: str
     schema: str = Field(default="public", description="Schema name")
+
+# AWS Redshift
+class AwsRedshiftCredentials(BaseModel):
+    user: str
+    password: str
+    access_key: str = None
+    secret_key: str = None
+    role_arn: str = None
+
+class AwsRedshiftConfig(BaseModel):
+    host: str
+    port: int = Field(5439, ge=1, le=65535)
+    database: str
+    schema: str = Field(default="public", description="Schema name")
+    region: str = None
+    cluster_identifier: str = None
+    iam_profile: str = None
+    ssl_mode: str = Field(default="require", description="SSL mode for connection")
+    timeout: int = Field(default=30, ge=1, le=300, description="Connection timeout in seconds")
 
