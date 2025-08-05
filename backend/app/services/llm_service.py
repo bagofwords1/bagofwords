@@ -294,6 +294,7 @@ class LLMService:
             db_model.organization_id = organization.id
             db_model.provider = provider
             db_model.is_enabled = True
+            db_model.is_custom = model.get("is_custom", False)
             
             # Check if this model would be default according to config
             model_details = next(

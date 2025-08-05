@@ -112,22 +112,43 @@ LLM_MODEL_DETAILS = [
         "is_enabled": False
     },
     {
-        "name": "GPT-4 (Azure)",
-        "model_id": "gpt-4",
+        "name": "o1 (Azure)",
+        "model_id": "o1",
         "provider_type": "azure",
         "is_preset": True,
         "is_enabled": True
     },
     {
-        "name": "GPT-4 Turbo (Azure)",
-        "model_id": "gpt-4-turbo",
+        "name": "o1-mini (Azure)",
+        "model_id": "o1-mini",
         "provider_type": "azure",
         "is_preset": True,
         "is_enabled": True
     },
     {
-        "name": "GPT-3.5 Turbo (Azure)",
-        "model_id": "gpt-35-turbo",
+        "name": "o3 (Azure)",
+        "model_id": "o3",
+        "provider_type": "azure",
+        "is_preset": True,
+        "is_enabled": True
+    },
+    {
+        "name": "o3-mini (Azure)",
+        "model_id": "o3-mini",
+        "provider_type": "azure",
+        "is_preset": True,
+        "is_enabled": True
+    },
+    {
+        "name": "o4-mini (Azure)",
+        "model_id": "o4-mini",
+        "provider_type": "azure",
+        "is_preset": True,
+        "is_enabled": True
+    },
+    {
+        "name": "GPT-4.1 (Azure)",
+        "model_id": "gpt-4.1",
         "provider_type": "azure",
         "is_preset": True,
         "is_enabled": True

@@ -35,7 +35,7 @@
                         <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center">
                                 <div class="flex-shrink-0 h-10 w-10">
-                                    <LLMProviderIcon :provider="model.provider.provider_type" class="h-6 w-6 text-gray-500" />
+                                    <LLMProviderIcon :provider="model.provider.provider_type" class="h-8 w-8 text-gray-500" />
                                 </div>
                                 <div class="ml-4">
                                     <div class="text-sm font-medium text-gray-900">

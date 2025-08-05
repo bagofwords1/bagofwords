@@ -13,19 +13,19 @@
                     <USelectMenu v-model="selectedProvider" :options="providersWithNewOption" option-attribute="name" class="w-full">
 
                         <UButton color="gray" class="flex-1" :class="{ '!text-blue-500': selectedProvider?.type === 'new_provider' }">
-                            <Icon name="heroicons:plus-circle" class="w-4 h-4" v-if="selectedProvider?.type === 'new_provider'" />
-                            <LLMProviderIcon :provider="selectedProvider?.type" class="w-4" v-if="selectedProvider && selectedProvider?.type !== 'new_provider'" />
-                            <span v-if="selectedProvider">{{ selectedProvider?.name }}</span>
+                            <Icon name="heroicons:plus-circle" class="w-5 h-5" v-if="selectedProvider?.type === 'new_provider'" />
+                            <LLMProviderIcon :provider="selectedProvider?.type" class="w-8 h-8" v-if="selectedProvider && selectedProvider?.type !== 'new_provider'" />
+                            <span v-if="selectedProvider" class="font-medium">{{ selectedProvider?.name }}</span>
                             <span v-else>Choose Provider</span>
                         </UButton>
 
 
 
                         <template #option="{ option }">
-                            <div class="flex items-center gap-2" :class="{ 'text-blue-500': selectedProvider?.type === option.type }">
-                            <Icon name="heroicons:plus-circle" class="w-4 h-4" v-if="option.type === 'new_provider'" />
-                            <LLMProviderIcon :provider="option.type" class="w-4" v-else />
-                            <span>{{ option.name }}</span>
+                            <div class="flex items-center gap-3" :class="{ 'text-blue-500': selectedProvider?.type === option.type }">
+                            <Icon name="heroicons:plus-circle" class="w-5 h-5" v-if="option.type === 'new_provider'" />
+                            <LLMProviderIcon :provider="option.type" class="w-8 h-8" v-else />
+                            <span class="font-medium">{{ option.name }}</span>
                         </div>
                         </template>
                     </USelectMenu>
@@ -83,15 +83,15 @@
 
                     <div v-else class="space-y-4">
                         <div class="flex flex-col">
-                            <div class="flex flex-row gap-3 mt-2">
+                            <div class="flex flex-row gap-4 mt-2">
                                 <button v-for="provider in providers" 
                                     @click="providerForm.provider_type = provider.type" 
                                     :key="provider.type" 
-                                    class="bg-gray-50 hover:bg-gray-100 border border-gray-300 p-2 rounded-lg"
+                                    class="bg-gray-50 hover:bg-gray-100 border border-gray-300 p-4 rounded-lg flex flex-col items-center justify-center min-w-[120px]"
                                     type="button"
                                     :class="{ '!border-blue-500 border-2 bg-white': providerForm.provider_type === provider.type }"
                                 >
-                                    <LLMProviderIcon :provider="provider.type" class="w-4" />
+                                    <LLMProviderIcon :provider="provider.type" class="w-16" />
                                 </button>
                             </div>
                         </div>
@@ -118,20 +118,45 @@
                                 Models
                             </label>
                             <div class="space-y-2">
+                                <!-- Preset Models -->
                                 <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
                                     <UCheckbox v-model="model.is_enabled" />
                                     <div class="flex-1">
                                         <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
                                         <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
                                     </div>
+                                </div>
+                                
+                                <!-- Custom Models -->
+                                <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
+                                    <UCheckbox v-model="customModel.is_enabled" />
                                     <div class="flex-1">
                                         <input 
-                                            v-model="model.custom_name" 
+                                            v-model="customModel.model_id" 
                                             type="text" 
-                                            placeholder="Custom name (optional)"
-                                            class="text-xs border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
+                                            placeholder="Model ID"
+                                            class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
+                                    <button 
+                                        type="button"
+                                        @click="removeCustomModel(index)"
+                                        class="text-red-500 hover:text-red-700"
+                                    >
+                                        <Icon name="heroicons:trash" class="w-4 h-4" />
+                                    </button>
+                                </div>
+                                
+                                <!-- Add Custom Model Button -->
+                                <div class="pt-2">
+                                    <button 
+                                        type="button"
+                                        @click="addCustomModel"
+                                        class="text-sm text-blue-500 hover:text-blue-700 underline flex items-center gap-1"
+                                    >
+                                        <Icon name="heroicons:plus-circle" class="w-4 h-4" />
+                                        Add Custom Model
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -184,8 +209,7 @@ onMounted(async () => {
     organizationProviders.value = orgProvidersRes.data.value;
     models.value = modelsRes.data.value.map(model => ({
       ...model,
-      is_enabled: false,
-      custom_name: ''
+      is_enabled: false
     }));
   } catch (error) {
     console.error('Failed to fetch data:', error);
@@ -194,6 +218,7 @@ onMounted(async () => {
 
 const selectedProvider = ref(null);
 const selectedModel = ref(null);
+const customModels = ref([]);
 const providerForm = ref({
     name: '',
     provider_type: '',
@@ -229,6 +254,7 @@ const filteredModels = computed(() => {
 const resetForm = () => {
     selectedProvider.value = null;
     selectedModel.value = null;
+    customModels.value = [];
     providerForm.value = {
         name: '',
         provider_type: '',
@@ -239,7 +265,6 @@ const resetForm = () => {
     models.value.forEach(model => {
         model.selected = false;
         model.is_enabled = false;
-        model.custom_name = '';
     });
 };
 
@@ -250,17 +275,26 @@ watch(providerModalOpen, (newValue) => {
 });
 
 async function createProvider() {
-    // Gather selected models with custom names
-    const selectedModels = models.value
+    // Gather selected preset models
+    const selectedPresetModels = models.value
         .filter(model => model.provider_type === providerForm.value.provider_type && model.is_enabled)
         .map(model => ({
             model_id: model.model_id,
-            name: model.custom_name || model.name,
+            name: model.name,
             is_custom: false
         }));
 
-    // Add selected models to providerForm
-    providerForm.value.models = selectedModels;
+    // Gather selected custom models
+    const selectedCustomModels = customModels.value
+        .filter(model => model.is_enabled)
+        .map(model => ({
+            model_id: model.model_id,
+            name: model.model_id, // Use model_id as the name for custom models
+            is_custom: true
+        }));
+
+    // Combine all selected models
+    providerForm.value.models = [...selectedPresetModels, ...selectedCustomModels];
 
     const response = await useMyFetch('/api/llm/providers', {
         method: 'POST',
@@ -360,5 +394,16 @@ async function deleteProvider(providerId) {
             });
         }
     }
+}
+
+function addCustomModel() {
+    customModels.value.push({
+        model_id: '',
+        is_enabled: true
+    });
+}
+
+function removeCustomModel(index) {
+    customModels.value.splice(index, 1);
 }
 </script>
