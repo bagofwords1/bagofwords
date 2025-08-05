@@ -179,7 +179,7 @@ Create a table of all customers, show customer name, email, phone, address and c
                         <div class="flex justify-between items-center mb-2">
                             <div class="font-semibold cursor-pointer flex items-center" @click="dataModelsExpanded = !dataModelsExpanded">
                                 <UIcon :name="dataModelsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="p-1 mr-2" />
-                                Data Models ({{ metadata_resources?.resources ? metadata_resources?.resources?.length : 0 }} resources)
+                                Context ({{ metadata_resources?.resources ? metadata_resources?.resources?.length : 0 }} resources)
                             </div>
                             <UButton 
                                 @click="showGitModal = true"
@@ -192,7 +192,7 @@ Create a table of all customers, show customer name, email, phone, address and c
                         <div v-if="dataModelsExpanded">
                             <div>
                                 <p class="text-sm">
-                                    Load data models by connecting your git repo to your data source.
+                                    Load context from dbt, lookml, markdown files, and other pieces of code  by connecting your git repo to your data source.
                                 </p>
                                 <div v-if="integration.git_repository">
                                     <p class="text-sm text-gray-500 mt-4" v-if="integration.git_repository.status === 'pending'">

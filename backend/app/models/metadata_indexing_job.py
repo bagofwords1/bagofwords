@@ -10,6 +10,7 @@ class IndexingJobType(str, PyEnum):
     LOOKER = "looker"
     TABLEAU = "tableau"
     POWERBI = "powerbi"
+    MARKDOWN = "markdown"
     CUSTOM = "custom"
 
 

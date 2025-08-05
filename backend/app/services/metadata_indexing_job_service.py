@@ -18,6 +18,7 @@ from app.models.organization import Organization
 from app.schemas.metadata_resource_schema import MetadataResourceCreate
 from app.core.dbt_parser import DBTResourceExtractor
 from app.core.lookml_parser import LookMLResourceExtractor
+from app.core.markdown_parser import MarkdownResourceExtractor
 from app.dependencies import async_session_maker # Import the session maker
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ class MetadataIndexingJobService:
         self.parsers = {
             'dbt': DBTResourceExtractor,
             'lookml': LookMLResourceExtractor,
+            'markdown': MarkdownResourceExtractor,
         }
 
     async def _verify_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
@@ -245,6 +247,58 @@ class MetadataIndexingJobService:
 
         except Exception as e:
             logger.error(f"Error during LookML parsing for job {job_id}: {e}", exc_info=True)
+            raise
+
+    async def _parse_markdown_resources(
+        self,
+        db: AsyncSession,
+        temp_dir: str,
+        data_source_id: str,
+        job_id: str,
+    ):
+        """Parse Markdown files from a cloned repository."""
+        created_resources = []
+        try:
+            logger.info(f"Starting Markdown parsing for job {job_id} in {temp_dir}")
+            
+            # Initialize the Markdown extractor
+            extractor = MarkdownResourceExtractor(temp_dir)
+            
+            # Debug: Log the directory structure
+            logger.debug(f"Markdown project structure:")
+            for path in Path(temp_dir).rglob('*.md'):
+                logger.debug(f"Found Markdown file: {path.relative_to(temp_dir)}")
+            
+            # Extract all resources
+            resources_dict, columns_by_resource, docs_by_resource = extractor.extract_all_resources()
+            # Debug: Log what we found
+            logger.debug(f"Extracted resources: {extractor.get_summary()}")
+            
+            # Process markdown documents
+            markdown_docs = resources_dict.get('markdown_documents', [])
+            logger.debug(f"Processing {len(markdown_docs)} markdown documents")
+            
+            for doc_item in markdown_docs:
+                # Create/update the metadata resource
+                metadata_resource = await self._create_or_update_metadata_resource(
+                    db=db,
+                    item=doc_item, # Pass the entire document item
+                    resource_type='markdown_document',
+                    data_source_id=data_source_id,
+                    job_id=job_id,
+                    columns=[], # Markdown files don't have columns
+                    depends_on=[] # Markdown files typically don't have dependencies
+                )
+                
+                if metadata_resource:
+                    created_resources.append(metadata_resource)
+                    logger.debug(f"Created/updated markdown resource: {doc_item.get('name')}")
+
+            logger.info(f"Completed Markdown parsing for job {job_id}. Created/updated {len(created_resources)} resources")
+            return created_resources
+
+        except Exception as e:
+            logger.error(f"Error during Markdown parsing for job {job_id}: {e}", exc_info=True)
             raise
 
     async def _create_or_update_metadata_resource(
@@ -488,6 +542,16 @@ class MetadataIndexingJobService:
                         job_id=job_id,
                     )
                     all_created_resources.extend(lookml_resources or [])
+
+                # --- Trigger Markdown Parsing ---
+                if 'markdown' in detected_project_types:
+                    markdown_resources = await self._parse_markdown_resources(
+                        db=db,
+                        temp_dir=repo_path,
+                        data_source_id=data_source_id,
+                        job_id=job_id,
+                    )
+                    all_created_resources.extend(markdown_resources or [])
 
                 if not detected_project_types:
                     logger.warning(f"Job {job_id}: No project types were detected, nothing to parse.")
