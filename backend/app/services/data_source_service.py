@@ -296,6 +296,11 @@ class DataSourceService:
 
     def _extract_fields_from_schema(self, schema: BaseModel):
         main_model_schema = schema.model_json_schema()  # (1)!
+        
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Extracted schema: {main_model_schema}")
 
         return main_model_schema
 

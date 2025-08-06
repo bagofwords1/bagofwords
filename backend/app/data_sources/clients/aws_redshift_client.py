@@ -1,8 +1,7 @@
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
-import sqlalchemy
-from sqlalchemy import text
+import psycopg2
 from contextlib import contextmanager
 from typing import List, Generator
 from app.ai.prompt_formatters import Table, TableColumn
@@ -86,7 +85,7 @@ class AwsRedshiftClient(DataSourceClient):
         database: str,
         schema: str,
         user: str,
-        password: str,
+        password: str = None,
         region: str = None,
         access_key: str = None,
         secret_key: str = None,
@@ -96,6 +95,8 @@ class AwsRedshiftClient(DataSourceClient):
         ssl_mode: str = "require",
         timeout: int = 30
     ):
+        logger.info(f"Initializing Redshift client with cluster_identifier: {cluster_identifier}")
+        logger.info(f"All parameters: host={host}, port={port}, database={database}, schema={schema}, user={user}, region={region}")
         """
         Initialize the Redshift client.
 
@@ -122,12 +123,18 @@ class AwsRedshiftClient(DataSourceClient):
         self.user = user
         self.password = password
         self.region = region
+        self.access_key = access_key
+        self.secret_key = secret_key
+        self.role_arn = role_arn
         self.cluster_identifier = cluster_identifier
         self.iam_profile = iam_profile
         self.ssl_mode = ssl_mode
         self.timeout = timeout
         self._connection_name = f"redshift_conn_{hash(f'{host}_{port}_{database}_{user}_{schema}')}"
         self._connected = False
+        
+        # Determine authentication method
+        self.auth_method = self._determine_auth_method()
         
         if role_arn:
             self.session_manager = SessionManager(role_arn, region)
@@ -141,9 +148,9 @@ class AwsRedshiftClient(DataSourceClient):
 
     @cached_property
     def redshift_uri(self):
-        """Build the Redshift connection URI."""
+        """Build the Redshift connection URI (kept for compatibility but not used with psycopg2)."""
         # Handle IAM authentication if specified
-        if self.iam_profile:
+        if self.iam_profile or self.auth_method != "PASSWORD":
             # For IAM authentication, we'll use the AWS credentials
             uri = (
                 f"postgresql://{self.user}@"
@@ -152,47 +159,137 @@ class AwsRedshiftClient(DataSourceClient):
             )
         else:
             # Standard password authentication
+            password = self.password or ""
             uri = (
-                f"postgresql://{self.user}:{self.password}@"
+                f"postgresql://{self.user}:{password}@"
                 f"{self.host}:{self.port}/{self.database}"
                 f"?sslmode={self.ssl_mode}"
             )
         return uri
 
+    def _determine_auth_method(self):
+        """Determine the authentication method based on available credentials."""
+        if self.role_arn:
+            if not self.access_key or not self.secret_key:
+                return "ASSUME_ROLE_NO_KEYS"
+            else:
+                return "ASSUME_ROLE_KEYS"
+        elif self.access_key and self.secret_key:
+            return "KEYS"
+        elif not self.password and self.cluster_identifier:
+            return "ROLE"
+        else:
+            return "PASSWORD"
+
+    def _get_iam_credentials(self):
+        """Get IAM credentials for Redshift authentication."""
+        logger.info(f"Auth method: {self.auth_method}")
+        logger.info(f"Cluster identifier: {self.cluster_identifier}")
+        
+        # Create the appropriate session based on authentication method
+        if self.auth_method in ("ASSUME_ROLE_KEYS", "ASSUME_ROLE_NO_KEYS"):
+            if self.auth_method == "ASSUME_ROLE_KEYS":
+                assume_client = boto3.client(
+                    "sts",
+                    region_name=self.region,
+                    aws_access_key_id=self.access_key,
+                    aws_secret_access_key=self.secret_key,
+                )
+            else:
+                assume_client = boto3.client("sts", region_name=self.region)
+            
+            role_session = f"bagofwords_{hash(f'{self.host}_{self.port}_{self.database}_{self.user}')}"
+            session_keys = assume_client.assume_role(
+                RoleArn=self.role_arn, RoleSessionName=role_session
+            )["Credentials"]
+            
+            session = boto3.Session(
+                aws_access_key_id=session_keys["AccessKeyId"],
+                aws_secret_access_key=session_keys["SecretAccessKey"],
+                aws_session_token=session_keys["SessionToken"],
+                region_name=self.region
+            )
+        else:
+            session = self.session_manager.session if self.role_arn else self.boto3_session
+        
+        # Use redshift client for provisioned clusters
+        if not self.cluster_identifier:
+            raise ValueError("cluster_identifier is required for Redshift")
+        logger.info(f"Using Redshift cluster: {self.cluster_identifier}")
+        client = session.client("redshift", region_name=self.region)
+        
+        credentials = client.get_cluster_credentials(
+            DbUser=self.user,
+            DbName=self.database,
+            ClusterIdentifier=self.cluster_identifier,
+        )
+        
+        return credentials["DbUser"], credentials["DbPassword"]
+
     @contextmanager
-    def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
-        """Yield a connection to a Redshift database."""
-        engine = None
+    def connect(self) -> Generator[psycopg2.extensions.connection, None, None]:
+        """Yield a connection to a Redshift database using raw psycopg2."""
         conn = None
         try:
-            # Create engine with appropriate configuration
-            engine = sqlalchemy.create_engine(
-                self.redshift_uri,
-                connect_args={
-                    "connect_timeout": self.timeout,
-                    "application_name": "bagofwords_redshift_client"
-                }
+            logger.info(f"Attempting to connect to Redshift with auth_method: {self.auth_method}")
+            
+            # Get connection parameters
+            if self.auth_method != "PASSWORD":
+                if not self.cluster_identifier:
+                    raise ValueError("cluster_identifier is required for IAM authentication")
+                logger.info("Getting IAM credentials...")
+                db_user, db_password = self._get_iam_credentials()
+                logger.info(f"Using IAM authentication with user: {db_user}")
+            else:
+                db_user = self.user
+                db_password = self.password
+                logger.info(f"Using password authentication with user: {db_user}")
+            
+            # Import psycopg2
+            import psycopg2
+            
+            logger.info(f"Creating psycopg2 connection with timeout: {self.timeout}")
+            # Create raw psycopg2 connection
+            conn = psycopg2.connect(
+                host=self.host,
+                port=self.port,
+                database=self.database,
+                user=db_user,
+                password=db_password,
+                connect_timeout=self.timeout,
+                application_name="bagofwords_redshift_client",
+                sslmode=self.ssl_mode
             )
-            conn = engine.connect()
+            
+            logger.info("Connection established successfully!")
             
             # Set the search path to the specified schema
             if self.schema:
-                conn.execute(text(f"SET search_path TO {self.schema}"))
+                logger.info(f"Setting search_path to: {self.schema}")
+                with conn.cursor() as cursor:
+                    cursor.execute(f"SET search_path TO {self.schema}")
+                    conn.commit()
             
             yield conn
         except Exception as e:
+            logger.error(f"Connection failed: {e}")
             raise RuntimeError(f"Error connecting to Redshift: {e}")
         finally:
             if conn is not None:
                 conn.close()
-            if engine is not None:
-                engine.dispose()
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""
         try:
             with self.connect() as conn:
-                df = pd.read_sql(text(sql), conn)
+                with conn.cursor() as cursor:
+                    cursor.execute(sql)
+                    # Get column names
+                    columns = [desc[0] for desc in cursor.description]
+                    # Fetch all rows
+                    rows = cursor.fetchall()
+                    # Create DataFrame
+                    df = pd.DataFrame(rows, columns=columns)
             return df
         except Exception as e:
             logger.error(f"Error executing SQL: {e}")
@@ -200,49 +297,83 @@ class AwsRedshiftClient(DataSourceClient):
 
     def get_tables(self) -> List[Table]:
         """Get all tables and their columns in the specified schema."""
+        logger.info(f"get_tables() called with schema: {self.schema}")
         try:
+            logger.info("Starting get_tables() execution")
             with self.connect() as conn:
-                # Query to get table and column information from Redshift system tables
-                sql = """
-                    SELECT 
-                        t.table_name,
-                        c.column_name,
-                        c.data_type,
-                        c.character_maximum_length,
-                        c.numeric_precision,
-                        c.numeric_scale,
-                        c.is_nullable
-                    FROM information_schema.tables t
-                    JOIN information_schema.columns c 
-                        ON t.table_name = c.table_name 
-                        AND t.table_schema = c.table_schema
-                    WHERE t.table_schema = :schema
+                logger.info("Connection established in get_tables()")
+                with conn.cursor() as cursor:
+                    logger.info("Cursor created, executing query...")
+                    # Use a simpler query based on Redash implementation
+                    # This query is more reliable for Redshift
+                    sql = """
+                        SELECT 
+                            t.table_name,
+                            c.column_name,
+                            c.data_type,
+                            c.ordinal_position
+                        FROM information_schema.tables t
+                        JOIN information_schema.columns c 
+                            ON t.table_name = c.table_name 
+                            AND t.table_schema = c.table_schema
+                        WHERE t.table_schema = %s
                         AND t.table_type = 'BASE TABLE'
-                    ORDER BY t.table_name, c.ordinal_position
-                """
-                
-                result = conn.execute(text(sql), {"schema": self.schema})
-                rows = result.fetchall()
-
-                tables = {}
-                for row in rows:
-                    table_name, column_name, data_type, char_length, num_precision, num_scale, is_nullable = row
+                        ORDER BY t.table_name, c.ordinal_position
+                    """
                     
-                    # Build complete data type
-                    if data_type == 'character varying' and char_length:
-                        full_data_type = f"varchar({char_length})"
-                    elif data_type == 'numeric' and num_precision and num_scale:
-                        full_data_type = f"numeric({num_precision},{num_scale})"
-                    else:
-                        full_data_type = data_type
+                    logger.info(f"Executing SQL query with schema parameter: {self.schema}")
+                    cursor.execute(sql, (self.schema,))
+                    rows = cursor.fetchall()
+                    logger.info(f"Query executed, fetched {len(rows)} rows")
 
-                    if table_name not in tables:
-                        tables[table_name] = Table(
-                            name=table_name, columns=[], pks=[], fks=[])
-                    tables[table_name].columns.append(
-                        TableColumn(name=column_name, dtype=full_data_type))
-                
-                return list(tables.values())
+                    logger.info(f"Query returned {len(rows)} rows for schema '{self.schema}'")
+                    
+                    # If no tables found, try a fallback query to see what schemas exist
+                    if not rows:
+                        logger.warning(f"No tables found in schema '{self.schema}', checking available schemas...")
+                        cursor.execute("""
+                            SELECT DISTINCT table_schema 
+                            FROM information_schema.tables 
+                            WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_internal')
+                            ORDER BY table_schema
+                        """)
+                        available_schemas = [row[0] for row in cursor.fetchall()]
+                        logger.info(f"Available schemas: {available_schemas}")
+                        
+                        # Try the 'public' schema if current schema is empty
+                        if self.schema != 'public' and 'public' in available_schemas:
+                            logger.info("Trying 'public' schema as fallback...")
+                            cursor.execute(sql, ('public',))
+                            rows = cursor.fetchall()
+                            logger.info(f"Fallback query returned {len(rows)} rows for 'public' schema")
+
+
+                    tables = {}
+                    for row in rows:
+                        table_name, column_name, data_type, ordinal_position = row
+                        
+                        # Build complete data type (handle Redshift-specific types)
+                        if data_type == 'character varying':
+                            full_data_type = "varchar"
+                        elif data_type == 'numeric':
+                            full_data_type = "numeric"
+                        elif data_type == 'double precision':
+                            full_data_type = "double precision"
+                        elif data_type == 'timestamp without time zone':
+                            full_data_type = "timestamp"
+                        elif data_type == 'timestamp with time zone':
+                            full_data_type = "timestamptz"
+                        else:
+                            full_data_type = data_type
+
+                        if table_name not in tables:
+                            tables[table_name] = Table(
+                                name=table_name, columns=[], pks=[], fks=[])
+                        tables[table_name].columns.append(
+                            TableColumn(name=column_name, dtype=full_data_type))
+                    
+                    logger.info(f"Found {len(tables)} tables in schema '{self.schema}'")
+                    return list(tables.values())
         except Exception as e:
             logger.error(f"Error retrieving tables: {e}")
             return []
@@ -263,21 +394,71 @@ class AwsRedshiftClient(DataSourceClient):
     def test_connection(self):
         """Test connection to Redshift and return status information."""
         try:
-            with self.connect() as conn:
-                # Test with a simple query
-                result = conn.execute(text("SELECT 1 as test"))
-                test_result = result.fetchone()
+            # Use raw psycopg2 connection to avoid SQLAlchemy's PostgreSQL-specific queries
+            import psycopg2
+            
+            # Get connection parameters
+            if self.auth_method != "PASSWORD":
+                if not self.cluster_identifier:
+                    raise ValueError("cluster_identifier is required for IAM authentication")
+                db_user, db_password = self._get_iam_credentials()
+            else:
+                db_user = self.user
+                db_password = self.password
+            
+            # Create raw psycopg2 connection
+            conn = psycopg2.connect(
+                host=self.host,
+                port=self.port,
+                database=self.database,
+                user=db_user,
+                password=db_password,
+                connect_timeout=self.timeout,
+                application_name="bagofwords_redshift_client",
+                sslmode=self.ssl_mode
+            )
+            
+            # Test with a simple query
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1 as test")
+                test_result = cursor.fetchone()
                 
-                if test_result and test_result[0] == 1:
-                    return {
-                        "success": True,
-                        "message": f"Successfully connected to Redshift database '{self.database}' (schema: {self.schema})"
-                    }
+                # Also check if there are any tables in the schema
+                cursor.execute("""
+                    SELECT COUNT(*) 
+                    FROM information_schema.tables 
+                    WHERE table_schema = %s AND table_type = 'BASE TABLE'
+                """, (self.schema,))
+                table_count = cursor.fetchone()[0]
+                
+                # Check available schemas
+                cursor.execute("""
+                    SELECT DISTINCT table_schema 
+                    FROM information_schema.tables 
+                    WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_internal')
+                    ORDER BY table_schema
+                """)
+                available_schemas = [row[0] for row in cursor.fetchall()]
+            
+            conn.close()
+            
+            if test_result and test_result[0] == 1:
+                message = f"Successfully connected to Redshift database '{self.database}' (schema: {self.schema})"
+                if table_count == 0:
+                    message += f" - Warning: No tables found in schema '{self.schema}'"
+                    message += f" - Available schemas: {available_schemas}"
                 else:
-                    return {
-                        "success": False,
-                        "message": "Connection test failed - no result returned"
-                    }
+                    message += f" - Found {table_count} tables in schema '{self.schema}'"
+                
+                return {
+                    "success": True,
+                    "message": message
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Connection test failed - no result returned"
+                }
         except Exception as e:
             return {
                 "success": False,
@@ -302,7 +483,7 @@ class AwsRedshiftClient(DataSourceClient):
 
         Redshift is a fully managed, petabyte-scale data warehouse service in the cloud.
         """
-        description = f"AWS Redshift database at {self.host}:{self.port}/{self.database} (schema: {self.schema})\n\n"
+        description = f"AWS Redshift (provisioned) database at {self.host}:{self.port}/{self.database} (schema: {self.schema})\n\n"
         description += system_prompt
 
         return description

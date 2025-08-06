@@ -277,7 +277,7 @@ class VerticaConfig(BaseModel):
 # AWS Redshift
 class AwsRedshiftCredentials(BaseModel):
     user: str
-    password: str
+    password: str = None  # Optional for IAM authentication
     access_key: str = None
     secret_key: str = None
     role_arn: str = None
@@ -288,8 +288,7 @@ class AwsRedshiftConfig(BaseModel):
     database: str
     schema: str = Field(default="public", description="Schema name")
     region: str = None
-    cluster_identifier: str = None
-    iam_profile: str = None
+    cluster_identifier: str = None  # Required for IAM authentication
     ssl_mode: str = Field(default="require", description="SSL mode for connection")
     timeout: int = Field(default=30, ge=1, le=300, description="Connection timeout in seconds")
 

@@ -193,6 +193,14 @@ class DataSource(BaseSchema):
                 decrypted_credentials = self.decrypt_credentials()
                 client_params.update(decrypted_credentials)
             
+            # Debug logging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Client params for {self.type}: {client_params}")
+            logger.info(f"Config keys: {list(client_params.keys())}")
+            logger.info(f"Workgroup name in params: {client_params.get('workgroup_name')}")
+            logger.info(f"Cluster identifier in params: {client_params.get('cluster_identifier')}")
+            
             # Initialize client with parameters
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
