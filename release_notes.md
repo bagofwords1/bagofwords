@@ -1,11 +1,12 @@
 # Release Notes
 
-## Version 0.0.179 (August 5, 2025)
+## Version 0.0.180 (August 6, 2025)
 - Enhanced security by updating Dockerfile with latest vulnerability patches
 - Integrated Claude 4 Sonnet and Opus language models
 - Implemented full support for Vertica database connectivity and querying
 - Added capability to incorporate markdown files from git repositories to enhance data sources with contextual information
-- Added support for Azure OpenAI and custom endpoints
+- Added support for Azure OpenAI and custom model endpoints
+- Added support for AWS Redshift database connectivity
 
 ## Version 0.0.177 (July 30, 2025)
 - Added comprehensive admin console with three main sections: Explore, Diagnose, and Instructions management
