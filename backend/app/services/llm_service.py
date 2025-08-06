@@ -294,6 +294,7 @@ class LLMService:
             db_model.organization_id = organization.id
             db_model.provider = provider
             db_model.is_enabled = True
+            db_model.is_custom = model.get("is_custom", False)
             
             # Check if this model would be default according to config
             model_details = next(
@@ -320,6 +321,12 @@ class LLMService:
     ):
         api_key = credentials.get("api_key") or None
         api_secret = credentials.get("api_secret") or None
+        
+        # For Azure, store endpoint URL in additional_config
+        if provider.provider_type == "azure":
+            endpoint_url = credentials.get("endpoint_url")
+            if endpoint_url:
+                provider.additional_config = {"endpoint_url": endpoint_url}
 
         provider.encrypt_credentials(api_key, api_secret)
 

@@ -35,14 +35,16 @@
                         <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center">
                                 <div class="flex-shrink-0 h-10 w-10">
-                                    <LLMProviderIcon :provider="model.provider.provider_type" class="h-6 w-6 text-gray-500" />
+                                    <LLMProviderIcon :provider="model.provider.provider_type" class="h-8 w-8 text-gray-500" />
                                 </div>
                                 <div class="ml-4">
                                     <div class="text-sm font-medium text-gray-900">
                                         {{ model.name }}
                                         <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">Default</span>
                                     </div>
-
+                                    <div v-if="model.model_id !== model.name" class="text-xs text-gray-500">
+                                        Model ID: {{ model.model_id }}
+                                    </div>
                                 </div>
                             </div>
                         </td>

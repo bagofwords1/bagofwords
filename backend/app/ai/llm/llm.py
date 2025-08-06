@@ -4,6 +4,7 @@ from .clients.openai_client import OpenAi
 from .clients.google_client import Google
 from .clients.anthropic_client import Anthropic
 from .clients.bow_client import Bow
+from .clients.azure_client import AzureClient
 from app.models.llm_model import LLMModel
 
 class LLM:
@@ -22,6 +23,12 @@ class LLM:
             self.client = Google()
         elif self.provider == "bow":
             self.client = Bow(api_key=self.api_key)
+        elif self.provider == "azure":
+            # Get endpoint URL from provider's additional_config
+            endpoint_url = self.model.provider.additional_config.get("endpoint_url") if self.model.provider.additional_config else None
+            if not endpoint_url:
+                raise ValueError("Azure provider requires endpoint_url in additional_config")
+            self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
  
