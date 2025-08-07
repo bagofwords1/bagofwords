@@ -38,7 +38,7 @@ COPY ./frontend /app/frontend
 WORKDIR /app/frontend
 
 # Install frontend dependencies and build the project
-RUN yarn install --frozen-lockfile
+RUN yarn install
 RUN yarn build
 
 # Final image - use latest Python with security patches
