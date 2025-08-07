@@ -5,6 +5,10 @@ on:
   repository_dispatch:
     types: [e2e-tests-passed]
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
@@ -32,12 +36,35 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Docker images
+      - name: Build image (load locally)
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          load: true
+          tags: bagofwords/bagofwords:${{ env.version_tag }}
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.30.0
+        with:
+          scan-type: image
+          image-ref: bagofwords/bagofwords:${{ env.version_tag }}
+          format: sarif
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          output: trivy-results.sarif
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Push Docker images
+        if: success()
+        uses: docker/build-push-action@v5
+        with:
+          context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: |
             bagofwords/bagofwords:${{ env.version_tag }}
             bagofwords/bagofwords:latest
