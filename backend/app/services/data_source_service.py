@@ -2,12 +2,16 @@ import importlib
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.data_source import DataSource, DATA_SOURCE_DETAILS
+from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate
+from app.schemas.data_source_schema import (
+    DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate,
+    DataSourceMembershipSchema, DataSourceMembershipCreate
+)
 from app.schemas.metadata_resource_schema import MetadataResourceSchema
 
 from pydantic import BaseModel
@@ -18,7 +22,7 @@ import uuid
 from uuid import UUID
 import json
 
-from sqlalchemy import insert, delete
+from sqlalchemy import insert, delete, or_, and_
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 
@@ -29,6 +33,25 @@ class DataSourceService:
 
     def __init__(self):
         pass
+
+    async def _create_memberships(self, db: AsyncSession, data_source: DataSource, user_ids: List[str]):
+        """
+        Create memberships for a list of user IDs.
+        """
+        if not user_ids:
+            return
+            
+        data_source_memberships = []
+        for user_id in user_ids:
+            data_source_membership = DataSourceMembership(
+                data_source_id=data_source.id,
+                principal_type=PRINCIPAL_TYPE_USER,
+                principal_id=user_id
+            )
+            data_source_memberships.append(data_source_membership)
+        
+        db.add_all(data_source_memberships)
+        await db.commit()
 
     async def create_data_source(self, db: AsyncSession, organization: Organization, current_user: User, data_source: DataSourceCreate):
         # Convert Pydantic model to dict
@@ -42,16 +65,20 @@ class DataSourceService:
         generate_conversation_starters = data_source_dict.pop("generate_conversation_starters")
         generate_ai_rules = data_source_dict.pop("generate_ai_rules")
         
-        # Extract credentials and config
+        # Extract credentials, config, and membership info
         credentials = data_source_dict.pop("credentials")
         config = data_source_dict.pop("config")
+        is_public = data_source_dict.pop("is_public", False)
+        member_user_ids = data_source_dict.pop("member_user_ids", [])
         
         # Create base data source dict
         ds_create_dict = {
             "name": data_source_dict["name"],
             "type": data_source_dict["type"],
             "config": json.dumps(config),
-            "organization_id": organization.id
+            "organization_id": organization.id,
+            "is_public": is_public,
+            "owner_user_id": current_user.id
         }
         
         # Create the data source instance
@@ -63,6 +90,16 @@ class DataSourceService:
         db.add(new_data_source)
         await db.commit()
         await db.refresh(new_data_source)
+        
+        # Always add the creator as a member (regardless of public/private status)
+        await self._create_memberships(db, new_data_source, [current_user.id])
+        
+        # Create memberships for additional specified users (only for private data sources)
+        if member_user_ids and not is_public:
+            # Filter out the creator ID to avoid duplicates
+            additional_user_ids = [uid for uid in member_user_ids if uid != current_user.id]
+            if additional_user_ids:
+                await self._create_memberships(db, new_data_source, additional_user_ids)
 
         # Test connection and generate items...
         connection = await self.test_data_source_connection(db=db, data_source_id=new_data_source.id, organization=organization, current_user=current_user)
@@ -80,7 +117,16 @@ class DataSourceService:
             await db.commit()
             await db.refresh(new_data_source)
 
-        return new_data_source
+        # Reload the data source with memberships to avoid serialization issues
+        stmt = (
+            select(DataSource)
+            .options(selectinload(DataSource.data_source_memberships))
+            .where(DataSource.id == new_data_source.id)
+        )
+        result = await db.execute(stmt)
+        final_data_source = result.scalar_one()
+        
+        return final_data_source
 
     async def generate_data_source_items(self, db: AsyncSession, item: str, data_source_id: str, organization: Organization, current_user: User):
         # get data source by id
@@ -104,10 +150,13 @@ class DataSourceService:
 
         return response
 
-    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization) -> DataSourceSchema:
+    async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None) -> DataSourceSchema:
         query = (
             select(DataSource)
-            .options(selectinload(DataSource.git_repository))  # Explicitly load the relationship
+            .options(
+                selectinload(DataSource.git_repository),
+                selectinload(DataSource.data_source_memberships)
+            )
             .filter(DataSource.id == data_source_id)
             .filter(DataSource.organization_id == organization.id)
         )
@@ -123,48 +172,61 @@ class DataSourceService:
         return [ds for ds in DATA_SOURCE_DETAILS if ds["status"] == "active"]
     
     async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization) -> List[DataSourceSchema]:
-        ds = await db.execute(
+        # Query for data sources the user has access to
+        query = (
             select(DataSource)
-            .options(selectinload(DataSource.git_repository))  # Explicitly load the relationship
+            .options(
+                selectinload(DataSource.git_repository),
+                selectinload(DataSource.data_source_memberships)
+            )
             .filter(DataSource.organization_id == organization.id)
+            .filter(
+                or_(
+                    DataSource.is_public == True,  # Public data sources
+                    DataSource.id.in_(
+                        select(DataSourceMembership.data_source_id)
+                        .filter(
+                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                            DataSourceMembership.principal_id == current_user.id
+                        )
+                    )  # User has explicit membership
+                )
+            )
         )
-        ds = ds.scalars().all()
-        return [DataSourceSchema.from_orm(d) for d in ds]
+        result = await db.execute(query)
+        data_sources = result.scalars().all()
+        return [DataSourceSchema.from_orm(d) for d in data_sources]
 
-    async def get_active_data_sources(self, db: AsyncSession, organization: Organization):
-        """Get all active data sources for an organization"""
-        stmt = select(DataSource).where(
-            DataSource.organization_id == organization.id,
-            DataSource.is_active == True
+    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None):
+        """Get all active data sources for an organization that the user has access to"""
+        # Build base query for active data sources
+        stmt = (
+            select(DataSource)
+            .options(selectinload(DataSource.data_source_memberships))
+            .where(
+                DataSource.organization_id == organization.id,
+                DataSource.is_active == True
+            )
         )
-        result = await db.execute(stmt)
-        ds = result.scalars().all()
         
-        # Create schemas without trying to load git_repository
-        data_sources = []
-        for d in ds:
-            # Create a dict with all the fields except git_repository
-            data_source_dict = {
-                "id": d.id,
-                "name": d.name,
-                "type": d.type,
-                "config": d.config,
-                "organization_id": d.organization_id,
-                "created_at": d.created_at,
-                "updated_at": d.updated_at,
-                "context": d.context,
-                "description": d.description,
-                "summary": d.summary,
-                "conversation_starters": d.conversation_starters,
-                "is_active": d.is_active,
-                "git_repository": None  # Set to None initially
-            }
+        # Apply access control if user is provided (same logic as get_data_sources)
+        if current_user:
+            stmt = stmt.filter(
+                or_(
+                    DataSource.is_public == True,  # Public data sources
+                    DataSource.id.in_(
+                        select(DataSourceMembership.data_source_id)
+                        .filter(
+                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                            DataSourceMembership.principal_id == current_user.id
+                        )
+                    )  # User has explicit membership
+                )
+            )
             
-            # Create the schema from the dict
-            data_source_schema = DataSourceSchema(**data_source_dict)
-            data_sources.append(data_source_schema)
-        
-        return data_sources
+        result = await db.execute(stmt)
+        data_sources = result.scalars().all()
+        return [DataSourceSchema.from_orm(d) for d in data_sources]
     
     async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User):
         ds = next((ds for ds in DATA_SOURCE_DETAILS if ds["type"] == data_source_type), None)
@@ -199,10 +261,12 @@ class DataSourceService:
     async def delete_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
-        if data_source:
-            await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
-            await db.delete(data_source)
-            await db.commit()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+            
+        await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+        await db.delete(data_source)
+        await db.commit()
         return {"message": "Data source deleted successfully"}
     
     async def delete_data_source_tables(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
@@ -225,6 +289,8 @@ class DataSourceService:
             data_source = result.scalar_one_or_none()
             if not data_source:
                 raise ValueError(f"Data source not found: {data_source_id}")
+
+
 
             # Get the matching client from DATA_SOURCE_DETAILS
             # Import and instantiate the client class
@@ -260,14 +326,34 @@ class DataSourceService:
         return connection_status
     
     async def update_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, data_source: DataSourceUpdate, current_user: User):
-        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        result = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.data_source_memberships))
+            .filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id)
+        )
         data_source_db = result.scalar_one_or_none()
         
         if not data_source_db:
             raise HTTPException(status_code=404, detail="Data source not found")
 
+
+
         # Extract the update data
         update_data = data_source.dict(exclude_unset=True)
+        
+        # Handle membership updates
+        if 'member_user_ids' in update_data:
+            member_user_ids = update_data.pop('member_user_ids')
+            if member_user_ids is not None:
+                # Delete existing data_source_memberships
+                await db.execute(
+                    delete(DataSourceMembership).where(
+                        DataSourceMembership.data_source_id == data_source_id
+                    )
+                )
+                # Create new data_source_memberships
+                if member_user_ids:
+                    await self._create_memberships(db, data_source_db, member_user_ids)
         
         # Handle config updates
         if 'config' in update_data:
@@ -288,8 +374,17 @@ class DataSourceService:
         
         try:
             await db.commit()
-            await db.refresh(data_source_db)
-            return data_source_db
+            
+            # Reload the data source with memberships to avoid serialization issues
+            stmt = (
+                select(DataSource)
+                .options(selectinload(DataSource.data_source_memberships))
+                .where(DataSource.id == data_source_db.id)
+            )
+            result = await db.execute(stmt)
+            final_data_source = result.scalar_one()
+            
+            return final_data_source
         except Exception as e:
             await db.rollback()
             raise HTTPException(status_code=500, detail=f"Failed to update data source: {str(e)}")
@@ -304,9 +399,15 @@ class DataSourceService:
 
         return main_model_schema
 
-    async def get_data_source_fresh_schema(self, db: AsyncSession, data_source_id: str, organization: Organization):
+    async def get_data_source_fresh_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
+        
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+            
+
+            
         client = data_source.get_client()
         try:
             schema = client.get_schemas()
@@ -320,6 +421,11 @@ class DataSourceService:
     async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
+        
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+            
+
 
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive)
 
@@ -496,4 +602,67 @@ class DataSourceService:
         metadata_indexing_job = await self.get_metadata_resources(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
 
         return metadata_indexing_job
+
+    async def add_data_source_member(self, db: AsyncSession, data_source_id: str, member: DataSourceMembershipCreate, organization: Organization, current_user: User):
+        """Add a user to data source membership"""
+        # Get data source to verify it exists
+        data_source = await self.get_data_source(db, data_source_id, organization)
+        
+        # Check if membership already exists
+        existing = await db.execute(
+            select(DataSourceMembership).filter(
+                DataSourceMembership.data_source_id == data_source_id,
+                DataSourceMembership.principal_type == member.principal_type,
+                DataSourceMembership.principal_id == member.principal_id
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="User is already a member")
+        
+        # Create membership
+        membership = DataSourceMembership(
+            data_source_id=data_source_id,
+            principal_type=member.principal_type,
+            principal_id=member.principal_id,
+            config=member.config
+        )
+        db.add(membership)
+        await db.commit()
+        await db.refresh(membership)
+        return DataSourceMembershipSchema.from_orm(membership)
+
+    async def remove_data_source_member(self, db: AsyncSession, data_source_id: str, user_id: str, organization: Organization, current_user: User):
+        """Remove a user from data source membership"""
+        # Get data source to verify it exists
+        data_source = await self.get_data_source(db, data_source_id, organization)
+        
+        # Find and delete membership
+        result = await db.execute(
+            select(DataSourceMembership).filter(
+                DataSourceMembership.data_source_id == data_source_id,
+                DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                DataSourceMembership.principal_id == user_id
+            )
+        )
+        membership = result.scalar_one_or_none()
+        if not membership:
+            raise HTTPException(status_code=404, detail="Membership not found")
+        
+        await db.delete(membership)
+        await db.commit()
+        return {"message": "Member removed successfully"}
+
+    async def get_data_source_members(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+        """Get all members of a data source"""
+        # Get data source to verify it exists
+        data_source = await self.get_data_source(db, data_source_id, organization, current_user)
+        
+        # Get data_source_memberships
+        result = await db.execute(
+            select(DataSourceMembership).filter(
+                DataSourceMembership.data_source_id == data_source_id
+            )
+        )
+        data_source_memberships = result.scalars().all()
+        return [DataSourceMembershipSchema.from_orm(m) for m in data_source_memberships]
 

@@ -8,9 +8,9 @@ from app.core.auth import current_user
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from app.services.data_source_service import DataSourceService
-from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate
+from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate, DataSourceMembershipCreate
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
-
+from app.schemas.data_source_schema import DataSourceMembershipSchema
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.core.permissions_decorator import requires_permission
 from app.models.data_source import DataSource
@@ -43,7 +43,7 @@ async def get_active_data_sources(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.get_active_data_sources(db, organization)
+    return await data_source_service.get_active_data_sources(db, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}", response_model=DataSourceSchema)
 @requires_permission('view_data_source', model=DataSource)
@@ -186,3 +186,36 @@ async def update_metadata_resources(
         organization=organization,
         current_user=current_user
     )
+
+
+@router.get("/data_sources/{data_source_id}/members", response_model=list[DataSourceMembershipSchema])
+@requires_permission('view_data_source', model=DataSource)
+async def get_data_source_members(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    return await data_source_service.get_data_source_members(db, data_source_id, organization, current_user)
+
+@router.post("/data_sources/{data_source_id}/members", response_model=DataSourceMembershipSchema)
+@requires_permission('manage_data_source_memberships', model=DataSource)
+async def add_data_source_member(
+    data_source_id: str,
+    member: DataSourceMembershipCreate,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    return await data_source_service.add_data_source_member(db, data_source_id, member, organization, current_user)
+
+@router.delete("/data_sources/{data_source_id}/members/{user_id}", status_code=204)
+@requires_permission('manage_data_source_memberships', model=DataSource)
+async def remove_data_source_member(
+    data_source_id: str,
+    user_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    return await data_source_service.remove_data_source_member(db, data_source_id, user_id, organization, current_user)

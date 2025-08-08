@@ -94,3 +94,89 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             return await func(*args, **kwargs)
         return wrapper
     return decorator
+
+
+def requires_data_source_access(permission, allow_public=False, membership_required=False):
+    """
+    Data source specific permission decorator that checks:
+    1. User has sufficient role-based permission in the organization
+    2. User belongs to the organization 
+    3. Data source belongs to organization
+    4. If allow_public=True, allows access to public data sources
+    5. If membership_required=True, requires explicit membership for non-public data sources
+    
+    Usage:
+    @requires_data_source_access("view_data_sources", allow_public=True)  # Can view public or member data sources
+    @requires_data_source_access("edit_data_sources", membership_required=True)  # Must be member to edit
+    @requires_data_source_access("delete_data_sources")  # Admin permission required
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Extract arguments
+            sig = signature(func)
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+            all_args = bound_args.arguments
+
+            user = all_args.get('current_user')
+            organization = all_args.get('organization')
+            db = all_args.get('db')
+            data_source_id = all_args.get('data_source_id')
+
+            if not all([user, organization, db]):
+                raise HTTPException(status_code=400, detail="Missing required parameters")
+
+            if not user.is_verified and settings.bow_config.features.verify_emails:
+                raise HTTPException(status_code=403, detail="User is not verified")
+
+            # Check user membership and role in organization
+            stmt = select(Membership).where(
+                Membership.user_id == user.id,
+                Membership.organization_id == organization.id
+            )
+            result = await db.execute(stmt)
+            membership = result.scalar_one_or_none()
+
+            if not membership:
+                raise HTTPException(status_code=403, detail="User is not a member of this organization")
+
+            # Check role-based permission
+            if permission not in ROLES_PERMISSIONS.get(membership.role, set()):
+                raise HTTPException(status_code=403, detail="Permission denied")
+
+            # If data_source_id is provided, check data source specific access
+            if data_source_id:
+                from app.models.data_source import DataSource
+                
+                stmt = select(DataSource).where(
+                    DataSource.id == data_source_id,
+                    DataSource.organization_id == organization.id
+                )
+                result = await db.execute(stmt)
+                data_source = result.scalar_one_or_none()
+                
+                if not data_source:
+                    raise HTTPException(status_code=404, detail="Data source not found")
+                
+                # Check data source access rules
+                has_access = False
+                
+                # If public data sources are allowed and this is public
+                if allow_public and data_source.is_public:
+                    has_access = True
+                
+                # If membership is required, check for explicit membership
+                elif membership_required:
+                    has_access = await data_source.has_membership_async(user.id, db)
+                
+                # Otherwise, access is based on role permissions only (already checked above)
+                else:
+                    has_access = True
+                
+                if not has_access:
+                    raise HTTPException(status_code=403, detail="Access denied to this data source")
+
+            return await func(*args, **kwargs)
+        return wrapper
+    return decorator

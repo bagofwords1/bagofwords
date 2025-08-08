@@ -79,7 +79,8 @@ function getPermissionsForRole(role: string): string[] {
       'create_instructions',
       'update_instructions',
       'delete_instructions',
-      'view_hidden_instructions'
+      'view_hidden_instructions',
+      'manage_data_source_memberships'
     ],
     member: [
       'view_data_source',

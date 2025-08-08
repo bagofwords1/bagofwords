@@ -5,6 +5,52 @@ from datetime import datetime
 import json
 from app.schemas.git_repository_schema import GitRepositorySchema
 
+class DataSourceReportSchema(BaseModel):
+    id: str
+    name: str
+    type: str
+    organization_id: str
+    created_at: datetime
+    updated_at: datetime
+    context: Optional[str]
+    description: Optional[str]
+    summary: Optional[str]
+    is_active: bool
+    is_public: bool = False
+    owner_user_id: Optional[str] = None
+    config: Dict[str, Any]
+    # Note: NO memberships field here
+    
+    @validator('config', pre=True)
+    def parse_config(cls, value):
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                raise ValueError('Invalid JSON string for config')
+        return value
+    
+    class Config:
+        from_attributes = True
+
+class DataSourceMembershipSchema(BaseModel):
+    id: str
+    data_source_id: str
+    principal_type: str  # "user" or "group"
+    principal_id: str
+    config: Optional[Dict[str, Any]] = None  # For future row-level access
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DataSourceMembershipCreate(BaseModel):
+    principal_type: str = "user"  # Default to "user"
+    principal_id: str
+    config: Optional[Dict[str, Any]] = None
+
 
 class DataSourceBase(BaseModel):
     name: str = None
@@ -22,8 +68,11 @@ class DataSourceSchema(DataSourceBase):
     summary: Optional[str]
     conversation_starters: Optional[list]
     is_active: bool
+    is_public: bool = False
+    owner_user_id: Optional[str] = None
     config: Dict[str, Any]
     git_repository: Optional[GitRepositorySchema] = None
+    memberships: Optional[List[DataSourceMembershipSchema]] = []
 
     @validator('config', pre=True)
     def parse_config(cls, value):
@@ -55,6 +104,8 @@ class DataSourceCreate(DataSourceBase):
     generate_summary: bool = False
     generate_conversation_starters: bool = False
     generate_ai_rules: bool = False
+    is_public: bool = False
+    member_user_ids: Optional[List[str]] = []  # User IDs to grant access to
 
     @validator('credentials')
     def validate_credentials(cls, v, values):
@@ -99,6 +150,8 @@ class DataSourceUpdate(DataSourceBase):
     context: Optional[str] = None
     conversation_starters: Optional[list] = None
     credentials: Optional[dict] = None
+    is_public: Optional[bool] = None
+    member_user_ids: Optional[List[str]] = None  # User IDs to grant access to
 
     class Config:
         from_attributes = True

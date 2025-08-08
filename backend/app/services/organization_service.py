@@ -6,6 +6,7 @@ from app.schemas.organization_schema import OrganizationCreate, OrganizationSche
 from app.schemas.organization_schema import MembershipCreate, MembershipSchema, MembershipUpdate
 from app.schemas.organization_settings_schema import OrganizationSettingsCreate
 from app.services.organization_settings_service import OrganizationSettingsService
+from app.schemas.user_schema import UserSchema
 from uuid import UUID
 from app.models.user import User
 from typing import List
@@ -196,3 +197,13 @@ class OrganizationService:
                 logger.error(f"Error sending invitation email: {e}")
 
         asyncio.create_task(send_email())
+
+
+    async def get_organization_members(self, db: AsyncSession, current_user: User, organization: Organization) -> List[UserSchema]:
+        # should get list of users via membership table
+        result = await db.execute(select(Membership).where(Membership.organization_id == organization.id))
+        memberships = result.scalars().all()
+        user_ids = [membership.user_id for membership in memberships if membership.user_id is not None]
+        result = await db.execute(select(User).where(User.id.in_(user_ids)))
+        users = result.scalars().all()
+        return [UserSchema.from_orm(user) for user in users]

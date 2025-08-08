@@ -63,7 +63,8 @@ ADMIN_PERMISSIONS = {
     'update_instructions',
     'delete_instructions',
     'view_hidden_instructions',
-    'view_all_completion_feedbacks'
+    'view_all_completion_feedbacks',
+    'manage_data_source_memberships'
 }
 
 # Combine permissions for roles

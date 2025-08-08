@@ -142,6 +142,8 @@ class DataSource(BaseSchema):
     credentials = Column(Text, nullable=True)  # Stores the credentials
     last_synced_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    is_public = Column(Boolean, nullable=False, default=True)
+    owner_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     context = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
@@ -151,6 +153,7 @@ class DataSource(BaseSchema):
     organization_id = Column(String(36), ForeignKey(
         'organizations.id'), nullable=False)
     organization = relationship("Organization", back_populates="data_sources")
+    owner = relationship("User", foreign_keys=[owner_user_id])
     reports = relationship(
         "Report", 
         secondary="report_data_source_association", 
@@ -167,6 +170,12 @@ class DataSource(BaseSchema):
     )
     metadata_resources = relationship("MetadataResource", back_populates="data_source")
     metadata_indexing_jobs = relationship("MetadataIndexingJob", back_populates="data_source")
+    data_source_memberships = relationship("DataSourceMembership", back_populates="data_source", cascade="all, delete-orphan")
+
+    @property
+    def memberships(self):
+        """Alias for data_source_memberships to match schema expectations"""
+        return self.data_source_memberships
 
     instructions = relationship(
     "Instruction", 
@@ -276,3 +285,32 @@ class DataSource(BaseSchema):
         context_builder = ResourceContextBuilder(db, prompt_content)
         # Build context for just this data source
         return await context_builder.build_context([self])
+    
+    def has_membership(self, user_id: str) -> bool:
+        """
+        Check if a user has explicit membership to this data source.
+        This is separate from permissions - just checks membership.
+        """
+        for membership in self.memberships:
+            if (membership.principal_type == "user" and 
+                membership.principal_id == user_id):
+                return True
+        return False
+    
+    async def has_membership_async(self, user_id: str, db):
+        """
+        Async version of has_membership that checks memberships from database.
+        Use this when memberships might not be loaded.
+        """
+        from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
+        from sqlalchemy import select
+        
+        stmt = select(DataSourceMembership).where(
+            DataSourceMembership.data_source_id == self.id,
+            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+            DataSourceMembership.principal_id == user_id
+        )
+        result = await db.execute(stmt)
+        membership = result.scalar_one_or_none()
+        
+        return membership is not None

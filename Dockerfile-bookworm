@@ -1,5 +1,5 @@
 # Use an official Python runtime as a parent image for the backend
-FROM python:3.12.2-slim as backend-builder
+FROM python:3.12.2-slim AS backend-builder
 
 # Install system dependencies required for psycopg2, asyncpg, and other backend dependencies
 RUN apt-get update && apt-get install -y libpq-dev gcc
@@ -12,10 +12,10 @@ COPY ./backend /app/backend
 RUN rm -f /app/backend/db/app.db
 
 # Install any needed packages specified in backend/requirements_versioned.txt
-RUN pip install --no-cache-dir -r requirements_versioned.txt
+RUN pip install --no-cache-dir --prefer-binary -r requirements_versioned.txt
 
 # Use Node.js official image for the frontend
-FROM node:22 as frontend-builder
+FROM node:22 AS frontend-builder
 
 # Set the working directory in the container for the frontend
 WORKDIR /app
@@ -52,7 +52,7 @@ COPY --from=frontend-builder /app/frontend /app/frontend
 
 # Install Python dependencies globally
 COPY ./backend/requirements_versioned.txt /app/backend/
-RUN pip install --no-cache-dir -r /app/backend/requirements_versioned.txt
+RUN pip install --no-cache-dir --prefer-binary -r /app/backend/requirements_versioned.txt
 
 # Set the working directory to /app for CMD execution
 WORKDIR /app

@@ -43,6 +43,7 @@ from app.models.external_user_mapping import ExternalUserMapping
 from app.models.instruction import Instruction
 from app.models.instruction import instruction_data_source_association
 from app.models.completion_feedback import CompletionFeedback
+from app.models.data_source_membership import DataSourceMembership
 
 from app.settings.config import settings
 

@@ -11,6 +11,7 @@ from app.core.auth import current_user
 from typing import List
 from app.dependencies import get_current_organization
 from app.core.permissions_decorator import requires_permission
+from app.schemas.user_schema import UserSchema
 
 router = APIRouter(tags=["organizations"])
 organization_service = OrganizationService()
@@ -43,3 +44,8 @@ async def update_member(organization_id: str, membership_id: str, membership: Me
 @router.get("/organizations", response_model=List[OrganizationAndRoleSchema])
 async def get_organizations(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
     return await organization_service.get_user_organizations(db, current_user)
+
+@requires_permission('update_organization_members')
+@router.get("/organization/members", response_model=List[UserSchema])
+async def get_organization_members(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
+    return await organization_service.get_organization_members(db, current_user, organization)

@@ -89,6 +89,10 @@
               </div>
             </div>
             <div class="mt-4 flex flex-col gap-2 bg-gray-50 p-5 rounded border">
+              <h1 class="text-sm font-semibold">Access Settings</h1>
+              <UCheckbox v-model="is_public" label="Make this data source public (accessible to all organization members)" />
+            </div>
+            <div class="mt-4 flex flex-col gap-2 bg-gray-50 p-5 rounded border">
               <h1 class="text-sm font-semibold">LLM settings</h1>
               <UCheckbox v-model="generate_summary" label="Generate data source summary" />
               <UCheckbox v-model="generate_conversation_starters" label="Generate conversation starters" />
@@ -121,6 +125,7 @@ const formData = reactive({
   config: {},
   credentials: {}
 });
+const is_public = ref(true);
 const generate_summary = ref(true);
 const generate_conversation_starters = ref(true);
 const generate_ai_rules = ref(true);
@@ -239,6 +244,7 @@ async function handleSubmit() {
       type: selected_ds.value.type,
       config: formData.config,
       credentials: formData.credentials,
+      is_public: is_public.value,
       generate_summary: generate_summary.value,
       generate_conversation_starters: generate_conversation_starters.value,
       generate_ai_rules: generate_ai_rules.value

@@ -19,8 +19,6 @@ bcrypt==4.1.2
 blinker==1.9.0
 boto3==1.35.70
 botocore==1.35.70
-braintrust==0.0.176
-braintrust_core==0.0.54
 cachetools==5.5.0
 certifi==2024.2.2
 cffi==1.16.0

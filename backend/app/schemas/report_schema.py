@@ -3,7 +3,7 @@ from typing import List, Optional, Literal
 from .widget_schema import WidgetSchema, WidgetCreate
 from app.schemas.user_schema import UserSchema
 from datetime import datetime
-from app.schemas.data_source_schema import DataSourceSchema
+from app.schemas.data_source_schema import DataSourceReportSchema
 from app.schemas.external_platform_schema import ExternalPlatformSchema
 
 class ReportBase(BaseModel):
@@ -24,7 +24,7 @@ class ReportSchema(ReportBase):
     status: Literal["draft", "published", "archived"]
     slug: str
     widgets: List[WidgetSchema] = []
-    data_sources: List[DataSourceSchema] = []
+    data_sources: List[DataSourceReportSchema] = []
     external_platform: Optional[ExternalPlatformSchema] = None
     user: UserSchema
     created_at: datetime

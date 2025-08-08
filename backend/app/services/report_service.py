@@ -244,8 +244,12 @@ class ReportService:
         return report
 
     async def _associate_data_sources_with_report(self, db: AsyncSession, report: Report, data_source_ids: list[str]):
-        # Fetch the data sources asynchronously
-        result = await db.execute(select(DataSource).filter(DataSource.id.in_(data_source_ids)))
+        # Fetch the data sources asynchronously with memberships preloaded
+        result = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.data_source_memberships))
+            .filter(DataSource.id.in_(data_source_ids))
+        )
         data_sources = result.scalars().all()
         
         report.data_sources.extend(data_sources)
