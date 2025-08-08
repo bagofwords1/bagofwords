@@ -64,9 +64,9 @@
       >
         <div class="flex">
           <div class="w-4/5 pr-4">
-            <p class="text-sm text-black flex items-center">
-              <LLMProviderIcon provider="openai" class="h-5 inline-block " />
-              <LLMProviderIcon provider="anthropic" class="h-5 inline-block ml-2" />
+            <p class="text-sm text-black flex ">
+              <LLMProviderIcon provider="openai" class="h-3 inline-block " />
+              <LLMProviderIcon provider="anthropic" class="h-2 inline-block ml-2" />
               <span class="inline-block ml-2">Connect your LLM</span>
             </p>
           </div>
