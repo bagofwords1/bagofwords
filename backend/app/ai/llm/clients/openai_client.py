@@ -12,6 +12,10 @@ class OpenAi(LLMClient):
         self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     def inference(self, model_id: str, prompt: str) -> str:
+        temprature = 0.7
+        if model_id == "gpt-5":
+            temprature = 1
+
         chat_completion = self.client.chat.completions.create(
             messages=[
                 {
@@ -20,11 +24,15 @@ class OpenAi(LLMClient):
                 }
             ],
             model=model_id,
-            temperature=0.7
+            temperature=temprature
         )
         return chat_completion.choices[0].message.content
     
     async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
+        temprature = 0.7
+        if model_id == "gpt-5":
+            temprature = 1
+
         stream = await self.async_client.chat.completions.create(
             messages=[
                 {
@@ -33,7 +41,7 @@ class OpenAi(LLMClient):
                 }
             ],
             model=model_id,
-            temperature=0.7,
+            temperature=temprature,
             stream=True
         )
         

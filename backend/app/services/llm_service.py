@@ -9,7 +9,7 @@ from app.models.user import User
 from app.settings.config import settings
 from app.models.llm_provider import LLM_PROVIDER_DETAILS
 from app.models.llm_model import LLM_MODEL_DETAILS
-from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials
+from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema
 from datetime import datetime
 
 class LLMService:
@@ -347,19 +347,35 @@ class LLMService:
         organization: Organization,
         provider: LLMProvider,
         current_user: User,
-        models: list[dict]
+        models: list[LLMModelSchema]
     ):
         for model in models:
-            db_model = await db.execute(
-                select(LLMModel).filter(LLMModel.id == model.id)
-            )
-            db_model = db_model.scalar_one_or_none()
+            # If model has an ID, update existing model
+            if model.id:
+                db_model = await db.execute(
+                    select(LLMModel).filter(LLMModel.id == model.id)
+                )
+                db_model = db_model.scalar_one_or_none()
 
-            if not db_model:
-                raise HTTPException(status_code=404, detail="Model not found")
+                if not db_model:
+                    raise HTTPException(status_code=404, detail="Model not found")
 
-            if db_model.is_enabled != model.is_enabled:
-                db_model.is_enabled = model.is_enabled
+                # Update fields that can be changed
+                if db_model.is_enabled != model.is_enabled:
+                    db_model.is_enabled = model.is_enabled
+                    db.add(db_model)
+            else:
+                # If model doesn't have an ID, create new model
+                db_model = LLMModel(
+                    name=model.name or model.model_id,
+                    model_id=model.model_id,
+                    provider=provider,
+                    organization_id=organization.id,
+                    is_enabled=model.is_enabled,
+                    is_custom=model.is_custom,
+                    is_preset=model.is_preset,
+                    is_default=False  # New models are not default by default
+                )
                 db.add(db_model)
 
         await db.commit()

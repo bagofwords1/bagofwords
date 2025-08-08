@@ -3,6 +3,7 @@
 ## Version 0.0.181 (August 8, 2025)
 - Added data source visibility controls - admins can now set data sources as public or private within organizations and manage granular access permissions through user memberships
 - Improved interface and user experience with differentiated views and controls for administrators versus regular users in the data source management area
+- Added support for OpenAI's GPT-5 model
 
 ## Version 0.0.180 (August 6, 2025)
 - Enhanced security by updating Dockerfile with latest vulnerability patches

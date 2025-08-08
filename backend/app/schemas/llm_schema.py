@@ -101,11 +101,11 @@ class LLMModelBase(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 class LLMModelSchema(LLMModelBase):
-    id: str
-    provider_id: str
-    is_preset: bool
-    is_enabled: bool
-    is_custom: bool
+    id: Optional[str] = None  # Optional for new models
+    provider_id: Optional[str] = None  # Optional for new models
+    is_preset: bool = False
+    is_enabled: bool = True
+    is_custom: bool = False
 
     class Config:
         from_attributes = True

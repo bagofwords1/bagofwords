@@ -16,6 +16,10 @@ class AzureClient(LLMClient):
 
     def inference(self, model_id: str, prompt: str) -> str:
         # For Azure, model_id is the deployment name
+        temprature = 0.7
+        if model_id == "gpt-5":
+            temprature = 1
+
         chat_completion = self.client.chat.completions.create(
             messages=[
                 {
@@ -24,12 +28,16 @@ class AzureClient(LLMClient):
                 }
             ],
             model=model_id,
-            temperature=0.7
+            temperature=temprature
         )
         return chat_completion.choices[0].message.content
     
     async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
         # For Azure, model_id is the deployment name
+        temprature = 0.7
+        if model_id == "gpt-5":
+            temprature = 1
+
         stream = await self.async_client.chat.completions.create(
             messages=[
                 {
@@ -38,7 +46,7 @@ class AzureClient(LLMClient):
                 }
             ],
             model=model_id,
-            temperature=0.7,
+            temperature=temprature,
             stream=True
         )
         

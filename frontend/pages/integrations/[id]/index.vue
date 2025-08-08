@@ -341,28 +341,7 @@ Create a table of all customers, show customer name, email, phone, address and c
                                 </button>
                             </div>
 
-                            <!-- Schema Section (for non-admin users) -->
-                            <div v-if="!canUpdateDataSource && simpleSchema">
-                                <h3 class="text-sm font-semibold mb-2">Available Tables</h3>
-                                <div class="bg-white border border-gray-200 rounded-md">
-                                    <div v-if="simpleSchema && simpleSchema.length > 0">
-                                        <ul class="divide-y divide-gray-200">
-                                            <li v-for="table in simpleSchema" :key="table.name" class="p-3">
-                                                <div class="font-medium text-gray-900 text-sm mb-1">{{ table.name }}</div>
-                                                <div class="text-xs text-gray-500">
-                                                    {{ table.columns.length }} columns
-                                                    <span v-if="table.columns.length > 0" class="ml-2">
-                                                        ({{ table.columns.slice(0, 3).map(col => col.name).join(', ') }}<span v-if="table.columns.length > 3">...</span>)
-                                                    </span>
-                                                </div>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                    <div v-else class="p-4 text-center text-gray-500 text-sm">
-                                        No tables available
-                                    </div>
-                                </div>
-                            </div>
+
                         </div>
                         <div class="w-1/3 bg-gray-100 p-4 rounded-lg">
                             <h1 class="text-sm font-semibold">
@@ -712,12 +691,15 @@ Create a table of all customers, show customer name, email, phone, address and c
                                 </label>
                                 <USelectMenu
                                     v-model="selectedUsers"
-                                    :options="availableUsers"
+                                    :options="filteredUsers"
                                     multiple
+                                    searchable
+                                    searchable-placeholder="Search users..."
                                     option-attribute="display_name"
                                     value-attribute="user_id"
                                     placeholder="Choose users to grant access..."
                                     class="w-full"
+                                    :search-attributes="['display_name', 'email']"
                                 />
                             </div>
                             
@@ -842,8 +824,13 @@ const availableUsers = computed(() => {
         .filter(user => user.id && !memberUserIds.includes(user.id))
         .map(user => ({
             user_id: user.id,
-            display_name: user.name || user.email || 'Unknown User'
+            display_name: user.name || user.email || 'Unknown User',
+            email: user.email || ''
         }));
+});
+
+const filteredUsers = computed(() => {
+    return availableUsers.value;
 });
 
 async function testConnection() {

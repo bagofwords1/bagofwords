@@ -39,7 +39,7 @@
                             <input 
                                 v-model="selectedProvider.credentials.api_key" 
                                 type="text" 
-                                placeholder="Keep blank to use default"
+                                placeholder="Keep blank to use stored key"
                                 class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
                             />
                         </div>
@@ -47,13 +47,56 @@
                             <label class="text-sm font-medium text-gray-700 mb-2">
                                 Models
                             </label>
-                            <ul>
-                                <li class="text-sm text-gray-500 mt-2" v-for="model in selectedProvider.models" :key="model.id">
-                                    <span class="flex items-center gap-2">
-                                        <UCheckbox v-model="model.is_enabled" /> {{ model.name }} 
-                                    </span>
-                                </li>
-                            </ul>
+                            <div class="space-y-2">
+                                <!-- Existing Models -->
+                                <div v-for="model in selectedProvider.models" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
+                                    <UCheckbox v-model="model.is_enabled" />
+                                    <div class="flex-1">
+                                        <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
+                                        <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
+                                    </div>
+                                    <button 
+                                        v-if="model.is_custom"
+                                        type="button"
+                                        @click="removeExistingCustomModel(model.id)"
+                                        class="text-red-500 hover:text-red-700 hidden"
+                                    >
+                                        <Icon name="heroicons:trash" class="w-4 h-4" />
+                                    </button>
+                                </div>
+                                
+                                <!-- Custom Models for existing provider -->
+                                <div v-for="(customModel, index) in existingProviderCustomModels" :key="`existing-custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
+                                    <UCheckbox v-model="customModel.is_enabled" />
+                                    <div class="flex-1">
+                                        <input 
+                                            v-model="customModel.model_id" 
+                                            type="text" 
+                                            placeholder="Model ID"
+                                            class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
+                                        />
+                                    </div>
+                                    <button 
+                                        type="button"
+                                        @click="removeExistingProviderCustomModel(index)"
+                                        class="text-red-500 hover:text-red-700"
+                                    >
+                                        <Icon name="heroicons:trash" class="w-4 h-4" />
+                                    </button>
+                                </div>
+                                
+                                <!-- Add Custom Model Button for existing provider -->
+                                <div class="pt-2">
+                                    <button 
+                                        type="button"
+                                        @click="addExistingProviderCustomModel"
+                                        class="text-sm text-blue-500 hover:text-blue-700 underline flex items-center gap-1"
+                                    >
+                                        <Icon name="heroicons:plus-circle" class="w-4 h-4" />
+                                        Add Custom Model
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                         <div class="" v-if="selectedProvider?.type !== 'new_provider'">
                             <div>
@@ -219,6 +262,7 @@ onMounted(async () => {
 const selectedProvider = ref(null);
 const selectedModel = ref(null);
 const customModels = ref([]);
+const existingProviderCustomModels = ref([]);
 const providerForm = ref({
     name: '',
     provider_type: '',
@@ -291,7 +335,9 @@ async function createProvider() {
         .map(model => ({
             model_id: model.model_id,
             name: model.name,
-            is_custom: false
+            is_custom: false,
+            is_enabled: true,
+            is_preset: true
         }));
 
     // Gather selected custom models
@@ -300,7 +346,9 @@ async function createProvider() {
         .map(model => ({
             model_id: model.model_id,
             name: model.model_id, // Use model_id as the name for custom models
-            is_custom: true
+            is_custom: true,
+            is_enabled: true,
+            is_preset: false
         }));
 
     // Combine all selected models
@@ -330,10 +378,40 @@ async function createProvider() {
 }
 
 async function updateProvider() {
+    // Prepare new custom models for creation (no ID means create new)
+    const newCustomModels = existingProviderCustomModels.value
+        .filter(model => model.is_enabled && model.model_id.trim() !== '')
+        .map(model => ({
+            // No id field - this signals to backend to create new model
+            model_id: model.model_id,
+            name: model.model_id,
+            is_custom: true,
+            is_enabled: true,
+            is_preset: false
+        }));
+
+    // Existing models keep their IDs for updates
+    const existingModels = selectedProvider.value.models.map(model => ({
+        id: model.id, // Keep existing ID for updates
+        model_id: model.model_id,
+        name: model.name,
+        is_custom: model.is_custom,
+        is_enabled: model.is_enabled,
+        is_preset: model.is_preset
+    }));
+
+    // Prepare update payload with existing models + new custom models
+    const updatePayload = {
+        name: selectedProvider.value.name,
+        provider_type: selectedProvider.value.provider_type,
+        credentials: selectedProvider.value.credentials,
+        models: [...existingModels, ...newCustomModels]
+    };
+
     // Update selectedProvider with new models
     const response = await useMyFetch(`/api/llm/providers/${selectedProvider.value.id}`, {
         method: 'PUT',
-        body: selectedProvider.value
+        body: updatePayload
     }).then(response => {
         if (response.status.value === 'success') {
             resetForm();
@@ -415,5 +493,22 @@ function addCustomModel() {
 
 function removeCustomModel(index) {
     customModels.value.splice(index, 1);
+}
+
+function addExistingProviderCustomModel() {
+    existingProviderCustomModels.value.push({
+        model_id: '',
+        is_enabled: true
+    });
+}
+
+function removeExistingProviderCustomModel(index) {
+    existingProviderCustomModels.value.splice(index, 1);
+}
+
+function removeExistingCustomModel(modelId) {
+    if (confirm('Are you sure you want to remove this custom model?')) {
+        selectedProvider.value.models = selectedProvider.value.models.filter(model => model.id !== modelId);
+    }
 }
 </script>
