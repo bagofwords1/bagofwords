@@ -104,7 +104,7 @@
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
                             <div v-for="(field, key) in fieldsForProvider(providerForm.provider_type)" :key="key">
-                                <label class="text-sm font-medium text-gray-700 mb-2">{{ field.title }}</label>
+                                <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
                                 <input v-model="providerForm.credentials[key]" type="text" required
                                     :placeholder="field.description || ''"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
@@ -248,7 +248,17 @@ const filteredModels = computed(() => {
     const providerType = isNewProviderSelected.value 
         ? providerForm.value.provider_type 
         : selectedProvider.value?.type;
-    return models.value.filter(model => model.provider_type === providerType);
+    const filtered = models.value.filter(model => model.provider_type === providerType);
+    
+    // When adding a new provider, set all models as enabled by default
+    if (isNewProviderSelected.value) {
+        return filtered.map(model => ({
+            ...model,
+            is_enabled: true
+        }));
+    }
+    
+    return filtered;
 });
 
 const resetForm = () => {
