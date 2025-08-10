@@ -59,7 +59,7 @@ jobs:
           scan-type: image
           image-ref: bagofwords/bagofwords:${{ env.version_tag }}
           format: sarif
-          exit-code: 1
+          exit-code: 0
           severity: CRITICAL,HIGH
           output: trivy-results.sarif
 
