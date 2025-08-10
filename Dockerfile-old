@@ -1,15 +1,12 @@
-FROM python:3.12.8-slim AS backend-builder
+# Use the latest Python runtime with security patches
+FROM python:3.12.8-slim as backend-builder
 
-ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    DEBIAN_FRONTEND=noninteractive
-
-# Install build deps for compiling native wheels only in builder
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends libpq-dev gcc && \
-    rm -rf /var/lib/apt/lists/*
+# Install system dependencies and update packages for security patches
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container for the backend
 WORKDIR /app/backend
@@ -18,22 +15,14 @@ WORKDIR /app/backend
 COPY ./backend /app/backend
 RUN rm -f /app/backend/db/app.db
 
-# Use a dedicated virtual environment for dependencies and reuse it in final image
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
+# Install any needed packages specified in backend/requirements_versioned.txt
+RUN pip install --no-cache-dir -r requirements_versioned.txt
 
-# Install Python dependencies
-RUN python -m pip install --upgrade pip setuptools wheel && \
-    python -m pip install --no-cache-dir --prefer-binary -r requirements_versioned.txt
+# Use latest Node.js official image for the frontend
+FROM node:22-slim as frontend-builder
 
-FROM node:22-slim AS frontend-builder
-
-ENV NODE_ENV=production \
-    NUXT_TELEMETRY_DISABLED=1 \
-    DEBIAN_FRONTEND=noninteractive
-
-# Update system packages for security and enable corepack (Yarn)
-RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/* && corepack enable
+# Update system packages for security
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container for the frontend
 WORKDIR /app
@@ -49,61 +38,52 @@ COPY ./frontend /app/frontend
 WORKDIR /app/frontend
 
 # Install frontend dependencies and build the project
-RUN yarn install && yarn build
+RUN yarn install
+RUN yarn build
 
+# Final image - use latest Python with security patches
 FROM python:3.12.8-slim
 
-ENV PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    DEBIAN_FRONTEND=noninteractive
-
-# Install minimal runtime packages: Node.js 22, libpq runtime, git for GitPython, tini as PID 1
+# Install Node.js, update all packages, and clean up in one layer
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends curl git libpq5 tini && \
+    apt-get install -y curl libpq-dev gcc git && \
     curl -sL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
+    apt-get install -y nodejs && \
+    npm install --global yarn@latest && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-RUN groupadd -r app && useradd -r -g app -s /usr/sbin/nologin app && \
-    mkdir -p /app/backend/db /app/frontend && \
-    chown -R app:app /app
+RUN mkdir -p /app/backend/db && \
+    chown -R nobody:nogroup /app
 
-# Copy Python virtual environment and backend code
-COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-COPY --from=backend-builder --chown=app:app /app/backend /app/backend
+# Copy backend and frontend builds from their respective builder images
+COPY --from=backend-builder /app/backend /app/backend
+COPY --from=frontend-builder /app/frontend /app/frontend
 
-# Copy only the built Nuxt output to reduce image size
-COPY --from=frontend-builder --chown=app:app /app/frontend/.output /app/frontend/.output
+# Install Python dependencies globally
+COPY ./backend/requirements_versioned.txt /app/backend/
+RUN pip install --no-cache-dir -r /app/backend/requirements_versioned.txt
 
-# Runtime configs and scripts
-COPY --chown=app:app ./backend/requirements_versioned.txt /app/backend/
-
+# Set the working directory to /app for CMD execution
 WORKDIR /app
 
-COPY --chown=app:app ./VERSION /app/VERSION
-COPY --chown=app:app ./start.sh /app/start.sh
-COPY --chown=app:app ./bow-config.yaml /app/bow-config.yaml
+COPY ./VERSION /app/VERSION
+COPY ./start.sh /app/start.sh
+COPY ./bow-config.yaml /app/bow-config.yaml
 
 # Set executable permissions for start.sh
 RUN chmod +x /app/start.sh
 
+# Define environment variable for Node to run in production mode
 ENV NODE_ENV=production
 ENV ENVIRONMENT=production
-ENV GIT_PYTHON_REFRESH=quiet
 
+# Add these before the CMD
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=UTF-8
 
-EXPOSE 3000 8000
+# Expose ports (not required by Heroku, but useful for local development)
+EXPOSE 3000
 
-# Simple healthcheck against Nuxt server
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-  CMD curl -fsS http://localhost:3000/ || exit 1
-USER app
-
-ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["/bin/bash", "start.sh"]
