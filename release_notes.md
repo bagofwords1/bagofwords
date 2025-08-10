@@ -1,9 +1,12 @@
 # Release Notes
 
-## Version 0.0.181 (August 8, 2025)
+## Version 0.0.181 (August 10, 2025)
 - Added data source visibility controls - admins can now set data sources as public or private within organizations and manage granular access permissions through user memberships
 - Improved interface and user experience with differentiated views and controls for administrators versus regular users in the data source management area
-- Added support for OpenAI's GPT-5 model
+- Integrated OpenAI's latest GPT-5 language model into the platform
+- Updated Docker image to use Ubuntu base with latest security patches
+- Updated Python package dependencies to latest stable versions
+- Implemented container vulnerability scanning using Trivy in CI/CD pipeline
 
 ## Version 0.0.180 (August 6, 2025)
 - Enhanced security by updating Dockerfile with latest vulnerability patches
