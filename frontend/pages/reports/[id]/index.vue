@@ -445,7 +445,7 @@ function connectWebSocket() {
                     }, 15000);
                 }
 
-
+                
                 break;
             case 'update_completion':
                 //loadCompletions();
@@ -491,12 +491,31 @@ const agentLogContainer = ref(null)
 const scrollAnchor = ref(null)
 
 function updateStep(updatedStep: any) {
-    //console.log('Updating step:', updatedStep);
-    completions.value = completions.value.map(completion => {
-        if (completion.widget?.last_step?.id === updatedStep.step_id) {
+    console.log('Updating step:', updatedStep);
+    
+    completions.value = completions.value.map((completion: any) => {
+        // Match by step_id directly or by widget_id if this completion is associated with the widget
+        const matchesStepId = completion.step_id === updatedStep.step_id;
+        const matchesWidgetId = completion.widget_id === updatedStep.widget_id;
+        const matchesExistingStep = completion.step?.id === updatedStep.step_id;
+        
+        if (matchesStepId || matchesWidgetId || matchesExistingStep) {
+            console.log('Found matching completion for step update:', completion.id);
             return {
                 ...completion,
-                step: updatedStep
+                step: {
+                    id: updatedStep.step_id,
+                    title: updatedStep.title,
+                    slug: updatedStep.slug,
+                    status: updatedStep.status,
+                    code: updatedStep.code,
+                    data: updatedStep.data,
+                    data_model: updatedStep.data_model,
+                    type: updatedStep.type,
+                    description: updatedStep.description,
+                    widget_id: updatedStep.widget_id
+                },
+                step_id: updatedStep.step_id
             };
         }
         return completion;

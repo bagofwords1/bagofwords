@@ -249,7 +249,7 @@ const fetchInstructions = async () => {
             }
         }
         
-        console.log('Fetching instructions with params:', params)
+        //console.log('Fetching instructions with params:', params)
         
         const { data, error } = await useMyFetch<Instruction[]>('/api/instructions', {
             method: 'GET',

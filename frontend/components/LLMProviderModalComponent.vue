@@ -9,28 +9,32 @@
             <hr class="my-4" />
 
             <form @submit.prevent class="space-y-4">
-                <div class="flex flex-col">
-                    <USelectMenu v-model="selectedProvider" :options="providersWithNewOption" option-attribute="name" class="w-full">
-
-                        <UButton color="gray" class="flex-1" :class="{ '!text-blue-500': selectedProvider?.type === 'new_provider' }">
-                            <Icon name="heroicons:plus-circle" class="w-5 h-5" v-if="selectedProvider?.type === 'new_provider'" />
-                            <LLMProviderIcon :provider="selectedProvider?.type" class="w-8 h-8" v-if="selectedProvider && selectedProvider?.type !== 'new_provider'" />
-                            <span v-if="selectedProvider" class="font-medium">{{ selectedProvider?.name }}</span>
-                            <span v-else>Choose Provider</span>
-                        </UButton>
-
-
-
-                        <template #option="{ option }">
-                            <div class="flex items-center gap-3" :class="{ 'text-blue-500': selectedProvider?.type === option.type }">
-                            <Icon name="heroicons:plus-circle" class="w-5 h-5" v-if="option.type === 'new_provider'" />
-                            <LLMProviderIcon :provider="option.type" class="w-8 h-8" v-else />
-                            <span class="font-medium">{{ option.name }}</span>
-                        </div>
-                        </template>
-                    </USelectMenu>
+                <!-- Providers list (always open) -->
+                <div v-if="!selectedProvider" class="flex flex-col gap-2">
+                    <div
+                        v-for="option in providersWithNewOption"
+                        :key="option.name"
+                        @click="selectOption(option)"
+                        class="flex items-center gap-3 px-3 py-2 border border-gray-200 rounded-md hover:bg-gray-50 cursor-pointer"
+                    >
+                        <Icon v-if="option.type === 'new_provider'" name="heroicons:plus-circle" class="w-5 h-5 text-blue-600" />
+                        <LLMProviderIcon v-else :provider="option.type" class="w-6 h-6" />
+                        <span class="text-sm" :class="option.type === 'new_provider' ? 'text-blue-600' : 'text-gray-800'">{{ option.name }}</span>
+                    </div>
                 </div>
+
+                <!-- Back to providers + details -->
                 <div v-if="selectedProvider">
+                    <div class="flex items-center gap-2 mb-2">
+                        <button type="button" @click="goBackToProviderList" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+                            <Icon name="heroicons:chevron-left" class="w-4 h-4" />
+                            Providers
+                        </button>
+                        <span class="text-sm text-gray-800">/
+                            <span v-if="selectedProvider.type !== 'new_provider'">{{ selectedProvider.name }}</span>
+                            <span v-else>New Provider</span>
+                        </span>
+                    </div>
                     <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
                         <div class="">
                             <label class="text-sm font-medium text-gray-700 mb-2">
@@ -295,6 +299,24 @@ const providersWithNewOption = computed(() => {
         { name: 'New Provider', type: 'new_provider' }
     ];
 });
+
+  function selectOption(option: any) {
+    if (option.type === 'new_provider') {
+      selectedProvider.value = { type: 'new_provider', name: 'New Provider' } as any;
+      providerForm.value = { name: '', provider_type: '', credentials: {}, models: [] } as any;
+      customModels.value = [];
+    } else {
+      selectedProvider.value = option;
+    }
+  }
+
+  function goBackToProviderList() {
+    selectedProvider.value = null;
+    providerForm.value = { name: '', provider_type: '', credentials: {} } as any;
+    customModels.value = [];
+    existingProviderCustomModels.value = [];
+    showDangerZone.value = false;
+  }
 
 const isNewProviderSelected = computed(() => {
     return selectedProvider.value?.type === 'new_provider';
