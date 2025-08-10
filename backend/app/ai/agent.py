@@ -217,7 +217,6 @@ class Agent:
                             self.head_completion
                         )
                         plan_complete = True
-                    
                     # Process each action in the plan
                     for i, action in enumerate(json_result['plan']):
                         if not isinstance(action, dict) or 'action' not in action:

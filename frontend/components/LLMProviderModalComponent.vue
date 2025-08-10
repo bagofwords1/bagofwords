@@ -8,7 +8,7 @@
             <p class="text-sm text-gray-500">Configure and manage LLM models and providers</p>
             <hr class="my-4" />
 
-            <form @submit.prevent="submitProviderForm" class="space-y-4">
+            <form @submit.prevent class="space-y-4">
                 <div class="flex flex-col">
                     <USelectMenu v-model="selectedProvider" :options="providersWithNewOption" option-attribute="name" class="w-full">
 
@@ -146,9 +146,9 @@
                                     :placeholder="`Provider Name (e.g. ${providerForm.provider_type} production)`"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
-                            <div v-for="(field, key) in fieldsForProvider(providerForm.provider_type)" :key="key">
+                            <div v-for="(field, index) in fieldsForProvider(providerForm.provider_type)" :key="field.key">
                                 <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
-                                <input v-model="providerForm.credentials[key]" type="text" required
+                                <input v-model="providerForm.credentials[field.key]" type="text" required
                                     :placeholder="field.description || ''"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
@@ -156,19 +156,24 @@
                     </div>
                 </div>
 
-                                        <div v-if="providerForm.provider_type && filteredModels.length > 0">
+                                        <div v-if="providerForm.provider_type">
                             <label class="text-sm font-medium text-gray-700 mb-2">
                                 Models
                             </label>
                             <div class="space-y-2">
-                                <!-- Preset Models -->
-                                <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
-                                    <UCheckbox v-model="model.is_enabled" />
-                                    <div class="flex-1">
-                                        <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
-                                        <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
+                                <!-- Preset Models (if any) -->
+                                <template v-if="filteredModels.length > 0">
+                                    <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
+                                        <UCheckbox v-model="model.is_enabled" />
+                                        <div class="flex-1">
+                                            <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
+                                            <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
+                                        </div>
                                     </div>
-                                </div>
+                                </template>
+                                <template v-else>
+                                    <div class="text-xs text-gray-500 italic">No preset models available for this provider. Add a custom model below.</div>
+                                </template>
                                 
                                 <!-- Custom Models -->
                                 <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
@@ -223,6 +228,7 @@ import { ref, computed, watch, onMounted } from 'vue';
 
 const props = defineProps<{
     modelValue: boolean;
+    editProviderId?: string | null;
 }>();
 
 const emit = defineEmits(['update:modelValue']);
@@ -236,9 +242,20 @@ const providerModalOpen = computed({
     set: (value) => emit('update:modelValue', value)
 });
 
-const providers = ref([]);
-const organizationProviders = ref([]);
-const models = ref([]);
+type OrgProvider = {
+  id: string;
+  name: string;
+  provider_type: string;
+  credentials?: any;
+  models: any[];
+};
+type AvailableProvider = { type: string; name: string; credentials?: { properties?: Record<string, { title: string; description?: string }>} };
+type AvailableModel = { id?: string; name: string; model_id: string; provider_type: string; is_preset?: boolean; is_enabled?: boolean; selected?: boolean };
+
+type CredentialField = { key: string; title: string; description?: string };
+const providers = ref<AvailableProvider[]>([]);
+const organizationProviders = ref<OrgProvider[]>([]);
+const models = ref<AvailableModel[]>([]);
 
 onMounted(async () => {
   try {
@@ -248,9 +265,9 @@ onMounted(async () => {
       useMyFetch('/api/llm/available_models')
     ]);
     
-    providers.value = providersRes.data.value;
-    organizationProviders.value = orgProvidersRes.data.value;
-    models.value = modelsRes.data.value.map(model => ({
+    providers.value = (providersRes.data.value as unknown as AvailableProvider[]) || [];
+    organizationProviders.value = (orgProvidersRes.data.value as unknown as OrgProvider[]) || [];
+    models.value = ((modelsRes.data.value as unknown) as AvailableModel[]).map((model: any) => ({
       ...model,
       is_enabled: false
     }));
@@ -259,11 +276,11 @@ onMounted(async () => {
   }
 });
 
-const selectedProvider = ref(null);
-const selectedModel = ref(null);
-const customModels = ref([]);
-const existingProviderCustomModels = ref([]);
-const providerForm = ref({
+const selectedProvider = ref<any | null>(null);
+const selectedModel = ref<any | null>(null);
+const customModels = ref<{ model_id: string; is_enabled: boolean }[]>([]);
+const existingProviderCustomModels = ref<{ model_id: string; is_enabled: boolean }[]>([]);
+const providerForm = ref<{ name: string; provider_type: string; credentials: Record<string, any>; models?: any[]}>({
     name: '',
     provider_type: '',
     credentials: {}
@@ -283,26 +300,17 @@ const isNewProviderSelected = computed(() => {
     return selectedProvider.value?.type === 'new_provider';
 });
 
-function fieldsForProvider(providerType) {
+function fieldsForProvider(providerType: string): CredentialField[] {
     const provider = providers.value.find(p => p.type === providerType);
-    return provider?.credentials?.properties || [];
+    const props: Record<string, { title: string; description?: string }> = (provider?.credentials?.properties || {}) as any;
+    return Object.entries(props).map(([key, val]) => ({ key, title: val.title, description: val.description }));
 }
 
-const filteredModels = computed(() => {
+const filteredModels = computed<AvailableModel[]>(() => {
     const providerType = isNewProviderSelected.value 
         ? providerForm.value.provider_type 
         : selectedProvider.value?.type;
-    const filtered = models.value.filter(model => model.provider_type === providerType);
-    
-    // When adding a new provider, set all models as enabled by default
-    if (isNewProviderSelected.value) {
-        return filtered.map(model => ({
-            ...model,
-            is_enabled: true
-        }));
-    }
-    
-    return filtered;
+    return models.value.filter((model: AvailableModel) => model.provider_type === providerType);
 });
 
 const resetForm = () => {
@@ -316,7 +324,7 @@ const resetForm = () => {
     };
     showDangerZone.value = false;
     // Reset any selected models
-    models.value.forEach(model => {
+    models.value.forEach((model: any) => {
         model.selected = false;
         model.is_enabled = false;
     });
@@ -326,13 +334,48 @@ watch(providerModalOpen, (newValue) => {
     if (!newValue) {
         resetForm();
     }
+    if (newValue && props.editProviderId) {
+        // Select provider for editing
+        const provider = (organizationProviders.value || []).find((p: OrgProvider) => p.id === props.editProviderId);
+        if (provider) {
+            selectedProvider.value = {
+                ...provider,
+                type: provider.provider_type
+            };
+            showDangerZone.value = false;
+            existingProviderCustomModels.value = [];
+        }
+    }
+});
+
+watch(() => props.editProviderId, (newId) => {
+    if (providerModalOpen.value && newId) {
+        const provider = (organizationProviders.value || []).find((p: OrgProvider) => p.id === newId);
+        if (provider) {
+            selectedProvider.value = {
+                ...provider,
+                type: provider.provider_type
+            };
+            showDangerZone.value = false;
+            existingProviderCustomModels.value = [];
+        }
+    }
+});
+
+// When creating a new provider and choosing a type, default-enable all preset models for that provider.
+watch(() => providerForm.value.provider_type, (providerType: string) => {
+    if (isNewProviderSelected.value && providerType) {
+        models.value
+            .filter((m: AvailableModel) => m.provider_type === providerType)
+            .forEach((m: AvailableModel) => { m.is_enabled = true; });
+    }
 });
 
 async function createProvider() {
     // Gather selected preset models
     const selectedPresetModels = models.value
-        .filter(model => model.provider_type === providerForm.value.provider_type && model.is_enabled)
-        .map(model => ({
+        .filter((model: AvailableModel) => model.provider_type === providerForm.value.provider_type && !!model.is_enabled)
+        .map((model: AvailableModel) => ({
             model_id: model.model_id,
             name: model.name,
             is_custom: false,
@@ -370,7 +413,7 @@ async function createProvider() {
         else {
             toast.add({
                 title: 'Error',
-                description: response.error,
+                description: String((response.error as any)?.value || 'Request failed'),
                 color: 'red'
             });
         }
@@ -380,8 +423,8 @@ async function createProvider() {
 async function updateProvider() {
     // Prepare new custom models for creation (no ID means create new)
     const newCustomModels = existingProviderCustomModels.value
-        .filter(model => model.is_enabled && model.model_id.trim() !== '')
-        .map(model => ({
+        .filter((model: { model_id: string; is_enabled: boolean }) => model.is_enabled && model.model_id.trim() !== '')
+        .map((model: { model_id: string; is_enabled: boolean }) => ({
             // No id field - this signals to backend to create new model
             model_id: model.model_id,
             name: model.model_id,
@@ -391,7 +434,8 @@ async function updateProvider() {
         }));
 
     // Existing models keep their IDs for updates
-    const existingModels = selectedProvider.value.models.map(model => ({
+    if (!selectedProvider.value) return;
+    const existingModels = selectedProvider.value.models.map((model: any) => ({
         id: model.id, // Keep existing ID for updates
         model_id: model.model_id,
         name: model.name,
@@ -402,14 +446,14 @@ async function updateProvider() {
 
     // Prepare update payload with existing models + new custom models
     const updatePayload = {
-        name: selectedProvider.value.name,
-        provider_type: selectedProvider.value.provider_type,
-        credentials: selectedProvider.value.credentials,
+        name: selectedProvider.value?.name,
+        provider_type: selectedProvider.value?.provider_type,
+        credentials: selectedProvider.value?.credentials,
         models: [...existingModels, ...newCustomModels]
     };
 
     // Update selectedProvider with new models
-    const response = await useMyFetch(`/api/llm/providers/${selectedProvider.value.id}`, {
+    const response = await useMyFetch(`/api/llm/providers/${selectedProvider.value?.id}`, {
         method: 'PUT',
         body: updatePayload
     }).then(response => {
@@ -425,7 +469,7 @@ async function updateProvider() {
         else {
             toast.add({
                 title: 'Error',
-                description: response.error,
+                description: String((response.error as any)?.value || 'Request failed'),
                 color: 'red'
             });
         }
@@ -449,7 +493,7 @@ watch(selectedProvider, (newValue) => {
     }
 });
 
-async function deleteProvider(providerId) {
+async function deleteProvider(providerId: string) {
     if (confirm('Are you sure you want to delete this provider? This action cannot be undone.')) {
         try {
             const response = await useMyFetch(`/api/llm/providers/${providerId}`, {
@@ -466,7 +510,7 @@ async function deleteProvider(providerId) {
                 });
                 // Refresh the providers list
                 const orgProvidersRes = await useMyFetch('/api/llm/providers');
-                organizationProviders.value = orgProvidersRes.data.value;
+                organizationProviders.value = (orgProvidersRes.data.value as unknown as OrgProvider[]) || [];
             } else {
                 toast.add({
                     title: 'Error',
@@ -491,7 +535,7 @@ function addCustomModel() {
     });
 }
 
-function removeCustomModel(index) {
+function removeCustomModel(index: number) {
     customModels.value.splice(index, 1);
 }
 
@@ -502,13 +546,13 @@ function addExistingProviderCustomModel() {
     });
 }
 
-function removeExistingProviderCustomModel(index) {
+function removeExistingProviderCustomModel(index: number) {
     existingProviderCustomModels.value.splice(index, 1);
 }
 
-function removeExistingCustomModel(modelId) {
+function removeExistingCustomModel(modelId: string) {
     if (confirm('Are you sure you want to remove this custom model?')) {
-        selectedProvider.value.models = selectedProvider.value.models.filter(model => model.id !== modelId);
+        selectedProvider.value!.models = selectedProvider.value!.models.filter((model: any) => model.id !== modelId);
     }
 }
 </script>

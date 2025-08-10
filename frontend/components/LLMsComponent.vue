@@ -83,6 +83,7 @@
         <!-- Provider Modal -->
         <LLMProviderModalComponent 
             v-model="providerModalOpen"
+            :edit-provider-id="editProviderId"
             @update:modelValue="handleProviderModalClose"
         />
 
@@ -101,12 +102,23 @@ const props = defineProps({
 const toast = useToast();
 const searchQuery = ref('');
 
-const models = ref([]);
-const providers = ref([]);
+type Provider = { id: string; name: string; provider_type: string };
+type Model = {
+  id: string;
+  name: string;
+  model_id: string;
+  is_default: boolean;
+  is_enabled: boolean;
+  provider: Provider;
+};
+
+const models = ref<Model[]>([]);
+const providers = ref<Provider[]>([]);
 
 const providerModalOpen = ref(false);
+const editProviderId = ref<string | null>(null);
 
-const filteredModels = computed(() => {
+const filteredModels = computed<Model[]>(() => {
     const query = searchQuery.value.toLowerCase();
     if (!query) return models.value;
     
@@ -117,27 +129,19 @@ const filteredModels = computed(() => {
 });
 
 const getModels = async () => {
-  const response = await useMyFetch('/llm/models', {
+  const response = await useMyFetch<Model[]>('/llm/models', {
       method: 'GET',
   });
 
-  if (!response.code === 200) {
-      throw new Error('Could not fetch models');
-  }
-
-    models.value = await response.data.value;
+  models.value = (response.data.value as unknown as Model[]) || [];
 }
 
 const getProviders = async () => {
-    const response = await useMyFetch('/llm/providers', {
+    const response = await useMyFetch<Provider[]>('/llm/providers', {
         method: 'GET',
     });
 
-    if (!response.code === 200) {
-        throw new Error('Could not fetch providers');
-    }
-
-    providers.value = await response.data.value;
+    providers.value = (response.data.value as unknown as Provider[]) || [];
 }
 
 onMounted(async () => {
@@ -149,6 +153,7 @@ const handleProviderModalClose = async (value: boolean) => {
     providerModalOpen.value = value;
     if (!value) {  // Modal is closing
         await getModels();
+        editProviderId.value = null;
     }
 };
 
@@ -195,15 +200,30 @@ const toggleModel = async (modelId: string, enabled: boolean) => {
     }
 };
 
-const getDropdownItems = (model) => ([
-    [
+const openManageProvider = (providerId: string) => {
+    editProviderId.value = providerId;
+    providerModalOpen.value = true;
+};
+
+const getDropdownItems = (model: Model) => {
+    const items: any[][] = [[
         {
             label: 'Make Default',
-            click: (close) => {
+            click: (close: any) => {
                 setDefaultModel(model.id);
                 close();
             }
         }
-    ]
-]);
+    ]];
+    if (useCan('manage_llm_settings')) {
+        items[0].push({
+            label: 'Manage Provider',
+            click: (close: any) => {
+                openManageProvider(model.provider.id);
+                close();
+            }
+        });
+    }
+    return items;
+};
 </script>

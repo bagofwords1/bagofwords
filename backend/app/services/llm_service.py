@@ -171,7 +171,10 @@ class LLMService:
 
         # Sync new models for each provider
         for provider in providers:
-            await self._sync_provider_with_latest_models(db, provider, organization)
+            # Only auto-sync preset providers with our curated catalog.
+            # Custom (non-preset) providers should respect the user's explicit selections.
+            if provider.is_preset:
+                await self._sync_provider_with_latest_models(db, provider, organization)
 
         await db.commit()
 
