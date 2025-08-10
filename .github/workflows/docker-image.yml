@@ -43,6 +43,15 @@ jobs:
           load: true
           tags: bagofwords/bagofwords:${{ env.version_tag }}
 
+      - name: Trivy scan summary (stdout)
+        uses: aquasecurity/trivy-action@0.32.0
+        with:
+          scan-type: image
+          image-ref: bagofwords/bagofwords:${{ env.version_tag }}
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: 0
+
       - name: Scan image with Trivy
         uses: aquasecurity/trivy-action@0.32.0
 
