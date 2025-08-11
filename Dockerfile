@@ -78,9 +78,10 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-RUN groupadd -r app && useradd -r -g app -s /usr/sbin/nologin app && \
-    mkdir -p /app/backend/db /app/frontend && \
-    chown -R app:app /app
+RUN groupadd -r app \
+    && useradd -r -g app -m -d /home/app -s /usr/sbin/nologin app \
+    && mkdir -p /home/app /app/backend/db /app/frontend \
+    && chown -R app:app /app /home/app
 
 # Copy Python virtual environment and application code
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
@@ -109,6 +110,7 @@ ENV GIT_PYTHON_REFRESH=quiet
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONIOENCODING=UTF-8
+ENV HOME=/home/app
 
 # Expose ports (documentational)
 EXPOSE 3000
