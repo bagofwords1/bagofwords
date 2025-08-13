@@ -55,6 +55,7 @@ class Instruction(BaseSchema):
     user = relationship("User", foreign_keys=[user_id], lazy="selectin")
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id], lazy="selectin")
     organization = relationship("Organization")
+    references = relationship("InstructionReference", back_populates="instruction", lazy="selectin", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<Instruction {self.category}:{self.text[:50]}...>"

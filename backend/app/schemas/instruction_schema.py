@@ -4,6 +4,7 @@ from datetime import datetime
 from app.schemas.user_schema import UserSchema
 from app.schemas.data_source_schema import DataSourceSchema
 from enum import Enum
+from app.schemas.instruction_reference_schema import InstructionReferenceSchema, InstructionReferenceCreate
 
 class InstructionStatus(str, Enum):
     DRAFT = "draft"
@@ -45,6 +46,7 @@ class InstructionBase(BaseModel):
 
 class InstructionCreate(InstructionBase):
     data_source_ids: Optional[List[str]] = []  # Empty list means applies to all data sources
+    references: Optional[List[InstructionReferenceCreate]] = []
 
 class InstructionUpdate(BaseModel):
     text: Optional[str] = None
@@ -56,6 +58,7 @@ class InstructionUpdate(BaseModel):
     can_user_toggle: Optional[bool] = None
     data_source_ids: Optional[List[str]] = None
     is_admin_approval: Optional[bool] = False
+    references: Optional[List[InstructionReferenceCreate]] = None
 
 # Simplified schema without complex computed properties
 class InstructionSchema(InstructionBase):
@@ -65,6 +68,7 @@ class InstructionSchema(InstructionBase):
     user: UserSchema
     reviewed_by: Optional[UserSchema] = None
     data_sources: List[DataSourceSchema] = []
+    references: List[InstructionReferenceSchema] = []
     created_at: datetime
     updated_at: datetime
 

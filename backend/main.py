@@ -56,6 +56,7 @@ from app.routes import (
     instruction,
     console
 )
+from app.routes import mentionables
 
 # Initialize logging
 loggers = setup_logging()
@@ -178,6 +179,7 @@ app.include_router(slack_webhook.router)
 app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
 app.include_router(console.router, prefix="/api")
+app.include_router(mentionables.router, prefix="/api")
 
 
 # Remove the direct assignment of app.openapi_schema and replace with this function

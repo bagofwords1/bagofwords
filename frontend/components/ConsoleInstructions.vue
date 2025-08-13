@@ -46,6 +46,9 @@
                                 Data Sources
                             </th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                References
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 User
                             </th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -86,6 +89,15 @@
                                         <UIcon name="i-heroicons-globe-alt" class="w-4 h-4 mr-1" />
                                         <span>Global</span>
                                     </div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center space-x-1">
+                                    <template v-if="(instruction as any).references && (instruction as any).references.length">
+                                        <UIcon v-for="ref in (instruction as any).references.slice(0,3)" :key="ref.id" :name="getRefIcon(ref.object_type)" class="w-5 h-5 text-gray-600" :title="ref.display_text || ref.object_type" />
+                                        <span v-if="(instruction as any).references.length > 3" class="text-xs text-gray-500">+{{ (instruction as any).references.length - 3 }}</span>
+                                    </template>
+                                    <span v-else class="text-xs text-gray-400">None</span>
                                 </div>
                             </td>
                             <td class="px-6 py-4">
@@ -228,6 +240,13 @@ interface Instruction {
     can_user_toggle: boolean
     reviewed_by_user_id: string | null
     reviewed_by?: User  // Add this to get
+}
+
+const getRefIcon = (type: string) => {
+  if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
+  if (type === 'datasource_table') return 'i-heroicons-table-cells'
+  if (type === 'memory') return 'i-heroicons-book-open'
+  return 'i-heroicons-circle'
 }
 
 // Reactive state

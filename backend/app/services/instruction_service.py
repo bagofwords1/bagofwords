@@ -17,8 +17,11 @@ from app.schemas.instruction_schema import (
     InstructionUpdate, 
     InstructionSchema, 
 )
+from app.services.instruction_reference_service import InstructionReferenceService
 
 class InstructionService:
+    def __init__(self):
+        self.reference_service = InstructionReferenceService()
     
     async def create_instruction(
         self, 
@@ -65,9 +68,13 @@ class InstructionService:
         # Associate with data sources if provided
         if instruction_data.data_source_ids:
             await self._associate_data_sources(db, instruction, instruction_data.data_source_ids)
+
+        # Handle references if provided
+        if getattr(instruction_data, "references", None) is not None:
+            await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization)
         
         # Load relationships and return
-        await db.refresh(instruction, ["user", "data_sources", "reviewed_by"])
+        await db.refresh(instruction, ["user", "data_sources", "reviewed_by", "references"])
         return InstructionSchema.from_orm(instruction)
     
     async def get_instructions(
@@ -127,7 +134,12 @@ class InstructionService:
         
         query = (
             select(Instruction)
-            .options(selectinload(Instruction.user), selectinload(Instruction.data_sources), selectinload(Instruction.reviewed_by))
+            .options(
+                selectinload(Instruction.user),
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.reviewed_by),
+                selectinload(Instruction.references),
+            )
             .where(
                 and_(
                     Instruction.id == instruction_id,
@@ -177,8 +189,12 @@ class InstructionService:
                 await self._validate_data_sources(db, instruction_data.data_source_ids, organization)
             await self._update_data_source_associations(db, instruction, instruction_data.data_source_ids)
         
+        # Handle references if provided
+        if getattr(instruction_data, "references", None) is not None:
+            await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization)
+
         await db.commit()
-        await db.refresh(instruction, ["user", "data_sources", "reviewed_by"])
+        await db.refresh(instruction, ["user", "data_sources", "reviewed_by", "references"])
         return InstructionSchema.from_orm(instruction)
     
     async def delete_instruction(
@@ -255,7 +271,12 @@ class InstructionService:
         
         query = (
             select(Instruction)
-            .options(selectinload(Instruction.user), selectinload(Instruction.data_sources), selectinload(Instruction.reviewed_by))
+            .options(
+                selectinload(Instruction.user),
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.reviewed_by),
+                selectinload(Instruction.references),
+            )
             .where(
                 and_(
                     Instruction.organization_id == organization.id,
@@ -579,7 +600,12 @@ class InstructionService:
         
         query = (
             select(Instruction)
-            .options(selectinload(Instruction.user), selectinload(Instruction.data_sources), selectinload(Instruction.reviewed_by))
+            .options(
+                selectinload(Instruction.user),
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.reviewed_by),
+                selectinload(Instruction.references),
+            )
             .where(
                 and_(
                     Instruction.organization_id == organization.id,

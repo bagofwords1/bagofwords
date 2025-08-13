@@ -41,7 +41,7 @@
                 
                 <UButton
                     :icon="buttonIcon"
-                    :color="buttonColor"
+                    color="blue"
                     size="xs"
                     variant="solid"
                     @click="addInstruction"
@@ -65,6 +65,9 @@
                                     </th>
                                     <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                                         <!-- Icons column -->
+                                    </th>
+                                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
+                                        References
                                     </th>
                                 </tr>
                             </thead>
@@ -115,6 +118,15 @@
                                                     </div>
                                                 </div>
                                             </UTooltip>
+                                        </div>
+                                    </td>
+                                    <td class="px-3 py-2 text-sm">
+                                        <div class="flex items-center justify-center gap-2">
+                                            <template v-if="(instruction as any).references && (instruction as any).references.length">
+                                                <UIcon v-for="ref in (instruction as any).references.slice(0,2)" :key="ref.id" :name="getRefIcon(ref.object_type)" class="w-4 h-4 text-gray-600" />
+                                                <div v-if="(instruction as any).references.length > 2" class="w-4 h-4 bg-gray-400 text-white text-[10px] rounded flex items-center justify-center border border-white flex-shrink-0">+{{ (instruction as any).references.length - 2 }}</div>
+                                            </template>
+                                            <span v-else class="text-xs text-gray-400">None</span>
                                         </div>
                                     </td>
                                 </tr>
@@ -215,15 +227,13 @@ const buttonIcon = computed(() => {
     return canCreateGlobalInstructions.value ? 'i-heroicons-plus' : 'i-heroicons-plus'
 })
 
-const buttonColor = computed(() => {
-    return 'blue' // Both buttons are now blue
-})
+// Color is set directly in template to avoid TS type mismatch
 
 // Methods
 // Get current user ID helper  
-const { $auth } = useNuxtApp()
+const nuxtApp = useNuxtApp() as any
 const getCurrentUserId = () => {
-    return $auth?.user?.id || null
+    return nuxtApp?.$auth?.user?.id || null
 }
 
 // Clean fetch method using the new permission-based parameters
@@ -425,6 +435,13 @@ const getDataSourceTooltip = (instruction: Instruction) => {
     } else {
         return `${instruction.data_sources.length} Data Sources: ${instruction.data_sources.map(ds => ds.name).join(', ')}`
     }
+}
+
+const getRefIcon = (type: string) => {
+  if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
+  if (type === 'datasource_table') return 'i-heroicons-table-cells'
+  if (type === 'memory') return 'i-heroicons-book-open'
+  return 'i-heroicons-circle'
 }
 
 const formatCategory = (category: string) => {

@@ -105,6 +105,49 @@
                 </USelectMenu>
             </div>
 
+            <!-- References -->
+            <div class="flex flex-col">
+                <label class="text-sm font-medium text-gray-700 mb-2">
+                    References
+                </label>
+                <p class="text-xs text-gray-500 mb-2">Select metadata resources, data source tables, or memories this instruction targets.</p>
+                <USelectMenu
+                    :options="mentionableOptions"
+                    option-attribute="name"
+                    value-attribute="id"
+                    multiple
+                    searchable
+                    searchable-placeholder="Search mentionables..."
+                    :model-value="selectedReferenceIds"
+                    @update:model-value="handleReferencesChange"
+                    class="w-full"
+                    :ui="{ base: 'border border-gray-300 rounded-md' }"
+                    :uiMenu="{ base: 'w-full max-h-60 overflow-y-auto' }"
+                >
+                    <template #label>
+                        <div class="flex items-center flex-wrap gap-1">
+                            <span v-if="selectedReferences.length === 0" class="text-gray-500">Select references</span>
+                            <span v-for="ref in selectedReferences" :key="ref.id" class="flex items-center bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
+                                <UIcon :name="getRefIcon(ref.type)" class="w-3 h-3 mr-1" />
+                                {{ ref.name }}
+                            </span>
+                        </div>
+                    </template>
+                    <template #option="{ option }">
+                        <div class="flex items-center justify-between w-full py-2 pr-2">
+                            <div class="flex items-center gap-2">
+                                <UIcon :name="getRefIcon(option.type)" class="w-4 h-4" />
+                                <div class="flex flex-col">
+                                    <span class="text-sm">{{ option.name }}</span>
+                                    <span class="text-xs text-gray-500">{{ option.type }}</span>
+                                </div>
+                            </div>
+                            <UCheckbox :model-value="selectedReferenceIds.includes(option.id)" />
+                        </div>
+                    </template>
+                </USelectMenu>
+            </div>
+
             <!-- Category -->
             <div class="flex flex-col">
                 <label class="text-sm font-medium text-gray-700 mb-2">
@@ -202,6 +245,14 @@ interface SharedForm {
     can_user_toggle: boolean
 }
 
+interface MentionableItem {
+    id: string
+    type: 'metadata_resource' | 'datasource_table' | 'memory'
+    name: string
+    data_source_id?: string
+    column_name?: string | null
+}
+
 // Props and Emits
 const props = defineProps<{
     instruction?: any
@@ -217,6 +268,8 @@ const toast = useToast()
 const isSubmitting = ref(false)
 const isDeleting = ref(false)
 const availableDataSources = ref<DataSource[]>([])
+const mentionableOptions = ref<MentionableItem[]>([])
+const selectedReferences = ref<MentionableItem[]>([])
 
 // Review toggle for suggestions - defaults to true for suggestions
 const needsReview = ref(props.isSuggestion || false)
@@ -232,6 +285,19 @@ const dataSourceOptions = computed(() => {
     }
     return [allOption, ...availableDataSources.value]
 })
+const selectedReferenceIds = computed(() => selectedReferences.value.map(r => r.id))
+
+const getRefIcon = (type: string) => {
+    if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
+    if (type === 'datasource_table') return 'i-heroicons-table-cells'
+    if (type === 'memory') return 'i-heroicons-book-open'
+    return 'i-heroicons-circle'
+}
+
+const handleReferencesChange = (ids: string[]) => {
+    const idSet = new Set(ids)
+    selectedReferences.value = mentionableOptions.value.filter(m => idSet.has(m.id))
+}
 
 const isAllDataSourcesSelected = computed(() => {
     return props.selectedDataSources.includes('all') || props.selectedDataSources.length === 0
@@ -271,6 +337,35 @@ const fetchDataSources = async () => {
         }
     } catch (err) {
         console.error('Error fetching data sources:', err)
+    }
+}
+
+const fetchMentionables = async () => {
+    try {
+        const { data, error } = await useMyFetch<MentionableItem[]>('/api/mentionables', { method: 'GET' })
+        if (!error.value && data.value) {
+            mentionableOptions.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching mentionables:', err)
+    }
+}
+
+const initReferencesFromInstruction = () => {
+    if (props.instruction && Array.isArray(props.instruction.references)) {
+        const map: Record<string, MentionableItem> = {}
+        for (const m of mentionableOptions.value) map[m.id] = m
+        const preselected: MentionableItem[] = []
+        for (const r of props.instruction.references) {
+            const existing = map[r.object_id]
+            if (existing) {
+                preselected.push({ ...existing, column_name: r.column_name || null })
+            } else {
+                // Fallback if not in options yet
+                preselected.push({ id: r.object_id, type: r.object_type, name: r.display_text || r.object_type, column_name: r.column_name || null })
+            }
+        }
+        selectedReferences.value = preselected
     }
 }
 
@@ -336,7 +431,13 @@ const submitForm = async () => {
             
             is_seen: true,
             can_user_toggle: true,
-            data_source_ids: isAllDataSourcesSelected.value ? [] : props.selectedDataSources
+            data_source_ids: isAllDataSourcesSelected.value ? [] : props.selectedDataSources,
+            references: selectedReferences.value.map(r => ({
+                object_type: r.type,
+                object_id: r.id,
+                column_name: r.column_name || null,
+                relation_type: 'scope'
+            }))
         }
 
         console.log('Payload:', payload)
@@ -428,5 +529,10 @@ watch(() => props.isSuggestion, (newValue) => {
 // Lifecycle
 onMounted(() => {
     fetchDataSources()
+    fetchMentionables().then(() => initReferencesFromInstruction())
+})
+
+watch(() => props.instruction, () => {
+    initReferencesFromInstruction()
 })
 </script>
