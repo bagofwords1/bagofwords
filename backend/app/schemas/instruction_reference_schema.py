@@ -31,6 +31,11 @@ class InstructionReferenceSchema(InstructionReferenceBase):
     
     # Include the referenced object as a single field
     object: Optional[Dict[str, Any]] = None
+    
+    # Data source information
+    data_source_id: Optional[str] = None
+    data_source_name: Optional[str] = None
+    data_source_type: Optional[str] = None
 
     class Config:
         from_attributes = True

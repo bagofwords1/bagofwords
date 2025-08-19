@@ -1,7 +1,7 @@
 from typing import List, Optional, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import and_
+from sqlalchemy import and_, delete
 
 from app.models.instruction_reference import InstructionReference
 from app.models.metadata_resource import MetadataResource
@@ -18,7 +18,7 @@ from app.schemas.instruction_reference_schema import (
 class InstructionReferenceService:
     async def list_for_instruction(self, db: AsyncSession, instruction_id: str) -> List[InstructionReferenceSchema]:
         stmt = select(InstructionReference).where(
-            and_(InstructionReference.instruction_id == instruction_id, InstructionReference.deleted_at == None)
+            and_(InstructionReference.instruction_id == instruction_id, InstructionReference.deleted_at.is_(None))
         )
         res = await db.execute(stmt)
         items = res.scalars().all()
@@ -53,14 +53,13 @@ class InstructionReferenceService:
         organization: Organization,
         data_source_ids: Optional[List[str]] = None,
     ) -> List[InstructionReferenceSchema]:
-        # Delete existing
-        stmt = select(InstructionReference).where(
-            and_(InstructionReference.instruction_id == instruction_id, InstructionReference.deleted_at == None)
+        # Delete existing references
+        await db.execute(
+            delete(InstructionReference).where(
+                and_(InstructionReference.instruction_id == instruction_id)
+            )
         )
-        res = await db.execute(stmt)
-        existing = res.scalars().all()
-        for ref in existing:
-            db.delete(ref)
+
         await db.flush()
 
         created: List[InstructionReference] = []
@@ -88,7 +87,7 @@ class InstructionReferenceService:
             db.add(model)
             created.append(model)
 
-        await db.commit()
+        await db.flush()  # Flush changes to get IDs, but don't commit yet
         for m in created:
             await db.refresh(m)
         return [InstructionReferenceSchema.from_orm(m) for m in created]

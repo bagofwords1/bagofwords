@@ -75,8 +75,7 @@
                                 <tr v-for="instruction in instructions" 
                                     :key="instruction.id" 
                                     :class="[
-                                        'hover:bg-gray-50',
-                                        canCreateGlobalInstructions ? 'cursor-pointer' : ''
+                                        'hover:bg-gray-50 cursor-pointer'
                                     ]"
                                     @click="handleInstructionClick(instruction)"
                                 >
@@ -88,7 +87,7 @@
                                     <td class="px-3 py-2 text-sm">
                                         <div class="flex items-center justify-center gap-2">
                                             <template v-if="(instruction as any).references && (instruction as any).references.length">
-                                                <UTooltip v-for="ref in (instruction as any).references.slice(0,2)" :key="ref.id" :text="getRefDisplayName(ref)">
+                                                <UTooltip v-for="ref in (instruction as any).references" :key="ref.id" :text="getRefDisplayName(ref)">
                                                     <UIcon :name="getRefIcon(ref.object_type)" class="w-3 h-3 text-gray-600" />
                                                 </UTooltip>
                                             </template>
@@ -154,11 +153,18 @@
             :is-suggestion="!canCreateGlobalInstructions"
             @instructionSaved="handleInstructionSaved"
         />
+
+        <!-- Instruction Details Modal (Read-only) -->
+        <InstructionDetailsModal
+            v-model="showDetailsModal"
+            :instruction="viewingInstruction"
+        />
     </UModal>
 </template>
 
 <script setup lang="ts">
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue';
+import InstructionDetailsModal from '~/components/InstructionDetailsModal.vue';
 import DataSourceIcon from '~/components/DataSourceIcon.vue';
 
 // Define interfaces - same as before
@@ -203,6 +209,8 @@ const instructions = ref<Instruction[]>([])
 const isLoading = ref(false)
 const showInstructionModal = ref(false)
 const editingInstruction = ref<Instruction | null>(null)
+const showDetailsModal = ref(false)
+const viewingInstruction = ref<Instruction | null>(null)
 
 // Check if user can create global instructions
 const canCreateGlobalInstructions = computed(() => {
@@ -318,6 +326,10 @@ const handleInstructionClick = (instruction: Instruction) => {
     if (canCreateGlobalInstructions.value) {
         editingInstruction.value = instruction
         showInstructionModal.value = true
+    } else {
+        // Show read-only details modal for users without global instruction permissions
+        viewingInstruction.value = instruction
+        showDetailsModal.value = true
     }
 }
 
@@ -447,12 +459,13 @@ const getRefIcon = (type: string) => {
 }
 
 const getRefDisplayName = (ref: any) => {
-  // First try display_text, then object name/title, then fallback
   const objectType = ref.object_type
-  if (ref.display_text) return objectType + ': ' + ref.display_text
-  if (ref.object?.name) return objectType + ': ' + ref.object.name
-  if (ref.object?.title) return objectType + ': ' + ref.object.title
-  return objectType
+  const dataSourceName = ref.data_source_name || 'Unknown'
+  
+  if (ref.display_text) return `${dataSourceName} - ${objectType}: ${ref.display_text}`
+  if (ref.object?.name) return `${dataSourceName} - ${objectType}: ${ref.object.name}`
+  if (ref.object?.title) return `${dataSourceName} - ${objectType}: ${ref.object.title}`
+  return `${dataSourceName} - ${objectType}`
 }
 
 const formatCategory = (category: string) => {

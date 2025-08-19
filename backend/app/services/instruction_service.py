@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy import and_, or_
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from fastapi import HTTPException
 
 from app.models.instruction import (
@@ -21,6 +21,7 @@ from app.schemas.instruction_schema import (
     InstructionUpdate, 
     InstructionSchema, 
 )
+from app.schemas.instruction_reference_schema import InstructionReferenceSchema
 from app.services.instruction_reference_service import InstructionReferenceService
 
 class InstructionService:
@@ -42,7 +43,7 @@ class InstructionService:
             await self._validate_data_sources(db, instruction_data.data_source_ids, organization)
         
         # Convert enum strings coming from the API and extract their values
-        raw = instruction_data.dict(exclude={'data_source_ids', 'references'})
+        raw = instruction_data.model_dump(exclude={'data_source_ids', 'references'})
         instruction = Instruction(**raw)
         instruction.user_id = current_user.id
         instruction.organization_id = organization.id
@@ -78,10 +79,23 @@ class InstructionService:
             # Pass data source IDs for validation (empty list means all data sources)
             ds_ids = instruction_data.data_source_ids if instruction_data.data_source_ids else None
             await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, ds_ids)
+            await db.commit()  # Commit the references
         
         # Load relationships and return
-        await db.refresh(instruction, ["user", "data_sources", "reviewed_by", "references"])
-        return InstructionSchema.from_orm(instruction)
+        await db.refresh(instruction)
+        # Re-fetch instruction with proper eager loading to avoid lazy loading issues
+        fresh_instruction = await db.execute(
+            select(Instruction)
+            .options(
+                selectinload(Instruction.user),
+                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.reviewed_by),
+                selectinload(Instruction.references),
+            )
+            .where(Instruction.id == instruction.id)
+        )
+        instruction = fresh_instruction.scalar_one()
+        return await self._instruction_to_schema_with_references(db, instruction)
     
     async def get_instructions(
         self, 
@@ -142,7 +156,7 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
             )
@@ -207,8 +221,19 @@ class InstructionService:
             await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, current_ds_ids)
 
         await db.commit()
-        await db.refresh(instruction, ["user", "data_sources", "reviewed_by", "references"])
-        return InstructionSchema.from_orm(instruction)
+        # Re-fetch instruction with proper eager loading to avoid lazy loading issues
+        fresh_instruction = await db.execute(
+            select(Instruction)
+            .options(
+                selectinload(Instruction.user),
+                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                selectinload(Instruction.reviewed_by),
+                selectinload(Instruction.references),
+            )
+            .where(Instruction.id == instruction.id)
+        )
+        instruction = fresh_instruction.scalar_one()
+        return await self._instruction_to_schema_with_references(db, instruction)
     
     async def delete_instruction(
         self, 
@@ -286,7 +311,7 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
             )
@@ -509,7 +534,7 @@ class InstructionService:
                 instruction.reviewed_by_user_id = admin_user.id
         
         # Apply all changes (admin has full control)
-        update_data = instruction_data.dict(exclude_unset=True, exclude={'data_source_ids', 'references'})
+        update_data = instruction_data.model_dump(exclude_unset=True, exclude={'data_source_ids', 'references'})
         for field, value in update_data.items():
             setattr(instruction, field, value)
 
@@ -615,7 +640,7 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources),
+                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
             )
@@ -668,97 +693,114 @@ class InstructionService:
         types: Optional[str] = None,
         data_source_ids: Optional[str] = None,
     ) -> List[dict]:
-        """Get available reference objects that user has access to"""
-        wanted = set((types or "metadata_resource,datasource_table,memory").split(","))
+        """Get available reference objects that user has access to - optimized version"""
+        from sqlalchemy import union_all, literal
+        from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
+        
+        wanted = set((types or "metadata_resource,datasource_table").split(","))
         items: List[dict] = []
-
-        # Get accessible data sources for the user
-        accessible_data_sources = await self._get_accessible_data_source_ids(db, current_user, organization)
         
         # Parse data_source_ids parameter if provided
         target_data_source_ids = None
         if data_source_ids:
             target_data_source_ids = [ds_id.strip() for ds_id in data_source_ids.split(",") if ds_id.strip()]
-            # Only include data sources the user has access to
-            target_data_source_ids = [ds_id for ds_id in target_data_source_ids if ds_id in accessible_data_sources]
-
+        
+        # Build data source access subquery once
+        data_source_access_subquery = (
+            select(DataSource.id)
+            .filter(DataSource.organization_id == organization.id)
+            .filter(
+                or_(
+                    DataSource.is_public == True,  # Public data sources
+                    DataSource.id.in_(
+                        select(DataSourceMembership.data_source_id)
+                        .filter(
+                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                            DataSourceMembership.principal_id == current_user.id
+                        )
+                    )  # User has explicit membership
+                )
+            )
+        )
+        
+        # Apply data source filtering to subquery
+        if target_data_source_ids:
+            data_source_access_subquery = data_source_access_subquery.filter(
+                DataSource.id.in_(target_data_source_ids)
+            )
+        
+        queries_to_union = []
+        
+        # Metadata Resources query with data source info
         if "metadata_resource" in wanted:
-            # Build query for metadata resources
-            stmt = select(MetadataResource).join(DataSource).where(
-                DataSource.organization_id == organization.id
+            mr_query = (
+                select(
+                    MetadataResource.id.label('id'),
+                    literal('metadata_resource').label('type'),
+                    MetadataResource.name.label('name'),
+                    MetadataResource.data_source_id.label('data_source_id'),
+                    DataSource.name.label('data_source_name'),
+                    DataSource.type.label('data_source_type')
+                )
+                .select_from(
+                    MetadataResource.__table__.join(
+                        DataSource.__table__, 
+                        MetadataResource.data_source_id == DataSource.id
+                    )
+                )
+                .filter(MetadataResource.data_source_id.in_(data_source_access_subquery))
             )
             
-            # Filter by accessible data sources
-            if target_data_source_ids:
-                # Filter by specific requested data sources
-                stmt = stmt.where(MetadataResource.data_source_id.in_(target_data_source_ids))
-            elif accessible_data_sources:
-                # Filter by all accessible data sources
-                stmt = stmt.where(MetadataResource.data_source_id.in_(accessible_data_sources))
-            else:
-                # If user has no access to any data sources, return empty for metadata resources
-                pass
-            
             if q:
-                stmt = stmt.where(MetadataResource.name.ilike(f"%{q}%"))
+                mr_query = mr_query.filter(MetadataResource.name.ilike(f"%{q}%"))
             
-            # Only execute if user has access to data sources
-            if target_data_source_ids or accessible_data_sources:
-                result = await db.execute(stmt)
-                for r in result.scalars().all():
-                    items.append({
-                        "id": r.id,
-                        "type": "metadata_resource",
-                        "name": r.name,
-                        "data_source_id": r.data_source_id,
-                    })
-
+            queries_to_union.append(mr_query)
+        
+        # DataSource Tables query with data source info
         if "datasource_table" in wanted:
-            # Build query for datasource tables
-            stmt = select(DataSourceTable).join(DataSource).where(
-                DataSource.organization_id == organization.id
+            dt_query = (
+                select(
+                    DataSourceTable.id.label('id'),
+                    literal('datasource_table').label('type'),
+                    DataSourceTable.name.label('name'),
+                    DataSourceTable.datasource_id.label('data_source_id'),
+                    DataSource.name.label('data_source_name'),
+                    DataSource.type.label('data_source_type')
+                )
+                .select_from(
+                    DataSourceTable.__table__.join(
+                        DataSource.__table__, 
+                        DataSourceTable.datasource_id == DataSource.id
+                    )
+                )
+                .filter(DataSourceTable.datasource_id.in_(data_source_access_subquery))
             )
             
-            # Filter by accessible data sources
-            if target_data_source_ids:
-                # Filter by specific requested data sources
-                stmt = stmt.where(DataSourceTable.datasource_id.in_(target_data_source_ids))
-            elif accessible_data_sources:
-                # Filter by all accessible data sources
-                stmt = stmt.where(DataSourceTable.datasource_id.in_(accessible_data_sources))
+            if q:
+                dt_query = dt_query.filter(DataSourceTable.name.ilike(f"%{q}%"))
+            
+            queries_to_union.append(dt_query)
+        
+        # Execute single UNION query if we have queries to run
+        if queries_to_union:
+            if len(queries_to_union) == 1:
+                final_query = queries_to_union[0]
             else:
-                # If user has no access to any data sources, return empty for tables
-                pass
+                final_query = union_all(*queries_to_union)
             
-            if q:
-                stmt = stmt.where(DataSourceTable.name.ilike(f"%{q}%"))
-            
-            # Only execute if user has access to data sources
-            if target_data_source_ids or accessible_data_sources:
-                result = await db.execute(stmt)
-                for t in result.scalars().all():
-                    items.append({
-                        "id": t.id,
-                        "type": "datasource_table", 
-                        "name": t.name,
-                        "data_source_id": t.datasource_id,
-                    })
-
-        if "memory" in wanted:
-            # Memories are org-scoped, user can access all in their org
-            stmt = select(Memory).where(Memory.organization_id == organization.id)
-            
-            if q:
-                stmt = stmt.where(Memory.title.ilike(f"%{q}%"))
-            
-            result = await db.execute(stmt)
-            for m in result.scalars().all():
-                items.append({
-                    "id": m.id,
-                    "type": "memory",
-                    "name": m.title,
-                })
-
+            result = await db.execute(final_query)
+            for row in result.fetchall():
+                item = {
+                    "id": row.id,
+                    "type": row.type,
+                    "name": row.name,
+                    "data_source_id": row.data_source_id,
+                    "data_source_name": row.data_source_name,
+                    "data_source_type": row.data_source_type
+                }
+                
+                items.append(item)
+        
         return items
 
     async def _get_accessible_data_source_ids(
@@ -807,14 +849,39 @@ class InstructionService:
                     if ref.object_type == "metadata_resource":
                         from app.schemas.metadata_resource_schema import MetadataResourceSchema
                         ref_data["object"] = MetadataResourceSchema.from_orm(referenced_obj).model_dump()
+                        
+                        # Add data source info for metadata resources
+                        ds_result = await db.execute(
+                            select(DataSource.name, DataSource.type)
+                            .where(DataSource.id == referenced_obj.data_source_id)
+                        )
+                        ds_info = ds_result.first()
+                        if ds_info:
+                            ref_data["data_source_name"] = ds_info.name
+                            ref_data["data_source_type"] = ds_info.type
+                            ref_data["data_source_id"] = referenced_obj.data_source_id
+                            
                     elif ref.object_type == "datasource_table":
                         from app.schemas.datasource_table_schema import DataSourceTableSchema
                         ref_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
+                        
+                        # Add data source info for datasource tables
+                        ds_result = await db.execute(
+                            select(DataSource.name, DataSource.type)
+                            .where(DataSource.id == referenced_obj.datasource_id)
+                        )
+                        ds_info = ds_result.first()
+                        if ds_info:
+                            ref_data["data_source_name"] = ds_info.name
+                            ref_data["data_source_type"] = ds_info.type
+                            ref_data["data_source_id"] = referenced_obj.datasource_id
+                            
                     elif ref.object_type == "memory":
                         from app.schemas.memory_schema import MemorySchema
                         ref_data["object"] = MemorySchema.from_orm(referenced_obj).model_dump()
+                        # Memories don't have data sources, so no additional info needed
                 
-                populated_references.append(ref_data)
+                populated_references.append(InstructionReferenceSchema(**ref_data))
             
             instruction_dict["references"] = populated_references
         

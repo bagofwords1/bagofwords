@@ -123,15 +123,23 @@
                         </div>
                     </template>
                     <template #option="{ option }">
-                        <div class="flex items-center justify-between w-full py-2 pr-2">
-                            <div class="flex items-center gap-2">
-                                <UIcon :name="getRefIcon(option.type)" class="w-4 h-4" />
-                                <div class="flex flex-col">
-                                    <span class="text-sm">{{ option.name }}</span>
-                                    <span class="text-xs text-gray-500">{{ option.type }}</span>
-                                </div>
+                        <div class="w-full py-1 px-0.5 ">
+                            <!-- Top row: Checkbox | Item type icon | Item name (all aligned) -->
+                            <div class="flex items-center gap-2 mb-1">
+                                <UCheckbox :model-value="selectedReferenceIds.includes(option.id)" class="flex-shrink-0" />
+                                <UIcon :name="getRefIcon(option.type)" class="w-4 h-4 text-gray-600 flex-shrink-0" />
+                                <span class="text-sm font-medium text-gray-900 truncate">
+                                    {{ option.name }}
+                                </span>
                             </div>
-                            <UCheckbox :model-value="selectedReferenceIds.includes(option.id)" />
+                            
+                            <!-- Bottom row: Data source icon | Data source name (indented to align under content) -->
+                            <div class="flex items-center gap-2 ml-6">
+                                <DataSourceIcon :type="option.data_source_type" class="w-3 h-3 flex-shrink-0" />
+                                <span class="text-xs text-gray-500 truncate">
+                                    {{ option.data_source_name }}
+                                </span>
+                            </div>
                         </div>
                     </template>
                 </USelectMenu>
@@ -628,8 +636,16 @@ const initReferencesFromInstruction = () => {
     if (props.instruction && Array.isArray(props.instruction.references)) {
         const map: Record<string, MentionableItem> = {}
         for (const m of mentionableOptions.value) map[m.id] = m
+        
+        // Use a Set to deduplicate by object_id
+        const seenObjectIds = new Set<string>()
         const preselected: MentionableItem[] = []
+        
         for (const r of props.instruction.references) {
+            // Skip duplicates
+            if (seenObjectIds.has(r.object_id)) continue
+            seenObjectIds.add(r.object_id)
+            
             const existing = map[r.object_id]
             if (existing) {
                 preselected.push({ ...existing, column_name: r.column_name || null })

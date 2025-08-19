@@ -254,10 +254,11 @@ const getRefIcon = (type: string) => {
 const getRefDisplayName = (ref: any) => {
   // First try display_text, then object name/title, then fallback
   const objectType = ref.object_type
-  if (ref.display_text) return objectType + ': ' + ref.display_text
-  if (ref.object?.name) return objectType + ': ' + ref.object.name
-  if (ref.object?.title) return objectType + ': ' + ref.object.title
-  return objectType
+  const dataSourceName = ref.data_source_name
+  if (ref.display_text) return dataSourceName + ' - ' + objectType + ': ' + ref.display_text
+  if (ref.object?.name) return dataSourceName + ' - ' + objectType + ': ' + ref.object.name
+  if (ref.object?.title) return dataSourceName + ' - ' + objectType + ': ' + ref.object.title
+  return dataSourceName + ' - ' + objectType
 }
 
 // Reactive state

@@ -385,8 +385,16 @@ const initReferencesFromInstruction = () => {
     if (props.instruction && Array.isArray(props.instruction.references)) {
         const map: Record<string, MentionableItem> = {}
         for (const m of mentionableOptions.value) map[m.id] = m
+        
+        // Use a Set to deduplicate by object_id
+        const seenObjectIds = new Set<string>()
         const preselected: MentionableItem[] = []
+        
         for (const r of props.instruction.references) {
+            // Skip duplicates
+            if (seenObjectIds.has(r.object_id)) continue
+            seenObjectIds.add(r.object_id)
+            
             const existing = map[r.object_id]
             if (existing) {
                 preselected.push({ ...existing, column_name: r.column_name || null })
