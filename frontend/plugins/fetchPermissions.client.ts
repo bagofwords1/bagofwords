@@ -1,36 +1,56 @@
 import { usePermissions, usePermissionsLoaded } from '~/composables/usePermissions'
+
 export default defineNuxtPlugin(async (nuxtApp) => {
-  try {
-    const { getSession } = useAuth()
-    const { organization, ensureOrganization } = useOrganization()
-    const permissions = usePermissions()
-    const permissionsLoaded = usePermissionsLoaded()
+  const { getSession } = useAuth()
+  const { organization, ensureOrganization } = useOrganization()
+  const permissions = usePermissions()
+  const permissionsLoaded = usePermissionsLoaded()
 
-    const session = await getSession()
-    await ensureOrganization()
+  // Extract the permission loading logic into a reusable function
+  const loadPermissions = async () => {
+    try {
+      const session = await getSession()
+      await ensureOrganization()
 
-    if (!session) {
-      console.warn('Session data is undefined. Ensure the user is authenticated.')
-      permissionsLoaded.value = true // Set to true even if no session
-      return
+      if (!session) {
+        console.warn('Session data is undefined. Ensure the user is authenticated.')
+        permissionsLoaded.value = true
+        return
+      }
+
+      if (session.organizations && session.organizations.length > 0) {
+        const userRole = session.organizations.find(
+          (org) => org.id === organization.value.id
+        )?.role
+        const rolePermissions = getPermissionsForRole(userRole)
+        permissions.value = rolePermissions
+        permissionsLoaded.value = true
+      } else {
+        console.warn('No organizations found in session data.')
+        permissionsLoaded.value = true
+      }
+    } catch (error) {
+      console.error('Error fetching session data:', error)
+      permissionsLoaded.value = true
     }
-
-    if (session.organizations && session.organizations.length > 0) {
-      const userRole = session.organizations.find(
-        (org) => org.id === organization.value.id
-      )?.role
-      const rolePermissions = getPermissionsForRole(userRole)
-      permissions.value = rolePermissions
-      permissionsLoaded.value = true // Mark as loaded
-    } else {
-      console.warn('No organizations found in session data.')
-      permissionsLoaded.value = true // Set to true even if no organizations
-    }
-  } catch (error) {
-    console.error('Error fetching session data:', error)
-    const permissionsLoaded = usePermissionsLoaded()
-    permissionsLoaded.value = true // Set to true even on error to avoid infinite loading
   }
+
+  // Load permissions on initial app load
+  await loadPermissions()
+
+  // Add router hook to reload permissions on navigation
+  nuxtApp.hook('app:mounted', () => {
+    const router = useRouter()
+    router.afterEach(async (to, from) => {
+      // Only reload permissions if we're navigating to a different route
+      // and permissions were previously loaded
+      if (to.path !== from.path && permissionsLoaded.value) {
+        console.log('Navigation detected, reloading permissions...')
+        permissionsLoaded.value = false // Reset loaded state
+        await loadPermissions()
+      }
+    })
+  })
 })
 
 // Define the function to get permissions based on role

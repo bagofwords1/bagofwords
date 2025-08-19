@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.185 (August 19th, 2025)
+- Enhanced instructions functionality with support for referencing dbt models, tables and other metadata resources
+- Updated data source section with improved views of dbt and other metadata resources
+- Fixed various bugs and enhanced overall usability
+
 ## Version 0.0.181 (August 10, 2025)
 - Added data source visibility controls - admins can now set data sources as public or private within organizations and manage granular access permissions through user memberships
 - Improved interface and user experience with differentiated views and controls for administrators versus regular users in the data source management area

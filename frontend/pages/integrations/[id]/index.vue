@@ -247,14 +247,24 @@ Create a table of all customers, show customer name, email, phone, address and c
                                     Load context from dbt, lookml, markdown files, and other pieces of code by connecting your git repo to your data source.
                                 </p>
                                 <div v-if="integration.git_repository">
-                                    <p class="text-sm text-gray-500 mt-4" v-if="integration.git_repository.status === 'pending'">
-                                        Indexing...
-                                    </p>
+                                    <div v-if="integration.git_repository.status === 'pending'" class="flex items-center mt-4">
+                                        <UIcon name="heroicons-arrow-path" class="w-4 h-4 animate-spin text-blue-500 mr-2" />
+                                        <p class="text-sm text-gray-500">
+                                            Indexing in progress... Resources will appear automatically when complete.
+                                        </p>
+                                    </div>
                                     <p class="text-sm text-gray-500 mt-4" v-else-if="integration.git_repository.status === 'completed'">
                                         Last indexed: {{ new Date(metadata_resources.completed_at).toLocaleString() }}
                                     </p>
-                                    <p>
-                                        <ul class="py-2 list-none list-inside" v-if="metadata_resources?.resources">
+                                    <!-- Loading Spinner -->
+                                    <div v-if="isLoadingMetadataResources" class="flex justify-center items-center py-8">
+                                        <UIcon name="heroicons-arrow-path" class="w-6 h-6 animate-spin text-blue-500" />
+                                        <span class="ml-2 text-sm text-gray-500">Loading resources...</span>
+                                    </div>
+                                    
+                                    <!-- Resources List -->
+                                    <div v-else-if="metadata_resources?.resources && metadata_resources.resources.length > 0">
+                                        <ul class="py-2 list-none list-inside">
                                             <li class="py-1" v-for="resource in metadata_resources.resources" :key="resource.id">
                                                 <UCheckbox v-if="canUpdateDataSource" v-model="resource.is_active" class="float-left mr-2"/>
                                                 <span v-else :class="['inline-block w-4 h-4 rounded border mr-2', resource.is_active ? 'bg-blue-500 border-blue-500' : 'bg-gray-200 border-gray-300']"></span>
@@ -264,19 +274,27 @@ Create a table of all customers, show customer name, email, phone, address and c
                                                     <UIcon name="heroicons:hashtag" class="w-4 h-4 inline-block" v-if="resource.resource_type === 'metric'"/>
                                                     {{ resource.name }}
                                                 </div>
-                                                <ul v-if="expandedResources[resource.id]" class="ml-4 mt-1 text-sm">
-                                                    <li>Description: {{ resource.description }}</li>
-                                                    <li>
-                                                        <pre class="whitespace-pre-wrap overflow-x-auto max-w-full">
-                                                         {{ resource.raw_data }}
-                                                        </pre>
-                                                    </li>
-                                                </ul>
+                                                <div v-if="expandedResources[resource.id]" class="ml-4 mt-2">
+                                                    <ResourceDisplay :resource="resource" />
+                                                </div>
                                             </li>
                                         </ul>
-                                    </p>
-                                    <button v-if="canUpdateDataSource" @click="updateResourceStatus()" class="bg-blue-500 text-white px-4 py-2 text-sm mt-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
-                                        Save Resources
+                                    </div>
+                                    
+                                    <!-- No Resources State -->
+                                    <div v-else class="text-center py-6">
+                                        <UIcon name="heroicons-document-text" class="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                                        <p class="text-sm text-gray-500">No resources found</p>
+                                        <p class="text-xs text-gray-400 mt-1">Resources will appear here after indexing is complete</p>
+                                    </div>
+                                    <button 
+                                        v-if="canUpdateDataSource && metadata_resources?.resources && metadata_resources.resources.length > 0" 
+                                        @click="updateResourceStatus()" 
+                                        :disabled="isUpdatingResources"
+                                        class="bg-blue-500 text-white px-4 py-2 text-sm mt-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        <UIcon v-if="isUpdatingResources" name="heroicons-arrow-path" class="w-4 h-4 animate-spin mr-1" />
+                                        {{ isUpdatingResources ? 'Saving...' : 'Save Resources' }}
                                     </button>
                                 </div>
                                 <div v-else>
@@ -750,6 +768,7 @@ Create a table of all customers, show customer name, email, phone, address and c
 
 <script setup lang="ts">
 import GoBackChevron from '@/components/excel/GoBackChevron.vue';
+import ResourceDisplay from '~/components/ResourceDisplay.vue';
 import { useCan } from '~/composables/usePermissions';
 const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth();
 const { organization } = useOrganization();
@@ -801,6 +820,9 @@ const organizationUsers = ref<any[]>([]);
 const selectedUsers = ref<any[]>([]);
 const isAddingUsers = ref(false);
 const isLoading = ref(true);
+const isLoadingMetadataResources = ref(false);
+const isUpdatingResources = ref(false);
+const indexingPollingInterval = ref<NodeJS.Timeout | null>(null);
 
 const expandedResources = ref<Record<string, boolean>>({});
 
@@ -864,10 +886,15 @@ async function refreshSchema() {
 }
 
 async function fetchMetadataResources() {
-    const response = await useMyFetch(`/data_sources/${ds_id}/metadata_resources`, {
-        method: 'GET',
-    });
-    metadata_resources.value = response.data.value;
+    isLoadingMetadataResources.value = true;
+    try {
+        const response = await useMyFetch(`/data_sources/${ds_id}/metadata_resources`, {
+            method: 'GET',
+        });
+        metadata_resources.value = response.data.value;
+    } finally {
+        isLoadingMetadataResources.value = false;
+    }
 }
 
 async function fetchSchema() {
@@ -955,16 +982,16 @@ async function generateItem(item: string) {
 }
 
 async function fetchIntegration() {
-    console.log('Fetching integration for ds_id:', ds_id);
+    //console.log('Fetching integration for ds_id:', ds_id);
     const response = await useMyFetch(`/data_sources/${ds_id}`, {
         method: 'GET',
     });
-    console.log('Response status:', response.status.value);
-    console.log('Response data:', response.data.value);
+    //console.log('Response status:', response.status.value);
+    //console.log('Response data:', response.data.value);
     if (response.status.value == "success") {
         integration.value = response.data.value;
         integrationName.value = integration.value.name;
-        console.log('Integration set successfully:', integration.value);
+        //console.log('Integration set successfully:', integration.value);
         isLoading.value = false;
     } else {
         console.error('Failed to fetch integration - status:', response.status.value);
@@ -1066,7 +1093,7 @@ function isPasswordField(fieldName: string) {
 
 async function getConfigFields() {
     if (!integration.value || !integration.value.type) {
-        console.log('Skipping getConfigFields - integration not loaded yet');
+        //console.log('Skipping getConfigFields - integration not loaded yet');
         return;
     }
     
@@ -1143,6 +1170,36 @@ async function handleConfigUpdate() {
 async function handleGitModalClose(value: boolean) {
     if (!value) {  // When modal is closed
         await fetchIntegration();
+        await fetchMetadataResources();
+        // Start polling if indexing is in progress
+        startIndexingPollingIfNeeded();
+    }
+}
+
+function startIndexingPollingIfNeeded() {
+    // Clear any existing interval
+    if (indexingPollingInterval.value) {
+        clearInterval(indexingPollingInterval.value);
+    }
+    
+    // Start polling if git repository status is pending
+    if (integration.value?.git_repository?.status === 'pending') {
+        indexingPollingInterval.value = setInterval(async () => {
+            await fetchIntegration();
+            await fetchMetadataResources();
+            
+            // Stop polling when indexing is complete
+            if (integration.value?.git_repository?.status !== 'pending') {
+                stopIndexingPolling();
+            }
+        }, 3000); // Poll every 3 seconds
+    }
+}
+
+function stopIndexingPolling() {
+    if (indexingPollingInterval.value) {
+        clearInterval(indexingPollingInterval.value);
+        indexingPollingInterval.value = null;
     }
 }
 
@@ -1160,6 +1217,7 @@ async function updateResourceStatus() {
         return;
     }
 
+    isUpdatingResources.value = true;
     try {
         const response = await useMyFetch(`/data_sources/${ds_id}/update_metadata_resources`, {
             method: 'PUT',
@@ -1186,6 +1244,8 @@ async function updateResourceStatus() {
             description: 'Failed to update resources',
             color: 'red'
         });
+    } finally {
+        isUpdatingResources.value = false;
     }
 }
 
@@ -1363,13 +1423,6 @@ async function addSelectedUsers() {
     }
 }
 
-function debugAddUsers() {
-    console.log('Add Users button clicked!');
-    console.log('integration.is_public:', integration.value?.is_public);
-    console.log('showUserModal before:', showUserModal.value);
-    showUserModal.value = true;
-    console.log('showUserModal after:', showUserModal.value);
-}
 
 function handleVisibilityToggleClick() {
     // Don't change the value immediately, just show confirmation
@@ -1418,35 +1471,39 @@ function cancelVisibilityChange() {
 onMounted(async () => {
     nextTick(async () => {
         try {
-            console.log('Starting onMounted...');
+            //console.log('Starting onMounted...');
             await fetchIntegration();
-            console.log('fetchIntegration completed');
+            //console.log('fetchIntegration completed');
             await testConnection();
-            console.log('testConnection completed');
             
             // Fetch appropriate schema based on permissions
             if (canUpdateDataSource.value) {
                 await fetchSchema();
-                console.log('fetchSchema completed');
             } else {
                 await fetchSimpleSchema();
-                console.log('fetchSimpleSchema completed');
             }
             
             await fetchMetadataResources();
-            console.log('fetchMetadataResources completed');
             await getConfigFields();
-            console.log('getConfigFields completed');
             await fetchOrganizationUsers();
-            console.log('fetchOrganizationUsers completed');
+            //console.log('fetchOrganizationUsers completed');
             await fetchDataSourceMembers();
-            console.log('fetchDataSourceMembers completed');
-            console.log('All onMounted functions completed');
+            //console.log('fetchDataSourceMembers completed');
+            
+            // Start polling if indexing is in progress
+            startIndexingPollingIfNeeded();
+            
+            //console.log('All onMounted functions completed');
             isLoading.value = false;
         } catch (error) {
             console.error('Error in onMounted:', error);
             isLoading.value = false;
         }
     });
+});
+
+// Cleanup polling on unmount
+onUnmounted(() => {
+    stopIndexingPolling();
 });
 </script>

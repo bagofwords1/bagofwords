@@ -7,12 +7,15 @@ import { computed } from 'vue';
 
 // Props to accept the type of data source and class
 const props = defineProps<{
-    type: string;
+    type: string | null | undefined;
     class?: string;
 }>();
 
 // Computed property to generate the icon path
 const iconPath = computed(() => {
+    if (!props.type) {
+        return '/data_sources_icons/document.png';
+    }
     return `/data_sources_icons/${props.type.toLowerCase()}.png`;
 });
 

@@ -284,7 +284,7 @@ const fetchInstructions = async () => {
                 color: 'red'
             })
         } else if (data.value) {
-            console.log('Fetched instructions:', data.value.length)
+            //console.log('Fetched instructions:', data.value.length)
             
             if (activeFilter.value === 'my') {
                 // Filter to show instructions that are either suggested, rejected, or private drafts.
@@ -312,7 +312,7 @@ const fetchInstructions = async () => {
 }
 
 const setActiveFilter = async (filter: string) => {
-    console.log('Setting active filter to:', filter)
+    //console.log('Setting active filter to:', filter)
     activeFilter.value = filter
     await fetchInstructions()
 }

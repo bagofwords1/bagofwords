@@ -16,10 +16,18 @@
               <UTooltip text="Upload files">
                 <FileUploadComponent :uploaded_files="uploaded_files" @update:uploadedFiles="uploaded_files = $event" />
               </UTooltip>
+                <UTooltip text="Instructions">
+                    <button @click="openInstructionsModal" class="text-blue-500 hover:bg-gray-50 rounded-md p-2 flex items-center">
+                        <UIcon name="i-heroicons-document-text" class="align-middle" /> 
+                        <span class="ml-1 text-xs align-middle">Instructions</span>
+                    </button>
+                </UTooltip>
                 <PromptGuidelinesModal ref="guidelinesModalRef" />
+                <InstructionsListModalComponent ref="instructionsModalRef" />
                 <UTooltip text="Prompt Guidelines">
-                    <button @click="openGuidelinesModal" class="text-blue-500 hover:bg-gray-50 rounded-md p-2">
-                        <UIcon name="i-heroicons-light-bulb" />
+                    <button @click="openGuidelinesModal" class="text-blue-500 hover:bg-gray-50 rounded-md p-2 flex items-center">
+                        <UIcon name="i-heroicons-light-bulb" class="align-middle" /> 
+                        <span class="ml-1 text-xs align-middle">Prompt Guidelines</span>
                     </button>
                 </UTooltip>
             </div>
@@ -33,6 +41,7 @@
 import { ref, watch } from 'vue';
 import MentionComponent from '~/components/excel/MentionComponent.vue';
 import FileUploadComponent from '~/components/FileUploadComponent.vue';
+import InstructionsListModalComponent from '~/components/InstructionsListModalComponent.vue';
 
 const mentionComponentRef = ref(null);
 const localTextContent = ref('');
@@ -43,6 +52,7 @@ const router = useRouter()
 const mentions = ref([])
 const uploaded_files = ref([])
 const guidelinesModalRef = ref(null)
+const instructionsModalRef = ref(null)
 
 const props = defineProps({
        textareaContent: {
@@ -163,5 +173,9 @@ watch(uploaded_files, (newFiles) => {
 
 const openGuidelinesModal = () => {
     guidelinesModalRef.value?.openModal()
+}
+
+const openInstructionsModal = () => {
+    instructionsModalRef.value?.openModal()
 }
 </script>

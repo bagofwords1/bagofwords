@@ -333,7 +333,7 @@ const fetchInstructions = async () => {
         if (response.error.value) {
             console.error('Error fetching instructions:', response.error.value)
         } else if (response.data.value) {
-            console.log('Instructions found:', response.data.value.length)
+            //console.log('Instructions found:', response.data.value.length)
             instructions.value = response.data.value
         }
         
