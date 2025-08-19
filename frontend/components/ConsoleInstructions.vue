@@ -94,7 +94,9 @@
                             <td class="px-6 py-4">
                                 <div class="flex items-center space-x-1">
                                     <template v-if="(instruction as any).references && (instruction as any).references.length">
-                                        <UIcon v-for="ref in (instruction as any).references.slice(0,3)" :key="ref.id" :name="getRefIcon(ref.object_type)" class="w-5 h-5 text-gray-600" :title="ref.display_text || ref.object_type" />
+                                        <UTooltip v-for="ref in (instruction as any).references.slice(0,3)" :key="ref.id" :text="getRefDisplayName(ref)">
+                                            <UIcon :name="getRefIcon(ref.object_type)" class="w-4 h-4 text-gray-600" />
+                                        </UTooltip>
                                         <span v-if="(instruction as any).references.length > 3" class="text-xs text-gray-500">+{{ (instruction as any).references.length - 3 }}</span>
                                     </template>
                                     <span v-else class="text-xs text-gray-400">None</span>
@@ -247,6 +249,15 @@ const getRefIcon = (type: string) => {
   if (type === 'datasource_table') return 'i-heroicons-table-cells'
   if (type === 'memory') return 'i-heroicons-book-open'
   return 'i-heroicons-circle'
+}
+
+const getRefDisplayName = (ref: any) => {
+  // First try display_text, then object name/title, then fallback
+  const objectType = ref.object_type
+  if (ref.display_text) return objectType + ': ' + ref.display_text
+  if (ref.object?.name) return objectType + ': ' + ref.object.name
+  if (ref.object?.title) return objectType + ': ' + ref.object.title
+  return objectType
 }
 
 // Reactive state

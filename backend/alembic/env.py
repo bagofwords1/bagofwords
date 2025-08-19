@@ -44,6 +44,7 @@ from app.models.instruction import Instruction
 from app.models.instruction import instruction_data_source_association
 from app.models.completion_feedback import CompletionFeedback
 from app.models.data_source_membership import DataSourceMembership
+from app.models.instruction_reference import InstructionReference
 
 from app.settings.config import settings
 

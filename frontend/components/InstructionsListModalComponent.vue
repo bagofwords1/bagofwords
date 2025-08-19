@@ -64,10 +64,10 @@
                                         Instruction
                                     </th>
                                     <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                                        <!-- Icons column -->
+                                        <!-- References -->
                                     </th>
                                     <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                                        References
+                                        <!-- Icons column -->
                                     </th>
                                 </tr>
                             </thead>
@@ -83,6 +83,16 @@
                                     <td class="px-3 py-2 text-sm">
                                         <div class="max-w-md">
                                             <p class="text-gray-900 leading-tight">{{ instruction.text }}</p>
+                                        </div>
+                                    </td>
+                                    <td class="px-3 py-2 text-sm">
+                                        <div class="flex items-center justify-center gap-2">
+                                            <template v-if="(instruction as any).references && (instruction as any).references.length">
+                                                <UTooltip v-for="ref in (instruction as any).references.slice(0,2)" :key="ref.id" :text="getRefDisplayName(ref)">
+                                                    <UIcon :name="getRefIcon(ref.object_type)" class="w-3 h-3 text-gray-600" />
+                                                </UTooltip>
+                                            </template>
+                                            <span v-else class="text-xs text-gray-400">None</span>
                                         </div>
                                     </td>
                                     <td class="px-3 py-2 text-sm">
@@ -120,15 +130,7 @@
                                             </UTooltip>
                                         </div>
                                     </td>
-                                    <td class="px-3 py-2 text-sm">
-                                        <div class="flex items-center justify-center gap-2">
-                                            <template v-if="(instruction as any).references && (instruction as any).references.length">
-                                                <UIcon v-for="ref in (instruction as any).references.slice(0,2)" :key="ref.id" :name="getRefIcon(ref.object_type)" class="w-4 h-4 text-gray-600" />
-                                                <div v-if="(instruction as any).references.length > 2" class="w-4 h-4 bg-gray-400 text-white text-[10px] rounded flex items-center justify-center border border-white flex-shrink-0">+{{ (instruction as any).references.length - 2 }}</div>
-                                            </template>
-                                            <span v-else class="text-xs text-gray-400">None</span>
-                                        </div>
-                                    </td>
+
                                 </tr>
                             </tbody>
                         </table>
@@ -442,6 +444,15 @@ const getRefIcon = (type: string) => {
   if (type === 'datasource_table') return 'i-heroicons-table-cells'
   if (type === 'memory') return 'i-heroicons-book-open'
   return 'i-heroicons-circle'
+}
+
+const getRefDisplayName = (ref: any) => {
+  // First try display_text, then object name/title, then fallback
+  const objectType = ref.object_type
+  if (ref.display_text) return objectType + ': ' + ref.display_text
+  if (ref.object?.name) return objectType + ': ' + ref.object.name
+  if (ref.object?.title) return objectType + ': ' + ref.object.title
+  return objectType
 }
 
 const formatCategory = (category: string) => {

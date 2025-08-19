@@ -1,6 +1,7 @@
 from sqlalchemy import Column, String, ForeignKey
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
+from typing import Optional, Union
 
 
 class InstructionReference(BaseSchema):
@@ -14,4 +15,16 @@ class InstructionReference(BaseSchema):
     display_text = Column(String(255), nullable=True)
 
     instruction = relationship("Instruction", back_populates="references")
+    
+    # Dynamic relationships to referenced objects
+    @property
+    def referenced_object(self) -> Optional[Union["MetadataResource", "DataSourceTable", "Memory"]]:
+        """Get the actual referenced object based on object_type and object_id."""
+        if self.object_type == "metadata_resource":
+            return self.metadata_resource
+        elif self.object_type == "datasource_table":
+            return self.datasource_table
+        elif self.object_type == "memory":
+            return self.memory
+        return None
 

@@ -112,12 +112,12 @@
                 </label>
                 <p class="text-xs text-gray-500 mb-2">Select metadata resources, data source tables, or memories this instruction targets.</p>
                 <USelectMenu
-                    :options="mentionableOptions"
+                    :options="filteredMentionableOptions"
                     option-attribute="name"
                     value-attribute="id"
                     multiple
                     searchable
-                    searchable-placeholder="Search mentionables..."
+                    searchable-placeholder="Search references..."
                     :model-value="selectedReferenceIds"
                     @update:model-value="handleReferencesChange"
                     class="w-full"
@@ -287,6 +287,30 @@ const dataSourceOptions = computed(() => {
 })
 const selectedReferenceIds = computed(() => selectedReferences.value.map(r => r.id))
 
+// Filter mentionable options based on selected data sources
+const filteredMentionableOptions = computed(() => {
+    // If all data sources are selected (or none selected), show all references
+    if (isAllDataSourcesSelected.value) {
+        return mentionableOptions.value
+    }
+    
+    // Otherwise, filter by selected data sources
+    return mentionableOptions.value.filter(option => {
+        // Memory type references are not tied to data sources
+        if (option.type === 'memory') {
+            return true
+        }
+        
+        // For metadata_resource and datasource_table, check data_source_id
+        if (option.data_source_id) {
+            return selectedDataSources.value.includes(option.data_source_id)
+        }
+        
+        // If no data_source_id, include it (fallback)
+        return true
+    })
+})
+
 const getRefIcon = (type: string) => {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
@@ -296,7 +320,13 @@ const getRefIcon = (type: string) => {
 
 const handleReferencesChange = (ids: string[]) => {
     const idSet = new Set(ids)
-    selectedReferences.value = mentionableOptions.value.filter(m => idSet.has(m.id))
+    selectedReferences.value = filteredMentionableOptions.value.filter(m => idSet.has(m.id))
+}
+
+// Validate references when data sources change
+const validateSelectedReferences = () => {
+    const validReferenceIds = new Set(filteredMentionableOptions.value.map(m => m.id))
+    selectedReferences.value = selectedReferences.value.filter(ref => validReferenceIds.has(ref.id))
 }
 
 const isAllDataSourcesSelected = computed(() => {
@@ -340,14 +370,14 @@ const fetchDataSources = async () => {
     }
 }
 
-const fetchMentionables = async () => {
+const fetchAvailableReferences = async () => {
     try {
-        const { data, error } = await useMyFetch<MentionableItem[]>('/api/mentionables', { method: 'GET' })
+        const { data, error } = await useMyFetch<MentionableItem[]>('/instructions/available-references', { method: 'GET' })
         if (!error.value && data.value) {
             mentionableOptions.value = data.value
         }
     } catch (err) {
-        console.error('Error fetching mentionables:', err)
+        console.error('Error fetching available references:', err)
     }
 }
 
@@ -529,10 +559,15 @@ watch(() => props.isSuggestion, (newValue) => {
 // Lifecycle
 onMounted(() => {
     fetchDataSources()
-    fetchMentionables().then(() => initReferencesFromInstruction())
+    fetchAvailableReferences().then(() => initReferencesFromInstruction())
 })
 
 watch(() => props.instruction, () => {
     initReferencesFromInstruction()
 })
+
+// Validate references when data sources change
+watch(() => props.selectedDataSources, () => {
+    validateSelectedReferences()
+}, { deep: true })
 </script>

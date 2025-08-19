@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy import and_, or_
-from typing import List, Optional
+from typing import List, Optional, Any
 from fastapi import HTTPException
 
 from app.models.instruction import (
@@ -10,6 +10,10 @@ from app.models.instruction import (
     instruction_data_source_association,
 )
 from app.models.data_source import DataSource
+from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
+from app.models.metadata_resource import MetadataResource
+from app.models.datasource_table import DataSourceTable
+from app.models.memory import Memory
 from app.models.user import User
 from app.models.organization import Organization
 from app.schemas.instruction_schema import (
@@ -38,7 +42,7 @@ class InstructionService:
             await self._validate_data_sources(db, instruction_data.data_source_ids, organization)
         
         # Convert enum strings coming from the API and extract their values
-        raw = instruction_data.dict(exclude={'data_source_ids'})
+        raw = instruction_data.dict(exclude={'data_source_ids', 'references'})
         instruction = Instruction(**raw)
         instruction.user_id = current_user.id
         instruction.organization_id = organization.id
@@ -71,7 +75,9 @@ class InstructionService:
 
         # Handle references if provided
         if getattr(instruction_data, "references", None) is not None:
-            await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization)
+            # Pass data source IDs for validation (empty list means all data sources)
+            ds_ids = instruction_data.data_source_ids if instruction_data.data_source_ids else None
+            await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, ds_ids)
         
         # Load relationships and return
         await db.refresh(instruction, ["user", "data_sources", "reviewed_by", "references"])
@@ -155,7 +161,7 @@ class InstructionService:
         if not instruction:
             return None
             
-        return InstructionSchema.from_orm(instruction)
+        return await self._instruction_to_schema_with_references(db, instruction)
     
     async def update_instruction(
         self, 
@@ -191,7 +197,14 @@ class InstructionService:
         
         # Handle references if provided
         if getattr(instruction_data, "references", None) is not None:
-            await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization)
+            # Get current data source IDs for the instruction if not provided in update
+            ds_ids = instruction_data.data_source_ids
+            if ds_ids is None:
+                # Get current data source associations
+                current_ds_ids = [ds.id for ds in instruction.data_sources] if instruction.data_sources else None
+            else:
+                current_ds_ids = ds_ids if ds_ids else None
+            await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, current_ds_ids)
 
         await db.commit()
         await db.refresh(instruction, ["user", "data_sources", "reviewed_by", "references"])
@@ -496,7 +509,7 @@ class InstructionService:
                 instruction.reviewed_by_user_id = admin_user.id
         
         # Apply all changes (admin has full control)
-        update_data = instruction_data.dict(exclude_unset=True, exclude={'data_source_ids'})
+        update_data = instruction_data.dict(exclude_unset=True, exclude={'data_source_ids', 'references'})
         for field, value in update_data.items():
             setattr(instruction, field, value)
 
@@ -631,7 +644,7 @@ class InstructionService:
         
         result = await db.execute(query)
         instructions = result.scalars().all()
-        return [InstructionSchema.from_orm(instruction) for instruction in instructions]
+        return await self._instructions_to_schema_with_references(db, instructions)
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
         """Get user's permissions in the organization"""
@@ -645,3 +658,172 @@ class InstructionService:
         membership = result.scalar_one_or_none()
         
         return ROLES_PERMISSIONS.get(membership.role, set()) if membership else set()
+
+    async def get_available_references(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        q: Optional[str] = None,
+        types: Optional[str] = None,
+        data_source_ids: Optional[str] = None,
+    ) -> List[dict]:
+        """Get available reference objects that user has access to"""
+        wanted = set((types or "metadata_resource,datasource_table,memory").split(","))
+        items: List[dict] = []
+
+        # Get accessible data sources for the user
+        accessible_data_sources = await self._get_accessible_data_source_ids(db, current_user, organization)
+        
+        # Parse data_source_ids parameter if provided
+        target_data_source_ids = None
+        if data_source_ids:
+            target_data_source_ids = [ds_id.strip() for ds_id in data_source_ids.split(",") if ds_id.strip()]
+            # Only include data sources the user has access to
+            target_data_source_ids = [ds_id for ds_id in target_data_source_ids if ds_id in accessible_data_sources]
+
+        if "metadata_resource" in wanted:
+            # Build query for metadata resources
+            stmt = select(MetadataResource).join(DataSource).where(
+                DataSource.organization_id == organization.id
+            )
+            
+            # Filter by accessible data sources
+            if target_data_source_ids:
+                # Filter by specific requested data sources
+                stmt = stmt.where(MetadataResource.data_source_id.in_(target_data_source_ids))
+            elif accessible_data_sources:
+                # Filter by all accessible data sources
+                stmt = stmt.where(MetadataResource.data_source_id.in_(accessible_data_sources))
+            else:
+                # If user has no access to any data sources, return empty for metadata resources
+                pass
+            
+            if q:
+                stmt = stmt.where(MetadataResource.name.ilike(f"%{q}%"))
+            
+            # Only execute if user has access to data sources
+            if target_data_source_ids or accessible_data_sources:
+                result = await db.execute(stmt)
+                for r in result.scalars().all():
+                    items.append({
+                        "id": r.id,
+                        "type": "metadata_resource",
+                        "name": r.name,
+                        "data_source_id": r.data_source_id,
+                    })
+
+        if "datasource_table" in wanted:
+            # Build query for datasource tables
+            stmt = select(DataSourceTable).join(DataSource).where(
+                DataSource.organization_id == organization.id
+            )
+            
+            # Filter by accessible data sources
+            if target_data_source_ids:
+                # Filter by specific requested data sources
+                stmt = stmt.where(DataSourceTable.datasource_id.in_(target_data_source_ids))
+            elif accessible_data_sources:
+                # Filter by all accessible data sources
+                stmt = stmt.where(DataSourceTable.datasource_id.in_(accessible_data_sources))
+            else:
+                # If user has no access to any data sources, return empty for tables
+                pass
+            
+            if q:
+                stmt = stmt.where(DataSourceTable.name.ilike(f"%{q}%"))
+            
+            # Only execute if user has access to data sources
+            if target_data_source_ids or accessible_data_sources:
+                result = await db.execute(stmt)
+                for t in result.scalars().all():
+                    items.append({
+                        "id": t.id,
+                        "type": "datasource_table", 
+                        "name": t.name,
+                        "data_source_id": t.datasource_id,
+                    })
+
+        if "memory" in wanted:
+            # Memories are org-scoped, user can access all in their org
+            stmt = select(Memory).where(Memory.organization_id == organization.id)
+            
+            if q:
+                stmt = stmt.where(Memory.title.ilike(f"%{q}%"))
+            
+            result = await db.execute(stmt)
+            for m in result.scalars().all():
+                items.append({
+                    "id": m.id,
+                    "type": "memory",
+                    "name": m.title,
+                })
+
+        return items
+
+    async def _get_accessible_data_source_ids(
+        self, 
+        db: AsyncSession, 
+        current_user: User, 
+        organization: Organization
+    ) -> List[str]:
+        """Get list of data source IDs that the user has access to"""
+        # Query for data sources the user has access to (same logic as data_source_service)
+        query = (
+            select(DataSource.id)
+            .filter(DataSource.organization_id == organization.id)
+            .filter(
+                or_(
+                    DataSource.is_public == True,  # Public data sources
+                    DataSource.id.in_(
+                        select(DataSourceMembership.data_source_id)
+                        .filter(
+                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                            DataSourceMembership.principal_id == current_user.id
+                        )
+                    )  # User has explicit membership
+                )
+            )
+        )
+        result = await db.execute(query)
+        return [row[0] for row in result.fetchall()]
+    
+    async def _instruction_to_schema_with_references(self, db: AsyncSession, instruction) -> InstructionSchema:
+        """Convert instruction to schema with populated references."""
+        # Convert to basic schema
+        instruction_dict = InstructionSchema.from_orm(instruction).model_dump()
+        
+        # Populate the referenced objects for each reference
+        if instruction.references:
+            populated_references = []
+            for ref in instruction.references:
+                ref_data = ref.__dict__.copy()
+                # Remove SQLAlchemy internal attributes
+                ref_data = {k: v for k, v in ref_data.items() if not k.startswith('_')}
+                
+                # Fetch and add the referenced object
+                referenced_obj = await self.reference_service._fetch_referenced_object(db, ref.object_type, ref.object_id)
+                if referenced_obj:
+                    if ref.object_type == "metadata_resource":
+                        from app.schemas.metadata_resource_schema import MetadataResourceSchema
+                        ref_data["object"] = MetadataResourceSchema.from_orm(referenced_obj).model_dump()
+                    elif ref.object_type == "datasource_table":
+                        from app.schemas.datasource_table_schema import DataSourceTableSchema
+                        ref_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
+                    elif ref.object_type == "memory":
+                        from app.schemas.memory_schema import MemorySchema
+                        ref_data["object"] = MemorySchema.from_orm(referenced_obj).model_dump()
+                
+                populated_references.append(ref_data)
+            
+            instruction_dict["references"] = populated_references
+        
+        return InstructionSchema(**instruction_dict)
+    
+    async def _instructions_to_schema_with_references(self, db: AsyncSession, instructions) -> List[InstructionSchema]:
+        """Convert multiple instructions to schemas with populated references."""
+        result = []
+        for instruction in instructions:
+            schema = await self._instruction_to_schema_with_references(db, instruction)
+            result.append(schema)
+        return result

@@ -1,27 +1,37 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, validator
+from typing import Optional, List, Dict, Any, Union
 
 
 class TableColumnSchema(BaseModel):
     name: str
     dtype: Optional[str] = None
     is_active: bool = True
+    
+    class Config:
+        from_attributes = True
 
 
 class ForeignKeySchema(BaseModel):
     column: TableColumnSchema
     references_name: str
     references_column: TableColumnSchema
+    
+    class Config:
+        from_attributes = True
 
 
 class DataSourceTableSchema(BaseModel):
+    id: Optional[str] = None
     name: str
-    columns: list[TableColumnSchema]
+    columns: List[Dict[str, Any]]  # Keep as raw JSON
     no_rows: int = 0
     datasource_id: str
-    pks: list[TableColumnSchema]
-    fks: list[ForeignKeySchema]
+    pks: List[Dict[str, Any]]  # Keep as raw JSON
+    fks: List[Dict[str, Any]]  # Keep as raw JSON
     is_active: bool = False
+    
+    class Config:
+        from_attributes = True
 
     def to_prompt_table(self) -> 'Table':
         """Convert to prompt formatter Table model."""
@@ -58,3 +68,6 @@ class DataSourceTableUpdateSchema(BaseModel):
     pks: Optional[list[TableColumnSchema]] = None
     fks: Optional[list[ForeignKeySchema]] = None
     is_active: Optional[bool] = None
+    
+    class Config:
+        from_attributes = True

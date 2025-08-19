@@ -121,6 +121,52 @@ async def reject_suggestion(
     """Admin rejects suggestion, returning it to private - Suggested -> Private Published"""
     return await instruction_service.reject_suggestion(db, instruction_id, current_user, organization)
 
+@router.get("/instructions/available-references", response_model=List[dict])
+@requires_permission('view_instructions')
+async def get_available_references(
+    q: Optional[str] = Query(None, description="search text"),
+    types: Optional[str] = Query(None, description="comma-separated types: metadata_resource,datasource_table,memory"),
+    data_source_filter: Optional[str] = Query(None, description="comma-separated data source IDs"),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Get available reference objects that the user has access to"""
+    return await instruction_service.get_available_references(
+        db=db,
+        organization=organization,
+        current_user=current_user,
+        q=q,
+        types=types,
+        data_source_ids=data_source_filter,
+    )
+
+# UTILITY ROUTES
+@router.get("/instructions/categories", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_categories():
+    """Get all available instruction categories"""
+    return [category.value for category in InstructionCategory]
+
+@router.get("/instructions/statuses", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_statuses():
+    """Get all available instruction statuses"""
+    return [status.value for status in InstructionStatus]
+
+@router.get("/instructions/private-statuses", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_private_statuses():
+    """Get all available private instruction statuses"""
+    return [status.value for status in InstructionPrivateStatus]
+
+@router.get("/instructions/global-statuses", response_model=List[str])
+@requires_permission('view_instructions')
+async def get_instruction_global_statuses():
+    """Get all available global instruction statuses"""
+    return [status.value for status in InstructionGlobalStatus]
+
+
 # STANDARD CRUD
 @router.get("/instructions/{instruction_id}", response_model=InstructionSchema)
 @requires_permission('view_instructions', model=Instruction)
@@ -167,27 +213,3 @@ async def delete_instruction(
         raise HTTPException(status_code=404, detail="Instruction not found")
     return {"message": "Instruction deleted successfully"}
 
-# UTILITY ROUTES
-@router.get("/instructions/categories", response_model=List[str])
-@requires_permission('view_instructions')
-async def get_instruction_categories():
-    """Get all available instruction categories"""
-    return [category.value for category in InstructionCategory]
-
-@router.get("/instructions/statuses", response_model=List[str])
-@requires_permission('view_instructions')
-async def get_instruction_statuses():
-    """Get all available instruction statuses"""
-    return [status.value for status in InstructionStatus]
-
-@router.get("/instructions/private-statuses", response_model=List[str])
-@requires_permission('view_instructions')
-async def get_instruction_private_statuses():
-    """Get all available private instruction statuses"""
-    return [status.value for status in InstructionPrivateStatus]
-
-@router.get("/instructions/global-statuses", response_model=List[str])
-@requires_permission('view_instructions')
-async def get_instruction_global_statuses():
-    """Get all available global instruction statuses"""
-    return [status.value for status in InstructionGlobalStatus]

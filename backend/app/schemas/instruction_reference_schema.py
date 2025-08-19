@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 
@@ -28,6 +28,9 @@ class InstructionReferenceSchema(InstructionReferenceBase):
     instruction_id: str
     created_at: datetime
     updated_at: datetime
+    
+    # Include the referenced object as a single field
+    object: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
