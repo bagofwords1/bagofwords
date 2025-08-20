@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.185 (August 19th, 2025)
+## Version 0.0.186 (August 19th, 2025)
 - Enhanced instructions functionality with support for referencing dbt models, tables and other metadata resources
 - Updated data source section with improved views of dbt and other metadata resources
 - Fixed various bugs and enhanced overall usability
