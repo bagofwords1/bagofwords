@@ -74,8 +74,21 @@ function handleSelectionChange() {
 }
 
 onMounted(() => {
-    nextTick(() => {
-        getDataSources()
+    nextTick(async () => {
+        const { organization, ensureOrganization } = useOrganization()
+        
+        try {
+            // Wait for organization to be available before making API calls
+            await ensureOrganization()
+            
+            if (organization.value?.id) {
+                getDataSources()
+            } else {
+                console.warn('DataSourceSelectorComponentExcel: Organization not available, skipping API calls')
+            }
+        } catch (error) {
+            console.error('DataSourceSelectorComponentExcel: Error during initialization:', error)
+        }
     })
 })
 

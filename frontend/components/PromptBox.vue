@@ -156,9 +156,22 @@ const createReport = async () => {
 
 onMounted(async () => {
     nextTick(async () => {
-        //await getFiles();
-        await getMemories();
-        await getDataSources();
+        const { organization, ensureOrganization } = useOrganization()
+        
+        try {
+            // Wait for organization to be available before making API calls
+            await ensureOrganization()
+            
+            if (organization.value?.id) {
+                //await getFiles();
+                await getMemories();
+                await getDataSources();
+            } else {
+                console.warn('PromptBox: Organization not available, skipping API calls')
+            }
+        } catch (error) {
+            console.error('PromptBox: Error during initialization:', error)
+        }
     });
 });
 

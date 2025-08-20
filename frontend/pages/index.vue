@@ -124,24 +124,29 @@ import PromptBox from '~/components/PromptBox.vue';
 
 import { useCan } from '~/composables/usePermissions'
 const router = useRouter()
-const previous_reports = ref([])
-const selectedDataSources = ref([])
-const models = ref([])
+const previous_reports = ref<any[]>([])
+const selectedDataSources = ref<any[]>([])
+const models = ref<any[]>([])
 
 const getModels = async () => {
-  const response = await useMyFetch('/llm/models', {
-      method: 'GET',
-  });
+  try {
+    const response = await useMyFetch('/llm/models', {
+        method: 'GET',
+    });
 
-  if (!response.code === 200) {
-      throw new Error('Could not fetch models');
+    if (response.error.value) {
+        throw new Error(`Could not fetch models: ${response.error.value}`);
+    }
+
+    models.value = (response.data.value as any[]) || [];
+  } catch (error) {
+    console.error('Failed to fetch models:', error);
+    models.value = [];
   }
-
-    models.value = await response.data.value;
 }
 
 const { signIn, signOut, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
-const { organization, clearOrganization, ensureOrganization } = useOrganization()
+const { organization, ensureOrganization } = useOrganization()
 
 definePageMeta({ 
   layout: 'default',
@@ -163,7 +168,7 @@ const menuItems = ref([
   [{ label: 'Reports', icon: 'i-heroicons-document-chart-bar', to: '/reports' }],
   [{ label: 'Memory', icon: 'i-heroicons-cube', to: '/memory' }],
   [{ label: 'Integrations', icon: 'i-heroicons-circle-stack', to: '/integrations' }],
-  [{ label: currentUser.value?.name, icon: 'i-heroicons-user'},
+  [{ label: (currentUser.value as any)?.name, icon: 'i-heroicons-user'},
   { label: organization.value.name, icon: 'i-heroicons-building-office'  }
   ],
   [{ label: 'Logout', icon: 'i-heroicons-arrow-right-on-rectangle', click: 
@@ -180,13 +185,28 @@ const updateTextarea = (content: string) => {
     textareaContent.value = content
 }
 
+const handlePromptUpdate = (value: string) => {
+    textareaContent.value = value
+}
+
 onMounted(async () => {
-ensureOrganization()
-nextTick(async () => {
-  await getModels()
-  await getDataSourceOptions()
-  await getReports()
-})
+  try {
+    // Ensure organization is loaded first before making any API calls
+    await ensureOrganization()
+    
+    // Only proceed with API calls if organization is available
+    if (organization.value?.id) {
+      await Promise.all([
+        getModels(),
+        getDataSourceOptions(),
+        getReports()
+      ])
+    } else {
+      console.warn('Organization not available, skipping API calls')
+    }
+  } catch (error) {
+    console.error('Error during page initialization:', error)
+  }
 })
 
 const checkExcelStatus = () => {
@@ -195,30 +215,41 @@ console.log('Manually checking Excel status:', isExcel.value)
 }
 
 const getReports = async () => {
-  const response = await useMyFetch('/reports', {
-      method: 'GET',
-  });
+  try {
+    const response = await useMyFetch('/reports', {
+        method: 'GET',
+    });
 
-  if (!response.code === 200) {
-      throw new Error('Could not fetch reports');
+    if (response.error.value) {
+        throw new Error(`Could not fetch reports: ${response.error.value}`);
+    }
+
+    previous_reports.value = (response.data.value as any[]) || [];
+  } catch (error) {
+    console.error('Failed to fetch reports:', error);
+    previous_reports.value = [];
   }
-
-  previous_reports.value = await response.data.value;
 }
 
 const getDataSourceOptions = async () => {
-  const response = await useMyFetch('/data_sources', {
-      method: 'GET',
-  });
+  try {
+    const response = await useMyFetch('/data_sources', {
+        method: 'GET',
+    });
 
-  if (!response.code === 200) {
-      throw new Error('Could not fetch data sources');
+    if (response.error.value) {
+        throw new Error(`Could not fetch data sources: ${response.error.value}`);
+    }
+
+    const dataSources = (response.data.value as any[]) || [];
+    selectedDataSources.value = dataSources.filter((data_source: any) => data_source.is_active !== false);
+  } catch (error) {
+    console.error('Failed to fetch data sources:', error);
+    selectedDataSources.value = [];
   }
-
-  selectedDataSources.value = (await response.data.value).filter((data_source: any) => data_source.is_active !== false);
 }
 
-const subscription = computed(() => currentUser.value?.organizations?.find(org => org.id === organization.value.id)?.subscription)
+const subscription = computed(() => (currentUser.value as any)?.organizations?.find((org: any) => org.id === organization.value.id)?.subscription)
 
 
 async function signOff() {

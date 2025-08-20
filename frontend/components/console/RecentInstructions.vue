@@ -138,6 +138,21 @@ const recentInstructions = ref<Instruction[]>([])
 
 // Methods
 const fetchRecentInstructions = async () => {
+    // Check if organization is available before making API call
+    const { organization, ensureOrganization } = useOrganization()
+    
+    try {
+        await ensureOrganization()
+        
+        if (!organization.value?.id) {
+            console.warn('RecentInstructions: Organization not available, skipping API call')
+            return
+        }
+    } catch (error) {
+        console.error('RecentInstructions: Error ensuring organization:', error)
+        return
+    }
+    
     isLoading.value = true
     try {
         const response = await useMyFetch<Instruction[]>('/api/instructions', {
@@ -235,7 +250,9 @@ watch(() => props.dateRange, () => {
 }, { deep: true })
 
 // Initialize
-onMounted(() => {
+onMounted(async () => {
+    // Wait a bit for organization to be loaded by parent components
+    await nextTick()
     fetchRecentInstructions()
 })
 </script> 

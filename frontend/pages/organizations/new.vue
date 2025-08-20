@@ -31,6 +31,7 @@ import { useAuth } from '#imports'
 
 const pageReady = ref(false)
 const { organization, ensureOrganization, fetchOrganization } = useOrganization()
+const { getSession } = useAuth()
 
 const name = ref('');
 
@@ -61,9 +62,13 @@ async function createOrg() {
             body: JSON.stringify(requestBody),
         });
 
-        if (!response.code === 200) {
-            throw new Error('Could not create organization');
+        if (response.error.value) {
+            throw new Error(`Could not create organization: ${response.error.value}`);
         }
+        
+        // Refresh the session to get the new organization
+        await getSession({ force: true })
+        
         navigateTo('/')
     } catch (error) {
         console.error('Error during org creation:', error);

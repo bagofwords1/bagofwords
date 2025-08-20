@@ -248,6 +248,21 @@ const getCurrentUserId = () => {
 
 // Clean fetch method using the new permission-based parameters
 const fetchInstructions = async () => {
+    // Check if organization is available before making API call
+    const { organization, ensureOrganization } = useOrganization()
+    
+    try {
+        await ensureOrganization()
+        
+        if (!organization.value?.id) {
+            console.warn('InstructionsListModal: Organization not available, skipping API call')
+            return
+        }
+    } catch (error) {
+        console.error('InstructionsListModal: Error ensuring organization:', error)
+        return
+    }
+    
     isLoading.value = true
     try {
         const params: any = {
@@ -477,7 +492,9 @@ const formatCategory = (category: string) => {
     return categoryMap[category as keyof typeof categoryMap] || category
 }
 
-onMounted(() => {
+onMounted(async () => {
+    // Wait a bit for organization to be loaded by parent components
+    await nextTick()
     fetchInstructions()
 })
 

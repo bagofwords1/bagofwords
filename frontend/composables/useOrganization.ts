@@ -27,8 +27,8 @@ export const useOrganization = () => {
       await fetchOrganizationFromSession()
       if (!organization.value?.id) {
         const route = useRoute()
-        // Skip redirect if we're on the verify page
-        if (!route.path.startsWith('/users/')) {
+        // Skip redirect if we're on the verify page or organization creation page
+        if (!route.path.startsWith('/users/') && !route.path.startsWith('/organizations/')) {
           router.push('/organizations/new')
         }
       }

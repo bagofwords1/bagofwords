@@ -318,6 +318,21 @@ const visiblePages = computed(() => {
 // Methods
 // Simple admin view using the new clean parameters
 const fetchInstructions = async () => {
+    // Check if organization is available before making API call
+    const { organization, ensureOrganization } = useOrganization()
+    
+    try {
+        await ensureOrganization()
+        
+        if (!organization.value?.id) {
+            console.warn('ConsoleInstructions: Organization not available, skipping API call')
+            return
+        }
+    } catch (error) {
+        console.error('ConsoleInstructions: Error ensuring organization:', error)
+        return
+    }
+    
     isLoading.value = true
     try {
         const response = await useMyFetch<Instruction[]>('/api/instructions', {
@@ -442,7 +457,9 @@ watch(searchQuery, () => {
 })
 
 // Fetch instructions on component mount
-onMounted(() => {
+onMounted(async () => {
+    // Wait a bit for organization to be loaded by parent components
+    await nextTick()
     fetchInstructions()
 })
 </script> 
