@@ -68,6 +68,7 @@
                             <li v-for="completion in completions" :key="completion.id" class="text-gray-700 mb-2 text-sm">
 
                                 <CompletionMessageComponent
+                                    :key="`${completion.id}-${completion._updateKey || 0}`"
                                     :completion="completion"
                                     :excel="isExcel"
                                     :reportId="report_id"
@@ -455,7 +456,6 @@ function connectWebSocket() {
                 loadWidgets()
                 break;
             case 'insert_text_widget':
-                console.log("Index.vue: Received insert_text_widget, calling refresh...");
                 if (dashboardRef.value) {
                     dashboardRef.value.refreshTextWidgets();
                 } else {
@@ -464,6 +464,7 @@ function connectWebSocket() {
                 break;
             case 'update_step':
                 updateStep(data)
+                //console.log('update_step', data)
                 //loadWidgets()
 
                 break;
@@ -491,35 +492,47 @@ const agentLogContainer = ref(null)
 const scrollAnchor = ref(null)
 
 function updateStep(updatedStep: any) {
-    console.log('Updating step:', updatedStep);
-    
-    completions.value = completions.value.map((completion: any) => {
-        // Match by step_id directly or by widget_id if this completion is associated with the widget
-        const matchesStepId = completion.step_id === updatedStep.step_id;
-        const matchesWidgetId = completion.widget_id === updatedStep.widget_id;
-        const matchesExistingStep = completion.step?.id === updatedStep.step_id;
-        
-        if (matchesStepId || matchesWidgetId || matchesExistingStep) {
-            console.log('Found matching completion for step update:', completion.id);
-            return {
-                ...completion,
-                step: {
-                    id: updatedStep.step_id,
-                    title: updatedStep.title,
-                    slug: updatedStep.slug,
-                    status: updatedStep.status,
-                    code: updatedStep.code,
-                    data: updatedStep.data,
-                    data_model: updatedStep.data_model,
-                    type: updatedStep.type,
-                    description: updatedStep.description,
-                    widget_id: updatedStep.widget_id
-                },
-                step_id: updatedStep.step_id
-            };
-        }
-        return completion;
-    });
+  // 1) Prefer exact step match
+  let idx = completions.value.findIndex((c: any) =>
+    c.step_id === updatedStep.step_id || c.step?.id === updatedStep.step_id
+  );
+
+  // 2) If not found yet, pick the MOST RECENT system completion for this widget
+  if (idx === -1) {
+    for (let i = completions.value.length - 1; i >= 0; i--) {
+      const c = completions.value[i];
+      if (c.role === 'system' && c.widget_id === updatedStep.widget_id) {
+        idx = i;
+        break;
+      }
+    }
+  }
+
+  if (idx === -1) return;
+
+  const current = completions.value[idx];
+  const statusChanged = current?.step?.status !== updatedStep.status;
+
+  const newCompletion = {
+    ...current,
+    widget_id: current.widget_id || updatedStep.widget_id,
+    step: {
+      id: updatedStep.step_id,
+      title: updatedStep.title,
+      slug: updatedStep.slug,
+      status: updatedStep.status,
+      code: updatedStep.code,
+      data: updatedStep.data,
+      data_model: updatedStep.data_model,
+      type: updatedStep.type,
+      description: updatedStep.description,
+      widget_id: updatedStep.widget_id
+    },
+    step_id: updatedStep.step_id,
+    _updateKey: statusChanged ? Date.now() : (current._updateKey || 0)
+  };
+
+  completions.value.splice(idx, 1, newCompletion);
 }
 
 function scrollToBottom() {
