@@ -209,18 +209,16 @@ const getDropdownItems = (model: Model) => {
     const items: any[][] = [[
         {
             label: 'Make Default',
-            click: (close: any) => {
+            click: () => {
                 setDefaultModel(model.id);
-                close();
             }
         }
     ]];
     if (useCan('manage_llm_settings')) {
         items[0].push({
             label: 'Manage Provider',
-            click: (close: any) => {
+            click: () => {
                 openManageProvider(model.provider.id);
-                close();
             }
         });
     }

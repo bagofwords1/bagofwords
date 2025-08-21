@@ -168,11 +168,22 @@
                                     :placeholder="`Provider Name (e.g. ${providerForm.provider_type} production)`"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
-                            <div v-for="(field, index) in fieldsForProvider(providerForm.provider_type)" :key="field.key">
+                            <div v-for="(field, index) in credentialFieldsForNewProvider" :key="field.key">
                                 <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
-                                <input v-model="providerForm.credentials[field.key]" type="text" required
+                                <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required"
                                     :placeholder="field.description || ''"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                            </div>
+                            <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
+                                <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">
+                                    {{ showBaseUrlNew ? 'Use default base URL' : 'Set custom base URL' }}
+                                </button>
+                                <div v-if="showBaseUrlNew" class="mt-2">
+                                    <label class="text-sm font-medium text-gray-700 mb-2">Base URL (optional)</label>
+                                    <input v-model="providerForm.credentials.base_url" type="text"
+                                        placeholder="e.g. https://my-openai-proxy.example.com/v1"
+                                        class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -268,13 +279,14 @@ type OrgProvider = {
   id: string;
   name: string;
   provider_type: string;
+  additional_config?: any;
   credentials?: any;
   models: any[];
 };
 type AvailableProvider = { type: string; name: string; credentials?: { properties?: Record<string, { title: string; description?: string }>} };
 type AvailableModel = { id?: string; name: string; model_id: string; provider_type: string; is_preset?: boolean; is_enabled?: boolean; selected?: boolean };
 
-type CredentialField = { key: string; title: string; description?: string };
+type CredentialField = { key: string; title: string; description?: string; required?: boolean };
 const providers = ref<AvailableProvider[]>([]);
 const organizationProviders = ref<OrgProvider[]>([]);
 const models = ref<AvailableModel[]>([]);
@@ -319,12 +331,30 @@ const providersWithNewOption = computed(() => {
 });
 
 const showBaseUrl = ref(false);
+const showBaseUrlNew = ref(false);
+
+function fieldsForProvider(providerType: string): CredentialField[] {
+    const provider = providers.value.find(p => p.type === providerType) as any;
+    const props: Record<string, { title: string; description?: string }> = (provider?.credentials?.properties || {}) as any;
+    const requiredKeys: string[] = (provider?.credentials?.required || []) as string[];
+    return Object.entries(props).map(([key, val]: any) => ({ key, title: val.title, description: val.description, required: requiredKeys?.includes(key) }));
+}
+
+const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
+    const providerType = providerForm.value.provider_type;
+    const all = fieldsForProvider(providerType);
+    if (providerType === 'openai') {
+        return all.filter(f => f.key !== 'base_url');
+    }
+    return all;
+});
 
   function selectOption(option: any) {
     if (option.type === 'new_provider') {
       selectedProvider.value = { type: 'new_provider', name: 'New Provider' } as any;
       providerForm.value = { name: '', provider_type: '', credentials: {}, models: [] } as any;
       customModels.value = [];
+      showBaseUrlNew.value = false;
     } else {
       selectedProvider.value = option;
     }
@@ -337,17 +367,14 @@ const showBaseUrl = ref(false);
     existingProviderCustomModels.value = [];
     showDangerZone.value = false;
     showBaseUrl.value = false;
+    showBaseUrlNew.value = false;
   }
 
 const isNewProviderSelected = computed(() => {
     return selectedProvider.value?.type === 'new_provider';
 });
 
-function fieldsForProvider(providerType: string): CredentialField[] {
-    const provider = providers.value.find(p => p.type === providerType);
-    const props: Record<string, { title: string; description?: string }> = (provider?.credentials?.properties || {}) as any;
-    return Object.entries(props).map(([key, val]) => ({ key, title: val.title, description: val.description }));
-}
+// fieldsForProvider moved above to include required keys
 
 const filteredModels = computed<AvailableModel[]>(() => {
     const providerType = isNewProviderSelected.value 
@@ -392,6 +419,11 @@ watch(providerModalOpen, (newValue) => {
                 selectedProvider.value.credentials = { api_key: null } as any;
             }
             if ((selectedProvider.value.provider_type === 'openai' || selectedProvider.value.type === 'openai')) {
+                // Hydrate base_url from additional_config if present
+                const existingBaseUrl = selectedProvider.value.additional_config?.base_url;
+                if (existingBaseUrl && (!selectedProvider.value.credentials.base_url || selectedProvider.value.credentials.base_url === '')) {
+                    (selectedProvider.value.credentials as any).base_url = existingBaseUrl;
+                }
                 if (selectedProvider.value.credentials.base_url === undefined) {
                     (selectedProvider.value.credentials as any).base_url = null;
                 }
@@ -417,6 +449,10 @@ watch(() => props.editProviderId, (newId) => {
                 selectedProvider.value.credentials = { api_key: null } as any;
             }
             if ((selectedProvider.value.provider_type === 'openai' || selectedProvider.value.type === 'openai')) {
+                const existingBaseUrl = selectedProvider.value.additional_config?.base_url;
+                if (existingBaseUrl && (!selectedProvider.value.credentials.base_url || selectedProvider.value.credentials.base_url === '')) {
+                    (selectedProvider.value.credentials as any).base_url = existingBaseUrl;
+                }
                 if (selectedProvider.value.credentials.base_url === undefined) {
                     (selectedProvider.value.credentials as any).base_url = null;
                 }
@@ -434,6 +470,21 @@ watch(() => providerForm.value.provider_type, (providerType: string) => {
         models.value
             .filter((m: AvailableModel) => m.provider_type === providerType)
             .forEach((m: AvailableModel) => { m.is_enabled = true; });
+    }
+    // Reset base URL toggle for new provider on provider type changes
+    if (isNewProviderSelected.value) {
+        if (providerType === 'openai') {
+            showBaseUrlNew.value = false;
+            // ensure we don't carry over base_url unless toggled on
+            if (providerForm.value.credentials && 'base_url' in providerForm.value.credentials) {
+                delete (providerForm.value.credentials as any).base_url;
+            }
+        } else {
+            showBaseUrlNew.value = false;
+            if (providerForm.value.credentials && 'base_url' in providerForm.value.credentials) {
+                delete (providerForm.value.credentials as any).base_url;
+            }
+        }
     }
 });
 
@@ -466,8 +517,11 @@ async function createProvider() {
     const response = await useMyFetch('/api/llm/providers', {
         method: 'POST',
         body: providerForm.value
-    }).then(response => {
+    }).then(async response => {
         if (response.status.value === 'success') {
+            // Refresh providers list so future edits reflect latest data
+            const orgProvidersRes = await useMyFetch('/api/llm/providers');
+            organizationProviders.value = (orgProvidersRes.data.value as unknown as OrgProvider[]) || [];
             resetForm();
             providerModalOpen.value = false;
             toast.add({
@@ -522,8 +576,11 @@ async function updateProvider() {
     const response = await useMyFetch(`/api/llm/providers/${selectedProvider.value?.id}`, {
         method: 'PUT',
         body: updatePayload
-    }).then(response => {
+    }).then(async response => {
         if (response.status.value === 'success') {
+            // Refresh providers list to ensure additional_config updates are reflected
+            const orgProvidersRes = await useMyFetch('/api/llm/providers');
+            organizationProviders.value = (orgProvidersRes.data.value as unknown as OrgProvider[]) || [];
             resetForm();
             providerModalOpen.value = false;
             toast.add({
@@ -553,6 +610,10 @@ watch(selectedProvider, (newValue) => {
         }
         // Ensure base_url field exists for OpenAI so users can set/clear it
         if ((newValue.provider_type === 'openai' || newValue.type === 'openai')) {
+            const existingBaseUrl = (newValue as any)?.additional_config?.base_url;
+            if (existingBaseUrl && (!newValue.credentials.base_url || newValue.credentials.base_url === '')) {
+                (newValue.credentials as any).base_url = existingBaseUrl;
+            }
             if (newValue.credentials.base_url === undefined) {
                 (newValue.credentials as any).base_url = null;
             }
@@ -636,6 +697,19 @@ function toggleBaseUrl() {
     if (!showBaseUrl.value && selectedProvider.value && selectedProvider.value.credentials) {
         // Clear to signal backend to use default
         (selectedProvider.value.credentials as any).base_url = '';
+    }
+}
+
+function toggleBaseUrlNewProvider() {
+    showBaseUrlNew.value = !showBaseUrlNew.value;
+    if (!showBaseUrlNew.value) {
+        if ('base_url' in providerForm.value.credentials) {
+            delete (providerForm.value.credentials as any).base_url;
+        }
+    } else {
+        if (providerForm.value.credentials.base_url === undefined) {
+            (providerForm.value.credentials as any).base_url = '';
+        }
     }
 }
 </script>

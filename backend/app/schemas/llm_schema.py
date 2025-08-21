@@ -16,6 +16,7 @@ class LLMProviderSchema(LLMProviderBase):
     is_preset: bool
     is_enabled: bool
     credentials: Optional[dict] = None
+    additional_config: Optional[Dict[str, Any]] = None
     models: list[LLMModelSchema] = []
 
     @validator('config', pre=True)
@@ -56,6 +57,7 @@ class LLMProviderUpdate(BaseModel):
     name: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     credentials: Optional[dict] = None
+    additional_config: Optional[Dict[str, Any]] = None
     models: list[LLMModelSchema] = []
 
 # Provider-specific Credentials

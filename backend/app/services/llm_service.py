@@ -28,7 +28,6 @@ class LLMService:
             .filter(LLMProvider.organization_id == organization.id)
             .filter(LLMProvider.deleted_at == None)
             .filter(LLMProvider.is_enabled == True)
-            .distinct()
         )
         return result.unique().scalars().all()
 
@@ -326,13 +325,14 @@ class LLMService:
         api_secret = credentials.get("api_secret") or None
 
         # Merge/maintain provider-specific additional_config
-        existing_additional_config = provider.additional_config or {}
+        # Always work on a COPY so SQLAlchemy sees a new object assignment for JSON column
+        existing_additional_config = dict(provider.additional_config or {})
 
         # Azure: endpoint_url
         if provider.provider_type == "azure":
             endpoint_url = credentials.get("endpoint_url")
             if endpoint_url:
-                existing_additional_config.update({"endpoint_url": endpoint_url})
+                existing_additional_config = { **existing_additional_config, "endpoint_url": endpoint_url }
             elif "endpoint_url" in existing_additional_config and not credentials.get("endpoint_url"):
                 # If explicitly empty, remove to fallback to default behavior
                 existing_additional_config.pop("endpoint_url", None)
@@ -341,7 +341,7 @@ class LLMService:
         if provider.provider_type == "openai":
             base_url = credentials.get("base_url")
             if base_url:
-                existing_additional_config.update({"base_url": base_url})
+                existing_additional_config = { **existing_additional_config, "base_url": base_url }
             elif "base_url" in credentials and (credentials.get("base_url") is None or credentials.get("base_url") == ""):
                 # Explicitly clear base_url
                 existing_additional_config.pop("base_url", None)
