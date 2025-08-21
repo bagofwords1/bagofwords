@@ -56,7 +56,7 @@
 
             </div>
 
-            <div class="flex space-x-2">
+            <div class="flex space-x-2 items-center">
                 <MentionComponent
                     ref="mentionComponentRef"
                     v-model="textContent"
@@ -65,12 +65,28 @@
                     @mentionsUpdated="handleMentionsUpdated"
                     @submit-content="submitCompletion"
                 />
-                <button
-                    class="text-blue-500 text- hover:text-blue-400 hover:bg-gray-100 px-2 py-2 rounded-md"
-                    @click="submitCompletion"
-                >
-                    <Icon name="heroicons-arrow-right" />
-                </button>
+                <div class="flex items-center space-x-2">
+                    <button
+                        v-if="latestInProgressCompletion"
+                        class="text-gray-600 hover:text-gray-800  px-2 py-2 rounded-md"
+                        :disabled="isStopping"
+                        @click="$emit('stopGeneration')"
+                    >
+                    
+                  <UTooltip text="Stop Generation">
+                        <Icon name="heroicons-stop-solid" class="w-4 h-4 inline-block text-black" />
+                      </UTooltip>
+                    </button>
+
+                    <button
+                    v-else
+                        class="text-blue-500 hover:text-blue-400 hover:bg-gray-100 px-2 py-2 rounded-md"
+                        :disabled="isStopping || latestInProgressCompletion"
+                        @click="submitCompletion"
+                    >
+                        <Icon name="heroicons-arrow-right" />
+                    </button>
+                </div>
 
             </div>
             <div class="text-[10px] mt-0.5 text-gray-500">
@@ -103,6 +119,8 @@ const props = defineProps({
     report_id: String,
     excelData: Object,
     selectedWidgetId: Object,
+    latestInProgressCompletion: Object,
+    isStopping: Boolean,
 });
 
 const report_id = props.report_id
@@ -121,7 +139,7 @@ watch(() => props.excelData, (newValue) => {
     excelData.value = newValue;
 }, { deep: true });
 
-const emit = defineEmits(['submitCompletion']);
+const emit = defineEmits(['submitCompletion','stopGeneration']);
 const inputRef = ref<HTMLDivElement | null>(null);
 const textContent = ref('');
 const mentions = ref([

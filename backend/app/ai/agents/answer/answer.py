@@ -2,6 +2,8 @@ from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from app.ai.context.instruction_context_builder import InstructionContextBuilder
+from datetime import datetime
+
 class Answer:
 
     def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder: InstructionContextBuilder) -> None:
@@ -12,7 +14,7 @@ class Answer:
         self.allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
         self.instruction_context_builder = instruction_context_builder
 
-    async def execute(self, prompt, schemas, memories, previous_messages, widget=None, observation_data=None, external_platform=None):
+    async def execute(self, prompt, schemas, memories, previous_messages, widget=None, observation_data=None, external_platform=None, sigkill_event=None):
         # --------------------------------------------------------------
         # NEW – fetch instruction context
         # --------------------------------------------------------------
@@ -71,6 +73,8 @@ class Answer:
             ])
 
         text = f"""
+Current date and time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, timezone: {datetime.now().astimezone().tzinfo}
+
 You are a data analyst. Your general capabilities are:
 - creating data tables from any data source: databses, APIs, files, etc
 - creating charts and dashboards
@@ -142,6 +146,8 @@ Now, provide your answer following these guidelines.
         chunk_count = 0
         
         async for chunk in self.llm.inference_stream(prompt=text):
+            if sigkill_event and sigkill_event.is_set():
+                break
             chunk_buffer += chunk
             chunk_count += 1
             

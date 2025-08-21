@@ -28,8 +28,12 @@ class Coder:
         memories,
         previous_messages,
         retries,
-        prev_data_model_code_pair
+        prev_data_model_code_pair,
+        sigkill_event=None
     ):
+        # Optional early exit if a cancellation was requested before generation
+        if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+            return "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame()"
         instructions_context = await self.instruction_context_builder.get_instructions_context()
 
         # Build a section with existing widget data if applicable

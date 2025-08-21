@@ -64,7 +64,8 @@
 
 
                         </div>
-                        <ul v-if="completions.length > 0" class="mx-auto w-full" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
+                        <div class="relative mx-auto" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
+                        <ul v-if="completions.length > 0" class="mx-auto w-full">
                             <li v-for="completion in completions" :key="completion.id" class="text-gray-700 mb-2 text-sm">
 
                                 <CompletionMessageComponent
@@ -76,14 +77,11 @@
                                     @update:selectedWidgetId="handleSelectedWidgetId"
                                     @addWidget="handleAddWidget"
                                 />
-                                <div v-if="completion.role == 'system' && completion.status === 'in_progress' && !completion.completion?.sigkill" class="text-gray-500 py-4 text-center flex justify-center items-center">
-                                    <button @click="sigkill(completion)" class="text-gray-500 text-xs hover:text-gray-700 flex justify-center items-center gap-1 border border-gray-200 rounded-md px-2 py-1">
-                                        <Icon name="heroicons-stop-circle" class="w-3.5 h-3.5" />
-                                        <span>{{ isStoppingGeneration ? 'Stopping...' : 'Stop Generation' }}</span>
-                                    </button>
-                                </div>
+                                
                             </li>
                         </ul>
+                        <!-- Removed sticky bar; Stop now lives inside PromptBox -->
+                        </div>
                     </div>
                 </div>
 
@@ -94,9 +92,12 @@
                         :widgets="widgets" 
                         :selectedWidgetId="selectedWidgetId" 
                         :excelData="excelData" 
+                        :latestInProgressCompletion="latestInProgressCompletion"
+                        :isStopping="isStoppingGeneration"
                         @submitCompletion="submitCompletion" 
                         :report_id="report_id" 
                         @update:selectedWidgetId="handleSelectedWidgetId" 
+                        @stopGeneration="() => sigkill(latestInProgressCompletion)"
                     />
                 </div>
             </div>
@@ -182,14 +183,19 @@ const sigkill = async (completion: any) => {
             method: 'POST'
         });
         // After successful sigkill, update the local completion state
-        completion.value = {
-            ...completion.value,
-            status: 'stopped', 
-            sigkill: true,
-            completion: {
-                ...completion.value.completion
-            }
-        };
+        const idx = completions.value.findIndex(c => c.id === completion.id);
+        if (idx !== -1) {
+            const prev = completions.value[idx];
+            completions.value[idx] = {
+                ...prev,
+                status: 'stopped',
+                sigkill: true,
+                completion: { ...prev.completion }
+            };
+        } else {
+            completion.status = 'stopped';
+            completion.sigkill = true;
+        }
     } catch (error) {
         console.error('Error updating sigkill:', error);
     } finally {
@@ -231,6 +237,11 @@ const mentions = ref([
         items: []
     },
 ]);
+
+const latestInProgressCompletion = computed(() => {
+    const inProgress = completions.value.filter((c: any) => c.role === 'system' && c.status === 'in_progress' && !c.sigkill);
+    return inProgress.length ? inProgress[inProgress.length - 1] : null;
+});
 
 const rerunReport = () => {
     useMyFetch(`/api/reports/${report_id}/rerun`, {

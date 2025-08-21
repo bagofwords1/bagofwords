@@ -167,7 +167,8 @@ class Agent:
                     observation_data,  
                     self.widget, 
                     self.step,
-                    self.external_platform
+                    self.external_platform,
+                    self.sigkill_event
                 )
                 
                 current_plan = None
@@ -474,7 +475,8 @@ class Agent:
                                     previous_messages=previous_messages,
                                     widget=self.widget,
                                     observation_data=current_observation_data,
-                                    external_platform=self.external_platform
+                                    external_platform=self.external_platform,
+                                    sigkill_event=self.sigkill_event
                                 ):
                                     full_answer += chunk
                                     # Update message with progress
@@ -826,7 +828,8 @@ class Agent:
                 ds_clients=self.clients,
                 memories=memories,
                 previous_messages=previous_messages,
-                prev_data_model_code_pair=None
+                prev_data_model_code_pair=None,
+                sigkill_event=self.sigkill_event
             )
 
             await self.project_manager.update_step_with_code(self.db, step, final_code)
@@ -933,7 +936,8 @@ class Agent:
             ds_clients=self.clients,
             memories=memories,
             previous_messages=previous_messages,
-            prev_data_model_code_pair=prev_data_model_code_pair
+            prev_data_model_code_pair=prev_data_model_code_pair,
+            sigkill_event=self.sigkill_event
         )
         
         # Handle errors and success similar to _handle_generate_widget_data

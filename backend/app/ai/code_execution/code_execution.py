@@ -51,6 +51,7 @@ class CodeExecutionManager:
                                          db_clients: Dict = None, 
                                          excel_files: List = None,
                                          step=None,  # Optional override for current step
+                                         sigkill_event=None,
                                          **generator_kwargs) -> Tuple[pd.DataFrame, str, List]:
         """
         Comprehensive function that handles:
@@ -82,6 +83,9 @@ class CodeExecutionManager:
         current_step = step or self.step
         
         while retries < max_retries:
+            # Early cancel before each attempt
+            if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                return pd.DataFrame(), code, code_and_error_messages
             try:
                 # Generate code
                 code = await code_generator_fn(
@@ -142,6 +146,10 @@ class CodeExecutionManager:
                                 self.logger.error(f"Error creating validation success message: {str(msg_error)}")
 
                 # Execute code
+                # Cancel between generate and execute
+                if sigkill_event and sigkill_event.is_set():
+                    return pd.DataFrame(), code, code_and_error_messages
+
                 df, output_log = self._execute_code(code, db_clients, excel_files)
                 
                 # Check if the DataFrame has columns (even if empty)

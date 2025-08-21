@@ -5,6 +5,8 @@ import tiktoken
 import json
 from partialjson.json_parser import JSONParser
 from app.ai.context.instruction_context_builder import InstructionContextBuilder
+from datetime import datetime
+
 
 class Planner:
 
@@ -34,7 +36,7 @@ class Planner:
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages,
                       observation_data=None, widget=None, step=None,
-                      external_platform=None):
+                      external_platform=None, sigkill_event=None):
         # --------------------------------------------------------------
         # NEW – fetch organization-wide instructions once at the top
         # --------------------------------------------------------------
@@ -175,6 +177,8 @@ class Planner:
 
         text = f"""
         You are a data analyst specializing in data analytics, data engineering, data visualization, and data science.
+
+        Current date and time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, timezone: {datetime.now().astimezone().tzinfo}
 
         Metadata about the user:
         - external_platform: {external_platform}
@@ -505,6 +509,8 @@ class Planner:
         current_plan = {"reasoning": "", "analysis_complete": False, "plan": [], "text": text}  # Initialize empty plan structure
 
         async for chunk in self.llm.inference_stream(text):
+            if sigkill_event and sigkill_event.is_set():
+                break
             buffer += chunk
             full_result += chunk
             completion_tokens += self.count_tokens(chunk)
