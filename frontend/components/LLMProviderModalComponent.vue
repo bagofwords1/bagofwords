@@ -47,6 +47,24 @@
                                 class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
                             />
                         </div>
+                        <div class="" v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
+                            <div class="mt-1">
+                                <button type="button" @click="toggleBaseUrl" class="text-xs text-blue-600 hover:underline">
+                                    {{ showBaseUrl ? 'Use default base URL' : 'Set custom base URL' }}
+                                </button>
+                            </div>
+                            <div v-if="showBaseUrl" class="mt-2">
+                                <label class="text-sm font-medium text-gray-700 mb-2">
+                                    Base URL (optional)
+                                </label>
+                                <input 
+                                    v-model="selectedProvider.credentials.base_url" 
+                                    type="text" 
+                                    placeholder="e.g. https://my-openai-proxy.example.com/v1"
+                                    class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
+                                />
+                            </div>
+                        </div>
                         <div class="">
                             <label class="text-sm font-medium text-gray-700 mb-2">
                                 Models
@@ -300,6 +318,8 @@ const providersWithNewOption = computed(() => {
     ];
 });
 
+const showBaseUrl = ref(false);
+
   function selectOption(option: any) {
     if (option.type === 'new_provider') {
       selectedProvider.value = { type: 'new_provider', name: 'New Provider' } as any;
@@ -316,6 +336,7 @@ const providersWithNewOption = computed(() => {
     customModels.value = [];
     existingProviderCustomModels.value = [];
     showDangerZone.value = false;
+    showBaseUrl.value = false;
   }
 
 const isNewProviderSelected = computed(() => {
@@ -366,6 +387,18 @@ watch(providerModalOpen, (newValue) => {
             };
             showDangerZone.value = false;
             existingProviderCustomModels.value = [];
+            // Initialize credentials container and base_url toggle for OpenAI
+            if (!selectedProvider.value.credentials) {
+                selectedProvider.value.credentials = { api_key: null } as any;
+            }
+            if ((selectedProvider.value.provider_type === 'openai' || selectedProvider.value.type === 'openai')) {
+                if (selectedProvider.value.credentials.base_url === undefined) {
+                    (selectedProvider.value.credentials as any).base_url = null;
+                }
+                showBaseUrl.value = !!selectedProvider.value.credentials.base_url;
+            } else {
+                showBaseUrl.value = false;
+            }
         }
     }
 });
@@ -380,6 +413,17 @@ watch(() => props.editProviderId, (newId) => {
             };
             showDangerZone.value = false;
             existingProviderCustomModels.value = [];
+            if (!selectedProvider.value.credentials) {
+                selectedProvider.value.credentials = { api_key: null } as any;
+            }
+            if ((selectedProvider.value.provider_type === 'openai' || selectedProvider.value.type === 'openai')) {
+                if (selectedProvider.value.credentials.base_url === undefined) {
+                    (selectedProvider.value.credentials as any).base_url = null;
+                }
+                showBaseUrl.value = !!selectedProvider.value.credentials.base_url;
+            } else {
+                showBaseUrl.value = false;
+            }
         }
     }
 });
@@ -505,7 +549,16 @@ watch(selectedProvider, (newValue) => {
     if (newValue && newValue?.type !== 'new_provider') {
         // Initialize credentials if null
         if (!newValue.credentials) {
-            newValue.credentials = { api_key: null };
+            newValue.credentials = { api_key: null } as any;
+        }
+        // Ensure base_url field exists for OpenAI so users can set/clear it
+        if ((newValue.provider_type === 'openai' || newValue.type === 'openai')) {
+            if (newValue.credentials.base_url === undefined) {
+                (newValue.credentials as any).base_url = null;
+            }
+            showBaseUrl.value = !!newValue.credentials.base_url;
+        } else {
+            showBaseUrl.value = false;
         }
         providerForm.value = {
             name: '',
@@ -575,6 +628,14 @@ function removeExistingProviderCustomModel(index: number) {
 function removeExistingCustomModel(modelId: string) {
     if (confirm('Are you sure you want to remove this custom model?')) {
         selectedProvider.value!.models = selectedProvider.value!.models.filter((model: any) => model.id !== modelId);
+    }
+}
+
+function toggleBaseUrl() {
+    showBaseUrl.value = !showBaseUrl.value;
+    if (!showBaseUrl.value && selectedProvider.value && selectedProvider.value.credentials) {
+        // Clear to signal backend to use default
+        (selectedProvider.value.credentials as any).base_url = '';
     }
 }
 </script>

@@ -68,6 +68,7 @@ class AnthropicConfig(BaseModel):
 
 class OpenAICredentials(BaseModel):
     api_key: str
+    base_url: Optional[str] = None
 
 class BowCredentials(BaseModel):
     api_key: str

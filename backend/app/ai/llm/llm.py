@@ -16,7 +16,10 @@ class LLM:
 
 
         if self.provider == "openai":
-            self.client = OpenAi(api_key=self.api_key)
+            base_url = None
+            if self.model.provider.additional_config:
+                base_url = self.model.provider.additional_config.get("base_url")
+            self.client = OpenAi(api_key=self.api_key, base_url=base_url or "https://api.openai.com/v1")
         elif self.provider == "anthropic":
             self.client = Anthropic(api_key=self.api_key)
         elif self.provider == "google":

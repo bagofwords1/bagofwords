@@ -103,12 +103,12 @@ class LLMService:
         models = provider_data.models
         del provider_data.models
 
-        credentials = update_data.get('credentials')
-        del update_data['credentials']
+        credentials = update_data.pop('credentials', None)
 
         await self._update_models(db, organization, provider, current_user, models)
-        
-        if credentials and credentials['api_key']:
+
+        # Allow updating provider additional_config (e.g., base_url) without requiring api_key
+        if credentials is not None:
             self._set_provider_credentials(provider, credentials)
 
         db.add(provider)
@@ -324,14 +324,41 @@ class LLMService:
     ):
         api_key = credentials.get("api_key") or None
         api_secret = credentials.get("api_secret") or None
-        
-        # For Azure, store endpoint URL in additional_config
+
+        # Merge/maintain provider-specific additional_config
+        existing_additional_config = provider.additional_config or {}
+
+        # Azure: endpoint_url
         if provider.provider_type == "azure":
             endpoint_url = credentials.get("endpoint_url")
             if endpoint_url:
-                provider.additional_config = {"endpoint_url": endpoint_url}
+                existing_additional_config.update({"endpoint_url": endpoint_url})
+            elif "endpoint_url" in existing_additional_config and not credentials.get("endpoint_url"):
+                # If explicitly empty, remove to fallback to default behavior
+                existing_additional_config.pop("endpoint_url", None)
 
-        provider.encrypt_credentials(api_key, api_secret)
+        # OpenAI: base_url (optional)
+        if provider.provider_type == "openai":
+            base_url = credentials.get("base_url")
+            if base_url:
+                existing_additional_config.update({"base_url": base_url})
+            elif "base_url" in credentials and (credentials.get("base_url") is None or credentials.get("base_url") == ""):
+                # Explicitly clear base_url
+                existing_additional_config.pop("base_url", None)
+
+        provider.additional_config = existing_additional_config if existing_additional_config else None
+
+        # Only (re-)encrypt credentials when a new key/secret is provided
+        if api_key is not None or api_secret is not None:
+            # If only one of them provided, keep the other as existing if present
+            try:
+                existing_api_key, existing_api_secret = provider.decrypt_credentials()
+            except Exception:
+                existing_api_key, existing_api_secret = None, None
+
+            effective_api_key = api_key if api_key is not None else existing_api_key
+            effective_api_secret = api_secret if api_secret is not None else existing_api_secret
+            provider.encrypt_credentials(effective_api_key, effective_api_secret)
 
     async def _disable_models(
         self, 
