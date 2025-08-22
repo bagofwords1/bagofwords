@@ -29,6 +29,13 @@ class DataSourceTableSchema(BaseModel):
     pks: List[Dict[str, Any]]  # Keep as raw JSON
     fks: List[Dict[str, Any]]  # Keep as raw JSON
     is_active: bool = False
+    # Topology and richness metrics
+    centrality_score: Optional[float] = None
+    richness: Optional[float] = None
+    degree_in: Optional[int] = None
+    degree_out: Optional[int] = None
+    entity_like: Optional[bool] = None
+    metrics_computed_at: Optional[str] = None
     
     class Config:
         from_attributes = True
@@ -68,6 +75,12 @@ class DataSourceTableUpdateSchema(BaseModel):
     pks: Optional[list[TableColumnSchema]] = None
     fks: Optional[list[ForeignKeySchema]] = None
     is_active: Optional[bool] = None
+    centrality_score: Optional[float] = None
+    richness: Optional[float] = None
+    degree_in: Optional[int] = None
+    degree_out: Optional[int] = None
+    entity_like: Optional[bool] = None
+    metrics_computed_at: Optional[str] = None
     
     class Config:
         from_attributes = True

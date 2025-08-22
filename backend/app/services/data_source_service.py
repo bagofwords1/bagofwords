@@ -447,69 +447,85 @@ class DataSourceService:
         return data_source
     
     async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None, should_set_active: bool = True):
+        """Diff-based upsert of datasource tables.
+        - Insert new tables
+        - Update changed tables
+        - Deactivate missing tables (keep history)
+        """
         try:
-            tables = await self.get_data_source_fresh_schema(db=db, data_source_id=data_source.id, organization=organization)
-            
-            if not tables:
+            fresh_tables = await self.get_data_source_fresh_schema(db=db, data_source_id=data_source.id, organization=organization)
+            if not fresh_tables:
                 return
-            
-            # Get existing tables and their active status before deletion
-            existing_tables = await db.execute(
-                select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id)
-            )
-            active_status = {table.name: table.is_active for table in existing_tables.scalars().all()}
-            
-            # Delete existing tables for this datasource
-            await db.execute(
-                delete(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id)
-            )
-            
-            table_objects = []
-            for table in tables:
-                # Convert TableColumn objects to dictionaries
-                if isinstance(table, dict):
-                    columns = table.get("columns", {})
-                    columns_dict = [{"name": col.name, "dtype": col.dtype} if hasattr(col, 'name') else col 
-                                  for col in columns]
-                    pks = table.get("pks", []) or []  # Convert None to []
-                    pks_dict = [{"name": pk.name, "dtype": pk.dtype} if hasattr(pk, 'name') else pk 
-                               for pk in pks]
-                    fks = table.get("fks", []) or []  # Convert None to []
-                    table_name = table.get("name")
+
+            # Map incoming by name
+            def normalize_columns(cols):
+                return [{"name": (c.name if hasattr(c, "name") else c.get("name")), "dtype": (c.dtype if hasattr(c, "dtype") else c.get("dtype"))} for c in cols or []]
+
+            incoming = {}
+            for t in fresh_tables:
+                if isinstance(t, dict):
+                    name = t.get("name")
+                    if not name:
+                        continue
+                    incoming[name] = {
+                        "columns": normalize_columns(t.get("columns", [])),
+                        "pks": normalize_columns(t.get("pks", [])),
+                        "fks": t.get("fks", []),
+                    }
                 else:
-                    columns = getattr(table, "columns", {})
-                    columns_dict = [{"name": col.name, "dtype": col.dtype} if hasattr(col, 'name') else col 
-                                  for col in columns]
-                    pks = getattr(table, "pks", []) or []  # Convert None to []
-                    pks_dict = [{"name": pk.name, "dtype": pk.dtype} if hasattr(pk, 'name') else pk 
-                               for pk in pks]
-                    fks = getattr(table, "fks", []) or []  # Convert None to []
-                    table_name = getattr(table, "name", None)
-                
-                if table_name:  # Only add if name is present
-                    table_object = DataSourceTable(
-                        name=table_name,
-                        columns=columns_dict,
-                        pks=pks_dict,
-                        fks=fks,
+                    name = getattr(t, "name", None)
+                    if not name:
+                        continue
+                    incoming[name] = {
+                        "columns": normalize_columns(getattr(t, "columns", [])),
+                        "pks": normalize_columns(getattr(t, "pks", [])),
+                        "fks": getattr(t, "fks", []) or [],
+                    }
+
+            # Load existing
+            existing_q = await db.execute(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id))
+            existing_rows = {row.name: row for row in existing_q.scalars().all()}
+
+            # Upserts
+            changed = False
+            for name, payload in incoming.items():
+                if name in existing_rows:
+                    row = existing_rows[name]
+                    # Detect diffs (shallow compare)
+                    if row.columns != payload["columns"] or row.pks != payload["pks"] or row.fks != payload["fks"]:
+                        row.columns = payload["columns"]
+                        row.pks = payload["pks"]
+                        row.fks = payload["fks"]
+                        row.is_active = True
+                        changed = True
+                else:
+                    db.add(DataSourceTable(
+                        name=name,
+                        columns=payload["columns"],
+                        pks=payload["pks"],
+                        fks=payload["fks"],
                         datasource_id=data_source.id,
-                        is_active=active_status.get(table_name, should_set_active) 
-                    )
-                    table_objects.append(table_object)
-            
-            if table_objects:
-                db.add_all(table_objects)
+                        is_active=should_set_active,
+                    ))
+                    changed = True
+
+            # Deactivate missing
+            missing = set(existing_rows.keys()) - set(incoming.keys())
+            for name in missing:
+                row = existing_rows[name]
+                if row.is_active:
+                    row.is_active = False
+                    changed = True
+
+            if changed:
                 await db.commit()
 
         except Exception as e:
-            print(f"Error saving tables: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to save database tables: {str(e)}"
-            )
-        
-        schemas = await data_source.get_schemas(db=db, include_inactive=True)
+            print(f"Error saving tables: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to save database tables: {e}")
 
+        # Return full schema including inactive for downstream context
+        schemas = await data_source.get_schemas(db=db, include_inactive=True)
         return schemas
         
     
