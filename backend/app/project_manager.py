@@ -8,11 +8,44 @@ from app.models.step import Step
 from app.models.plan import Plan
 from app.models.report import Report
 from sqlalchemy import select, delete
+import logging
+from app.services.table_usage_service import TableUsageService
+from app.schemas.table_usage_schema import TableUsageEventCreate
+from app.utils.lineage import extract_tables_from_data_model
 
 class ProjectManager:
 
     def __init__(self) -> None:
-        pass
+        self.logger = logging.getLogger(__name__)
+        self.table_usage_service = TableUsageService()
+
+    async def emit_table_usage(self, db, report: Report, step: Step, data_model: dict, user_id: str | None = None, user_role: str | None = None, source_type: str = "sql"):
+        try:
+            report_ds_ids = [str(ds.id) for ds in (getattr(report, 'data_sources', []) or [])]
+            lineage_entries = await extract_tables_from_data_model(db, data_model, report_ds_ids)
+            for entry in lineage_entries:
+                ds_id = entry.get("datasource_id") or (report_ds_ids[0] if len(report_ds_ids) == 1 else None)
+                table_name = entry.get("table_name")
+                if not ds_id or not table_name:
+                    continue
+                table_fqn = table_name.lower()
+                payload = TableUsageEventCreate(
+                    org_id=str(report.organization_id),
+                    report_id=str(report.id),
+                    data_source_id=ds_id,
+                    step_id=str(step.id),
+                    user_id=user_id,
+                    table_fqn=table_fqn,
+                    datasource_table_id=entry.get("datasource_table_id"),
+                    source_type=source_type,
+                    columns=entry.get("columns") or [],
+                    success=(step.status == "success"),
+                    user_role=user_role,
+                    role_weight=None,
+                )
+                await self.table_usage_service.record_usage_event(db=db, payload=payload)
+        except Exception as e:
+            self.logger.warning(f"emit_table_usage failed: {e}")
 
     async def create_error_completion(self, db, head_completion, error):
         error_completion = Completion(model=head_completion.model,completion={"content": error, "error": True},

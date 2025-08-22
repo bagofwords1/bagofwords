@@ -23,6 +23,7 @@ def upgrade() -> None:
     op.create_table('table_stats',
     sa.Column('org_id', sa.String(length=36), nullable=False),
     sa.Column('report_id', sa.String(length=36), nullable=True),
+    sa.Column('data_source_id', sa.String(length=36), nullable=True),
     sa.Column('table_fqn', sa.Text(), nullable=False),
     sa.Column('datasource_table_id', sa.String(length=36), nullable=True),
     sa.Column('usage_count', sa.BigInteger(), nullable=False),
@@ -43,18 +44,21 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.Column('deleted_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['datasource_table_id'], ['datasource_tables.id'], ),
+    sa.ForeignKeyConstraint(['data_source_id'], ['data_sources.id'], ),
     sa.ForeignKeyConstraint(['org_id'], ['organizations.id'], ),
     sa.ForeignKeyConstraint(['report_id'], ['reports.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('table_stats', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_table_stats_id'), ['id'], unique=True)
-        batch_op.create_index('ix_tabstats_org_report_table', ['org_id', 'report_id', 'table_fqn'], unique=True)
+        batch_op.create_index('ix_tabstats_org_report_ds_table', ['org_id', 'report_id', 'data_source_id', 'table_fqn'], unique=True)
         batch_op.create_index('ix_tabstats_table', ['table_fqn'], unique=False)
+        batch_op.create_index('ix_tabstats_dstbl', ['datasource_table_id'], unique=False)
 
     op.create_table('table_usage_events',
     sa.Column('org_id', sa.String(length=36), nullable=False),
     sa.Column('report_id', sa.String(length=36), nullable=True),
+    sa.Column('data_source_id', sa.String(length=36), nullable=True),
     sa.Column('step_id', sa.String(length=36), nullable=False),
     sa.Column('user_id', sa.String(length=36), nullable=True),
     sa.Column('table_fqn', sa.Text(), nullable=False),
@@ -70,6 +74,7 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.Column('deleted_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['datasource_table_id'], ['datasource_tables.id'], ),
+    sa.ForeignKeyConstraint(['data_source_id'], ['data_sources.id'], ),
     sa.ForeignKeyConstraint(['org_id'], ['organizations.id'], ),
     sa.ForeignKeyConstraint(['report_id'], ['reports.id'], ),
     sa.ForeignKeyConstraint(['step_id'], ['steps.id'], ),
@@ -80,6 +85,7 @@ def upgrade() -> None:
     with op.batch_alter_table('table_usage_events', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_table_usage_events_id'), ['id'], unique=True)
         batch_op.create_index('ix_usage_org_report_table_time', ['org_id', 'report_id', 'table_fqn', 'used_at'], unique=False)
+        batch_op.create_index('ix_usage_org_report_ds_time', ['org_id', 'report_id', 'data_source_id', 'used_at'], unique=False)
         batch_op.create_index('ix_usage_table_time', ['table_fqn', 'used_at'], unique=False)
         # Helpful for filtering only successful usages fast
         batch_op.create_index('ix_usage_success', ['org_id', 'report_id', 'table_fqn', 'success', 'used_at'], unique=False)
@@ -87,6 +93,7 @@ def upgrade() -> None:
     op.create_table('table_feedback_events',
     sa.Column('org_id', sa.String(length=36), nullable=False),
     sa.Column('report_id', sa.String(length=36), nullable=True),
+    sa.Column('data_source_id', sa.String(length=36), nullable=True),
     sa.Column('step_id', sa.String(length=36), nullable=True),
     sa.Column('completion_feedback_id', sa.String(length=36), nullable=False),
     sa.Column('table_fqn', sa.Text(), nullable=False),
@@ -99,6 +106,7 @@ def upgrade() -> None:
     sa.Column('deleted_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['completion_feedback_id'], ['completion_feedbacks.id'], ),
     sa.ForeignKeyConstraint(['datasource_table_id'], ['datasource_tables.id'], ),
+    sa.ForeignKeyConstraint(['data_source_id'], ['data_sources.id'], ),
     sa.ForeignKeyConstraint(['org_id'], ['organizations.id'], ),
     sa.ForeignKeyConstraint(['report_id'], ['reports.id'], ),
     sa.ForeignKeyConstraint(['step_id'], ['steps.id'], ),
@@ -106,6 +114,7 @@ def upgrade() -> None:
     )
     with op.batch_alter_table('table_feedback_events', schema=None) as batch_op:
         batch_op.create_index('ix_feedback_org_report_table_time', ['org_id', 'report_id', 'table_fqn', 'created_at_event'], unique=False)
+        batch_op.create_index('ix_feedback_org_report_ds_time', ['org_id', 'report_id', 'data_source_id', 'created_at_event'], unique=False)
         batch_op.create_index('ix_feedback_table_time', ['table_fqn', 'created_at_event'], unique=False)
         batch_op.create_index(batch_op.f('ix_table_feedback_events_id'), ['id'], unique=True)
 
@@ -134,19 +143,22 @@ def downgrade() -> None:
     with op.batch_alter_table('table_feedback_events', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_table_feedback_events_id'))
         batch_op.drop_index('ix_feedback_table_time')
+        batch_op.drop_index('ix_feedback_org_report_ds_time')
         batch_op.drop_index('ix_feedback_org_report_table_time')
 
     op.drop_table('table_feedback_events')
     with op.batch_alter_table('table_usage_events', schema=None) as batch_op:
         batch_op.drop_index('ix_usage_success')
         batch_op.drop_index('ix_usage_table_time')
+        batch_op.drop_index('ix_usage_org_report_ds_time')
         batch_op.drop_index('ix_usage_org_report_table_time')
         batch_op.drop_index(batch_op.f('ix_table_usage_events_id'))
 
     op.drop_table('table_usage_events')
     with op.batch_alter_table('table_stats', schema=None) as batch_op:
         batch_op.drop_index('ix_tabstats_table')
-        batch_op.drop_index('ix_tabstats_org_report_table')
+        batch_op.drop_index('ix_tabstats_dstbl')
+        batch_op.drop_index('ix_tabstats_org_report_ds_table')
         batch_op.drop_index(batch_op.f('ix_table_stats_id'))
 
     op.drop_table('table_stats')

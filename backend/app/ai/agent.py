@@ -36,6 +36,9 @@ logger = get_logger("app.agent")
 
 from app.ai.code_execution.code_execution import CodeExecutionManager
 from app.websocket_manager import websocket_manager
+from app.services.table_usage_service import TableUsageService
+from app.schemas.table_usage_schema import TableUsageEventCreate
+from app.utils.lineage import extract_tables_from_data_model
 
 class SigkillException(Exception):
     pass
@@ -101,6 +104,7 @@ class Agent:
             step=self.step,
             organization_settings=self.organization_settings
         )
+        self.table_usage_service = TableUsageService()
 
         # Add event queue for sigkill detection
         self.sigkill_event = asyncio.Event()
@@ -869,6 +873,15 @@ class Agent:
             widget_data = self.code_execution_manager.format_df_for_widget(df)
             
             await self.project_manager.update_step_with_data(self.db, step, widget_data)
+            await self.project_manager.emit_table_usage(
+                db=self.db,
+                report=self.report,
+                step=step,
+                data_model=data_model,
+                user_id=getattr(self.head_completion, 'user_id', None),
+                user_role=None,
+                source_type="sql",
+            )
             
             return True
 
@@ -961,13 +974,22 @@ class Agent:
         widget_data = self.code_execution_manager.format_df_for_widget(df)
         await self.project_manager.update_step_with_code(self.db, step, final_code)
         await self.project_manager.update_step_with_data(self.db, step, widget_data)
+        await self.project_manager.emit_table_usage(
+            db=self.db,
+            report=self.report,
+            step=step,
+            data_model=updated_data_model,
+            user_id=getattr(self.head_completion, 'user_id', None),
+            user_role=None,
+            source_type="sql",
+        )
         
         return True
 
     async def _build_schemas_context(self):
         context = []
         for data_source in self.data_sources:
-            context.append(f"<data_source>: {data_source.name}</data_source>\n<data_source_type>: {data_source.type}</data_source_type>\n\n<schema>:")
+            context.append(f"<data_source>: {data_source.name}</data_source>\n<data_source_type>: {data_source.type}</data_source_type>\n<data_source_id>: {data_source.id}</data_source_id>\n\n<schema>:")
             context.append(await data_source.prompt_schema(self.db, self.head_completion.prompt))
             context.append("</schema>\n")
             context.append(f"<data_source_context>: \n Use this context as business context and rules for the data source\n{data_source.context}\n</data_source_context>")
@@ -1256,3 +1278,15 @@ class Agent:
 
 
         return observation_data
+
+    async def _emit_table_usage(self, step: Step, data_model: dict):
+        # Deprecated: use ProjectManager.emit_table_usage instead
+        await self.project_manager.emit_table_usage(
+            db=self.db,
+            report=self.report,
+            step=step,
+            data_model=data_model,
+            user_id=getattr(self.head_completion, 'user_id', None),
+            user_role=None,
+            source_type="sql",
+        )

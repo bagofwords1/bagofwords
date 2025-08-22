@@ -1,11 +1,13 @@
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
 from app.models.table_stats import TableStats
+from app.models.data_source import DataSource
+from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.schemas.table_usage_schema import (
     TableUsageEventCreate,
     TableUsageEventSchema,
@@ -27,6 +29,10 @@ class TableUsageService:
         }
 
     async def record_usage_event(self, db: AsyncSession, payload: TableUsageEventCreate) -> TableUsageEventSchema:
+        # Guard: ensure data_source exists within org and user can access
+        if not await self._validate_data_source_access(db, payload.org_id, payload.data_source_id, payload.user_id):
+            return None  # silently skip emission if DS invalid/inaccessible
+
         role_weight = payload.role_weight
         if role_weight is None and payload.user_role:
             role_weight = self.role_weights.get(payload.user_role.lower(), 1.0)
@@ -34,6 +40,7 @@ class TableUsageService:
         event = TableUsageEvent(
             org_id=payload.org_id,
             report_id=payload.report_id,
+            data_source_id=payload.data_source_id,
             step_id=payload.step_id,
             user_id=payload.user_id,
             table_fqn=payload.table_fqn,
@@ -52,29 +59,18 @@ class TableUsageService:
             # Unique constraint might trip if called twice; ignore duplicates
             await db.rollback()
 
-        # Upsert aggregates for report-level and org-level (report_id None)
-        # Always increment total attempts
+        # Upsert aggregate only at org-level (report_id None)
         await self._upsert_stats(
             db=db,
             up=TableStatsUpsert(
                 org_id=payload.org_id,
-                report_id=payload.report_id,
+                report_id=None,
+                data_source_id=payload.data_source_id,
                 table_fqn=payload.table_fqn,
                 datasource_table_id=payload.datasource_table_id,
                 usage_count_delta=1,
             ),
         )
-        if payload.report_id is not None:
-            await self._upsert_stats(
-                db=db,
-                up=TableStatsUpsert(
-                    org_id=payload.org_id,
-                    report_id=None,
-                    table_fqn=payload.table_fqn,
-                    datasource_table_id=payload.datasource_table_id,
-                    usage_count_delta=1,
-                ),
-            )
 
         if payload.success:
             trusted_flag = (payload.user_role and payload.user_role.lower() in ("admin", "trusted"))
@@ -82,7 +78,8 @@ class TableUsageService:
                 db=db,
                 up=TableStatsUpsert(
                     org_id=payload.org_id,
-                    report_id=payload.report_id,
+                    report_id=None,
+                    data_source_id=payload.data_source_id,
                     table_fqn=payload.table_fqn,
                     datasource_table_id=payload.datasource_table_id,
                     success_count_delta=1,
@@ -92,50 +89,28 @@ class TableUsageService:
                     last_used_at=datetime.utcnow(),
                 ),
             )
-
-            if payload.report_id is not None:
-                await self._upsert_stats(
-                    db=db,
-                    up=TableStatsUpsert(
-                        org_id=payload.org_id,
-                        report_id=None,
-                        table_fqn=payload.table_fqn,
-                        datasource_table_id=payload.datasource_table_id,
-                        success_count_delta=1,
-                        weighted_usage_delta=role_weight or 1.0,
-                        unique_user_delta=1 if payload.user_id else 0,
-                        admin_usage_delta=1 if trusted_flag else 0,
-                        last_used_at=datetime.utcnow(),
-                    ),
-                )
         else:
             # Record failure attempts to stats (do not increment usage)
             await self._upsert_stats(
                 db=db,
                 up=TableStatsUpsert(
                     org_id=payload.org_id,
-                    report_id=payload.report_id,
+                    report_id=None,
+                    data_source_id=payload.data_source_id,
                     table_fqn=payload.table_fqn,
                     datasource_table_id=payload.datasource_table_id,
                     failure_delta=1,
                 ),
             )
-            if payload.report_id is not None:
-                await self._upsert_stats(
-                    db=db,
-                    up=TableStatsUpsert(
-                        org_id=payload.org_id,
-                        report_id=None,
-                        table_fqn=payload.table_fqn,
-                        datasource_table_id=payload.datasource_table_id,
-                        failure_delta=1,
-                    ),
-                )
 
         await db.refresh(event)
         return TableUsageEventSchema.from_orm(event)
 
     async def record_feedback_event(self, db: AsyncSession, payload: TableFeedbackEventCreate, *, user_role: Optional[str] = None, role_weight: Optional[float] = None) -> TableFeedbackEventSchema:
+        # Guard: ensure data_source exists within org and user can access
+        if not await self._validate_data_source_access(db, payload.org_id, payload.data_source_id, None):
+            return None
+
         # Determine weight if not provided
         w = role_weight
         if w is None and user_role:
@@ -144,6 +119,7 @@ class TableUsageService:
         event = TableFeedbackEvent(
             org_id=payload.org_id,
             report_id=payload.report_id,
+            data_source_id=payload.data_source_id,
             step_id=payload.step_id,
             completion_feedback_id=payload.completion_feedback_id,
             table_fqn=payload.table_fqn,
@@ -164,7 +140,8 @@ class TableUsageService:
             db=db,
             up=TableStatsUpsert(
                 org_id=payload.org_id,
-                report_id=payload.report_id,
+                report_id=None,
+                data_source_id=payload.data_source_id,
                 table_fqn=payload.table_fqn,
                 datasource_table_id=payload.datasource_table_id,
                 pos_feedback_delta=pos_delta,
@@ -174,21 +151,6 @@ class TableUsageService:
                 last_feedback_at=datetime.utcnow(),
             ),
         )
-        if payload.report_id is not None:
-            await self._upsert_stats(
-                db=db,
-                up=TableStatsUpsert(
-                    org_id=payload.org_id,
-                    report_id=None,
-                    table_fqn=payload.table_fqn,
-                    datasource_table_id=payload.datasource_table_id,
-                    pos_feedback_delta=pos_delta,
-                    neg_feedback_delta=neg_delta,
-                    weighted_pos_delta=weighted_pos,
-                    weighted_neg_delta=weighted_neg,
-                    last_feedback_at=datetime.utcnow(),
-                ),
-            )
 
         return TableFeedbackEventSchema.from_orm(event)
 
@@ -197,6 +159,7 @@ class TableUsageService:
         stmt = select(TableStats).where(
             TableStats.org_id == up.org_id,
             TableStats.report_id == up.report_id,
+            TableStats.data_source_id == up.data_source_id,
             TableStats.table_fqn == up.table_fqn,
         )
         res = await db.execute(stmt)
@@ -206,6 +169,7 @@ class TableUsageService:
             row = TableStats(
                 org_id=up.org_id,
                 report_id=up.report_id,
+                data_source_id=up.data_source_id,
                 table_fqn=up.table_fqn,
                 datasource_table_id=up.datasource_table_id,
                 usage_count=max(0, up.usage_count_delta),
@@ -226,6 +190,7 @@ class TableUsageService:
         else:
             # Incremental updates
             row.datasource_table_id = row.datasource_table_id or up.datasource_table_id
+            row.data_source_id = row.data_source_id or up.data_source_id
             row.usage_count = row.usage_count + up.usage_count_delta
             row.success_count = row.success_count + getattr(up, 'success_count_delta', 0)
             row.weighted_usage_count = row.weighted_usage_count + up.weighted_usage_delta
@@ -243,4 +208,33 @@ class TableUsageService:
         await db.commit()
         await db.refresh(row)
         return TableStatsSchema.from_orm(row)
+
+    async def _validate_data_source_access(self, db: AsyncSession, org_id: str, data_source_id: Optional[str], user_id: Optional[str]) -> bool:
+        if not data_source_id:
+            return False
+        # Verify DS belongs to org
+        ds_stmt = select(DataSource).where(
+            DataSource.id == data_source_id,
+            DataSource.organization_id == org_id,
+            DataSource.is_active == True,
+        )
+        res = await db.execute(ds_stmt)
+        ds = res.scalar_one_or_none()
+        if not ds:
+            return False
+        # If no user context provided, accept as valid (system emission)
+        if not user_id:
+            return True
+        # If DS is public, access is allowed
+        if getattr(ds, 'is_public', False):
+            return True
+        # Otherwise require explicit membership
+        mem_stmt = select(DataSourceMembership).where(
+            DataSourceMembership.data_source_id == data_source_id,
+            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+            DataSourceMembership.principal_id == user_id,
+        )
+        mem_res = await db.execute(mem_stmt)
+        membership = mem_res.scalar_one_or_none()
+        return membership is not None
 

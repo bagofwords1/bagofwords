@@ -10,6 +10,7 @@ class TableUsageEvent(BaseSchema):
 
     org_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
     report_id = Column(String(36), ForeignKey("reports.id"), nullable=True)
+    data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=True)
     step_id = Column(String(36), ForeignKey("steps.id"), nullable=False)
     user_id = Column(String(36), ForeignKey("users.id"), nullable=True)
 
@@ -35,6 +36,7 @@ class TableUsageEvent(BaseSchema):
         UniqueConstraint("step_id", "table_fqn", name="uq_usage_step_table"),
         # Common query patterns
         Index("ix_usage_org_report_table_time", "org_id", "report_id", "table_fqn", "used_at"),
+        Index("ix_usage_org_report_ds_time", "org_id", "report_id", "data_source_id", "used_at"),
         Index("ix_usage_table_time", "table_fqn", "used_at"),
     )
 

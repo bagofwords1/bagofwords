@@ -9,6 +9,7 @@ class TableFeedbackEvent(BaseSchema):
 
     org_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
     report_id = Column(String(36), ForeignKey("reports.id"), nullable=True)
+    data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=True)
     step_id = Column(String(36), ForeignKey("steps.id"), nullable=True)
 
     completion_feedback_id = Column(String(36), ForeignKey("completion_feedbacks.id"), nullable=False)
@@ -23,6 +24,7 @@ class TableFeedbackEvent(BaseSchema):
 
     __table_args__ = (
         Index("ix_feedback_org_report_table_time", "org_id", "report_id", "table_fqn", "created_at_event"),
+        Index("ix_feedback_org_report_ds_time", "org_id", "report_id", "data_source_id", "created_at_event"),
         Index("ix_feedback_table_time", "table_fqn", "created_at_event"),
     )
 

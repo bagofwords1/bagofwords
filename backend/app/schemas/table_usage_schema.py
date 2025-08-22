@@ -6,6 +6,7 @@ from datetime import datetime
 class TableUsageEventCreate(BaseModel):
     org_id: str
     report_id: Optional[str] = None
+    data_source_id: Optional[str] = None
     step_id: str
     user_id: Optional[str] = None
     table_fqn: str
@@ -30,6 +31,7 @@ class TableUsageEventSchema(TableUsageEventCreate):
 class TableFeedbackEventCreate(BaseModel):
     org_id: str
     report_id: Optional[str] = None
+    data_source_id: Optional[str] = None
     step_id: Optional[str] = None
     completion_feedback_id: str
     table_fqn: str
@@ -48,6 +50,7 @@ class TableFeedbackEventSchema(TableFeedbackEventCreate):
 class TableStatsUpsert(BaseModel):
     org_id: str
     report_id: Optional[str] = None
+    data_source_id: Optional[str] = None
     table_fqn: str
     datasource_table_id: Optional[str] = None
     usage_count_delta: int = 0
@@ -68,6 +71,7 @@ class TableStatsSchema(BaseModel):
     id: str
     org_id: str
     report_id: Optional[str]
+    data_source_id: Optional[str]
     table_fqn: str
     datasource_table_id: Optional[str]
     usage_count: int

@@ -11,6 +11,9 @@ class TableStats(BaseSchema):
     # NULL report_id row is the org-wide rollup
     report_id = Column(String(36), ForeignKey("reports.id"), nullable=True)
 
+    # Explicit data source linkage for faster joins and filtering
+    data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=True)
+
     table_fqn = Column(Text, nullable=False)
     datasource_table_id = Column(String(36), ForeignKey("datasource_tables.id"), nullable=True)
 
@@ -34,8 +37,9 @@ class TableStats(BaseSchema):
     updated_at_stats = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     __table_args__ = (
-        # Composite uniqueness for fast upserts per scope
-        Index("ix_tabstats_org_report_table", "org_id", "report_id", "table_fqn", unique=True),
+        # Composite uniqueness for fast upserts per scope (now includes data_source_id)
+        Index("ix_tabstats_org_report_ds_table", "org_id", "report_id", "data_source_id", "table_fqn", unique=True),
         Index("ix_tabstats_table", "table_fqn"),
+        Index("ix_tabstats_dstbl", "datasource_table_id"),
     )
 
