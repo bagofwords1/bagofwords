@@ -31,6 +31,8 @@ from sqlalchemy import select, update
 from fastapi import BackgroundTasks, HTTPException
 
 from app.ai.agent import Agent
+from app.ai.agent_v2 import AgentV2
+
 
 import re
 
@@ -209,7 +211,7 @@ class CompletionService:
                                 logging.error("Failed to fetch necessary objects for background agent.")
                                 return
 
-                            agent = Agent(
+                            agent = AgentV2(
                                 db=session,
                                 organization=organization,
                                 organization_settings=org_settings,
@@ -238,7 +240,7 @@ class CompletionService:
             else:
                 try:
                     # Setup agent for foreground execution
-                    agent = Agent(
+                    agent = AgentV2(
                         db=db,
                         organization_settings=org_settings,
                         model=default_model,
@@ -249,6 +251,7 @@ class CompletionService:
                         widget=widget,
                         step=step
                     )
+                    breakpoint()
                     # Run the agent
                     await agent.main_execution()
 
