@@ -155,7 +155,7 @@ class Agent:
             analysis_step = 0
 
             # ReAct loop: Plan → Execute → Observe → Plan? 
-            while (not analysis_complete or analysis_step < self.organization_settings.get_config("limit_analysis_steps").value):
+            while (not analysis_complete) and (analysis_step < self.organization_settings.get_config("limit_analysis_steps").value):
                 # Single check for sigkill
                 if self.sigkill_event.is_set():
                     logger.info("Sigkill detected via websocket, stopping analysis")
@@ -592,7 +592,6 @@ class Agent:
                                         break # Exit the stream processing loop
 
                                     final_design_state = partial_design # Keep track of the latest state
-
                                     # Update prefix message
                                     if 'prefix' in partial_design and dashboard_completion:
                                          await self.project_manager.update_message(
