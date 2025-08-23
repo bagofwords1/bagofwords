@@ -7,6 +7,9 @@ from app.models.instruction import (
     Instruction
 )
 
+from app.models.organization import Organization
+from app.models.user import User
+
 
 class InstructionContextBuilder:
     """
@@ -32,8 +35,10 @@ class InstructionContextBuilder:
     ```
     """
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None):
         self.db = db
+        self.organization = organization
+        self.current_user = current_user
 
     async def load_instructions(
         self,
@@ -56,7 +61,7 @@ class InstructionContextBuilder:
         List[Instruction]
             Matching Instruction ORM objects.
         """
-        stmt = select(Instruction).where(Instruction.status == status)
+        stmt = select(Instruction).where(Instruction.status == status).where(Instruction.organization_id == self.organization.id)
 
         if category is not None:
             stmt = stmt.where(Instruction.category == category)

@@ -38,9 +38,6 @@ class Planner:
     async def execute(self, schemas, persona, prompt, memories, previous_messages,
                       observation_data=None, widget=None, step=None,
                       external_platform=None, sigkill_event=None):
-        # --------------------------------------------------------------
-        # NEW – fetch organization-wide instructions once at the top
-        # --------------------------------------------------------------
         instructions_context = await self.instruction_context_builder.get_instructions_context()
         
         # Generate observation context if observation_data is provided

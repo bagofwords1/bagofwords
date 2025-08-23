@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, UUID, Boolean, Enum, JSON, DateTime, Text
+from sqlalchemy import Column, String, UUID, Boolean, Enum, JSON, DateTime, Text, select
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from sqlalchemy import ForeignKey
@@ -223,7 +223,7 @@ class DataSource(BaseSchema):
         fernet = Fernet(settings.bow_config.encryption_key)
         return json.loads(fernet.decrypt(self.credentials.encode()).decode())
 
-    async def get_schemas(self, db: AsyncSession = None, include_inactive: bool = False) -> List[Table]:
+    async def get_schemas(self, db: AsyncSession = None, include_inactive: bool = False, with_stats: bool = False, organization: Organization | None = None, top_k: int | None = None) -> List[Table]:
         """
         Get the database schema information from associated DataSourceTable records.
         Returns a list of Table objects containing table structure information.
@@ -239,6 +239,22 @@ class DataSource(BaseSchema):
         data_source = result.scalar_one()
         
         tables = []
+        # Prepare stats if requested
+        stats_map = {}
+        if with_stats and organization is not None:
+            from app.models.table_stats import TableStats
+            stats_rows = await session.execute(
+                select(TableStats).where(
+                    TableStats.org_id == organization.id,
+                    TableStats.report_id == None,
+                    TableStats.data_source_id == self.id,
+                )
+            )
+            stats_rows = stats_rows.scalars().all()
+            for s in stats_rows:
+                stats_map[(s.table_fqn or '').lower()] = s
+
+        scored: list[tuple[float, Table]] = []
         for table in data_source.tables:
             if not include_inactive and not table.is_active:
                 continue
@@ -248,17 +264,71 @@ class DataSource(BaseSchema):
                 for col in table.columns
             ]
             
-            tables.append(Table(
+            tbl = Table(
                 name=table.name,
                 columns=columns,
                 pks=table.pks,
                 fks=table.fks,
-                is_active=table.is_active
-            ))
+                is_active=table.is_active,
+                centrality_score=table.centrality_score,
+                richness=table.richness,
+                degree_in=table.degree_in,
+                degree_out=table.degree_out,
+                entity_like=table.entity_like,
+            )
+            if with_stats and organization is not None:
+                key = (table.name or '').lower()
+                s = stats_map.get(key)
+                # Compute simple score and attach stats if present
+                if s:
+                    usage_count = int(s.usage_count or 0)
+                    success_count = int(s.success_count or 0)
+                    failure_count = int(s.failure_count or 0)
+                    weighted_usage_count = float(s.weighted_usage_count or 0.0)
+                    pos_feedback_count = int(s.pos_feedback_count or 0)
+                    neg_feedback_count = int(s.neg_feedback_count or 0)
+                    last_used_at = s.last_used_at.isoformat() if s.last_used_at else None
+                    last_feedback_at = s.last_feedback_at.isoformat() if s.last_feedback_at else None
+                    success_rate = (success_count / max(1, usage_count)) if usage_count > 0 else 0.0
+                    from datetime import datetime, timezone
+                    now = datetime.now(timezone.utc)
+                    if s.last_used_at:
+                        age_days = max(0.0, (now - s.last_used_at.replace(tzinfo=timezone.utc)).total_seconds() / 86400.0)
+                    else:
+                        age_days = 365.0
+                    recency = pow(2.718281828, -age_days / 14.0)
+                    usage_signal = (weighted_usage_count)**0.5
+                    feedback_signal = (float(s.weighted_pos_feedback or 0.0) - float(s.weighted_neg_feedback or 0.0))
+                    structural_signal = (float(table.centrality_score or 0.0) + float(table.richness or 0.0) + (0.5 if table.entity_like else 0.0))
+                    score = 0.35 * (usage_signal * recency) + 0.25 * success_rate + 0.2 * feedback_signal + 0.2 * structural_signal - 0.2 * (failure_count**0.5)
+                    tbl.usage_count = usage_count
+                    tbl.success_count = success_count
+                    tbl.failure_count = failure_count
+                    tbl.weighted_usage_count = weighted_usage_count
+                    tbl.pos_feedback_count = pos_feedback_count
+                    tbl.neg_feedback_count = neg_feedback_count
+                    tbl.last_used_at = last_used_at
+                    tbl.last_feedback_at = last_feedback_at
+                    tbl.success_rate = round(success_rate, 4)
+                    tbl.score = float(round(score, 6))
+                    scored.append((tbl.score or 0.0, tbl))
+                else:
+                    structural_signal = (float(table.centrality_score or 0.0) + float(table.richness or 0.0) + (0.5 if table.entity_like else 0.0))
+                    score = 0.1 * structural_signal
+                    tbl.score = float(round(score, 6))
+                    scored.append((tbl.score or 0.0, tbl))
+            else:
+                tables.append(tbl)
+
+        if with_stats and organization is not None:
+            scored.sort(key=lambda x: x[0], reverse=True)
+            tables = [t for (_, t) in scored]
+            if top_k is not None and top_k > 0:
+                tables = tables[:top_k]
             
         return tables
 
-    async def prompt_schema(self, db: AsyncSession = None, prompt_content = None) -> str:
+    async def prompt_schema(self, db: AsyncSession = None, prompt_content = None, with_stats: bool = False, organization: Organization | None = None, top_k: int | None = None) -> str:
         """
         Get the database schema information using TableFormatter.
         Returns a formatted string suitable for prompts.
@@ -267,7 +337,7 @@ class DataSource(BaseSchema):
         """
         from app.ai.prompt_formatters import TableFormatter
         # Pass the session to get_schemas
-        tables = await self.get_schemas(db=db)
+        tables = await self.get_schemas(db=db, with_stats=with_stats, organization=organization, top_k=top_k)
         schema_str = TableFormatter(tables).table_str
         
         resource_context = await self.get_resources(db, prompt_content)

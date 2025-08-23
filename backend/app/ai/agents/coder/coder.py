@@ -29,7 +29,8 @@ class Coder:
         previous_messages,
         retries,
         prev_data_model_code_pair,
-        sigkill_event=None
+        sigkill_event=None,
+        code_context_builder=None
     ):
         # Optional early exit if a cancellation was requested before generation
         if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
@@ -79,6 +80,9 @@ class Coder:
 
         # Define data preview instruction based on enable_llm_see_data flag
         data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+
+        similar_successful_code_snippets = await code_context_builder.get_top_successful_snippets_for_data_model(data_model)
+        similar_failed_code_snippets = await code_context_builder.get_top_failed_snippets_for_data_model(data_model)
 
         text = f"""
         You are a highly skilled data engineer and data scientist.
@@ -141,6 +145,17 @@ class Coder:
         <code_and_error_messages>
         {code_error_section}
         </code_and_error_messages>
+
+
+        - Similar successful code snippets (for reference on what is working):
+        <similar_successful_code_snippets>
+        {similar_successful_code_snippets}
+        </similar_successful_code_snippets>
+
+        - Similar failed code snippets (for reference on what is not working):
+        <similar_failed_code_snippets>
+        {similar_failed_code_snippets}
+        </similar_failed_code_snippets>
 
         **Guidelines and Requirements**:
 
