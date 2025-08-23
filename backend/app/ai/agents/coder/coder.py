@@ -4,7 +4,7 @@ from app.models.llm_model import LLMModel
 import re
 import json
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
-from app.ai.context.instruction_context_builder import InstructionContextBuilder
+from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 
 class Coder:
     def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder: InstructionContextBuilder) -> None:

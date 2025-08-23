@@ -8,7 +8,9 @@ from sqlalchemy import select
 
 from app.models.widget import Widget
 from app.models.step import Step
-from app.core.logging_config import logger
+
+from app.settings.logging_config import get_logger
+
 
 
 class WidgetContextBuilder:

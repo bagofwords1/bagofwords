@@ -1,7 +1,7 @@
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
-from app.ai.context.instruction_context_builder import InstructionContextBuilder
+from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from datetime import datetime
 
 class Answer:

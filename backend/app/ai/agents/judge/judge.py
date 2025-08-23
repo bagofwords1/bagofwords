@@ -4,7 +4,7 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 import tiktoken 
 import json
 from partialjson.json_parser import JSONParser
-from app.ai.context.instruction_context_builder import InstructionContextBuilder
+from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 
 class Judge:
 

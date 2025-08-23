@@ -16,7 +16,7 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import object_session
-from app.ai.context.resource_context_builder import ResourceContextBuilder
+from app.ai.context.builders.resource_context_builder import ResourceContextBuilder
 
 
 DATA_SOURCE_DETAILS = [

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional
-from app.ai.schemas.planner import PlannerInput, PlannerDecision, PlannerMetrics
+from app.schemas.ai.planner import PlannerInput, PlannerDecision, PlannerMetrics
 
 
 @dataclass

@@ -9,12 +9,12 @@ from pydantic import BaseModel, Field
 class ContextMetadata(BaseModel):
     """Metadata for context generation and tracking."""
     
-    # Core identifiers
-    report_id: Optional[int] = None
-    widget_id: Optional[int] = None  
-    completion_id: Optional[int] = None
-    user_id: Optional[int] = None
-    organization_id: int
+    # Core identifiers (string to support UUIDs)
+    report_id: Optional[str] = None
+    widget_id: Optional[str] = None  
+    completion_id: Optional[str] = None
+    user_id: Optional[str] = None
+    organization_id: str
     
     # Execution context
     agent_type: str = "agent_v2"  # "agent_v1" vs "agent_v2"

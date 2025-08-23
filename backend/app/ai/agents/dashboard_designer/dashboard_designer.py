@@ -4,7 +4,7 @@ from app.models.llm_model import LLMModel
 from app.models.step import Step
 from app.models.widget import Widget
 from typing import List, Optional
-from app.ai.context.instruction_context_builder import InstructionContextBuilder
+from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 import json
 
 class DashboardDesigner:

@@ -1,6 +1,6 @@
 import json
 from typing import List, Dict, Any
-from app.ai.schemas.planner import PlannerInput, ToolDescriptor
+from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 
 
 class PromptBuilder:

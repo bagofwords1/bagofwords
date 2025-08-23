@@ -6,7 +6,7 @@ from app.ai.agents.planner import PlannerV2
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
-from app.ai.schemas.planner import PlannerInput, ToolDescriptor
+from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
@@ -16,7 +16,7 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, head_completion=None, system_completion=None, widget=None, step=None):
+                 model=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None):
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
@@ -127,6 +127,8 @@ class AgentV2:
                 if evt.type == "planner.decision.partial":
                     # Emit reasoning and assistant messages if present
                     decision = evt.data
+
+                    breakpoint()
                     if decision.reasoning_message:
                         # TODO: Emit reasoning message to UI
                         pass
@@ -135,6 +137,7 @@ class AgentV2:
                         pass
                 
                 elif evt.type == "planner.decision.final":
+                    
                     decision = evt.data
                     
                     if decision.analysis_complete:
@@ -163,7 +166,7 @@ class AgentV2:
                             "error": {"code": "resolve_error", "message": "not registered"},
                         }
                         continue  # Continue to next iteration with error observation
-
+                    
                     # RUN TOOL with enhanced context tracking
                     runtime_ctx = {
                         "db": self.db,
@@ -178,6 +181,7 @@ class AgentV2:
                         "observation_context": self.observation_builder.to_dict(),  # Pass observation context
                         "context_view": view,
                     }
+                    breakpoint()
                     
                     async def emit(ev: dict):
                         # Forward tool events to UI

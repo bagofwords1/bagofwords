@@ -4,8 +4,8 @@ import time
 from typing import AsyncIterator
 
 from app.ai.llm import LLM
-from app.ai.context.instruction_context_builder import InstructionContextBuilder
-from app.ai.schemas.planner import (
+from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+from app.schemas.ai.planner import (
     PlannerDecision,
     PlannerInput,
     ToolDescriptor,
@@ -13,7 +13,7 @@ from app.ai.schemas.planner import (
     TokenUsage,
     PlannerError,
 )
-from app.ai.schemas.planner_events import PlannerEvent, PlannerTokenEvent, PlannerDecisionEvent
+from app.schemas.ai.planner_events import PlannerEvent, PlannerTokenEvent, PlannerDecisionEvent
 from app.ai.utils.token_counter import count_tokens
 from .planner_state import PlannerState
 from .prompt_builder import PromptBuilder
@@ -108,7 +108,6 @@ class PlannerV2:
 
         # Finalize decision with complete metrics
         final_raw = self.parser.finalize(state.buffer) or {}
-        breakpoint()
         final_decision = self._create_decision(
             final_raw, 
             state, 
@@ -116,7 +115,6 @@ class PlannerV2:
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens
         )
-        
         yield PlannerDecisionEvent(
             type="planner.decision.final", 
             data=final_decision
@@ -153,6 +151,7 @@ class PlannerV2:
         # Build decision data
         decision_data = {
             "analysis_complete": bool(raw.get("analysis_complete", False)),
+            "plan_type": raw.get("plan_type"),  # Extract plan_type from LLM response
             "reasoning_message": raw.get("reasoning_message") or raw.get("reasoning") or raw.get("thought"),
             "assistant_message": raw.get("assistant_message") or raw.get("message"),
             "action": raw.get("action") if not raw.get("analysis_complete") else None,

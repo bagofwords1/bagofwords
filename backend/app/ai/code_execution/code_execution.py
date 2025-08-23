@@ -7,7 +7,7 @@ import uuid
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
-from app.ai.context.code_context_builder import CodeContextBuilder
+from app.ai.context.builders.code_context_builder import CodeContextBuilder
 
 class CodeExecutionManager:
     """

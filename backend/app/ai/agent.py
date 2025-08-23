@@ -27,8 +27,8 @@ from app.ai.agents.coder.coder import Coder
 from app.ai.agents.reporter.reporter import Reporter
 from app.ai.agents.judge import Judge
 
-from app.ai.context.instruction_context_builder import InstructionContextBuilder
-from app.ai.context.code_context_builder import CodeContextBuilder
+from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+from app.ai.context.builders.code_context_builder import CodeContextBuilder
 
 from sqlalchemy import select
 
