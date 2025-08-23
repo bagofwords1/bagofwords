@@ -13,4 +13,3 @@ class CreateWidgetOutput(BaseModel):
     widget_id: Optional[str] = None
     step_id: Optional[str] = None
     stats: Optional[Dict[str, Any]] = None
-

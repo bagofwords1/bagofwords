@@ -1,23 +1,52 @@
+from abc import ABC, abstractmethod
 from typing import AsyncIterator, Dict, Any, Optional, Type
 from pydantic import BaseModel
 
+from .metadata import ToolMetadata
 
-class Tool:
-    name: str = ""
-    description: str = ""
-    input_model: Optional[Type[BaseModel]] = None
-    output_model: Optional[Type[BaseModel]] = None
 
-    async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[Dict[str, Any]]:
-        """Stream tool lifecycle events.
+class Tool(ABC):
+    """Base interface for all tools.
 
-        Yields dict events like:
-        {"type": "tool.start", "payload": {...}}
-        {"type": "tool.progress", "payload": {...}}
-        {"type": "tool.partial", "payload": {...}}
-        {"type": "tool.stdout", "payload": str}
-        {"type": "tool.end", "payload": {"output": {...}, "observation": {...}}}
-        {"type": "tool.error", "payload": {"message": str}}
+    Tools must implement run_stream and declare metadata property.
+    """
+
+    @property
+    @abstractmethod
+    def metadata(self) -> ToolMetadata:
+        """Tool metadata for registry and discovery."""
+        pass
+
+    @property
+    def name(self) -> str:
+        """Tool name from metadata."""
+        return self.metadata.name
+
+    @property
+    def description(self) -> str:
+        """Tool description from metadata."""
+        return self.metadata.description
+
+    @property
+    def input_model(self) -> Optional[Type[BaseModel]]:
+        """Override in subclass to provide input validation."""
+        return None
+
+    @property
+    def output_model(self) -> Optional[Type[BaseModel]]:
+        """Override in subclass to provide output validation."""
+        return None
+
+    @abstractmethod
+    async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator['ToolEvent']:
+        """Stream tool execution events.
+
+        Args:
+            tool_input: validated input arguments
+            runtime_ctx: runtime context (db, org, completion, etc.)
+
+        Yields:
+            ToolEvent: typed streaming events (ToolStart, ToolProgress, etc.)
         """
-        yield {"type": "tool.error", "payload": {"message": "Not implemented"}}
+        pass
 

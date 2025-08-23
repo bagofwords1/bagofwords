@@ -9,4 +9,3 @@ class AnswerQuestionInput(BaseModel):
 class AnswerQuestionOutput(BaseModel):
     answer: str
     citations: Optional[List[str]] = None
-

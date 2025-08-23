@@ -1,0 +1,206 @@
+"""
+Context management specifications and Pydantic models.
+"""
+from datetime import datetime
+from typing import Dict, Optional, List, Any
+from pydantic import BaseModel, Field
+
+
+class ContextMetadata(BaseModel):
+    """Metadata for context generation and tracking."""
+    
+    # Core identifiers
+    report_id: Optional[int] = None
+    widget_id: Optional[int] = None  
+    completion_id: Optional[int] = None
+    user_id: Optional[int] = None
+    organization_id: int
+    
+    # Execution context
+    agent_type: str = "agent_v2"  # "agent_v1" vs "agent_v2"
+    loop_index: int = 0
+    research_step_count: int = 0
+    
+    # Temporal context
+    generation_time: datetime = Field(default_factory=datetime.utcnow)
+    context_window_start: Optional[datetime] = None
+    context_window_end: Optional[datetime] = None
+    
+    # Performance metadata  
+    total_tokens: int = 0
+    section_sizes: Dict[str, int] = Field(default_factory=dict)
+    build_duration_ms: float = 0
+    
+    # Content metadata
+    schemas_count: int = 0
+    messages_count: int = 0
+    widgets_count: int = 0
+    memories_count: int = 0
+    
+    # External context
+    external_platform: Optional[str] = None
+    external_user_id: Optional[str] = None
+    
+    # Organization settings
+    allow_llm_see_data: bool = True
+    enable_code_context: bool = False
+    enable_resource_context: bool = False
+
+
+class ContextSnapshot(BaseModel):
+    """Complete context snapshot for agent execution."""
+    
+    # Core context sections
+    schemas_excerpt: str = ""
+    messages_context: str = ""
+    memories_context: str = ""
+    widgets_context: str = ""
+    instructions_context: str = ""
+    code_context: str = ""
+    resource_context: str = ""
+    
+    # Research context (accumulated during execution)
+    research_context: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Metadata
+    metadata: ContextMetadata
+    
+    # Summary for history
+    history_summary: str = ""
+
+
+class SchemaContextConfig(BaseModel):
+    """Configuration for schema context building."""
+    # SchemaContextBuilder.build_context() takes no parameters currently
+    pass
+
+
+class InstructionContextConfig(BaseModel):
+    """Configuration for instruction context building."""
+    
+    # InstructionContextBuilder.load_instructions() parameters
+    status: str = "published"
+    category: Optional[str] = None
+
+
+class MessageContextConfig(BaseModel):
+    """Configuration for message context building."""
+    
+    # MessageContextBuilder.build_context() parameters  
+    max_messages: int = 20
+    role_filter: Optional[List[str]] = None
+
+
+class MemoryContextConfig(BaseModel):
+    """Configuration for memory context building."""
+    
+    # MemoryContextBuilder.build_context() parameters
+    max_memories: int = 10
+
+
+class WidgetContextConfig(BaseModel):
+    """Configuration for widget context building."""
+    
+    # WidgetContextBuilder.build_context() parameters
+    max_widgets: int = 5
+    status_filter: Optional[List[str]] = None
+    include_data_preview: bool = True
+
+
+class ResourceContextConfig(BaseModel):
+    """Configuration for resource context building."""
+    
+    # ResourceContextBuilder.build_context() parameters
+    # Note: data_sources is passed from report, not configured here
+    pass
+
+
+class CodeContextConfig(BaseModel):
+    """Configuration for code context building."""
+    
+    # CodeContextBuilder has complex methods, no simple build_context()
+    # Keeping minimal config for future use
+    pass
+
+class ResearchContextConfig(BaseModel):
+    """Configuration for research context building."""
+    
+    max_findings: int = 10
+    include_sources: bool = True
+    deduplicate: bool = True
+    relevance_threshold: float = 0.5
+
+
+class ContextBuildSpec(BaseModel):
+    """Specification for what context to build."""
+    
+    # Core sections (what to include)
+    include_schemas: bool = True
+    include_messages: bool = True
+    include_memories: bool = True
+    include_widgets: bool = True
+    include_instructions: bool = True
+    include_code: bool = False
+    include_resource: bool = False
+    include_research_context: bool = True
+    
+    # Builder-specific configurations
+    schema_config: Optional[SchemaContextConfig] = None
+    instruction_config: Optional[InstructionContextConfig] = None
+    message_config: Optional[MessageContextConfig] = None
+    memory_config: Optional[MemoryContextConfig] = None
+    widget_config: Optional[WidgetContextConfig] = None
+    resource_config: Optional[ResourceContextConfig] = None
+    code_config: Optional[CodeContextConfig] = None
+    research_config: Optional[ResearchContextConfig] = None
+    
+    # Global rendering preferences
+    format_for_prompt: bool = True
+    max_total_tokens: Optional[int] = None
+    compress_content: bool = False
+    
+    # Research context data (passed from agent)
+    research_context: Optional[Dict[str, Any]] = None
+    
+    # Backwards compatibility for legacy filters
+    message_role_filter: Optional[List[str]] = None
+    widget_status_filter: Optional[List[str]] = None
+    max_messages: Optional[int] = None
+    max_memories: Optional[int] = None
+    max_widgets: Optional[int] = None
+    
+    def model_post_init(self, __context) -> None:
+        """Handle backwards compatibility after model initialization."""
+        # Migrate legacy filters to new config objects
+        if self.message_role_filter and not self.message_config:
+            self.message_config = MessageContextConfig(roles=self.message_role_filter)
+        
+        if self.widget_status_filter and not self.widget_config:
+            self.widget_config = WidgetContextConfig(status_filter=self.widget_status_filter)
+        
+        # Migrate legacy limits
+        if self.max_messages and self.message_config:
+            self.message_config.max_messages = self.max_messages
+        elif self.max_messages and not self.message_config:
+            self.message_config = MessageContextConfig(max_messages=self.max_messages)
+            
+        if self.max_memories and self.memory_config:
+            self.memory_config.max_memories = self.max_memories
+        elif self.max_memories and not self.memory_config:
+            self.memory_config = MemoryContextConfig(max_memories=self.max_memories)
+            
+        if self.max_widgets and self.widget_config:
+            self.widget_config.max_widgets = self.max_widgets
+        elif self.max_widgets and not self.widget_config:
+            self.widget_config = WidgetContextConfig(max_widgets=self.max_widgets)
+
+
+class ContextSection(BaseModel):
+    """Individual context section with metadata."""
+    
+    name: str
+    content: str
+    token_count: int = 0
+    build_time_ms: float = 0
+    source_count: int = 0  # Number of items in this section
+    cached: bool = False

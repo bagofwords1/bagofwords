@@ -1,25 +1,22 @@
 import asyncio
+import json
 from typing import Dict, Optional
 
 from app.ai.agents.planner import PlannerV2
-from app.ai.context.instruction_context_builder import InstructionContextBuilder
-from app.ai.registry import ToolRegistry
+from app.ai.context import ContextHub, ContextBuildSpec
+from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
+from app.ai.registry import ToolRegistry, ToolCatalogFilter
+from app.ai.schemas.planner import PlannerInput, ToolDescriptor
 from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
 
 
 class AgentV2:
-    """Minimal orchestrator with streaming.
-
-    - One action per loop
-    - Streams planner tokens and decision snapshots
-    - Streams tool events (delegated to tool.run_stream)
-    - Uses a simple in-memory tool map (registry scaffold added separately)
-    """
+    """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None):
+                 model=None, head_completion=None, system_completion=None, widget=None, step=None):
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
@@ -33,16 +30,45 @@ class AgentV2:
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
 
-        # Registry scaffold
+        # Initialize ContextHub for centralized context management
+        self.context_hub = ContextHub(
+            db=self.db,
+            organization=self.organization,
+            report=self.report,
+            user=getattr(self.head_completion, 'user', None) if self.head_completion else None,
+            head_completion=self.head_completion,
+            widget=self.widget
+        )
+        
+        # Initialize observation context builder
+        self.observation_builder = ObservationContextBuilder()
+
+        # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
-        # Build planner with catalog from registry
+        
+        # Start with all available tools for the planner to see
+        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization)
+        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization))
+        
+        # Remove duplicates (for tools with category="both")
+        seen_tools = set()
+        unique_catalog = []
+        for tool in all_catalog_dicts:
+            if tool['name'] not in seen_tools:
+                unique_catalog.append(tool)
+                seen_tools.add(tool['name'])
+        
+        tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
+        
+        # Build planner with full catalog (using ContextHub for enhanced context)
+        from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
         self.planner = PlannerV2(
             model=self.model,
             instruction_context_builder=InstructionContextBuilder(self.db, self.organization),
-            tool_catalog=self.registry.get_catalog(self.organization),
+            tool_catalog=tool_catalog,
         )
-        # Optional: also allow direct injection map for early testing
-        self.tools: Dict[str, object] = {}
+        
+        # Tool runner with enhanced policies
         self.tool_runner = ToolRunner(
             retry=RetryPolicy(max_attempts=2, backoff_ms=500, backoff_multiplier=2.0, jitter_ms=200),
             timeout=TimeoutPolicy(start_timeout_s=5, idle_timeout_s=30, hard_timeout_s=120),
@@ -62,66 +88,83 @@ class AgentV2:
         except Exception:
             pass
 
-    async def _build_schemas_excerpt(self) -> str:
-        # Reuse existing builder lightly by slicing, or implement a short excerpt later
-        try:
-            from app.ai.agent import Agent as AgentV1
-            agent_v1 = AgentV1(db=self.db, organization=self.organization, organization_settings=self.organization_settings,
-                               report=self.report, model=self.model, head_completion=self.head_completion,
-                               system_completion=self.system_completion, widget=self.widget, step=self.step)
-            # Use existing method then trim
-            schemas = await agent_v1._build_schemas_context()
-            return schemas[:8000]
-        except Exception:
-            return ""
 
-    async def _build_history_summary(self) -> str:
-        # Minimal placeholder; can be improved to a concise summary
-        return ""
 
     async def main_execution(self):
-        schemas_excerpt = await self._build_schemas_excerpt()
-        history_summary = await self._build_history_summary()
+        # Prime static once; then refresh warm each loop
+        await self.context_hub.prime_static()
+        await self.context_hub.refresh_warm()
+        view = self.context_hub.get_view()
+        
+        # Initial context values
+        schemas_excerpt = view.static.schemas
+        
+        # History summary based on observation context only
+        history_summary = await self.context_hub.get_history_summary(self.observation_builder.to_dict())
         observation: Optional[dict] = None
-        step_limit = self.organization_settings.get_config("limit_analysis_steps").value if self.organization_settings else 3
+        step_limit = self.organization_settings.get_config("limit_analysis_steps").value if self.organization_settings else 5
 
         for loop_index in range(step_limit):
             if self.sigkill_event.is_set():
                 break
 
-            # PLAN: stream planner tokens and decision
-            async for evt in self.planner.execute(
+            # Build enhanced planner input
+            planner_input = PlannerInput(
                 user_message=self.head_completion.prompt["content"],
                 schemas_excerpt=schemas_excerpt,
                 history_summary=history_summary,
                 last_observation=observation,
                 external_platform=getattr(self.head_completion, "external_platform", None),
-                sigkill_event=self.sigkill_event,
-            ):
+                tool_catalog=self.planner.tool_catalog,
+            )
+
+            # PLAN: stream planner tokens and decision using typed input
+            async for evt in self.planner.execute(planner_input, self.sigkill_event):
                 if self.sigkill_event.is_set():
                     break
 
-                if evt.get("type") == "planner.decision.final":
-                    decision = evt.get("data", {})
-                    if decision.get("analysis_complete"):
-                        # Final answer path (MVP: write to system completion externally via existing services)
+                # Handle typed events
+                if evt.type == "planner.decision.partial":
+                    # Emit reasoning and assistant messages if present
+                    decision = evt.data
+                    if decision.reasoning_message:
+                        # TODO: Emit reasoning message to UI
+                        pass
+                    if decision.assistant_message:
+                        # TODO: Emit assistant message to UI  
+                        pass
+                
+                elif evt.type == "planner.decision.final":
+                    decision = evt.data
+                    
+                    if decision.analysis_complete:
+                        # Final answer path
                         break
 
-                    action = (decision.get("action") or {})
-                    # action: { type: "tool_call", name, arguments }
-                    tool_name = action.get("name") or action.get("tool")
-                    tool_input = action.get("arguments") or {}
+                    action = decision.action
+                    if not action:
+                        break
+                        
+                    tool_name = action.name
+                    tool_input = action.arguments
 
-                    tool = self.registry.get(tool_name) or self.tools.get(tool_name)
+                    # Validate tool availability for chosen plan_type
+                    if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
+                        observation = {
+                            "summary": f"Tool '{tool_name}' not available for plan_type '{decision.plan_type}'",
+                            "error": {"code": "resolve_error", "message": "tool/plan_type mismatch"},
+                        }
+                        continue  # Continue to next iteration with error observation
+
+                    tool = self.registry.get(tool_name)
                     if not tool:
-                        # Unknown tool: return observation to planner and continue loop
                         observation = {
                             "summary": f"Tool '{tool_name}' unavailable",
-                            "error": {"type": "resolve_error", "message": "not registered"},
+                            "error": {"code": "resolve_error", "message": "not registered"},
                         }
-                        break
+                        continue  # Continue to next iteration with error observation
 
-                    # RUN TOOL (streaming via ToolRunner)
+                    # RUN TOOL with enhanced context tracking
                     runtime_ctx = {
                         "db": self.db,
                         "organization": self.organization,
@@ -132,17 +175,44 @@ class AgentV2:
                         "widget": self.widget,
                         "step": self.step,
                         "sigkill_event": self.sigkill_event,
+                        "observation_context": self.observation_builder.to_dict(),  # Pass observation context
+                        "context_view": view,
                     }
+                    
                     async def emit(ev: dict):
-                        # In future: forward to UI and persist
-                        _ = ev
+                        # Forward tool events to UI
+                        pass
 
                     observation = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                    
+                    # Track tool execution in observation builder
+                    self.observation_builder.add_tool_observation(tool_name, tool_input, observation)
+                    
+                    # Refresh warm sections and view for next iteration
+                    await self.context_hub.refresh_warm()
+                    view = self.context_hub.get_view()
+                    schemas_excerpt = view.static.schemas
+                    
+                    # Refresh history summary with updated context
+                    history_summary = await self.context_hub.get_history_summary(self.observation_builder.to_dict())
+                    
                     break
 
-        # End; cleanup handler
+        # Cleanup
         try:
             websocket_manager.remove_handler(self._handle_completion_update)
         except Exception:
             pass
 
+    def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
+        """Validate that tool is available for the chosen plan type."""
+        metadata = self.registry.get_metadata(tool_name)
+        if not metadata:
+            return False
+            
+        if plan_type == "research":
+            return metadata.category in ["research", "both"]
+        elif plan_type == "action":
+            return metadata.category in ["action", "both"]
+            
+        return False

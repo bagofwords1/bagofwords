@@ -1,2 +1,0 @@
-# per-tool schemas package
-
