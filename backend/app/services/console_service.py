@@ -17,7 +17,7 @@ from app.schemas.console_schema import (
     TraceData, TraceCompletionData, TraceStepData, TraceFeedbackData
 )
 from typing import Optional, Dict, Any, List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.settings.logging_config import get_logger
 from collections import Counter, defaultdict
 import json
@@ -29,12 +29,32 @@ logger = get_logger(__name__)
 
 class ConsoleService:
     
+    def _to_utc_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
+        """Convert aware datetimes to UTC and strip tzinfo; leave naive as-is.
+
+        This ensures compatibility with TIMESTAMP WITHOUT TIME ZONE columns
+        in PostgreSQL and works with SQLite as well.
+        """
+        if dt is None:
+            return None
+        # If dt is timezone-aware, convert to UTC and remove tzinfo
+        if dt.tzinfo is not None and dt.tzinfo.utcoffset(dt) is not None:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        # Treat naive datetime as UTC-naive
+        return dt
+
     def _normalize_date_range(self, start_date: Optional[datetime], end_date: Optional[datetime]) -> tuple[datetime, datetime]:
         """Normalize date range to ensure end_date includes the full day"""
         
-        # Default to last 30 days if no dates provided
+        # Normalize timezone to UTC-naive if provided
+        if end_date:
+            end_date = self._to_utc_naive(end_date)
+        if start_date:
+            start_date = self._to_utc_naive(start_date)
+
+        # Default to last 30 days if no dates provided (UTC-naive)
         if not end_date:
-            end_date = datetime.now()
+            end_date = datetime.utcnow()
         if not start_date:
             start_date = end_date - timedelta(days=30)
             
@@ -181,9 +201,12 @@ class ConsoleService:
     ) -> MetricsComparison:
         """Get metrics with previous period comparison"""
         
-        # Default to last 30 days if no dates provided
-        end_date = params.end_date or datetime.now()
+        # Default to last 30 days if no dates provided, normalize to UTC-naive
+        end_date = params.end_date or datetime.utcnow()
         start_date = params.start_date or (end_date - timedelta(days=30))
+
+        end_date = self._to_utc_naive(end_date)
+        start_date = self._to_utc_naive(start_date)
         
         # Calculate period length and previous period dates
         period_length = end_date - start_date
