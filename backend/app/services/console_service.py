@@ -7,6 +7,7 @@ from app.models.report import Report
 from app.models.step import Step
 from app.models.widget import Widget
 from app.models.completion_feedback import CompletionFeedback
+from app.models.table_stats import TableStats
 from app.schemas.console_schema import (
     SimpleMetrics, MetricsQueryParams, MetricsComparison, 
     TimeSeriesMetrics, ActivityMetrics, PerformanceMetrics,
@@ -458,59 +459,62 @@ class ConsoleService:
         organization: Organization, 
         params: MetricsQueryParams
     ) -> TableUsageMetrics:
-        """Get table usage statistics from step data models"""
+        """Get table usage statistics using precomputed TableStats within date range"""
         
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
         
-        # Get all steps within date range for this organization
-        steps_query = (
-            select(Step)
-            .join(Widget).join(Report)
+        # Aggregate usage by table within the date range using TableStats
+        usage_sum = func.sum(TableStats.usage_count).label('usage_sum')
+        table_fqn = TableStats.table_fqn.label('table_fqn')
+
+        stats_query = (
+            select(table_fqn, usage_sum)
             .where(
-                Report.organization_id == organization.id,
-                Step.created_at >= start_date,
-                Step.created_at <= end_date,
-                Step.data_model.isnot(None)  # Only steps with data models
+                TableStats.org_id == organization.id,
+                TableStats.last_used_at.isnot(None),
+                TableStats.last_used_at >= start_date,
+                TableStats.last_used_at <= end_date,
+                TableStats.usage_count > 0
+            )
+            .group_by(table_fqn)
+            .order_by(func.sum(TableStats.usage_count).desc())
+            .limit(10)
+        )
+
+        result = await db.execute(stats_query)
+        rows = result.all()
+
+        # Total usage across all tables within range (not limited to top 10)
+        total_usage_query = (
+            select(func.coalesce(func.sum(TableStats.usage_count), 0))
+            .where(
+                TableStats.org_id == organization.id,
+                TableStats.last_used_at.isnot(None),
+                TableStats.last_used_at >= start_date,
+                TableStats.last_used_at <= end_date,
+                TableStats.usage_count > 0
             )
         )
-        
-        result = await db.execute(steps_query)
-        steps = result.scalars().all()
-        
-        # Extract table usage from data models
-        table_usage = Counter()
-        total_queries = 0
-        
-        for step in steps:
-            if not step.data_model:
-                continue
-                
-            try:
-                data_model = step.data_model if isinstance(step.data_model, dict) else json.loads(step.data_model)
-                tables_in_query = self._extract_tables_from_data_model(data_model)
-                
-                if tables_in_query:
-                    total_queries += 1
-                    for table in tables_in_query:
-                        table_usage[table] += 1
-                        
-            except (json.JSONDecodeError, KeyError, TypeError) as e:
-                logger.warning(f"Failed to parse data_model for step {step.id}: {e}")
-                continue
-        
-        # Get top 10 tables
-        top_tables = [
-            TableUsageData(
-                table_name=table,
-                usage_count=count,
-                database_name=self._extract_database_name(table)
+        total_usage_result = await db.execute(total_usage_query)
+        total_usage_all = int(total_usage_result.scalar() or 0)
+
+        top_tables = []
+        total_usage = 0
+        for row in rows:
+            table_name = row.table_fqn
+            usage_count = int(row.usage_sum or 0)
+            total_usage += usage_count
+            top_tables.append(
+                TableUsageData(
+                    table_name=table_name,
+                    usage_count=usage_count,
+                    database_name=self._extract_database_name(table_name)
+                )
             )
-            for table, count in table_usage.most_common(10)
-        ]
         
         return TableUsageMetrics(
             top_tables=top_tables,
-            total_queries_analyzed=total_queries,
+            total_queries_analyzed=total_usage_all,
             date_range=DateRange(
                 start=start_date.isoformat(),
                 end=end_date.isoformat()
