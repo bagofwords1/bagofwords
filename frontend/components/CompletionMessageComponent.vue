@@ -143,6 +143,7 @@
                     </div>
                         <div class="flex mt-3">
                                 <CompletionItemFeedback 
+                                    v-if="localCompletion.status === 'success' || localCompletion.status === 'error'"
                                     :completion="localCompletion" 
                                     :feedbackScore="localCompletion.feedback_score || 0" 
                                 />
