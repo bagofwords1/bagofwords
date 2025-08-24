@@ -48,6 +48,10 @@ from app.models.instruction_reference import InstructionReference
 from app.models.table_stats import TableStats
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
+from app.models.agent_execution import AgentExecution
+from app.models.plan_decision import PlanDecision
+from app.models.tool_execution import ToolExecution
+from app.models.context_snapshot import ContextSnapshot
 
 from app.settings.config import settings
 

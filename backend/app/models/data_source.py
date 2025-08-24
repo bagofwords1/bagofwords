@@ -16,7 +16,6 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import object_session
-from app.ai.context.builders.resource_context_builder import ResourceContextBuilder
 
 
 DATA_SOURCE_DETAILS = [
@@ -351,6 +350,9 @@ class DataSource(BaseSchema):
         Get relevant metadata resources associated with this data source based on the prompt.
         Uses ResourceContextBuilder to extract and filter resources.
         """
+        # Import here to avoid circular dependency
+        from app.ai.context.builders.resource_context_builder import ResourceContextBuilder
+        
         # Create a ResourceContextBuilder instance
         context_builder = ResourceContextBuilder(db, prompt_content)
         # Build context for just this data source

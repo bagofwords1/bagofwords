@@ -13,6 +13,12 @@ from app.services.table_usage_service import TableUsageService
 from app.schemas.table_usage_schema import TableUsageEventCreate
 from app.utils.lineage import extract_tables_from_data_model
 
+# Agent execution tracking models
+from app.models.agent_execution import AgentExecution
+from app.models.plan_decision import PlanDecision
+from app.models.tool_execution import ToolExecution
+from app.models.context_snapshot import ContextSnapshot
+
 class ProjectManager:
 
     def __init__(self) -> None:
@@ -284,4 +290,208 @@ class ProjectManager:
         await db.commit()
         await db.refresh(completion)
         return completion
-        
+
+    # ==============================
+    # Agent Execution Tracking Methods
+    # ==============================
+
+    async def start_agent_execution(self, db, completion_id, organization_id=None, user_id=None, report_id=None, config_json=None):
+        """Start tracking an agent execution run."""
+        execution = AgentExecution(
+            completion_id=completion_id,
+            organization_id=organization_id,
+            user_id=user_id,
+            report_id=report_id,
+            status='in_progress',
+            started_at=datetime.datetime.utcnow(),
+            config_json=config_json or {},
+        )
+        db.add(execution)
+        await db.commit()
+        await db.refresh(execution)
+        return execution
+
+    async def save_plan_decision(self, db, agent_execution, seq, loop_index, plan_type=None, 
+                               analysis_complete=False, reasoning=None, assistant=None, 
+                               final_answer=None, action_name=None, action_args_json=None, 
+                               metrics_json=None, context_snapshot_id=None):
+        """Upsert a planner decision frame by (agent_execution_id, seq)."""
+        stmt = select(PlanDecision).where(
+            PlanDecision.agent_execution_id == agent_execution.id,
+            PlanDecision.seq == seq,
+        )
+        existing = (await db.execute(stmt)).scalar_one_or_none()
+
+        if existing:
+            existing.loop_index = loop_index
+            existing.plan_type = plan_type
+            existing.analysis_complete = analysis_complete
+            existing.reasoning = reasoning
+            existing.assistant = assistant
+            existing.final_answer = final_answer
+            existing.action_name = action_name
+            existing.action_args_json = action_args_json
+            existing.metrics_json = metrics_json
+            existing.context_snapshot_id = context_snapshot_id
+            db.add(existing)
+            await db.commit()
+            await db.refresh(existing)
+            return existing
+
+        decision = PlanDecision(
+            agent_execution_id=agent_execution.id,
+            seq=seq,
+            loop_index=loop_index,
+            plan_type=plan_type,
+            analysis_complete=analysis_complete,
+            reasoning=reasoning,
+            assistant=assistant,
+            final_answer=final_answer,
+            action_name=action_name,
+            action_args_json=action_args_json,
+            metrics_json=metrics_json,
+            context_snapshot_id=context_snapshot_id,
+        )
+        db.add(decision)
+        await db.commit()
+        await db.refresh(decision)
+        return decision
+
+    async def start_tool_execution(self, db, agent_execution, plan_decision_id, tool_name, 
+                                  tool_action, arguments_json, attempt_number=1, max_retries=0):
+        """Start tracking a tool execution."""
+        tool_exec = ToolExecution(
+            agent_execution_id=agent_execution.id,
+            plan_decision_id=plan_decision_id,
+            tool_name=tool_name,
+            tool_action=tool_action,
+            arguments_json=arguments_json,
+            status='in_progress',
+            started_at=datetime.datetime.utcnow(),
+            attempt_number=attempt_number,
+            max_retries=max_retries,
+        )
+        db.add(tool_exec)
+        await db.commit()
+        await db.refresh(tool_exec)
+        return tool_exec
+
+    async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
+                                   result_json=None, created_widget_id=None, created_step_id=None,
+                                   error_message=None, token_usage_json=None, context_snapshot_id=None):
+        """Finish tracking a tool execution."""
+        tool_execution.status = status
+        tool_execution.success = success
+        tool_execution.completed_at = datetime.datetime.utcnow()
+        if tool_execution.started_at:
+            tool_execution.duration_ms = (tool_execution.completed_at - tool_execution.started_at).total_seconds() * 1000.0
+        tool_execution.result_summary = result_summary
+        tool_execution.result_json = result_json
+        tool_execution.created_widget_id = created_widget_id
+        tool_execution.created_step_id = created_step_id
+        tool_execution.error_message = error_message
+        tool_execution.token_usage_json = token_usage_json
+        tool_execution.context_snapshot_id = context_snapshot_id
+        db.add(tool_execution)
+        await db.commit()
+        await db.refresh(tool_execution)
+        return tool_execution
+
+    # Pydantic-friendly helpers
+    async def save_plan_decision_from_model(self, db, agent_execution, seq: int, loop_index: int,
+                                           planner_decision_model, context_snapshot_id: str | None = None):
+        to_dict = planner_decision_model.model_dump() if hasattr(planner_decision_model, 'model_dump') else dict(planner_decision_model)
+        action = to_dict.get('action') or {}
+        metrics = to_dict.get('metrics') or None
+        return await self.save_plan_decision(
+            db,
+            agent_execution=agent_execution,
+            seq=seq,
+            loop_index=loop_index,
+            plan_type=to_dict.get('plan_type'),
+            analysis_complete=bool(to_dict.get('analysis_complete', False)),
+            reasoning=to_dict.get('reasoning_message'),
+            assistant=to_dict.get('assistant_message'),
+            final_answer=to_dict.get('final_answer'),
+            action_name=(action.get('name') if isinstance(action, dict) else getattr(action, 'name', None)),
+            action_args_json=(action.get('arguments') if isinstance(action, dict) else getattr(action, 'arguments', None)),
+            metrics_json=(metrics.model_dump() if hasattr(metrics, 'model_dump') else metrics),
+            context_snapshot_id=context_snapshot_id,
+        )
+
+    async def start_tool_execution_from_models(self, db, agent_execution, plan_decision_id: str | None,
+                                              tool_name: str, tool_action: str | None, tool_input_model,
+                                              attempt_number: int = 1, max_retries: int = 0):
+        args = tool_input_model.model_dump() if hasattr(tool_input_model, 'model_dump') else dict(tool_input_model)
+        return await self.start_tool_execution(
+            db,
+            agent_execution=agent_execution,
+            plan_decision_id=plan_decision_id,
+            tool_name=tool_name,
+            tool_action=tool_action,
+            arguments_json=args,
+            attempt_number=attempt_number,
+            max_retries=max_retries,
+        )
+
+    async def finish_tool_execution_from_models(self, db, tool_execution,
+                                               result_model=None,
+                                               summary: str | None = None,
+                                               created_widget_id: str | None = None,
+                                               created_step_id: str | None = None,
+                                               error_message: str | None = None,
+                                               context_snapshot_id: str | None = None,
+                                               success: bool = True):
+        result_json = result_model.model_dump() if (result_model and hasattr(result_model, 'model_dump')) else (result_model or None)
+        status = 'success' if success else 'error'
+        return await self.finish_tool_execution(
+            db,
+            tool_execution=tool_execution,
+            status=status,
+            success=success,
+            result_summary=summary,
+            result_json=result_json,
+            created_widget_id=created_widget_id,
+            created_step_id=created_step_id,
+            error_message=error_message,
+            context_snapshot_id=context_snapshot_id,
+        )
+
+    async def save_context_snapshot(self, db, agent_execution, kind, context_view_json, 
+                                   prompt_text=None, prompt_tokens=None):
+        """Save a context snapshot."""
+        snapshot = ContextSnapshot(
+            agent_execution_id=agent_execution.id,
+            kind=kind,
+            context_view_json=context_view_json,
+            prompt_text=prompt_text,
+            prompt_tokens=str(prompt_tokens) if prompt_tokens else None,
+        )
+        db.add(snapshot)
+        await db.commit()
+        await db.refresh(snapshot)
+        return snapshot
+
+    async def finish_agent_execution(self, db, agent_execution, status, first_token_ms=None, 
+                                    thinking_ms=None, token_usage_json=None, error_json=None):
+        """Finish an agent execution run."""
+        agent_execution.status = status
+        agent_execution.completed_at = datetime.datetime.utcnow()
+        if agent_execution.started_at:
+            agent_execution.total_duration_ms = (agent_execution.completed_at - agent_execution.started_at).total_seconds() * 1000.0
+        agent_execution.first_token_ms = first_token_ms
+        agent_execution.thinking_ms = thinking_ms
+        agent_execution.token_usage_json = token_usage_json
+        agent_execution.error_json = error_json
+        db.add(agent_execution)
+        await db.commit()
+        await db.refresh(agent_execution)
+        return agent_execution
+
+    async def next_seq(self, db, agent_execution):
+        """Get next sequence number for streaming events."""
+        agent_execution.latest_seq = (agent_execution.latest_seq or 0) + 1
+        db.add(agent_execution)
+        await db.commit()
+        await db.refresh(agent_execution)
+        return agent_execution.latest_seq
