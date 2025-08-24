@@ -1,6 +1,7 @@
 import asyncio
 import json
 from typing import Dict, Optional
+from pydantic import ValidationError
 
 from app.ai.agents.planner import PlannerV2
 from app.ai.context import ContextHub, ContextBuildSpec
@@ -11,6 +12,7 @@ from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
 from app.project_manager import ProjectManager
+from app.models.step import Step
 
 
 class AgentV2:
@@ -28,12 +30,29 @@ class AgentV2:
         self.widget = widget
         self.step = step
 
+        # Initialize data sources and clients (mirror agent.py pattern)
+        if report:
+            # Handle case where data_sources or files might be None
+            self.data_sources = getattr(report, 'data_sources', []) or []
+            self.clients = {data_source.name: data_source.get_client() for data_source in self.data_sources}
+            self.files = getattr(report, 'files', []) or []
+        else:
+            self.data_sources = []
+            self.clients = {}
+            self.files = []
+
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
         
         # Agent execution tracking
         self.project_manager = ProjectManager()
         self.current_execution = None
+        
+        # Widget/step state management
+        self.current_widget = None
+        self.current_step = None
+        self.current_step_id = None
+        self.current_widget_title = None  # Store widget title for progressive creation
 
         # Initialize ContextHub for centralized context management
         self.context_hub = ContextHub(
@@ -45,8 +64,7 @@ class AgentV2:
             widget=self.widget
         )
         
-        # Initialize observation context builder
-        self.observation_builder = ObservationContextBuilder()
+        # Use ContextHub's observation builder
 
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
@@ -124,11 +142,21 @@ class AgentV2:
             schemas_excerpt = view.static.schemas
             
             # History summary based on observation context only
-            history_summary = await self.context_hub.get_history_summary(self.observation_builder.to_dict())
+            history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
             observation: Optional[dict] = None
             step_limit = self.organization_settings.get_config("limit_analysis_steps").value if self.organization_settings else 5
 
             current_plan_decision = None
+            invalid_retry_count = 0
+            max_invalid_retries = 2
+            
+            # Circuit breaker for repeated tool failures
+            failed_tool_count = {}
+            max_tool_failures = 3
+            
+            # Circuit breaker for repeated successful actions (infinite success loop)
+            successful_tool_actions = []
+            max_repeated_successes = 2
             
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
@@ -144,24 +172,50 @@ class AgentV2:
                     context_view_json=view.model_dump(),
                 )
 
-                # Build enhanced planner input
-                planner_input = PlannerInput(
-                    user_message=self.head_completion.prompt["content"],
-                    schemas_excerpt=schemas_excerpt,
-                    history_summary=history_summary,
-                    last_observation=observation,
-                    external_platform=getattr(self.head_completion, "external_platform", None),
-                    tool_catalog=self.planner.tool_catalog,
-                )
+                # Build enhanced planner input with validation and retry on failure
+                try:
+                    planner_input = PlannerInput(
+                        user_message=self.head_completion.prompt["content"],
+                        schemas_excerpt=schemas_excerpt,
+                        history_summary=history_summary,
+                        last_observation=observation,
+                        external_platform=getattr(self.head_completion, "external_platform", None),
+                        tool_catalog=self.planner.tool_catalog,
+                    )
+                except ValidationError as ve:
+                    if invalid_retry_count >= max_invalid_retries:
+                        # Too many retries, exit loop
+                        break
+                    observation = {
+                        "summary": "Planner input invalid; retrying",
+                        "error": {"code": "input_validation_error", "message": str(ve)},
+                    }
+                    invalid_retry_count += 1
+                    try:
+                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                        await self._emit_sse_event({
+                            "event": "planner.retry",
+                            "data": {
+                                "agent_execution_id": self.current_execution.id,
+                                "seq": seq,
+                                "reason": "input_validation_error",
+                                "attempt": invalid_retry_count,
+                            }
+                        })
+                    except Exception:
+                        pass
+                    # Retry next loop iteration
+                    continue
 
                 # PLAN: stream planner tokens and decision using typed input
+                analysis_done = False
                 async for evt in self.planner.execute(planner_input, self.sigkill_event):
                     if self.sigkill_event.is_set():
                         break
 
                     # Handle typed events
                     if evt.type == "planner.decision.partial":
-                        decision = evt.data
+                        decision = evt.data  # Already validated PlannerDecision from planner_v2
                         
                         # Get next sequence number
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -174,6 +228,12 @@ class AgentV2:
                             loop_index=loop_index,
                             planner_decision_model=decision,
                         )
+                        # Upsert completion block for decision and rebuild transcript
+                        try:
+                            await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
+                            await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                        except Exception:
+                            pass
                         
                         # Emit SSE event
                         await self._emit_sse_event({
@@ -189,7 +249,40 @@ class AgentV2:
                         })
                     
                     elif evt.type == "planner.decision.final":
-                        decision = evt.data
+                        decision = evt.data  # Already validated PlannerDecision from planner_v2
+                        # Track whether analysis is complete
+                        analysis_done = bool(getattr(decision, "analysis_complete", False))
+                        
+                        # Retry flow: invalid planner output
+                        if getattr(decision, "error", None):
+                            if invalid_retry_count >= max_invalid_retries:
+                                # Too many retries, treat as final error
+                                analysis_done = True
+                                break
+                            observation = {
+                                "summary": "Planner output invalid; retrying",
+                                "error": {
+                                    "code": getattr(decision.error, "code", "validation_error"),
+                                    "message": getattr(decision.error, "message", "Invalid planner output"),
+                                },
+                            }
+                            invalid_retry_count += 1
+                            # Emit retry event
+                            try:
+                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event({
+                                    "event": "planner.retry",
+                                    "data": {
+                                        "agent_execution_id": self.current_execution.id,
+                                        "seq": seq,
+                                        "reason": "invalid_output",
+                                        "attempt": invalid_retry_count,
+                                    }
+                                })
+                            except Exception:
+                                pass
+                            # Stop streaming loop; outer loop will attempt again
+                            break
                         
                         # Get next sequence number
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -202,6 +295,12 @@ class AgentV2:
                             loop_index=loop_index,
                             planner_decision_model=decision,
                         )
+                        # Upsert completion block for decision and rebuild transcript
+                        try:
+                            await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
+                            await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                        except Exception:
+                            pass
                         
                         # Emit SSE event
                         await self._emit_sse_event({
@@ -217,10 +316,35 @@ class AgentV2:
                         
                         if decision.analysis_complete:
                             # Final answer path
+                            invalid_retry_count = 0
                             break
 
                         action = decision.action
-                        if not action:
+                        # Retry flow: action plan with missing action
+                        if (getattr(decision, "plan_type", None) == "action") and not action:
+                            if invalid_retry_count >= max_invalid_retries:
+                                # Too many retries, exit
+                                break
+                            observation = {
+                                "summary": "Planner chose action plan but returned no tool/action; retrying",
+                                "error": {"code": "missing_action", "message": "Choose a tool and arguments"},
+                            }
+                            invalid_retry_count += 1
+                            # Emit retry event
+                            try:
+                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event({
+                                    "event": "planner.retry",
+                                    "data": {
+                                        "agent_execution_id": self.current_execution.id,
+                                        "seq": seq,
+                                        "reason": "missing_action",
+                                        "attempt": invalid_retry_count,
+                                    }
+                                })
+                            except Exception:
+                                pass
+                            # End streaming loop so outer loop can retry
                             break
                             
                         tool_name = action.name
@@ -274,12 +398,26 @@ class AgentV2:
                             "system_completion": self.system_completion,
                             "widget": self.widget,
                             "step": self.step,
+                            "current_widget": self.current_widget,  # Current widget being worked on
+                            "current_step": self.current_step,      # Current step being worked on
+                            "current_step_id": self.current_step_id, # Stable id for persistence across tools
+                            "project_manager": self.project_manager,  # For widget/step creation
+                            "model": self.model,  # LLM model for code generation
                             "sigkill_event": self.sigkill_event,
-                            "observation_context": self.observation_builder.to_dict(),  # Pass observation context
+                            "observation_context": self.context_hub.observation_builder.to_dict(),  # Pass observation context
                             "context_view": view,
+                            # Data source clients and files (mirror agent.py pattern)
+                            "ds_clients": self.clients,
+                            "excel_files": self.files,
+                            # Context builders for tools that need them
+                            "instruction_context_builder": self.planner.instruction_context_builder,
+                            "code_context_builder": getattr(self.context_hub, 'code_builder', None),
                         }
                         
                         async def emit(ev: dict):
+                            # Handle streaming state management for widget/step creation
+                            await self._handle_streaming_event(tool_name, ev)
+                            
                             # Forward tool events to UI and persist important ones
                             if ev.get("type") in ["tool.progress", "tool.error"]:
                                 seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -293,7 +431,59 @@ class AgentV2:
                                     }
                                 })
 
-                        observation = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                        tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+                        
+                        # Extract observation and output from tool result
+                        if isinstance(tool_result, dict) and "observation" in tool_result:
+                            observation = tool_result["observation"]
+                            tool_output = tool_result.get("output")
+                        else:
+                            # Fallback for legacy format
+                            observation = tool_result
+                            tool_output = None
+                        
+                        # Capture widget title for create_data_model early
+                        if tool_name == "create_data_model" and tool_input.get("widget_title"):
+                            self.current_widget_title = tool_input.get("widget_title")
+                        
+                        # Handle tool outputs and manage widget/step state
+                        await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
+                        
+                        # Circuit breaker: track repeated tool failures
+                        if observation and observation.get("error"):
+                            failed_tool_count[tool_name] = failed_tool_count.get(tool_name, 0) + 1
+                            
+                            # If this tool has failed too many times, force completion
+                            if failed_tool_count[tool_name] >= max_tool_failures:
+                                analysis_done = True
+                                # Override the observation to include a final answer
+                                observation.update({
+                                    "analysis_complete": True,
+                                    "final_answer": f"Unable to complete the task. The {tool_name} tool failed {failed_tool_count[tool_name]} times with errors. Please check the tool configuration or try a different approach."
+                                })
+                        else:
+                            # Reset failure count on successful execution
+                            if tool_name in failed_tool_count:
+                                del failed_tool_count[tool_name]
+                            
+                            # Track successful actions to detect infinite success loops
+                            action_signature = f"{tool_name}:{json.dumps(tool_input, sort_keys=True)}"
+                            successful_tool_actions.append(action_signature)
+                            
+                            # Check for repeated successful actions
+                            if len(successful_tool_actions) >= max_repeated_successes:
+                                recent_actions = successful_tool_actions[-max_repeated_successes:]
+                                if len(set(recent_actions)) == 1:  # All same action
+                                    analysis_done = True
+                                    # Override observation to include completion
+                                    observation.update({
+                                        "analysis_complete": True,
+                                        "final_answer": f"Task completed successfully. The {tool_name} tool has been executed {max_repeated_successes} times with the same parameters, indicating the goal has been achieved."
+                                    })
+                        
+                        # Check if tool runner is signaling to complete analysis
+                        if observation and observation.get("analysis_complete"):
+                            analysis_done = True
                         
                         # Extract created objects from observation
                         created_widget_id = None
@@ -325,6 +515,12 @@ class AgentV2:
                             context_snapshot_id=post_snap.id,
                             success=bool(observation and not observation.get("error")),
                         )
+                        # Upsert completion block for tool and rebuild transcript
+                        try:
+                            await self.project_manager.upsert_block_for_tool(self.db, self.system_completion, self.current_execution, tool_execution)
+                            await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                        except Exception:
+                            pass
                         
                         # Emit tool finished event
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -342,7 +538,9 @@ class AgentV2:
                         })
                         
                         # Track tool execution in observation builder
-                        self.observation_builder.add_tool_observation(tool_name, tool_input, observation)
+                        self.context_hub.observation_builder.add_tool_observation(tool_name, tool_input, observation)
+                        # Reset invalid retry counter after a successful tool attempt (even if tool errors, planner was valid)
+                        invalid_retry_count = 0
                         
                         # Refresh warm sections and view for next iteration
                         await self.context_hub.refresh_warm()
@@ -350,9 +548,13 @@ class AgentV2:
                         schemas_excerpt = view.static.schemas
                         
                         # Refresh history summary with updated context
-                        history_summary = await self.context_hub.get_history_summary(self.observation_builder.to_dict())
+                        history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
                         
                         break
+
+                # If planner finalized analysis, stop the outer loop as well
+                if analysis_done:
+                    break
 
             # Save final context snapshot
             await self.context_hub.refresh_warm()
@@ -413,3 +615,179 @@ class AgentV2:
             return metadata.category in ["action", "both"]
             
         return False
+
+    async def _handle_streaming_event(self, tool_name: str, event: dict):
+        """Handle real-time streaming events for widget/step management."""
+        event_type = event.get("type")
+        payload = event.get("payload", {})
+        
+        if event_type != "tool.progress":
+            return
+            
+        stage = payload.get("stage")
+        
+        try:
+            if tool_name == "create_data_model":
+                if stage == "data_model_type_determined":
+                    # Create widget and step early when we know the type
+                    data_model_type = payload.get("data_model_type")
+                    widget_title = self.current_widget_title or "Untitled Widget"
+                    
+                    if data_model_type and not self.current_widget and self.report:
+                        # Create widget
+                        self.current_widget = await self.project_manager.create_widget(
+                            self.db, self.report, widget_title
+                        )
+                        
+                        # Create step
+                        self.current_step = await self.project_manager.create_step(
+                            self.db, widget_title, self.current_widget, "chart"
+                        )
+                        # Track stable step id for subsequent tools in this execution
+                        self.current_step_id = str(self.current_step.id)
+                        
+                        # Initialize data_model with type
+                        initial_data_model = {"type": data_model_type, "columns": [], "series": []}
+                        await self.project_manager.update_step_with_data_model(
+                            self.db, self.current_step, initial_data_model
+                        )
+                        
+                        # Emit early widget creation event
+                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                        await self._emit_sse_event({
+                            "event": "widget.created",
+                            "data": {
+                                "agent_execution_id": self.current_execution.id,
+                                "seq": seq,
+                                "widget_id": str(self.current_widget.id),
+                                "step_id": str(self.current_step.id),
+                                "widget_title": widget_title,
+                                "data_model_type": data_model_type,
+                            }
+                        })
+                    elif self.current_step and data_model_type:
+                        # Just update the type if widget/step already exists
+                        current_data_model = getattr(self.current_step, "data_model", {}) or {}
+                        current_data_model["type"] = data_model_type
+                        await self.project_manager.update_step_with_data_model(
+                            self.db, self.current_step, current_data_model
+                        )
+                        if not self.current_step_id:
+                            self.current_step_id = str(self.current_step.id)
+                        
+                elif stage == "column_added":
+                    # Update current step's data model with new column
+                    column = payload.get("column", {})
+                    if self.current_step and column:
+                        current_data_model = getattr(self.current_step, "data_model", {}) or {}
+                        current_data_model.setdefault("columns", [])
+                        # Add column if not already present
+                        if not any(col.get("generated_column_name") == column.get("generated_column_name") 
+                                 for col in current_data_model["columns"]):
+                            current_data_model["columns"].append(column)
+                            await self.project_manager.update_step_with_data_model(
+                                self.db, self.current_step, current_data_model
+                            )
+                            
+                elif stage == "series_configured":
+                    # Update current step's data model with series
+                    series = payload.get("series", [])
+                    if self.current_step and series:
+                        current_data_model = getattr(self.current_step, "data_model", {}) or {}
+                        current_data_model["series"] = series
+                        await self.project_manager.update_step_with_data_model(
+                            self.db, self.current_step, current_data_model
+                        )
+                        
+                elif stage == "widget_creation_needed":
+                    # Update step with final complete data_model
+                    data_model = payload.get("data_model", {})
+                    
+                    if data_model and self.current_step:
+                        # Update step with final data_model
+                        await self.project_manager.update_step_with_data_model(
+                            self.db, self.current_step, data_model
+                        )
+                        
+                        # Emit data model completion event to UI
+                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                        await self._emit_sse_event({
+                            "event": "data_model.completed",
+                            "data": {
+                                "agent_execution_id": self.current_execution.id,
+                                "seq": seq,
+                                "widget_id": str(self.current_widget.id),
+                                "step_id": str(self.current_step.id),
+                                "data_model": data_model,
+                            }
+                        })
+                    
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error handling streaming event {stage} for {tool_name}: {e}")
+            # Don't re-raise; this is streaming and shouldn't break the main flow
+
+    async def _handle_tool_output(self, tool_name: str, tool_input: dict, observation: dict, tool_output: dict = None):
+        """Handle tool outputs and manage final state updates."""
+        if not observation or observation.get("error"):
+            return  # Don't process failed tool executions
+            
+        try:
+            if tool_name == "create_data_model":
+                # Widget/step creation already handled in streaming
+                # Refresh current_step from database to get updated data_model
+                if self.current_widget and self.current_step:
+                    await self.db.refresh(self.current_step)
+                    observation["widget_id"] = str(self.current_widget.id)
+                    observation["step_id"] = str(self.current_step.id)
+                    observation["data_model"] = getattr(self.current_step, "data_model", {})
+                    
+            elif tool_name == "modify_data_model":
+                # Update current step's data_model using tool_output
+                if tool_output:
+                    data_model = tool_output.get("data_model", {})
+                    
+                    if data_model and self.current_step:
+                        await self.project_manager.update_step_with_data_model(
+                            self.db, self.current_step, data_model
+                        )
+                    
+            elif tool_name == "create_and_execute_code":
+                # Update current step with code and data using tool_output
+                if not tool_output:
+                    return
+                    
+                code = tool_output.get("code", "")
+                widget_data = tool_output.get("widget_data", {})
+                success = tool_output.get("success", False)
+                
+                step_obj = None
+                if self.current_step_id:
+                    step_obj = await self.db.get(Step, self.current_step_id)
+                
+                if step_obj and success and widget_data:
+                    # Update step with code
+                    await self.project_manager.update_step_with_code(
+                        self.db, step_obj, code
+                    )
+                    # Update step with full data (not just preview)
+                    await self.project_manager.update_step_with_data(
+                        self.db, step_obj, widget_data
+                    )
+                    
+                    # Update step status
+                    await self.project_manager.update_step_status(
+                        self.db, step_obj, "success"
+                    )
+                    # Ensure observation carries ids for auditing/tracking
+                    if self.current_widget:
+                        observation["widget_id"] = str(self.current_widget.id)
+                    observation["step_id"] = self.current_step_id
+                    
+        except Exception as e:
+            # Import logging if not already available
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error handling tool output for {tool_name}: {e}")
+            # Don't re-raise; this is post-processing and shouldn't break the main flow

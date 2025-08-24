@@ -1,7 +1,14 @@
 from typing import Dict, Callable, List, Optional, Set
 from dataclasses import dataclass
 
-from app.ai.tools.implementations import AnswerQuestionTool, CreateWidgetTool, ReadFileTool
+from app.ai.tools.implementations import (
+    AnswerQuestionTool,
+    ClarifyTool,
+    CreateDataModelTool,
+    CreateAndExecuteCodeTool,
+    ModifyDataModelTool,
+    ReadFileTool,
+)
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.base import Tool
 
@@ -25,7 +32,10 @@ class ToolRegistry:
         
         # Pre-register common tools
         self.register(AnswerQuestionTool)
-        self.register(CreateWidgetTool)
+        self.register(ClarifyTool)
+        self.register(CreateDataModelTool)
+        self.register(CreateAndExecuteCodeTool)
+        self.register(ModifyDataModelTool)
         self.register(ReadFileTool)
 
     def register(self, tool_class: type[Tool]) -> None:

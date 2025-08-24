@@ -52,6 +52,7 @@ from app.models.agent_execution import AgentExecution
 from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
 from app.models.context_snapshot import ContextSnapshot
+from app.models.completion_block import CompletionBlock
 
 from app.settings.config import settings
 

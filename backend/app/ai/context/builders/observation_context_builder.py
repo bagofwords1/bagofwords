@@ -139,6 +139,19 @@ class ObservationContextBuilder:
             if observation and "summary" in observation:
                 lines.append(f"  <tool_execution tool=\"{tool_name}\">")
                 lines.append(f"    {observation['summary']}")
+                
+                # Include detailed error information if present
+                if "error" in observation:
+                    error = observation["error"]
+                    if "field_errors" in error:
+                        lines.append(f"    Field errors: {'; '.join(error['field_errors'])}")
+                    elif "message" in error:
+                        lines.append(f"    Error: {error['message']}")
+                    
+                    # Include suggestions if available
+                    if "suggestion" in error:
+                        lines.append(f"    Suggestion: {error['suggestion']}")
+                
                 lines.append(f"  </tool_execution>")
         
         # Include widget updates if any

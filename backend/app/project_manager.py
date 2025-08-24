@@ -18,6 +18,7 @@ from app.models.agent_execution import AgentExecution
 from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
 from app.models.context_snapshot import ContextSnapshot
+from app.models.completion_block import CompletionBlock
 
 class ProjectManager:
 
@@ -177,6 +178,13 @@ class ProjectManager:
     
     async def update_step_with_data(self, db, step, data):
         step.data = data
+        db.add(step)
+        await db.commit()
+        await db.refresh(step)
+        return step
+    
+    async def update_step_with_data_model(self, db, step, data_model):
+        step.data_model = data_model
         db.add(step)
         await db.commit()
         await db.refresh(step)
@@ -460,6 +468,20 @@ class ProjectManager:
     async def save_context_snapshot(self, db, agent_execution, kind, context_view_json, 
                                    prompt_text=None, prompt_tokens=None):
         """Save a context snapshot."""
+        import json
+        from datetime import datetime
+        
+        # Custom JSON encoder for datetime objects
+        def json_encoder(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
+        
+        # Ensure JSON serialization works by converting to string and back
+        if isinstance(context_view_json, dict):
+            json_str = json.dumps(context_view_json, default=json_encoder)
+            context_view_json = json.loads(json_str)
+        
         snapshot = ContextSnapshot(
             agent_execution_id=agent_execution.id,
             kind=kind,
@@ -495,3 +517,118 @@ class ProjectManager:
         await db.commit()
         await db.refresh(agent_execution)
         return agent_execution.latest_seq
+
+    # ==============================
+    # Completion Blocks (Timeline Projection)
+    # ==============================
+
+    async def upsert_block_for_decision(self, db, completion, agent_execution, plan_decision: PlanDecision):
+        """Create or update a render-ready block for a plan decision."""
+        # Determine ordering and presentation
+        block_index = int((plan_decision.seq or 0) * 10)
+        title = f"Planning ({plan_decision.plan_type or 'unknown'})"
+        status = 'completed' if plan_decision.analysis_complete else 'in_progress'
+        icon = '🧠'
+        content = plan_decision.assistant or plan_decision.final_answer or ''
+        reasoning = plan_decision.reasoning or None
+
+        # Try to find an existing block for this loop iteration
+        stmt = select(CompletionBlock).where(
+            CompletionBlock.agent_execution_id == agent_execution.id,
+            CompletionBlock.loop_index == plan_decision.loop_index,
+            CompletionBlock.source_type == 'decision',
+        )
+        existing = (await db.execute(stmt)).scalar_one_or_none()
+
+        if existing:
+            # Update existing block with latest decision info
+            existing.plan_decision_id = str(plan_decision.id)  # Update to latest decision ID
+            existing.block_index = block_index
+            existing.loop_index = plan_decision.loop_index
+            existing.title = title
+            existing.status = status
+            existing.icon = icon
+            existing.content = content
+            existing.reasoning = reasoning
+            if plan_decision.analysis_complete and not existing.completed_at:
+                existing.completed_at = datetime.datetime.utcnow()
+            db.add(existing)
+            await db.commit()
+            await db.refresh(existing)
+            return existing
+
+        block = CompletionBlock(
+            completion_id=str(completion.id),
+            agent_execution_id=str(agent_execution.id),
+            source_type='decision',
+            plan_decision_id=str(plan_decision.id),
+            tool_execution_id=None,
+            block_index=block_index,
+            loop_index=plan_decision.loop_index,
+            title=title,
+            status=status,
+            icon=icon,
+            content=content,
+            reasoning=reasoning,
+            started_at=plan_decision.created_at,
+            completed_at=plan_decision.updated_at if plan_decision.analysis_complete else None,
+        )
+        db.add(block)
+        await db.commit()
+        await db.refresh(block)
+        return block
+
+    async def upsert_block_for_tool(self, db, completion, agent_execution, tool_execution: ToolExecution):
+        """Update existing decision block with tool execution data."""
+        # Find the block for the related decision
+        if not tool_execution.plan_decision_id:
+            return None  # No decision to update
+            
+        # Find the decision block for this plan_decision_id to update with tool info
+        stmt = select(CompletionBlock).where(
+            CompletionBlock.agent_execution_id == agent_execution.id,
+            CompletionBlock.plan_decision_id == tool_execution.plan_decision_id,
+        )
+        existing = (await db.execute(stmt)).scalar_one_or_none()
+        
+        if not existing:
+            return None  # No decision block to update
+            
+        # Update block with tool execution info
+        existing.tool_execution_id = str(tool_execution.id)
+        existing.title = f"{existing.title.split(' →')[0]} → {tool_execution.tool_name}"
+        existing.status = tool_execution.status
+        existing.completed_at = tool_execution.completed_at
+        
+        db.add(existing)
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+
+    async def rebuild_completion_from_blocks(self, db, completion, agent_execution):
+        """Recompose transcript content/reasoning from stored blocks."""
+        stmt = select(CompletionBlock).where(
+            CompletionBlock.completion_id == completion.id
+        ).order_by(CompletionBlock.block_index)
+        blocks = (await db.execute(stmt)).scalars().all()
+
+        content_parts = []
+        reasoning_parts = []
+        for b in blocks:
+            if b.content:
+                status_suffix = ' ✓' if b.status == 'completed' else ' ⏳' if b.status == 'in_progress' else ' ✗'
+                content_parts.append(f"**{b.icon} {b.title}{status_suffix}**\n{b.content}")
+            if b.reasoning:
+                reasoning_parts.append(b.reasoning)
+
+        # Ensure dict
+        base = completion.completion if isinstance(completion.completion, dict) else {}
+        completion.completion = {
+            **base,
+            'content': '\n\n'.join(content_parts),
+            'reasoning': ' | '.join(reasoning_parts[-3:]) if reasoning_parts else base.get('reasoning') if isinstance(base, dict) else None,
+        }
+        db.add(completion)
+        await db.commit()
+        await db.refresh(completion)
+        return completion

@@ -6,6 +6,12 @@ class ToolDescriptor(BaseModel):
     name: str
     description: Optional[str] = None
     research_accessible: bool = False
+    schema: Optional[Dict[str, Any]] = None
+    category: Optional[str] = None
+    version: Optional[str] = None
+    max_retries: Optional[int] = None
+    timeout_seconds: Optional[int] = None
+    tags: Optional[List[str]] = None
 
 
 class TokenUsage(BaseModel):

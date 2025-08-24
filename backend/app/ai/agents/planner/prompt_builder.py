@@ -1,6 +1,7 @@
 import json
 from typing import List, Dict, Any
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
+from app.ai.tools import format_tool_schemas
 
 
 class PromptBuilder:
@@ -43,6 +44,16 @@ You are a planner. Decide ONE next action or give a final answer.
   <schemas>{planner_input.schemas_excerpt}</schemas>
   <history>{planner_input.history_summary}</history>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
+  <error_guidance>
+    CRITICAL ERROR HANDLING:
+    - If ANY tool execution errors occurred, MUST acknowledge them in reasoning_message
+    - Start reasoning_message with "I see the previous attempt failed: [specific error description]"
+    - Pay close attention to "Field errors" and validation failures - they specify exactly what's wrong
+    - When errors occur, first verify tool names and argument formats against schemas
+    - Attempt to fix issues based on error messages; if unsuccessful after 1-2 attempts, try alternative approaches
+    - If the same tool fails repeatedly (2+ times) or multiple approaches fail, set analysis_complete=true and provide final_answer explaining the failure
+    - Never ignore errors or repeat the exact same action that just failed without modifications
+  </error_guidance>
   <research_steps_taken>{research_step_count}</research_steps_taken>
 </context>
 
@@ -68,11 +79,15 @@ AVAILABLE TOOLS:
 <research_tools>{research_tools_json}</research_tools>
 <action_tools>{action_tools_json}</action_tools>
 
+TOOL SCHEMAS (follow exactly):
+{format_tool_schemas(planner_input.tool_catalog)}
+
 DECISION RULES:
 1. If research_steps_taken >= 3, you MUST use "action" (no more research)
 2. If last_observation indicates success/completion, prefer "action"  
 3. If schemas_excerpt is empty/insufficient, prefer "research" first
 4. Choose plan_type based on information sufficiency, if more information is needed, use research tools first
+5. If user request is ambiguous, set analysis_complete=true and provide final_answer with specific clarifying questions. Don't use tools for simple clarification.
 
 Output rules:
 - JSON ONLY, no markdown.
@@ -80,6 +95,7 @@ Output rules:
 - assistant_message: brief user-facing message about your next step
 - If answerable from context, set analysis_complete=true and provide final_answer
 - Tool choice must match plan_type: research tools for "research", action tools for "action"
+- For goals that ask to create or show a list/table/chart from available schemas, prefer the action tool "create_widget" instead of returning a final answer.
 
 
 Expected JSON, strict:
@@ -91,7 +107,7 @@ Expected JSON, strict:
   "action": {{
     "type": "tool_call",
     "name": string,
-    "arguments": object
+    "arguments": object  // Must match the tool's schema exactly
   }} | null,
   "final_answer": string | null
 }}
@@ -110,3 +126,4 @@ Expected JSON, strict:
             count += history_summary.lower().count(keyword)
         
         return min(count, 5)  # Cap at 5 for safety
+

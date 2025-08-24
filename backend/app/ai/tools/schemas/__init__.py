@@ -1,6 +1,9 @@
 # Tool schemas - centralized contract definitions
 from .answer_question import AnswerQuestionInput, AnswerQuestionOutput
-from .create_widget import CreateWidgetInput, CreateWidgetOutput
+from .create_data_model import CreateDataModelInput, CreateDataModelOutput, DataModel, DataModelColumn, SeriesBarLinePieArea, SeriesCandlestick, SeriesHeatmap, SeriesScatter, SeriesMap, SeriesTreemap, SeriesRadar, SortSpec
+from .create_and_execute_code import CreateAndExecuteCodeInput, CreateAndExecuteCodeOutput
+from .modify_data_model import ModifyDataModelInput, ModifyDataModelOutput
+from .clarify import ClarifyInput, ClarifyOutput
 from .read_file import ReadFileInput, ReadFileOutput
 from .events import (
     ToolEvent,
@@ -14,9 +17,15 @@ from .events import (
 
 __all__ = [
     "AnswerQuestionInput",
-    "AnswerQuestionOutput", 
-    "CreateWidgetInput",
-    "CreateWidgetOutput",
+    "AnswerQuestionOutput",
+    "CreateDataModelInput",
+    "CreateDataModelOutput",
+    "CreateAndExecuteCodeInput",
+    "CreateAndExecuteCodeOutput",
+    "ModifyDataModelInput",
+    "ModifyDataModelOutput", 
+    "ClarifyInput",
+    "ClarifyOutput", 
     "ReadFileInput",
     "ReadFileOutput",
     "ToolEvent",
