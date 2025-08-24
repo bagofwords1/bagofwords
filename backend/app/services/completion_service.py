@@ -211,6 +211,7 @@ class CompletionService:
 
                             agent = Agent(
                                 db=session,
+                                organization=organization,
                                 organization_settings=org_settings,
                                 model=default_model,
                                 report=report_obj,

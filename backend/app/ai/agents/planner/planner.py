@@ -6,6 +6,7 @@ import json
 from partialjson.json_parser import JSONParser
 from app.ai.context.instruction_context_builder import InstructionContextBuilder
 from datetime import datetime
+import re
 
 
 class Planner:
@@ -37,9 +38,6 @@ class Planner:
     async def execute(self, schemas, persona, prompt, memories, previous_messages,
                       observation_data=None, widget=None, step=None,
                       external_platform=None, sigkill_event=None):
-        # --------------------------------------------------------------
-        # NEW – fetch organization-wide instructions once at the top
-        # --------------------------------------------------------------
         instructions_context = await self.instruction_context_builder.get_instructions_context()
         
         # Generate observation context if observation_data is provided
@@ -174,7 +172,6 @@ class Planner:
         }}"""
 
         parser = JSONParser()
-
         text = f"""
         You are a data analyst specializing in data analytics, data engineering, data visualization, and data science.
 
@@ -290,7 +287,8 @@ class Planner:
                  - "data_model": A dictionary describing how to query and present the data.
                      - "type": The type of response ("table", "bar_chart", "line_chart", "pie_chart", "area_chart", "count", "heatmap", "map", "candlestick", "treemap", "radar_chart", etc.)
                      - "columns": A list of columns in the data model. Each column is a dictionary with:
-                       "generated_column_name", "source", and "description".
+                       "generated_column_name", "source", and "description". You may also include an
+                       "source_data_source_id" to indicate which data source this column comes from (should come from context).
                     - For charts, include "series": a list where each item specifies configuration:
                        * For most charts (bar, line, pie, area, etc.): Include "name", "key" (for categories/labels), and "value" (for numerical values).
                        * **For "candlestick" charts**: Include "name", "key" (for date/time axis), "open", "close", "low", and "high" mapping to the respective data columns.
@@ -305,9 +303,11 @@ class Planner:
                    - If changing or adding series (for charts), include "series".
                  - "remove_columns": A list of column names to remove.
                  - "add_columns": A list of new columns to add. Each column is a dictionary:
-                     - "generated_column_name", "source", and "description".
+                     - "generated_column_name", "source", and "description". You may also include
+                       "source_data_source_id" to indicate which data source this column comes from (should come from context).
                  - "transform_columns": A list of columns to transform. Each column is a dictionary:
-                     - "generated_column_name", "source", and "description".
+                     - "generated_column_name", "source", and "description". You may also include
+                       "source_data_source_id" to indicate which data source this column comes from (should come from context).
                  * Only include "data_model" or "series" if you intend to modify them. If not needed, omit them.
                * For "design_dashboard":
                  - Include details if needed. This should typically assemble multiple widgets.
@@ -374,12 +374,14 @@ class Planner:
                                 {{
                                     "generated_column_name": "month",
                                     "source": "mydb.sales.month",
-                                    "description": "Month of the sale as a string."
+                                    "description": "Month of the sale as a string.",
+                                    "source_data_source_id": "fe71f416-f30a-478d-9890-b5d3c56561de"
                                 }},
                                 {{
                                     "generated_column_name": "total_revenue",
                                     "source": "mydb.sales.amount",
-                                    "description": "Sum of sales amounts per month."
+                                    "description": "Sum of sales amounts per month.",
+                                    "source_data_source_id": "fe71f416-f30a-478d-9890-b5d3c56561de"
                                 }}
                             ],
                             "series": [
@@ -411,14 +413,16 @@ class Planner:
                             {{
                                 "generated_column_name": "new_column_name", 
                                 "source": "mydb.sales.new_column", 
-                                "description": "New column description."
+                                "description": "New column description.",
+                                "source_data_source_id": "fe71f416-f30a-478d-9890-b5d3c56561de"
                             }}
                         ],
                         "transform_columns": [
                             {{
                                 "generated_column_name": "transformed_column_name", 
                                 "source": "mydb.sales.transformed_column", 
-                                "description": "Transformed column description."
+                                "description": "Transformed column description.",
+                                "source_data_source_id": "fe71f416-f30a-478d-9890-b5d3c56561de"
                             }}
                         ],
                         "data_model": {{
@@ -602,18 +606,19 @@ class Planner:
                             if "type" in data_model:
                                 current_details["data_model"]["type"] = data_model["type"]
 
-                            # Process columns
+                            # Process columns (preserve optional source_data_source_id if provided)
                             if "columns" in data_model and isinstance(data_model["columns"], list):
                                 for column in data_model["columns"]:
                                     if not isinstance(column, dict):
                                         continue
 
-                                    # Check if column is complete and not duplicate
+                                    # Check if column is complete and not duplicate (UUID required)
                                     is_complete = (
-                                        all(key in column for key in ['generated_column_name', 'source', 'description']) and
+                                        all(key in column for key in ['generated_column_name', 'source', 'description', 'source_data_source_id']) and
                                         isinstance(column['description'], str) and
                                         len(column['description'].strip()) > 0 and
                                         column['description'].strip().endswith('.') and
+                                        re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", (column.get('source_data_source_id') or '')) is not None and
                                         not any(
                                             existing['generated_column_name'] == column['generated_column_name']
                                             for existing in current_details["data_model"]["columns"]
@@ -621,6 +626,7 @@ class Planner:
                                     )
 
                                     if is_complete:
+                                        # Append full column dict as-is to keep optional fields
                                         current_details["data_model"]["columns"].append(column)
                                         yield current_plan
 
@@ -675,7 +681,7 @@ class Planner:
                                 # Update type if provided
                                 if "type" in data_model:
                                     current_details["data_model"]["type"] = data_model["type"]
-                                
+
                                 # Update series if provided
                                 if "series" in data_model and isinstance(data_model["series"], list):
                                     series_complete = all(
@@ -714,6 +720,7 @@ class Planner:
                                     )
 
                                     if is_complete:
+                                        # Preserve optional source_data_source_id
                                         current_details["add_columns"].append(column)
                                         yield current_plan
 
@@ -738,6 +745,7 @@ class Planner:
                                     )
 
                                     if is_complete:
+                                        # Preserve optional source_data_source_id
                                         current_details["transform_columns"].append(column)
                                         yield current_plan
 

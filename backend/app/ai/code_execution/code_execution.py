@@ -7,6 +7,7 @@ import uuid
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+from app.ai.context.code_context_builder import CodeContextBuilder
 
 class CodeExecutionManager:
     """
@@ -50,6 +51,7 @@ class CodeExecutionManager:
                                          max_retries: int = 3,
                                          db_clients: Dict = None, 
                                          excel_files: List = None,
+                                         code_context_builder: CodeContextBuilder = None,
                                          step=None,  # Optional override for current step
                                          sigkill_event=None,
                                          **generator_kwargs) -> Tuple[pd.DataFrame, str, List]:
@@ -93,6 +95,7 @@ class CodeExecutionManager:
                     code_and_error_messages=code_and_error_messages,
                     retries=retries,
                     excel_files=excel_files,
+                    code_context_builder=code_context_builder,
                     **generator_kwargs
                 )
 

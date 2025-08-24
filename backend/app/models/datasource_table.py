@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, JSON, Integer
+from sqlalchemy import Column, String, ForeignKey, JSON, Integer, Float, DateTime
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey as PromptForeignKey
@@ -16,6 +16,14 @@ class DataSourceTable(BaseSchema):
     fks = Column(JSON, nullable=False)
 
     is_active = Column(Boolean, nullable=False, default=True)
+
+    # Topology and richness metrics (computed on schema refresh)
+    centrality_score = Column(Float, nullable=True)
+    richness = Column(Float, nullable=True)
+    degree_in = Column(Integer, nullable=True)
+    degree_out = Column(Integer, nullable=True)
+    entity_like = Column(Boolean, nullable=True)
+    metrics_computed_at = Column(DateTime, nullable=True)
 
     datasource = relationship("DataSource", back_populates="tables")
 

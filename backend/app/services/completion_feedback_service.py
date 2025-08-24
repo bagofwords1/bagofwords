@@ -13,10 +13,58 @@ from app.schemas.completion_feedback_schema import (
     CompletionFeedbackSchema,
     CompletionFeedbackSummary
 )
+from app.services.table_usage_service import TableUsageService
+from app.schemas.table_usage_schema import TableFeedbackEventCreate
+from app.utils.lineage import extract_tables_from_data_model
 
 
 class CompletionFeedbackService:
     
+    def __init__(self):
+        self.table_usage_service = TableUsageService()
+
+    async def _emit_table_feedback(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        completion: Completion,
+        feedback: CompletionFeedback,
+        user: Optional[User]
+    ) -> None:
+        try:
+            step = completion.step
+            if not (step and isinstance(step.data_model, dict)):
+                return
+            # Derive one feedback event per table using per-column source_data_source_id
+            lineage_entries = await extract_tables_from_data_model(db, step.data_model, [])
+            if not lineage_entries:
+                return
+            direction = 'positive' if feedback.direction == 1 else 'negative'
+            for entry in lineage_entries:
+                ds_id = entry.get('datasource_id')
+                table_name = entry.get('table_name')
+                if not ds_id or not table_name:
+                    continue
+                table_fqn = table_name.lower()
+                payload = TableFeedbackEventCreate(
+                    org_id=str(organization.id),
+                    report_id=str(completion.report_id) if completion.report_id else None,
+                    data_source_id=ds_id,
+                    step_id=str(step.id),
+                    completion_feedback_id=str(feedback.id),
+                    table_fqn=table_fqn,
+                    datasource_table_id=entry.get('datasource_table_id'),
+                    feedback_type=direction,
+                )
+                await self.table_usage_service.record_feedback_event(
+                    db=db,
+                    payload=payload,
+                    user_role=getattr(user, 'role', None)
+                )
+        except Exception:
+            # Never block on attribution failures
+            return
+
     async def create_or_update_feedback(
         self, 
         db: AsyncSession, 
@@ -68,6 +116,9 @@ class CompletionFeedbackService:
             db.add(feedback)
             await db.commit()
             await db.refresh(feedback)
+
+            # Emit table feedback events attributed to the completion's step lineage if available
+            await self._emit_table_feedback(db, organization, completion, feedback, user)
 
             return CompletionFeedbackSchema.from_orm(feedback)
     
@@ -162,7 +213,7 @@ class CompletionFeedbackService:
         # Verify completion exists and belongs to organization
         completion_stmt = select(Completion).where(
             Completion.id == completion_id,
-            Completion.report.has(organization_id=organization.id)
+            Completion.report.has(organization_id == organization.id)
         )
         completion_result = await db.execute(completion_stmt)
         completion = completion_result.scalar_one_or_none()

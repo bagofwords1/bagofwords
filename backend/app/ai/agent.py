@@ -28,6 +28,7 @@ from app.ai.agents.reporter.reporter import Reporter
 from app.ai.agents.judge import Judge
 
 from app.ai.context.instruction_context_builder import InstructionContextBuilder
+from app.ai.context.code_context_builder import CodeContextBuilder
 
 from sqlalchemy import select
 
@@ -36,14 +37,16 @@ logger = get_logger("app.agent")
 
 from app.ai.code_execution.code_execution import CodeExecutionManager
 from app.websocket_manager import websocket_manager
+from app.services.table_usage_service import TableUsageService
+from app.schemas.table_usage_schema import TableUsageEventCreate
+from app.utils.lineage import extract_tables_from_data_model
 
 class SigkillException(Exception):
     pass
 
 class Agent:
 
-    def __init__(self, db=None, organization_settings=None, report=None, model=None, head_completion=None, system_completion=None, widget=None, step=None, messages=[], main_router="table"):
-
+    def __init__(self, db=None, organization=None, organization_settings=None, report=None, model=None, head_completion=None, system_completion=None, widget=None, step=None, messages=[], main_router="table"):
 
         if db:
             self.db = db
@@ -59,7 +62,11 @@ class Agent:
         self.system_completion = system_completion  # Store the initial system completion
         self.external_platform = None
         self.external_user_id = None
-        self.instruction_context_builder = InstructionContextBuilder(self.db)
+        
+        self.organization = organization
+        self.instruction_context_builder = InstructionContextBuilder(self.db, self.organization)
+        self.code_context_builder = CodeContextBuilder(self.db, self.organization)
+
         if head_completion:
             self.head_completion = head_completion
             self.external_platform = head_completion.external_platform
@@ -101,6 +108,7 @@ class Agent:
             step=self.step,
             organization_settings=self.organization_settings
         )
+        self.table_usage_service = TableUsageService()
 
         # Add event queue for sigkill detection
         self.sigkill_event = asyncio.Event()
@@ -828,7 +836,8 @@ class Agent:
                 memories=memories,
                 previous_messages=previous_messages,
                 prev_data_model_code_pair=None,
-                sigkill_event=self.sigkill_event
+                sigkill_event=self.sigkill_event,
+                code_context_builder=self.code_context_builder
             )
 
             await self.project_manager.update_step_with_code(self.db, step, final_code)
@@ -868,6 +877,15 @@ class Agent:
             widget_data = self.code_execution_manager.format_df_for_widget(df)
             
             await self.project_manager.update_step_with_data(self.db, step, widget_data)
+            await self.project_manager.emit_table_usage(
+                db=self.db,
+                report=self.report,
+                step=step,
+                data_model=data_model,
+                user_id=getattr(self.head_completion, 'user_id', None),
+                user_role=None,
+                source_type="sql",
+            )
             
             return True
 
@@ -960,14 +978,23 @@ class Agent:
         widget_data = self.code_execution_manager.format_df_for_widget(df)
         await self.project_manager.update_step_with_code(self.db, step, final_code)
         await self.project_manager.update_step_with_data(self.db, step, widget_data)
+        await self.project_manager.emit_table_usage(
+            db=self.db,
+            report=self.report,
+            step=step,
+            data_model=updated_data_model,
+            user_id=getattr(self.head_completion, 'user_id', None),
+            user_role=None,
+            source_type="sql",
+        )
         
         return True
 
     async def _build_schemas_context(self):
         context = []
         for data_source in self.data_sources:
-            context.append(f"<data_source>: {data_source.name}</data_source>\n<data_source_type>: {data_source.type}</data_source_type>\n\n<schema>:")
-            context.append(await data_source.prompt_schema(self.db, self.head_completion.prompt))
+            context.append(f"<data_source>: {data_source.name}</data_source>\n<data_source_type>: {data_source.type}</data_source_type>\n<data_source_id>: {data_source.id}</data_source_id>\n\n<schema>:")
+            context.append(await data_source.prompt_schema(self.db, self.head_completion.prompt, with_stats=True))
             context.append("</schema>\n")
             context.append(f"<data_source_context>: \n Use this context as business context and rules for the data source\n{data_source.context}\n</data_source_context>")
         
@@ -1255,3 +1282,15 @@ class Agent:
 
 
         return observation_data
+
+    async def _emit_table_usage(self, step: Step, data_model: dict):
+        # Deprecated: use ProjectManager.emit_table_usage instead
+        await self.project_manager.emit_table_usage(
+            db=self.db,
+            report=self.report,
+            step=step,
+            data_model=data_model,
+            user_id=getattr(self.head_completion, 'user_id', None),
+            user_role=None,
+            source_type="sql",
+        )
