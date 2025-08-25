@@ -209,7 +209,7 @@ class FileService:
         content = da.get_content()
 
         tags = []   
-        tokenizer = tiktoken.encoding_for_model("gpt-4o")
+        tokenizer = tiktoken.get_encoding("cl100k_base")
 
         tokens = tokenizer.encode(content)
         chunk_size = 100000

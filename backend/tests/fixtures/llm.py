@@ -1,6 +1,49 @@
 import pytest
 import os
 
+
+@pytest.fixture
+def create_azure_provider_and_models(test_client):
+    def _create_azure_provider_and_models(user_token=None, org_id=None, base_url=None):
+        azure_api_key = os.getenv("AZURE_API_KEY_TEST", "")
+        azure_endpoint = os.getenv("AZURE_ENDPOINT_TEST", "")
+
+        if not azure_api_key:
+            pytest.skip("AZURE_API_KEY_TEST is not set")
+
+        if not azure_endpoint:
+            pytest.skip("AZURE_ENDPOINT_TEST is not set")
+        headers = {}
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+        if org_id:
+            headers["X-Organization-Id"] = str(org_id)
+
+        credentials = {
+            "api_key": str(azure_api_key),
+            "endpoint_url": azure_endpoint
+        }
+        
+        response = test_client.post(
+            "/api/llm/providers",
+            json={"name": 'azure provider',
+                   "provider_type": "azure",
+                   "credentials": credentials,
+                   "models": [
+                    {
+                        "model_id": "gpt-4.1",
+                        "name": "GPT-4.1",
+                        "is_custom": False,
+                        "is_default": True
+                    }
+                   ]},
+            headers=headers
+        )
+        return response.json()
+    
+    return _create_azure_provider_and_models
+
+
 @pytest.fixture
 def create_llm_provider_and_models(test_client):
     def _create_llm_provider_and_models(user_token=None, org_id=None, base_url=None):
