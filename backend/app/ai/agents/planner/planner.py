@@ -500,7 +500,7 @@ class Planner:
             ]
         }
         """
-
+        breakpoint()
         # Add examples to the prompt
         text += "\n" + example_complete_analysis + "\n" + example_continue_analysis
         # Count tokens in the prompt

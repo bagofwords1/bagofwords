@@ -240,6 +240,7 @@ class DataSource(BaseSchema):
         
         tables = []
         # Prepare stats if requested
+        breakpoint()
         stats_map = {}
         if with_stats and organization is not None:
             from app.models.table_stats import TableStats
