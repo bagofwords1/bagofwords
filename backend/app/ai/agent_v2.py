@@ -8,6 +8,8 @@ from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
+from app.schemas.sse_schema import SSEEvent
+from app.streaming.completion_stream import CompletionEventQueue
 from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
@@ -19,7 +21,7 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None):
+                 model=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None):
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
@@ -43,6 +45,9 @@ class AgentV2:
 
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
+        
+        # SSE event queue for streaming
+        self.event_queue = event_queue
         
         # Agent execution tracking
         self.project_manager = ProjectManager()
@@ -193,15 +198,16 @@ class AgentV2:
                     invalid_retry_count += 1
                     try:
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event({
-                            "event": "planner.retry",
-                            "data": {
-                                "agent_execution_id": self.current_execution.id,
-                                "seq": seq,
+                        await self._emit_sse_event(SSEEvent(
+                            event="planner.retry",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq,
+                            data={
                                 "reason": "input_validation_error",
                                 "attempt": invalid_retry_count,
                             }
-                        })
+                        ))
                     except Exception:
                         pass
                     # Retry next loop iteration
@@ -236,17 +242,18 @@ class AgentV2:
                             pass
                         
                         # Emit SSE event
-                        await self._emit_sse_event({
-                            "event": "decision.partial",
-                            "data": {
-                                "agent_execution_id": self.current_execution.id,
-                                "seq": seq,
+                        await self._emit_sse_event(SSEEvent(
+                            event="decision.partial",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq,
+                            data={
                                 "plan_type": decision.plan_type,
                                 "reasoning": decision.reasoning_message,
                                 "assistant": decision.assistant_message,
                                 "action": decision.action.model_dump() if decision.action else None,
                             }
-                        })
+                        ))
                     
                     elif evt.type == "planner.decision.final":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
@@ -270,15 +277,16 @@ class AgentV2:
                             # Emit retry event
                             try:
                                 seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event({
-                                    "event": "planner.retry",
-                                    "data": {
-                                        "agent_execution_id": self.current_execution.id,
-                                        "seq": seq,
+                                await self._emit_sse_event(SSEEvent(
+                                    event="planner.retry",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={
                                         "reason": "invalid_output",
                                         "attempt": invalid_retry_count,
                                     }
-                                })
+                                ))
                             except Exception:
                                 pass
                             # Stop streaming loop; outer loop will attempt again
@@ -303,16 +311,17 @@ class AgentV2:
                             pass
                         
                         # Emit SSE event
-                        await self._emit_sse_event({
-                            "event": "decision.final",
-                            "data": {
-                                "agent_execution_id": self.current_execution.id,
-                                "seq": seq,
+                        await self._emit_sse_event(SSEEvent(
+                            event="decision.final",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq,
+                            data={
                                 "analysis_complete": decision.analysis_complete,
                                 "final_answer": decision.final_answer,
                                 "metrics": decision.metrics.model_dump() if decision.metrics else None,
                             }
-                        })
+                        ))
                         
                         if decision.analysis_complete:
                             # Final answer path
@@ -333,15 +342,16 @@ class AgentV2:
                             # Emit retry event
                             try:
                                 seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event({
-                                    "event": "planner.retry",
-                                    "data": {
-                                        "agent_execution_id": self.current_execution.id,
-                                        "seq": seq,
+                                await self._emit_sse_event(SSEEvent(
+                                    event="planner.retry",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={
                                         "reason": "missing_action",
                                         "attempt": invalid_retry_count,
                                     }
-                                })
+                                ))
                             except Exception:
                                 pass
                             # End streaming loop so outer loop can retry
@@ -378,15 +388,16 @@ class AgentV2:
                         
                         # Emit tool start event
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event({
-                            "event": "tool.started",
-                            "data": {
-                                "agent_execution_id": self.current_execution.id,
-                                "seq": seq,
+                        await self._emit_sse_event(SSEEvent(
+                            event="tool.started",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq,
+                            data={
                                 "tool_name": tool_name,
                                 "arguments": tool_input,
                             }
-                        })
+                        ))
                         
                         # RUN TOOL with enhanced context tracking
                         runtime_ctx = {
@@ -421,15 +432,16 @@ class AgentV2:
                             # Forward tool events to UI and persist important ones
                             if ev.get("type") in ["tool.progress", "tool.error"]:
                                 seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event({
-                                    "event": ev.get("type", "tool.progress"),
-                                    "data": {
-                                        "agent_execution_id": self.current_execution.id,
-                                        "seq": seq,
+                                await self._emit_sse_event(SSEEvent(
+                                    event=ev.get("type", "tool.progress"),
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={
                                         "tool_name": tool_name,
                                         "payload": ev.get("payload", {}),
                                     }
-                                })
+                                ))
 
                         tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
                         
@@ -524,18 +536,19 @@ class AgentV2:
                         
                         # Emit tool finished event
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event({
-                            "event": "tool.finished",
-                            "data": {
-                                "agent_execution_id": self.current_execution.id,
-                                "seq": seq,
+                        await self._emit_sse_event(SSEEvent(
+                            event="tool.finished",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq,
+                            data={
                                 "tool_name": tool_name,
                                 "status": "success" if observation and not observation.get("error") else "error",
                                 "result_summary": observation.get("summary", "") if observation else "",
                                 "created_widget_id": created_widget_id,
                                 "created_step_id": created_step_id,
                             }
-                        })
+                        ))
                         
                         # Track tool execution in observation builder
                         self.context_hub.observation_builder.add_tool_observation(tool_name, tool_input, observation)
@@ -591,15 +604,25 @@ class AgentV2:
             except Exception:
                 pass
 
-    async def _emit_sse_event(self, event_data: dict):
-        """Emit SSE event via websocket manager."""
+    async def _emit_sse_event(self, event: SSEEvent):
+        """Emit SSE event via event queue and optionally websocket."""
         try:
+            # Add to streaming queue for new streaming API
+            if self.event_queue:
+                await self.event_queue.put(event)
+            
+            # Keep existing websocket broadcasting for backward compatibility
             if self.report:
-                event_data["report_id"] = str(self.report.id)
+                legacy_event_data = {
+                    "event": event.event,
+                    "data": event.data,
+                    "report_id": str(self.report.id)
+                }
                 await websocket_manager.broadcast_to_report(
                     str(self.report.id), 
-                    json.dumps(event_data)
+                    json.dumps(legacy_event_data)
                 )
+                
         except Exception as e:
             print(f"Error emitting SSE event: {e}")
 
@@ -654,17 +677,18 @@ class AgentV2:
                         
                         # Emit early widget creation event
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event({
-                            "event": "widget.created",
-                            "data": {
-                                "agent_execution_id": self.current_execution.id,
-                                "seq": seq,
+                        await self._emit_sse_event(SSEEvent(
+                            event="widget.created",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq,
+                            data={
                                 "widget_id": str(self.current_widget.id),
                                 "step_id": str(self.current_step.id),
                                 "widget_title": widget_title,
                                 "data_model_type": data_model_type,
                             }
-                        })
+                        ))
                     elif self.current_step and data_model_type:
                         # Just update the type if widget/step already exists
                         current_data_model = getattr(self.current_step, "data_model", {}) or {}
@@ -711,16 +735,17 @@ class AgentV2:
                         
                         # Emit data model completion event to UI
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event({
-                            "event": "data_model.completed",
-                            "data": {
-                                "agent_execution_id": self.current_execution.id,
-                                "seq": seq,
+                        await self._emit_sse_event(SSEEvent(
+                            event="data_model.completed",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq,
+                            data={
                                 "widget_id": str(self.current_widget.id),
                                 "step_id": str(self.current_step.id),
                                 "data_model": data_model,
                             }
-                        })
+                        ))
                     
         except Exception as e:
             import logging

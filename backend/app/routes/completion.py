@@ -4,6 +4,8 @@ from typing import Optional
 from app.dependencies import get_db
 from app.services.completion_service import CompletionService
 from app.schemas.completion_schema import CompletionCreate
+from app.schemas.sse_schema import SSEEvent, format_sse_event
+from app.streaming.completion_stream import CompletionEventQueue
 from app.websocket_manager import websocket_manager
 from app.models.user import User
 from app.core.auth import current_user
@@ -43,6 +45,24 @@ async def create_completion(
         background=background
     )
 
+@router.post("/api/reports/{report_id}/completions/stream")
+@requires_permission('create_reports')
+async def create_completion_stream(
+    report_id: str,
+    completion: CompletionCreate,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Create a completion with real-time streaming events via SSE."""
+    return await completion_service.create_completion_stream(
+        db,
+        report_id,
+        completion,
+        current_user,
+        organization
+    )
+
 @router.get("/api/reports/{report_id}/completions")
 @requires_permission('view_reports', model=Report)
 async def get_completions(report_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
@@ -77,6 +97,24 @@ async def websocket_endpoint(websocket: WebSocket, report_id: str):
 @router.get("/api/completions/{completion_id}/plans")
 async def get_completion_plans(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.get_completion_plans(db, current_user, organization, completion_id)
+
+
+@router.get("/api/reports/{report_id}/completions.v2")
+@requires_permission('view_reports', model=Report)
+async def get_completions_v2(
+    report_id: str,
+    limit: int = 10,
+    before: str | None = None,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """New UI-focused completions response with ordered blocks and artifacts.
+
+    - limit: last N completions (user+system), default 10
+    - before: ISO datetime cursor to fetch items strictly before it
+    """
+    return await completion_service.get_completions_v2(db, report_id, organization, current_user, limit=limit, before=before)
 
 @requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/sigkill")
