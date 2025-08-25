@@ -242,6 +242,7 @@ class CompletionService:
                     # Setup agent for foreground execution
                     agent = AgentV2(
                         db=db,
+                        organization=organization,
                         organization_settings=org_settings,
                         model=default_model,
                         report=report,

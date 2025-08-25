@@ -240,11 +240,10 @@ class DataSource(BaseSchema):
         tables = []
         # Prepare stats if requested
         stats_map = {}
-        if with_stats and organization is not None:
+        if with_stats:
             from app.models.table_stats import TableStats
             stats_rows = await session.execute(
                 select(TableStats).where(
-                    TableStats.org_id == organization.id,
                     TableStats.report_id == None,
                     TableStats.data_source_id == self.id,
                 )
@@ -268,14 +267,9 @@ class DataSource(BaseSchema):
                 columns=columns,
                 pks=table.pks,
                 fks=table.fks,
-                is_active=table.is_active,
-                centrality_score=table.centrality_score,
-                richness=table.richness,
-                degree_in=table.degree_in,
-                degree_out=table.degree_out,
-                entity_like=table.entity_like,
+                is_active=table.is_active
             )
-            if with_stats and organization is not None:
+            if with_stats:
                 key = (table.name or '').lower()
                 s = stats_map.get(key)
                 # Compute simple score and attach stats if present
@@ -319,7 +313,7 @@ class DataSource(BaseSchema):
             else:
                 tables.append(tbl)
 
-        if with_stats and organization is not None:
+        if with_stats:
             scored.sort(key=lambda x: x[0], reverse=True)
             tables = [t for (_, t) in scored]
             if top_k is not None and top_k > 0:
@@ -327,7 +321,7 @@ class DataSource(BaseSchema):
             
         return tables
 
-    async def prompt_schema(self, db: AsyncSession = None, prompt_content = None, with_stats: bool = False, organization: Organization | None = None, top_k: int | None = None) -> str:
+    async def prompt_schema(self, db: AsyncSession = None, prompt_content = None, with_stats: bool = False, top_k: int | None = None) -> str:
         """
         Get the database schema information using TableFormatter.
         Returns a formatted string suitable for prompts.
@@ -336,7 +330,7 @@ class DataSource(BaseSchema):
         """
         from app.ai.prompt_formatters import TableFormatter
         # Pass the session to get_schemas
-        tables = await self.get_schemas(db=db, with_stats=with_stats, organization=organization, top_k=top_k)
+        tables = await self.get_schemas(db=db, with_stats=with_stats, top_k=top_k)
         schema_str = TableFormatter(tables).table_str
         
         resource_context = await self.get_resources(db, prompt_content)
