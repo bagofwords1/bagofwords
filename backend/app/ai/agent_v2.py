@@ -9,6 +9,8 @@ from app.ai.context.builders.observation_context_builder import ObservationConte
 from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
+from app.serializers.completion_v2 import serialize_block_v2
+from app.schemas.completion_v2_schema import ArtifactChangeSchema, BlockTextDeltaSchema
 from app.streaming.completion_stream import CompletionEventQueue
 from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
@@ -58,6 +60,9 @@ class AgentV2:
         self.current_step = None
         self.current_step_id = None
         self.current_widget_title = None  # Store widget title for progressive creation
+
+        # Streaming text state per block_id
+        self._block_text_cache: dict[str, dict[str, str]] = {}
 
         # Initialize ContextHub for centralized context management
         self.context_hub = ContextHub(
@@ -236,8 +241,55 @@ class AgentV2:
                         )
                         # Upsert completion block for decision and rebuild transcript
                         try:
-                            await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
+                            block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
                             await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                            # Emit a v2-shaped block snapshot
+                            try:
+                                block_schema = await serialize_block_v2(self.db, block)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.upsert",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={"block": block_schema.model_dump()}
+                                ))
+                                # Emit text deltas for reasoning/content
+                                try:
+                                    cache = self._block_text_cache.get(str(block.id), {"reasoning": "", "content": ""})
+                                    new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
+                                    new_content = getattr(current_plan_decision, "assistant", None) or ""
+                                    if new_reasoning and new_reasoning.startswith(cache.get("reasoning", "")):
+                                        delta = new_reasoning[len(cache.get("reasoning", "")) :]
+                                    else:
+                                        delta = new_reasoning
+                                    if delta:
+                                        delta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="reasoning", text=delta)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="block.delta.text",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=seq,
+                                            data=delta_schema.model_dump()
+                                        ))
+                                    if new_content and new_content.startswith(cache.get("content", "")):
+                                        cdelta = new_content[len(cache.get("content", "")) :]
+                                    else:
+                                        cdelta = new_content
+                                    if cdelta:
+                                        delta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="content", text=cdelta)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="block.delta.text",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=seq,
+                                            data=delta_schema.model_dump()
+                                        ))
+                                    # Update cache
+                                    self._block_text_cache[str(block.id)] = {"reasoning": new_reasoning, "content": new_content}
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
                         except Exception:
                             pass
                         
@@ -305,8 +357,57 @@ class AgentV2:
                         )
                         # Upsert completion block for decision and rebuild transcript
                         try:
-                            await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
+                            block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
                             await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                            # Emit a v2-shaped block snapshot
+                            try:
+                                block_schema = await serialize_block_v2(self.db, block)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.upsert",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={"block": block_schema.model_dump()}
+                                ))
+                                # Emit any remaining text delta to finalize fields
+                                try:
+                                    cache = self._block_text_cache.get(str(block.id), {"reasoning": "", "content": ""})
+                                    new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
+                                    new_content = getattr(current_plan_decision, "assistant", None) or ""
+                                    if new_reasoning != cache.get("reasoning", ""):
+                                        # send only the new suffix when possible
+                                        if new_reasoning.startswith(cache.get("reasoning", "")):
+                                            delta = new_reasoning[len(cache.get("reasoning", "")) :]
+                                        else:
+                                            delta = new_reasoning
+                                        if delta:
+                                            delta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="reasoning", text=delta, is_final_chunk=True)
+                                            await self._emit_sse_event(SSEEvent(
+                                                event="block.delta.text",
+                                                completion_id=str(self.system_completion.id),
+                                                agent_execution_id=str(self.current_execution.id),
+                                                seq=seq,
+                                                data=delta_schema.model_dump()
+                                            ))
+                                    if new_content != cache.get("content", ""):
+                                        if new_content.startswith(cache.get("content", "")):
+                                            cdelta = new_content[len(cache.get("content", "")) :]
+                                        else:
+                                            cdelta = new_content
+                                        if cdelta:
+                                            delta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="content", text=cdelta, is_final_chunk=True)
+                                            await self._emit_sse_event(SSEEvent(
+                                                event="block.delta.text",
+                                                completion_id=str(self.system_completion.id),
+                                                agent_execution_id=str(self.current_execution.id),
+                                                seq=seq,
+                                                data=delta_schema.model_dump()
+                                            ))
+                                    self._block_text_cache[str(block.id)] = {"reasoning": new_reasoning, "content": new_content}
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
                         except Exception:
                             pass
                         
@@ -529,8 +630,21 @@ class AgentV2:
                         )
                         # Upsert completion block for tool and rebuild transcript
                         try:
-                            await self.project_manager.upsert_block_for_tool(self.db, self.system_completion, self.current_execution, tool_execution)
+                            block = await self.project_manager.upsert_block_for_tool(self.db, self.system_completion, self.current_execution, tool_execution)
                             await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                            if block is not None:
+                                # Emit a v2-shaped block snapshot
+                                try:
+                                    block_schema = await serialize_block_v2(self.db, block)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="block.upsert",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={"block": block_schema.model_dump()}
+                                    ))
+                                except Exception:
+                                    pass
                         except Exception:
                             pass
                         
@@ -698,6 +812,26 @@ class AgentV2:
                         )
                         if not self.current_step_id:
                             self.current_step_id = str(self.current_step.id)
+                        # Emit artifact delta for type change
+                        try:
+                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                            change = ArtifactChangeSchema(
+                                type="step",
+                                step_id=str(self.current_step.id),
+                                widget_id=str(self.current_widget.id) if self.current_widget else None,
+                                partial=True,
+                                changed_fields=["data_model.type"],
+                                fields={"data_model": {"type": data_model_type}},
+                            )
+                            await self._emit_sse_event(SSEEvent(
+                                event="block.delta.artifact",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq,
+                                data={"change": change.model_dump()}
+                            ))
+                        except Exception:
+                            pass
                         
                 elif stage == "column_added":
                     # Update current step's data model with new column
@@ -712,6 +846,26 @@ class AgentV2:
                             await self.project_manager.update_step_with_data_model(
                                 self.db, self.current_step, current_data_model
                             )
+                            # Emit artifact delta per column
+                            try:
+                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                change = ArtifactChangeSchema(
+                                    type="step",
+                                    step_id=str(self.current_step.id),
+                                    widget_id=str(self.current_widget.id) if self.current_widget else None,
+                                    partial=True,
+                                    changed_fields=["data_model.columns"],
+                                    fields={"data_model": {"columns": [column]}},
+                                )
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.delta.artifact",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={"change": change.model_dump()}
+                                ))
+                            except Exception:
+                                pass
                             
                 elif stage == "series_configured":
                     # Update current step's data model with series
@@ -722,6 +876,26 @@ class AgentV2:
                         await self.project_manager.update_step_with_data_model(
                             self.db, self.current_step, current_data_model
                         )
+                        # Emit artifact delta for series update
+                        try:
+                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                            change = ArtifactChangeSchema(
+                                type="step",
+                                step_id=str(self.current_step.id),
+                                widget_id=str(self.current_widget.id) if self.current_widget else None,
+                                partial=True,
+                                changed_fields=["data_model.series"],
+                                fields={"data_model": {"series": series}},
+                            )
+                            await self._emit_sse_event(SSEEvent(
+                                event="block.delta.artifact",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq,
+                                data={"change": change.model_dump()}
+                            ))
+                        except Exception:
+                            pass
                         
                 elif stage == "widget_creation_needed":
                     # Update step with final complete data_model
@@ -746,6 +920,25 @@ class AgentV2:
                                 "data_model": data_model,
                             }
                         ))
+                        # Also emit a consolidated artifact snapshot delta
+                        try:
+                            change = ArtifactChangeSchema(
+                                type="step",
+                                step_id=str(self.current_step.id),
+                                widget_id=str(self.current_widget.id) if self.current_widget else None,
+                                partial=False,
+                                changed_fields=["data_model"],
+                                fields={"data_model": data_model},
+                            )
+                            await self._emit_sse_event(SSEEvent(
+                                event="block.delta.artifact",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq,
+                                data={"change": change.model_dump()}
+                            ))
+                        except Exception:
+                            pass
                     
         except Exception as e:
             import logging

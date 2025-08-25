@@ -25,6 +25,15 @@ class ArtifactChangeSchema(BaseModel):
     fields: Dict[str, Any] = {}
 
 
+class BlockTextDeltaSchema(BaseModel):
+    """Tiny text delta for progressive token/char streaming on a block field."""
+    block_id: str
+    field: Literal["reasoning", "content"]
+    text: str
+    token_index: Optional[int] = None
+    is_final_chunk: Optional[bool] = None
+
+
 class CompletionBlockV2Schema(BaseModel):
     id: str
     completion_id: str
