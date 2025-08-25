@@ -12,7 +12,8 @@
 - Enhanced streaming reliability for data models and query results in chat interface
 - Strengthened completion termination handling with comprehensive SIGKILL support across all agent lifecycle stages
 - Introduced custom base URL configuration for OpenAI provider deployments
-- Fixed issue with console metrics and usage data
+- Resolved console metrics and usage data functionality issues
+- Corrected admin permissions to allow deletion (not just archival/rejection) of suggested instructions
 
 
 ## Version 0.0.186 (August 19, 2025)

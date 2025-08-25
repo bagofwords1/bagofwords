@@ -257,10 +257,7 @@ class InstructionService:
         if not instruction:
             raise HTTPException(status_code=404, detail="Instruction not found")
         
-        # Check if user can delete (owner or admin for private instructions)
-        if not instruction.is_editable_by_user and instruction.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Permission denied")
-        
+        # Permission check is handled by the decorator, so we can proceed with deletion
         # Soft delete (using BaseSchema's soft delete functionality)
         from datetime import datetime
         instruction.deleted_at = datetime.utcnow()
