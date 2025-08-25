@@ -317,6 +317,7 @@ class Planner:
         - Review schemas, previous messages, and memories carefully.
         - Create a data model that conforms to the user's request.
         - You can add aggregations, derived columns, etc.
+        - Consider table's feedback and usage stats when creating the data model. If a relevant table is not used or has negative feedback, do not include it in the data model. If a relevant table has positive feedback or is popular, include it in the data model. Treat user feedback as important and acknowledge table feedback and usage in reasoning regardless.
         - Keep the data model simple and concise.
         - Use ONLY columns that exist in the provided schemas or can be derived from them.
         - Derived columns or aggregations are allowed only if their source columns exist.
@@ -500,7 +501,6 @@ class Planner:
             ]
         }
         """
-        breakpoint()
         # Add examples to the prompt
         text += "\n" + example_complete_analysis + "\n" + example_continue_analysis
         # Count tokens in the prompt

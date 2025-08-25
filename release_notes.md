@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.189 (August 25, 2025)
+- Enhanced table usage analytics with comprehensive success/failure tracking, performance scoring, and intelligent usage pattern recognition
+- Implemented automated TableStats model to capture query performance metrics, execution outcomes, and user satisfaction data in real-time
+- Advanced code generation now leverages historical success patterns and proven code snippets, significantly improving accuracy and reliability
+- Upgraded AI planner with feedback-driven decision algorithms that incorporate table performance scores and usage data for continuous self-improvement
+- Added tests covering llm providers and console metrics
+
 ## Version 0.0.188 (August 23, 2025)
 - Enhanced streaming reliability for data models and query results in chat interface
 - Strengthened completion termination handling with comprehensive SIGKILL support across all agent lifecycle stages
