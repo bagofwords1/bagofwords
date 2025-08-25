@@ -36,10 +36,8 @@ class Planner:
         return len(self.tokenizer.encode(text))
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages,
-                      observation_data=None, widget=None, step=None,
-                      external_platform=None, sigkill_event=None):
+                      observation_data=None, widget=None, step=None, external_platform=None, sigkill_event=None):
         instructions_context = await self.instruction_context_builder.get_instructions_context()
-        
         # Generate observation context if observation_data is provided
         observation_context = ""
         if observation_data and "widgets" in observation_data and observation_data["widgets"]:
