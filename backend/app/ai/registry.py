@@ -1,14 +1,10 @@
-from typing import Dict, Callable, List, Optional, Set
+from typing import Dict, Callable, List, Optional, Set, Type
 from dataclasses import dataclass
+import importlib
+import inspect
+import pkgutil
+import sys
 
-from app.ai.tools.implementations import (
-    AnswerQuestionTool,
-    ClarifyTool,
-    CreateDataModelTool,
-    CreateAndExecuteCodeTool,
-    ModifyDataModelTool,
-    ReadFileTool,
-)
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.base import Tool
 
@@ -29,14 +25,9 @@ class ToolRegistry:
     def __init__(self) -> None:
         self._factories: Dict[str, Callable[[], Tool]] = {}
         self._metadata_cache: Dict[str, ToolMetadata] = {}
-        
-        # Pre-register common tools
-        self.register(AnswerQuestionTool)
-        self.register(ClarifyTool)
-        self.register(CreateDataModelTool)
-        self.register(CreateAndExecuteCodeTool)
-        self.register(ModifyDataModelTool)
-        self.register(ReadFileTool)
+
+        # Auto-register all Tool subclasses found under app.ai.tools.implementations
+        self._auto_register_all()
 
     def register(self, tool_class: type[Tool]) -> None:
         """Register a tool class with metadata extraction."""
@@ -45,6 +36,36 @@ class ToolRegistry:
         
         self._factories[metadata.name] = tool_class
         self._metadata_cache[metadata.name] = metadata
+
+    def _auto_register_all(self) -> None:
+        """Dynamically discover and register all Tool subclasses in implementations package."""
+        try:
+            import app.ai.tools.implementations as impl_pkg
+        except Exception:
+            return
+
+        # Ensure all submodules are imported so classes are discoverable
+        if hasattr(impl_pkg, "__path__"):
+            for module_info in pkgutil.iter_modules(impl_pkg.__path__, impl_pkg.__name__ + "."):
+                try:
+                    importlib.import_module(module_info.name)
+                except Exception:
+                    # Skip modules that fail to import
+                    continue
+
+        # Iterate over loaded modules' attributes to find Tool subclasses
+        for module_name, module in list(sys.modules.items()):
+            if not module_name.startswith("app.ai.tools.implementations"):
+                continue
+            try:
+                for _, obj in inspect.getmembers(module, inspect.isclass):
+                    if issubclass(obj, Tool) and obj is not Tool:
+                        try:
+                            self.register(obj)
+                        except Exception:
+                            continue
+            except Exception:
+                continue
 
     def get(self, name: str) -> Optional[Tool]:
         """Get tool instance by name."""

@@ -951,6 +951,17 @@ class AgentV2:
                         await self.project_manager.update_step_with_data_model(
                             self.db, self.current_step, data_model
                         )
+                        # Mark widget as published once the widget is complete at data model stage
+                        try:
+                            if self.current_widget:
+                                # Prefer a dedicated updater if available; fallback to position/size already sets published
+                                # Here we directly update status to 'published'
+                                self.current_widget.status = "published"
+                                self.db.add(self.current_widget)
+                                await self.db.commit()
+                                await self.db.refresh(self.current_widget)
+                        except Exception:
+                            pass
                         
                         # Emit data model completion event to UI
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -1043,6 +1054,15 @@ class AgentV2:
                     await self.project_manager.update_step_status(
                         self.db, step_obj, "success"
                     )
+                    # Also mark the associated widget as published
+                    try:
+                        if self.current_widget:
+                            self.current_widget.status = "published"
+                            self.db.add(self.current_widget)
+                            await self.db.commit()
+                            await self.db.refresh(self.current_widget)
+                    except Exception:
+                        pass
                     # Ensure observation carries ids for auditing/tracking
                     if self.current_widget:
                         observation["widget_id"] = str(self.current_widget.id)
