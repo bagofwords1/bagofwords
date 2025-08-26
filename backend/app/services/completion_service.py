@@ -22,6 +22,7 @@ from app.schemas.completion_v2_schema import (
     ToolExecutionUISchema,
     CompletionsV2Response,
 )
+from app.serializers.completion_v2 import serialize_block_v2
 from app.schemas.agent_execution_schema import PlanDecisionSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
@@ -267,7 +268,6 @@ class CompletionService:
                         widget=widget,
                         step=step
                     )
-                    breakpoint()
                     # Run the agent
                     await agent.main_execution()
 
@@ -432,49 +432,17 @@ class CompletionService:
         total_steps = 0
 
         for b in blocks:
-            exec_obj = completion_id_to_exec.get(b.completion_id)
-            seq = None
-            if exec_obj and b.plan_decision_id and b.plan_decision_id in pd_map:
-                seq = pd_map[b.plan_decision_id].seq
-
-            # Materialize decision
-            plan_decision_schema = None
-            if b.plan_decision_id and b.plan_decision_id in pd_map:
-                plan_decision_schema = PlanDecisionSchema.from_orm(pd_map[b.plan_decision_id])
-
-            # Materialize tool execution (UI)
-            tool_schema = None
+            # Count created artifacts for aggregates using the joined ToolExecution
             if b.tool_execution_id and b.tool_execution_id in te_map:
                 te = te_map[b.tool_execution_id]
-                tool_schema = ToolExecutionUISchema.from_orm(te)
-
-                # Count created artifacts but don't create incomplete schema objects
-                # The created_widget_id and created_step_id are already available on the tool_schema
                 if te.created_widget_id:
                     total_widgets += 1
                 if te.created_step_id:
                     total_steps += 1
 
-            block_schema = CompletionBlockV2Schema(
-                id=b.id,
-                completion_id=b.completion_id,
-                agent_execution_id=b.agent_execution_id,
-                seq=seq,
-                block_index=b.block_index,
-                loop_index=b.loop_index,
-                title=b.title,
-                status=b.status,
-                icon=b.icon,
-                content=b.content,
-                reasoning=b.reasoning,
-                plan_decision=plan_decision_schema,
-                tool_execution=tool_schema,
-                artifact_changes=None,
-                started_at=b.started_at,
-                completed_at=b.completed_at,
-                created_at=b.created_at,
-                updated_at=b.updated_at,
-            )
+            # Use the enriched serializer so the block includes created_widget (with last_step)
+            # and created_step, and strips heavy widget_data from result_json
+            block_schema = await serialize_block_v2(db, b)
 
             completion_id_to_blocks[b.completion_id].append(block_schema)
             total_blocks += 1

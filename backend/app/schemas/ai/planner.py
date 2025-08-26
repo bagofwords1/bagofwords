@@ -55,7 +55,14 @@ class PlannerInput(BaseModel):
     user_message: str
     schemas_excerpt: Optional[str] = None
     history_summary: Optional[str] = None
+    # Detailed conversation messages context for better planning
+    messages_context: Optional[str] = None
+    # Resources context from metadata resources (git repos, documentation, etc.)
+    resources_context: Optional[str] = None
+    # A compact dictionary describing the most recent tool observation (if any)
     last_observation: Optional[Dict[str, Any]] = None
+    # Full list of recorded tool observations in execution order
+    past_observations: Optional[List[Dict[str, Any]]] = None
     tool_catalog: Optional[List[ToolDescriptor]] = None
 
 

@@ -93,14 +93,16 @@ class CreateAndExecuteCodeTool(Tool):
             sigkill_event=None,
             code_context_builder=code_context_builder,
         )
-        
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "generated_code"}) 
         # Optional validation hook (mirrors Agent v1 behavior)
         validation_result: Optional[Dict[str, Any]] = None
         if organization_settings and organization_settings.get_config("validator").value:
             try:
+                yield ToolProgressEvent(type="tool.progress", payload={"stage": "validating_code"})
                 validation_result = await coder.validate_code(code, current_step.data_model)
             except Exception:
                 validation_result = {"valid": True}
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "validated_code"})
 
         # 2) Execute code
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_code"})
@@ -182,6 +184,7 @@ class CreateAndExecuteCodeTool(Tool):
         
         observation = {
             "summary": f"Generated and executed code successfully. {len(widget_data.get('rows', []))} rows returned.",
+            "validation_result": validation_result,
             "data_preview": data_preview,  # Privacy-safe for LLM
             "stats": info,
         }

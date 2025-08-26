@@ -17,24 +17,7 @@ from app.schemas.ai.planner_events import PlannerEvent, PlannerTokenEvent, Plann
 from app.ai.utils.token_counter import count_tokens
 from .planner_state import PlannerState
 from .prompt_builder import PromptBuilder
-
-
-class _PartialJSONParser:
-    """Very small tolerant JSON assembler for streaming outputs."""
-
-    def parse(self, buffer: str) -> dict | None:
-        try:
-            if not buffer or buffer[0] != "{" or "}" not in buffer:
-                return None
-            return json.loads(buffer)
-        except Exception:
-            return None
-
-    def finalize(self, buffer: str) -> dict:
-        try:
-            return json.loads(buffer)
-        except Exception:
-            return {}
+from partialjson.json_parser import JSONParser
 
 
 class PlannerV2:
@@ -55,7 +38,7 @@ class PlannerV2:
         self.llm = LLM(model)
         self.instruction_context_builder = instruction_context_builder
         self.tool_catalog = tool_catalog
-        self.parser = _PartialJSONParser()
+        self.parser = JSONParser()
         self.prompt_builder = PromptBuilder()
 
     async def execute(
@@ -74,7 +57,6 @@ class PlannerV2:
         
         # Build prompt using dedicated builder
         prompt = self.prompt_builder.build_prompt(planner_input, org_instructions)
-        
         # Calculate prompt tokens
         prompt_tokens = count_tokens(prompt, getattr(self.llm, "model_name", None))
         completion_tokens = 0
@@ -97,8 +79,11 @@ class PlannerV2:
                 state.first_token_time = time.monotonic()
             completion_tokens += count_tokens(chunk, getattr(self.llm, "model_name", None))
 
-            # Try parsing partial decision
-            raw_decision = self.parser.parse(state.buffer)
+            # Try parsing partial decision (be resilient to JSON decode errors)
+            try:
+                raw_decision = self.parser.parse(state.buffer)
+            except Exception:
+                raw_decision = None
             if raw_decision:
                 decision = self._create_decision(raw_decision, state, False)
                 yield PlannerDecisionEvent(
@@ -107,7 +92,10 @@ class PlannerV2:
                 )
 
         # Finalize decision with complete metrics
-        final_raw = self.parser.finalize(state.buffer) or {}
+        try:
+            final_raw = self.parser.parse(state.buffer) or {}
+        except Exception:
+            final_raw = {}
         final_decision = self._create_decision(
             final_raw, 
             state, 

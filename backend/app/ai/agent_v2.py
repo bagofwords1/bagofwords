@@ -154,7 +154,7 @@ class AgentV2:
             # History summary based on observation context only
             history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
             observation: Optional[dict] = None
-            step_limit = self.organization_settings.get_config("limit_analysis_steps").value if self.organization_settings else 5
+            step_limit = 10
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -184,11 +184,19 @@ class AgentV2:
 
                 # Build enhanced planner input with validation and retry on failure
                 try:
+                    # Get messages context for detailed conversation history
+                    messages_context = await self.context_hub.get_messages_context(max_messages=20)
+                    # Get resources context from metadata resources
+                    resources_context = await self.context_hub.get_resources_context()
+                    
                     planner_input = PlannerInput(
                         user_message=self.head_completion.prompt["content"],
                         schemas_excerpt=schemas_excerpt,
                         history_summary=history_summary,
+                        messages_context=messages_context,
+                        resources_context=resources_context,
                         last_observation=observation,
+                        past_observations=self.context_hub.observation_builder.tool_observations,
                         external_platform=getattr(self.head_completion, "external_platform", None),
                         tool_catalog=self.planner.tool_catalog,
                     )
@@ -218,14 +226,60 @@ class AgentV2:
                     # Retry next loop iteration
                     continue
 
-                # PLAN: stream planner tokens and decision using typed input
+                # PLAN: pre-create a skeleton planning block so tokens can stream immediately
                 analysis_done = False
+                current_block_id = None
+                token_accumulator = {"reasoning": "", "content": ""}
+
+                # Pre-create a placeholder PlanDecision and corresponding block for this loop
+                try:
+                    pre_seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                    # Default to action plan type for skeleton; will be updated on real decision
+                    pre_pd = await self.project_manager.save_plan_decision(
+                        self.db,
+                        agent_execution=self.current_execution,
+                        seq=pre_seq,
+                        loop_index=loop_index,
+                        plan_type="action",
+                        analysis_complete=False,
+                        reasoning=None,
+                        assistant=None,
+                        final_answer=None,
+                        action_name=None,
+                        action_args_json=None,
+                        metrics_json=None,
+                        context_snapshot_id=None,
+                    )
+                    pre_block = await self.project_manager.upsert_block_for_decision(
+                        self.db, self.system_completion, self.current_execution, pre_pd
+                    )
+                    current_block_id = str(pre_block.id)
+                    # Emit initial block snapshot
+                    try:
+                        block_schema = await serialize_block_v2(self.db, pre_block)
+                        await self._emit_sse_event(SSEEvent(
+                            event="block.upsert",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=pre_seq,
+                            data={"block": block_schema.model_dump()}
+                        ))
+                    except Exception:
+                        pass
+                except Exception:
+                    # If pre-create fails, we will fallback to buffering tokens until a block exists
+                    current_block_id = None
+                
                 async for evt in self.planner.execute(planner_input, self.sigkill_event):
                     if self.sigkill_event.is_set():
                         break
 
                     # Handle typed events
-                    if evt.type == "planner.decision.partial":
+                    if evt.type == "planner.tokens":
+                        # Do not forward raw JSON tokens; deltas will be emitted from decision partials
+                        continue
+                        
+                    elif evt.type == "planner.decision.partial":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
                         
                         # Get next sequence number
@@ -243,6 +297,10 @@ class AgentV2:
                         try:
                             block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
                             await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                            
+                            # Store block ID for token streaming
+                            current_block_id = str(block.id)
+                            
                             # Emit a v2-shaped block snapshot
                             try:
                                 block_schema = await serialize_block_v2(self.db, block)
@@ -253,43 +311,50 @@ class AgentV2:
                                     seq=seq,
                                     data={"block": block_schema.model_dump()}
                                 ))
-                                # Emit text deltas for reasoning/content
-                                try:
-                                    cache = self._block_text_cache.get(str(block.id), {"reasoning": "", "content": ""})
-                                    new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
-                                    new_content = getattr(current_plan_decision, "assistant", None) or ""
-                                    if new_reasoning and new_reasoning.startswith(cache.get("reasoning", "")):
-                                        delta = new_reasoning[len(cache.get("reasoning", "")) :]
-                                    else:
-                                        delta = new_reasoning
-                                    if delta:
-                                        delta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="reasoning", text=delta)
-                                        await self._emit_sse_event(SSEEvent(
-                                            event="block.delta.text",
-                                            completion_id=str(self.system_completion.id),
-                                            agent_execution_id=str(self.current_execution.id),
-                                            seq=seq,
-                                            data=delta_schema.model_dump()
-                                        ))
-                                    if new_content and new_content.startswith(cache.get("content", "")):
-                                        cdelta = new_content[len(cache.get("content", "")) :]
-                                    else:
-                                        cdelta = new_content
-                                    if cdelta:
-                                        delta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="content", text=cdelta)
-                                        await self._emit_sse_event(SSEEvent(
-                                            event="block.delta.text",
-                                            completion_id=str(self.system_completion.id),
-                                            agent_execution_id=str(self.current_execution.id),
-                                            seq=seq,
-                                            data=delta_schema.model_dump()
-                                        ))
-                                    # Update cache
-                                    self._block_text_cache[str(block.id)] = {"reasoning": new_reasoning, "content": new_content}
-                                except Exception:
-                                    pass
                             except Exception:
                                 pass
+                        except Exception:
+                            pass
+
+                        # Emit incremental deltas for reasoning/content based on partial decision
+                        try:
+                            cache = self._block_text_cache.get(str(block.id), {"reasoning": "", "content": ""})
+                            new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
+                            new_content = getattr(current_plan_decision, "assistant", None) or ""
+                            # Reasoning delta
+                            if new_reasoning:
+                                if new_reasoning.startswith(cache.get("reasoning", "")):
+                                    rdelta = new_reasoning[len(cache.get("reasoning", "")) :]
+                                else:
+                                    rdelta = new_reasoning
+                                if rdelta:
+                                    rseq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    rdelta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="reasoning", text=new_reasoning)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="block.delta.text",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=rseq,
+                                        data=rdelta_schema.model_dump()
+                                    ))
+                            # Assistant/content delta
+                            if new_content:
+                                if new_content.startswith(cache.get("content", "")):
+                                    cdelta = new_content[len(cache.get("content", "")) :]
+                                else:
+                                    cdelta = new_content
+                                if cdelta:
+                                    cseq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    cdelta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="content", text=new_content)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="block.delta.text",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=cseq,
+                                        data=cdelta_schema.model_dump()
+                                    ))
+                            # Update cache to latest
+                            self._block_text_cache[str(block.id)] = {"reasoning": new_reasoning, "content": new_content}
                         except Exception:
                             pass
                         
@@ -359,6 +424,10 @@ class AgentV2:
                         try:
                             block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
                             await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                            
+                            # Store block ID for token streaming
+                            current_block_id = str(block.id)
+                            
                             # Emit a v2-shaped block snapshot
                             try:
                                 block_schema = await serialize_block_v2(self.db, block)
@@ -369,43 +438,19 @@ class AgentV2:
                                     seq=seq,
                                     data={"block": block_schema.model_dump()}
                                 ))
-                                # Emit any remaining text delta to finalize fields
-                                try:
-                                    cache = self._block_text_cache.get(str(block.id), {"reasoning": "", "content": ""})
-                                    new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
-                                    new_content = getattr(current_plan_decision, "assistant", None) or ""
-                                    if new_reasoning != cache.get("reasoning", ""):
-                                        # send only the new suffix when possible
-                                        if new_reasoning.startswith(cache.get("reasoning", "")):
-                                            delta = new_reasoning[len(cache.get("reasoning", "")) :]
-                                        else:
-                                            delta = new_reasoning
-                                        if delta:
-                                            delta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="reasoning", text=delta, is_final_chunk=True)
-                                            await self._emit_sse_event(SSEEvent(
-                                                event="block.delta.text",
-                                                completion_id=str(self.system_completion.id),
-                                                agent_execution_id=str(self.current_execution.id),
-                                                seq=seq,
-                                                data=delta_schema.model_dump()
-                                            ))
-                                    if new_content != cache.get("content", ""):
-                                        if new_content.startswith(cache.get("content", "")):
-                                            cdelta = new_content[len(cache.get("content", "")) :]
-                                        else:
-                                            cdelta = new_content
-                                        if cdelta:
-                                            delta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="content", text=cdelta, is_final_chunk=True)
-                                            await self._emit_sse_event(SSEEvent(
-                                                event="block.delta.text",
-                                                completion_id=str(self.system_completion.id),
-                                                agent_execution_id=str(self.current_execution.id),
-                                                seq=seq,
-                                                data=delta_schema.model_dump()
-                                            ))
-                                    self._block_text_cache[str(block.id)] = {"reasoning": new_reasoning, "content": new_content}
-                                except Exception:
-                                    pass
+                                
+                                # Emit final text completion event
+                                await self._emit_sse_event(SSEEvent(
+                                    event="block.delta.text.complete",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={
+                                        "block_id": str(block.id),
+                                        "field": "reasoning",
+                                        "is_final": True
+                                    }
+                                ))
                             except Exception:
                                 pass
                         except Exception:
@@ -528,7 +573,7 @@ class AgentV2:
                         
                         async def emit(ev: dict):
                             # Handle streaming state management for widget/step creation
-                            await self._handle_streaming_event(tool_name, ev)
+                            await self._handle_streaming_event(tool_name, ev, tool_input)
                             
                             # Forward tool events to UI and persist important ones
                             if ev.get("type") in ["tool.progress", "tool.error"]:
@@ -555,9 +600,7 @@ class AgentV2:
                             observation = tool_result
                             tool_output = None
                         
-                        # Capture widget title for create_data_model early
-                        if tool_name == "create_data_model" and tool_input.get("widget_title"):
-                            self.current_widget_title = tool_input.get("widget_title")
+
                         
                         # Handle tool outputs and manage widget/step state
                         await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
@@ -620,7 +663,7 @@ class AgentV2:
                         await self.project_manager.finish_tool_execution_from_models(
                             self.db,
                             tool_execution=tool_execution,
-                            result_model=observation,
+                            result_model=tool_output,
                             summary=observation.get("summary", "") if observation else "",
                             created_widget_id=created_widget_id,
                             created_step_id=created_step_id,
@@ -648,8 +691,18 @@ class AgentV2:
                         except Exception:
                             pass
                         
-                        # Emit tool finished event
+                        # Emit tool finished event (include result_json and duration_ms for frontend)
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                        # Sanitize tool_output for SSE (avoid invalid JSON due to special values)
+                        safe_result_json = None
+                        if tool_output is not None:
+                            try:
+                                safe_result_json = json.loads(json.dumps(tool_output, default=str))
+                            except Exception:
+                                # Fallback to minimal payload
+                                safe_result_json = {
+                                    "summary": observation.get("summary", "") if observation else "",
+                                }
                         await self._emit_sse_event(SSEEvent(
                             event="tool.finished",
                             completion_id=str(self.system_completion.id),
@@ -659,6 +712,8 @@ class AgentV2:
                                 "tool_name": tool_name,
                                 "status": "success" if observation and not observation.get("error") else "error",
                                 "result_summary": observation.get("summary", "") if observation else "",
+                                "result_json": safe_result_json,  # Include tool output (code, logs, etc.)
+                                "duration_ms": tool_execution.duration_ms,
                                 "created_widget_id": created_widget_id,
                                 "created_step_id": created_step_id,
                             }
@@ -753,7 +808,7 @@ class AgentV2:
             
         return False
 
-    async def _handle_streaming_event(self, tool_name: str, event: dict):
+    async def _handle_streaming_event(self, tool_name: str, event: dict, tool_input: dict = None):
         """Handle real-time streaming events for widget/step management."""
         event_type = event.get("type")
         payload = event.get("payload", {})
@@ -768,9 +823,9 @@ class AgentV2:
                 if stage == "data_model_type_determined":
                     # Create widget and step early when we know the type
                     data_model_type = payload.get("data_model_type")
-                    widget_title = self.current_widget_title or "Untitled Widget"
+                    widget_title = (tool_input and tool_input.get("widget_title")) or "Untitled Widget"
                     
-                    if data_model_type and not self.current_widget and self.report:
+                    if data_model_type and self.report:
                         # Create widget
                         self.current_widget = await self.project_manager.create_widget(
                             self.db, self.report, widget_title
@@ -803,16 +858,6 @@ class AgentV2:
                                 "data_model_type": data_model_type,
                             }
                         ))
-                    elif self.current_step and data_model_type:
-                        # Just update the type if widget/step already exists
-                        current_data_model = getattr(self.current_step, "data_model", {}) or {}
-                        current_data_model["type"] = data_model_type
-                        await self.project_manager.update_step_with_data_model(
-                            self.db, self.current_step, current_data_model
-                        )
-                        if not self.current_step_id:
-                            self.current_step_id = str(self.current_step.id)
-                        # Emit artifact delta for type change
                         try:
                             seq = await self.project_manager.next_seq(self.db, self.current_execution)
                             change = ArtifactChangeSchema(

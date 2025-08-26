@@ -47,6 +47,7 @@ class ContextHub:
         self.user = user
         self.head_completion = head_completion
         self.widget = widget
+        self.prompt_content = head_completion.prompt if head_completion else ""
         
         # Initialize metadata
         self.metadata = ContextMetadata(
@@ -72,11 +73,11 @@ class ContextHub:
         # Existing builders (enhanced)
         self.instruction_builder = InstructionContextBuilder(self.db, self.organization)
         self.code_builder = CodeContextBuilder(self.db, self.organization)
-        self.resource_builder = ResourceContextBuilder(self.db, "")
+        self.resource_builder = ResourceContextBuilder(self.db, self.prompt_content)
         
         # New builders (port from agent.py)
         self.schema_builder = SchemaContextBuilder(self.db, self.report)
-        self.message_builder = MessageContextBuilder(self.db, self.report)
+        self.message_builder = MessageContextBuilder(self.db, self.report, self.organization)
         self.memory_builder = MemoryContextBuilder(self.db, self.head_completion)
         self.widget_builder = WidgetContextBuilder(self.db, self.report)
         
@@ -264,6 +265,15 @@ class ContextHub:
     async def get_schemas(self) -> str:
         """Quick access to schemas context only."""
         return await self.schema_builder.build_context()
+    
+    async def get_messages_context(self, max_messages: int = 20) -> str:
+        """Quick access to messages context only."""
+        return await self.message_builder.build_context(max_messages=max_messages)
+    
+    async def get_resources_context(self) -> str:
+        """Quick access to resources context from metadata resources."""
+        data_sources = getattr(self.report, 'data_sources', []) or []
+        return await self.resource_builder.build_context(data_sources)
     
     async def get_history_summary(self, research_context: Optional[Dict[str, Any]] = None) -> str:
         """Quick access to history summary."""

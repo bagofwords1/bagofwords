@@ -111,9 +111,9 @@ class InstructionContextBuilder:
         """
         return (
             f"  <instruction id=\"{instruction.id}\" "
-            f"category=\"{instruction.category}\" "
-            f"thumbs_up=\"{instruction.thumbs_up}\">\n"
-            f"    {instruction.text.strip()}\n"
+            f"category=\"{instruction.category}\""
+            f">\n"
+            f"{instruction.text.strip()}\n"
             f"  </instruction>"
         )
 

@@ -46,6 +46,9 @@ class OpenAi(LLMClient):
         )
         
         async for chunk in stream:
+            if not chunk.choices:
+                continue  # skip heartbeat/control packets
+            
             content = chunk.choices[0].delta.content
             if content is not None:
                 yield content

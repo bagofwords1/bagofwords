@@ -6,6 +6,8 @@ from sqlalchemy import select
 from app.models.completion_block import CompletionBlock
 from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
+from app.models.widget import Widget
+from app.models.step import Step
 
 from app.schemas.agent_execution_schema import PlanDecisionSchema
 from app.schemas.tool_execution_schema import ToolExecutionSchema
@@ -13,6 +15,8 @@ from app.schemas.completion_v2_schema import (
     CompletionBlockV2Schema,
     ToolExecutionUISchema,
 )
+from app.schemas.widget_schema import WidgetSchema
+from app.schemas.step_schema import StepSchema
 
 
 async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> CompletionBlockV2Schema:
@@ -34,7 +38,50 @@ async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> Comple
     pd_schema = PlanDecisionSchema.from_orm(plan_decision) if plan_decision else None
     te_schema: Optional[ToolExecutionUISchema] = None
     if tool_execution:
-        te_schema = ToolExecutionUISchema.model_validate(ToolExecutionSchema.from_orm(tool_execution))
+        # Start from the base ToolExecution schema
+        base_te = ToolExecutionSchema.from_orm(tool_execution)
+        te_data = base_te.model_dump()
+        # Strip heavy payloads from result_json (e.g., widget_data)
+        result_json = te_data.get("result_json")
+        if isinstance(result_json, dict) and "widget_data" in result_json:
+            result_json.pop("widget_data", None)
+        te_data["result_json"] = result_json
+
+        # Enrich with created widget (including last_step) and created step if available
+        created_widget_schema: Optional[WidgetSchema] = None
+        created_step_schema: Optional[StepSchema] = None
+
+        if getattr(tool_execution, "created_widget_id", None):
+            widget_obj = await db.get(Widget, tool_execution.created_widget_id)
+            if widget_obj:
+                # Fetch last step for the widget
+                last_step_result = await db.execute(
+                    select(Step).filter(Step.widget_id == widget_obj.id).order_by(Step.created_at.desc()).limit(1)
+                )
+                last_step_obj = last_step_result.scalar_one_or_none()
+                last_step_schema: Optional[StepSchema] = None
+                if last_step_obj:
+                    # Ensure data_model is a dict even if None in DB
+                    step_dict = {
+                        **last_step_obj.__dict__,
+                        "data_model": getattr(last_step_obj, "data_model", None) or {},
+                        "data": getattr(last_step_obj, "data", None) or {},
+                    }
+                    last_step_schema = StepSchema.model_validate(step_dict)
+
+                created_widget_schema = WidgetSchema.from_orm(widget_obj).copy(update={"last_step": last_step_schema})
+
+        if getattr(tool_execution, "created_step_id", None):
+            step_obj = await db.get(Step, tool_execution.created_step_id)
+            if step_obj:
+                step_dict = {
+                    **step_obj.__dict__,
+                    "data_model": getattr(step_obj, "data_model", None) or {},
+                    "data": getattr(step_obj, "data", None) or {},
+                }
+                created_step_schema = StepSchema.model_validate(step_dict)
+
+        te_schema = ToolExecutionUISchema(**te_data, created_widget=created_widget_schema, created_step=created_step_schema)
 
     # seq primarily comes from decision.seq if available
     seq = plan_decision.seq if plan_decision is not None else None

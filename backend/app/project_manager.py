@@ -450,7 +450,27 @@ class ProjectManager:
                                                error_message: str | None = None,
                                                context_snapshot_id: str | None = None,
                                                success: bool = True):
-        result_json = result_model.model_dump() if (result_model and hasattr(result_model, 'model_dump')) else (result_model or None)
+        # Handle result_model appropriately
+        if result_model and hasattr(result_model, 'model_dump'):
+            # Pydantic model - convert to dict
+            result_json = result_model.model_dump()
+        elif result_model is not None:
+            # Regular dict - make sure it's JSON-serializable
+            import json
+            try:
+                # Test if it can be serialized to JSON
+                json.dumps(result_model, default=str)
+                result_json = result_model
+            except (TypeError, ValueError) as e:
+                # If serialization fails, create a safe version
+                result_json = {
+                    "error": "Failed to serialize tool output",
+                    "message": str(e),
+                    "safe_summary": str(result_model)[:1000] + "..." if len(str(result_model)) > 1000 else str(result_model)
+                }
+        else:
+            result_json = None
+            
         status = 'success' if success else 'error'
         return await self.finish_tool_execution(
             db,
