@@ -26,7 +26,7 @@ class ProjectManager:
         self.logger = logging.getLogger(__name__)
         self.table_usage_service = TableUsageService()
 
-    async def emit_table_usage(self, db, report: Report, step: Step, data_model: dict, user_id: str | None = None, user_role: str | None = None, source_type: str = "sql"):
+    async def emit_table_usage(self, db, report: Report, step: Step, data_model: dict, user_id: str | None = None, user_role: str | None = None, source_type: str | None = None):
         try:
             report_ds_ids = [str(ds.id) for ds in (getattr(report, 'data_sources', []) or [])]
             lineage_entries = await extract_tables_from_data_model(db, data_model, report_ds_ids)
@@ -77,7 +77,7 @@ class ProjectManager:
         if message is not None:
             completion_message.content = message
         if reasoning is not None:
-            completion_message.reasoning = reasoning
+            completion_message.reasoning = reasoning     
 
         completion_message = completion_message.dict()
 

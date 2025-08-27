@@ -186,6 +186,12 @@
 							</div>
 							
 							<!-- Show status messages for stopped/error completions -->
+							<div class="mt-2">
+								<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" 
+								v-if="isRealCompletion(m) && m.status !== 'in_progress'" 
+								/>
+							</div>
+
 							<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 								<Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
 								Generation stopped
@@ -256,6 +262,7 @@ import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
+import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 
 // Types
 type ChatRole = 'user' | 'system'
@@ -307,6 +314,7 @@ interface ChatMessage {
 	// Backend system completion id used for sigkill
 	system_completion_id?: string
 	sigkill?: string | null
+	feedback_score?: number
 }
 
 const route = useRoute()
@@ -336,6 +344,16 @@ const initialPanelWidth = ref(0)
 // Toggle states
 const collapsedReasoning = ref<Set<string>>(new Set())
 const expandedToolDetails = ref<Set<string>>(new Set())
+function isRealCompletion(m: ChatMessage): boolean {
+    // During streaming we use a temporary client id like "system-<ts>".
+    // Only allow feedback UI when we have a real backend id (UUID) either in
+    // system_completion_id or in id.
+    const cid = (m.system_completion_id || m.id) || ''
+    // UUID v4 pattern (loose): 8-4-4-4-12 hex
+    const uuidRe = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
+    return uuidRe.test(cid)
+}
+
 
 // Helper functions for block types
 function isResearchBlock(block: CompletionBlock): boolean {
@@ -868,7 +886,8 @@ async function loadCompletions() {
 					} : undefined
 				})) || [],
 				created_at: c.created_at,
-				sigkill: c.sigkill
+				sigkill: c.sigkill,
+				feedback_score: c.feedback_score
 			}
 		})
 		await nextTick()

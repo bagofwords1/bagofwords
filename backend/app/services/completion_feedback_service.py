@@ -16,6 +16,9 @@ from app.schemas.completion_feedback_schema import (
 from app.services.table_usage_service import TableUsageService
 from app.schemas.table_usage_schema import TableFeedbackEventCreate
 from app.utils.lineage import extract_tables_from_data_model
+from app.models.completion_block import CompletionBlock
+from app.models.tool_execution import ToolExecution
+from app.models.step import Step
 
 
 class CompletionFeedbackService:
@@ -32,35 +35,87 @@ class CompletionFeedbackService:
         user: Optional[User]
     ) -> None:
         try:
-            step = completion.step
-            if not (step and isinstance(step.data_model, dict)):
+            target_steps: list[Step] = []
+
+            # Support block-scoped feedback if the column exists (forward-compatible)
+            block_id = getattr(feedback, 'completion_block_id', None)
+            if block_id:
+                block = await db.get(CompletionBlock, block_id)
+                if block and block.tool_execution_id:
+                    te = await db.get(ToolExecution, block.tool_execution_id)
+                    if te and te.created_step_id:
+                        step = await db.get(Step, te.created_step_id)
+                        if step:
+                            target_steps.append(step)
+            else:
+                # Aggregate all steps created by tool executions within this completion's blocks
+                te_ids_stmt = select(CompletionBlock.tool_execution_id).where(
+                    CompletionBlock.completion_id == completion.id,
+                    CompletionBlock.tool_execution_id.isnot(None)
+                )
+                te_ids_result = await db.execute(te_ids_stmt)
+                te_ids = [row[0] for row in te_ids_result.fetchall() if row[0]]
+
+                if te_ids:
+                    step_ids_stmt = select(ToolExecution.created_step_id).where(
+                        ToolExecution.id.in_(te_ids),
+                        ToolExecution.created_step_id.isnot(None)
+                    )
+                    step_ids_result = await db.execute(step_ids_stmt)
+                    step_ids = [row[0] for row in step_ids_result.fetchall() if row[0]]
+
+                    if step_ids:
+                        # Deduplicate while preserving order
+                        seen = set()
+                        uniq_step_ids = []
+                        for sid in step_ids:
+                            if sid not in seen:
+                                seen.add(sid)
+                                uniq_step_ids.append(sid)
+
+                        steps_stmt = select(Step).where(Step.id.in_(uniq_step_ids))
+                        steps_result = await db.execute(steps_stmt)
+                        target_steps = steps_result.scalars().all()
+
+            # Fallback to the completion's step if no block-derived steps found
+            if not target_steps and completion.step:
+                target_steps = [completion.step]
+
+            if not target_steps:
                 return
-            # Derive one feedback event per table using per-column source_data_source_id
-            lineage_entries = await extract_tables_from_data_model(db, step.data_model, [])
-            if not lineage_entries:
-                return
+
             direction = 'positive' if feedback.direction == 1 else 'negative'
-            for entry in lineage_entries:
-                ds_id = entry.get('datasource_id')
-                table_name = entry.get('table_name')
-                if not ds_id or not table_name:
+
+            for step in target_steps:
+                if not (step and isinstance(step.data_model, dict)):
                     continue
-                table_fqn = table_name.lower()
-                payload = TableFeedbackEventCreate(
-                    org_id=str(organization.id),
-                    report_id=str(completion.report_id) if completion.report_id else None,
-                    data_source_id=ds_id,
-                    step_id=str(step.id),
-                    completion_feedback_id=str(feedback.id),
-                    table_fqn=table_fqn,
-                    datasource_table_id=entry.get('datasource_table_id'),
-                    feedback_type=direction,
-                )
-                await self.table_usage_service.record_feedback_event(
-                    db=db,
-                    payload=payload,
-                    user_role=getattr(user, 'role', None)
-                )
+
+                # Derive one feedback event per table using per-column source_data_source_id
+                lineage_entries = await extract_tables_from_data_model(db, step.data_model, [])
+                if not lineage_entries:
+                    continue
+
+                for entry in lineage_entries:
+                    ds_id = entry.get('datasource_id')
+                    table_name = entry.get('table_name')
+                    if not ds_id or not table_name:
+                        continue
+                    table_fqn = table_name.lower()
+                    payload = TableFeedbackEventCreate(
+                        org_id=str(organization.id),
+                        report_id=str(completion.report_id) if completion.report_id else None,
+                        data_source_id=ds_id,
+                        step_id=str(step.id),
+                        completion_feedback_id=str(feedback.id),
+                        table_fqn=table_fqn,
+                        datasource_table_id=entry.get('datasource_table_id'),
+                        feedback_type=direction,
+                    )
+                    await self.table_usage_service.record_feedback_event(
+                        db=db,
+                        payload=payload,
+                        user_role=getattr(user, 'role', None)
+                    )
         except Exception:
             # Never block on attribution failures
             return
@@ -70,7 +125,7 @@ class CompletionFeedbackService:
         db: AsyncSession, 
         completion_id: str, 
         feedback_data: CompletionFeedbackCreate, 
-        user: Optional[User], 
+        user: User, 
         organization: Organization
     ) -> CompletionFeedbackSchema:
         """Create or update feedback for a completion. If user already has feedback, update it."""
@@ -102,6 +157,11 @@ class CompletionFeedbackService:
             existing_feedback.message = feedback_data.message
             await db.commit()
             await db.refresh(existing_feedback)
+            # Emit table feedback events reflecting the updated direction
+            try:
+                await self._emit_table_feedback(db, organization, completion, existing_feedback, user)
+            except Exception:
+                pass
             return CompletionFeedbackSchema.from_orm(existing_feedback)
         else:
             # Create new feedback
@@ -213,7 +273,7 @@ class CompletionFeedbackService:
         # Verify completion exists and belongs to organization
         completion_stmt = select(Completion).where(
             Completion.id == completion_id,
-            Completion.report.has(organization_id == organization.id)
+            Completion.report.has(organization_id=organization.id)
         )
         completion_result = await db.execute(completion_stmt)
         completion = completion_result.scalar_one_or_none()

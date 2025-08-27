@@ -51,7 +51,6 @@ class PlannerV2:
             input=planner_input,
             start_time=time.monotonic()
         )
-        
         # Get org instructions
         org_instructions = await self.instruction_context_builder.get_instructions_context()
         

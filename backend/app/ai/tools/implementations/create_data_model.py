@@ -47,7 +47,8 @@ class CreateDataModelTool(Tool):
         llm = LLM(runtime_ctx.get("model"))
         context_view = runtime_ctx.get("context_view")
         schemas_excerpt = getattr(context_view.static, "schemas", "") if context_view else ""
-        # Enhanced prompt for streaming JSON similar to planner
+        import re
+        # Enhanced prompt for streaming JS]ON similar to planner
         prompt = f"""
 You are a data modeling assistant.
 Given the user's goal and available schemas, produce a normalized JSON data_model that will be streamed progressively.
@@ -139,6 +140,9 @@ CRITICAL:
                         try:
                             # Try to validate using the actual schema
                             DataModelColumn(**column)
+                            # Enforce UUID format for source_data_source_id (match legacy planner)
+                            if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", (column.get("source_data_source_id") or "")) is None:
+                                raise ValidationError("Invalid source_data_source_id format")
                             is_complete = not any(
                                 existing['generated_column_name'] == column['generated_column_name']
                                 for existing in current_data_model["columns"]

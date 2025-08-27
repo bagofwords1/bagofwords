@@ -1093,6 +1093,19 @@ class AgentV2:
                         self.db, step_obj, "success"
                     )
 
+                    # Emit table usage events based on the step's data model (align with legacy agent)
+                    try:
+                        await self.project_manager.emit_table_usage(
+                            db=self.db,
+                            report=self.report,
+                            step=step_obj,
+                            data_model=getattr(step_obj, "data_model", {}) or {},
+                            user_id=str(getattr(self.head_completion, "user_id", None)) if hasattr(self.head_completion, "user_id") and self.head_completion.user_id else None,
+                            user_role=None
+                        )
+                    except Exception:
+                        pass
+
                     # Ensure observation carries ids for auditing/tracking
                     if self.current_widget:
                         observation["widget_id"] = str(self.current_widget.id)
