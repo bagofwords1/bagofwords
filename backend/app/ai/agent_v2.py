@@ -10,7 +10,8 @@ from app.ai.registry import ToolRegistry, ToolCatalogFilter
 from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.schemas.sse_schema import SSEEvent
 from app.serializers.completion_v2 import serialize_block_v2
-from app.schemas.completion_v2_schema import ArtifactChangeSchema, BlockTextDeltaSchema
+from app.schemas.completion_v2_schema import ArtifactChangeSchema
+from app.streaming.text_streamer import PlanningTextStreamer
 from app.streaming.completion_stream import CompletionEventQueue
 from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
@@ -232,6 +233,7 @@ class AgentV2:
                 analysis_done = False
                 current_block_id = None
                 token_accumulator = {"reasoning": "", "content": ""}
+                plan_streamer = None
 
                 # Pre-create a placeholder PlanDecision and corresponding block for this loop
                 try:
@@ -271,6 +273,17 @@ class AgentV2:
                 except Exception:
                     # If pre-create fails, we will fallback to buffering tokens until a block exists
                     current_block_id = None
+                else:
+                    # Initialize throttled text streamer for this planning block
+                    async def _next_seq():
+                        return await self.project_manager.next_seq(self.db, self.current_execution)
+                    plan_streamer = PlanningTextStreamer(
+                        emit=self._emit_sse_event,
+                        seq_fn=_next_seq,
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id),
+                        block_id=current_block_id,
+                    )
                 
                 async for evt in self.planner.execute(planner_input, self.sigkill_event):
                     if self.sigkill_event.is_set():
@@ -295,84 +308,64 @@ class AgentV2:
                             loop_index=loop_index,
                             planner_decision_model=decision,
                         )
-                        # Upsert completion block for decision and rebuild transcript
-                        try:
-                            block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
-                            await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
-                            
-                            # Store block ID for token streaming
-                            current_block_id = str(block.id)
-                            
-                            # Emit a v2-shaped block snapshot
+                        # Ensure a block exists if pre-creation failed; emit one snapshot once
+                        if current_block_id is None:
                             try:
-                                block_schema = await serialize_block_v2(self.db, block)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="block.upsert",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={"block": block_schema.model_dump()}
-                                ))
+                                block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
+                                await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
+                                current_block_id = str(block.id)
+                                try:
+                                    block_schema = await serialize_block_v2(self.db, block)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="block.upsert",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={"block": block_schema.model_dump()}
+                                    ))
+                                except Exception:
+                                    pass
+                                # Initialize or update streamer with block id
+                                if plan_streamer is None:
+                                    async def _next_seq():
+                                        return await self.project_manager.next_seq(self.db, self.current_execution)
+                                    plan_streamer = PlanningTextStreamer(
+                                        emit=self._emit_sse_event,
+                                        seq_fn=_next_seq,
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        block_id=current_block_id,
+                                    )
+                                else:
+                                    plan_streamer.set_block(current_block_id)
                             except Exception:
                                 pass
-                        except Exception:
-                            pass
 
-                        # Emit incremental deltas for reasoning/content based on partial decision
+                        # Emit incremental, throttled token deltas for reasoning/content
                         try:
-                            cache = self._block_text_cache.get(str(block.id), {"reasoning": "", "content": ""})
                             new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
                             new_content = getattr(current_plan_decision, "assistant", None) or ""
-                            # Reasoning delta
-                            if new_reasoning:
-                                if new_reasoning.startswith(cache.get("reasoning", "")):
-                                    rdelta = new_reasoning[len(cache.get("reasoning", "")) :]
-                                else:
-                                    rdelta = new_reasoning
-                                if rdelta:
-                                    rseq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                    rdelta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="reasoning", text=new_reasoning)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.delta.text",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=rseq,
-                                        data=rdelta_schema.model_dump()
-                                    ))
-                            # Assistant/content delta
-                            if new_content:
-                                if new_content.startswith(cache.get("content", "")):
-                                    cdelta = new_content[len(cache.get("content", "")) :]
-                                else:
-                                    cdelta = new_content
-                                if cdelta:
-                                    cseq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                    cdelta_schema = BlockTextDeltaSchema(block_id=str(block.id), field="content", text=new_content)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.delta.text",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=cseq,
-                                        data=cdelta_schema.model_dump()
-                                    ))
-                            # Update cache to latest
-                            self._block_text_cache[str(block.id)] = {"reasoning": new_reasoning, "content": new_content}
+                            if plan_streamer:
+                                await plan_streamer.update(new_reasoning, new_content)
                         except Exception:
                             pass
                         
-                        # Emit SSE event
-                        await self._emit_sse_event(SSEEvent(
-                            event="decision.partial",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=seq,
-                            data={
-                                "plan_type": decision.plan_type,
-                                "reasoning": decision.reasoning_message,
-                                "assistant": decision.assistant_message,
-                                "action": decision.action.model_dump() if decision.action else None,
-                            }
-                        ))
+                        # Emit SSE event only if there is content in reasoning or assistant
+                        reasoning_text = (getattr(decision, "reasoning_message", None) or "").strip()
+                        assistant_text = (getattr(decision, "assistant_message", None) or "").strip()
+                        if reasoning_text or assistant_text:
+                            await self._emit_sse_event(SSEEvent(
+                                event="decision.partial",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq,
+                                data={
+                                    "plan_type": decision.plan_type,
+                                    "reasoning": decision.reasoning_message,
+                                    "assistant": decision.assistant_message,
+                                    "action": decision.action.model_dump() if decision.action else None,
+                                }
+                            ))
                     
                     elif evt.type == "planner.decision.final":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
@@ -440,19 +433,12 @@ class AgentV2:
                                     seq=seq,
                                     data={"block": block_schema.model_dump()}
                                 ))
-                                
-                                # Emit final text completion event
-                                await self._emit_sse_event(SSEEvent(
-                                    event="block.delta.text.complete",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={
-                                        "block_id": str(block.id),
-                                        "field": "reasoning",
-                                        "is_final": True
-                                    }
-                                ))
+                                # Finalize field streaming (snapshots + completion markers)
+                                try:
+                                    if plan_streamer:
+                                        await plan_streamer.complete()
+                                except Exception:
+                                    pass
                             except Exception:
                                 pass
                         except Exception:

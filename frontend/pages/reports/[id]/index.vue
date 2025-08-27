@@ -1,778 +1,1250 @@
 <template>
 
-    
-    <div class="flex flex-row h-screen overflow-y-hidden bg-white">
-        <!-- Left side (Chat) -->
+	<SplitScreenLayout 
+		:isSplitScreen="isSplitScreen" 
+		:leftPanelWidth="leftPanelWidth"
+		:isResizing="isResizing"
+		@startResize="startResize"
+	>
+		<template #left>
+	<div class="flex flex-col h-screen overflow-y-hidden bg-white relative">
+		<ReportHeader 
+			:report="report"
+			:isSplitScreen="isSplitScreen"
+			:isStreaming="isStreaming"
+			@toggleSplitScreen="toggleSplitScreen"
+			@rerun="rerunReport"
+			@stop="abortStream"
+		/>
+
+		<!-- Messages -->
+		<div class="flex-1 overflow-y-auto mt-4 pb-4" ref="scrollContainer">
+			<div class="pl-4 pr-2 pb-[3px]" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full mx-auto'">
+				<ul v-if="messages.length > 0" class="mx-auto w-full">
+					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
+						<div class="flex rounded-lg p-1" :class="{ 'bg-red-50 border border-red-200': m.status === 'error' }">
+							<div class="w-[28px] mr-2">
+								<div v-if="m.role === 'user'" class="h-7 w-7 flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
+									Y
+								</div>
+								<div v-else class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
+								</div>
+							</div>
+							<div class="w-full ml-4">
+								<!-- User message -->
+								<div v-if="m.role === 'user' && m.prompt?.content" class="pt-1 markdown-wrapper">
+									<MDC :value="m.prompt.content" class="markdown-content" />
+								</div>
+
+								<!-- System message -->
+								<div v-else-if="m.role === 'system'">
+									<!-- Thinking dots when system is working but no visible progress -->
+									<div v-if="shouldShowWorkingDots(m)">
+										<div class="simple-dots"></div>
+									</div>
+									
+									<!-- Render each completion block -->
+									<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id" class="mb-5">
+										<!-- Research blocks: put reasoning, tool execution, and assistant in thinking toggle -->
+										<div v-if="isResearchBlock(block)">
+											<!-- Thinking toggle for research blocks -->
+											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.tool_execution">
+												<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
+													<div class="font-normal text-sm text-gray-400  mb-2">
+														<div class="flex items-center">
+															<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
+															<span v-if="hasCompletedContent(block)" class="ml-1 font-normal">
+																{{ getThoughtProcessLabel(block) }}
+															</span>
+															<span v-else class="ml-1">
+																<div class="dots" />
+															</span>
+														</div>
+													</div>
+												</div>
+												<Transition name="fade">
+													<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content">
+														<!-- Reasoning -->
+														<div v-if="block.plan_decision?.reasoning || block.reasoning" class="markdown-wrapper mb-2">
+															<template v-if="isBlockFinalized(block)">
+																<MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+															</template>
+															<template v-else>
+																<div class="streaming-text">{{ block.plan_decision?.reasoning || block.reasoning || '' }}</div>
+															</template>
+														</div>
+														
+														<!-- Tool execution details in thinking -->
+														<div v-if="block.tool_execution" class="mb-4">
+															<!-- Use specialized tool component if available -->
+															<component 
+																v-if="shouldUseToolComponent(block.tool_execution)"
+																:is="getToolComponent(block.tool_execution.tool_name)"
+																:tool-execution="block.tool_execution"
+															/>
 
 
-        <div :style="{ 
-                width: isSplitScreen ? `${leftPanelWidth}px` : '100%',
-                transform: isSplitScreen ? 'none' : 'translateX(0)',
-                willChange: 'transform, width',
-                transition: isResizing ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-             }">
+														<!-- Fallback to generic tool display -->
+														<div v-else>
+															<div class="text-xs text-gray-600 mb-1 font-medium">
+																{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+															</div>
+															<div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+																<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
+																<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
+																<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
+																<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
+															</div>
+														</div>
+													</div>
+													
+													<!-- Assistant message in thinking for research -->
+													<div v-if="block.content" class="markdown-wrapper">
+														<MDC :key="block.id + ':' + (block.content?.length || 0)" :value="block.content || ''" class="markdown-content" />
+													</div>
+												</div>
+											</Transition>
+										</div>
+									</div>
+									
+									<!-- Action blocks: render like before -->
+									<div v-else>
+										<!-- Block reasoning section -->
+										<div v-if="block.plan_decision?.reasoning || block.reasoning">
+											<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
+												<div class="font-normal text-sm text-gray-500 mb-2">
+													<div class="flex items-center">
+														<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-500" />
+														<span v-if="hasCompletedContent(block)" class="ml-1">
+															{{ getThoughtProcessLabel(block) }}
+														</span>
+														<span v-else class="ml-1">
+															<div class="dots" />
+														</span>
+													</div>
+												</div>
+										</div>
+										<Transition name="fade">
+											<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content markdown-wrapper">
+												<MDC :key="block.id + ':' + (block.content?.length || 0)" :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+											</div>
+										</Transition>
+									</div>
+									
+									<!-- Block content -->
+									<div v-if="block.content && !block.plan_decision?.final_answer" class="markdown-wrapper">
+										<template v-if="isBlockFinalized(block)">
+											<MDC :value="block.content || ''" class="markdown-content" />
+										</template>
+										<template v-else>
+											<div class="streaming-text">{{ block.content || '' }}</div>
+										</template>
+									</div>
+									
+									<!-- Final answer (if this is the last block and analysis is complete) -->
+									<div v-else-if="block.plan_decision?.final_answer && block.plan_decision?.analysis_complete" class="mt-2 markdown-wrapper">
+										<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
+									</div>
+									
+									<!-- Tool execution details -->
+									<div v-if="block.tool_execution" class="mt-3 mb-4">
+										<!-- Use specialized tool component if available -->
+										<component 
+											v-if="shouldUseToolComponent(block.tool_execution)"
+											:is="getToolComponent(block.tool_execution.tool_name)"
+											:tool-execution="block.tool_execution"
+										/>
+										<!-- Fallback to generic expandable tool display -->
+										<div v-else>
+											<div class="text-xs text-gray-500 mb-1">
+												<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)">
+													{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+												</span>
+												<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
+													<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
+													<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
+													<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
+													<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
+												</div>
+											</div>
+										</div>
+									</div>
+									<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+										<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" />
+									</div>
+								</div>
+							</div>
+							
+							<!-- Show status messages for stopped/error completions -->
+							<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
+								<Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
+								Generation stopped
+							</div>
+							<div v-else-if="m.status === 'error'" class="text-xs text-red-500 mt-2 italic">
+								<Icon name="heroicons-exclamation-triangle" class="w-4 h-4 inline mr-1" />
+								An error occurred
+							</div>
+						</div>
+					</div>
+					</div>
+				</li>
+			</ul>
+			<div v-else class="mx-auto w-full text-center text-gray-500 text-sm mt-24">
+				Ask a question to get started.
+			</div>
+			</div>
+		</div>
 
-    <header class="sticky top-0 bg-white z-10 flex flex-row pt-1 h-[40px] border-gray-200 pb-1 pr-2" >
-        <GoBackChevron />
-        <h1 class="text-sm md:text-left text-center mt-1 w-[500px]">
-            <span class="font-semibold text-sm">
-                <input type="text" class="inline hover:bg-gray-100 p-1 pt-1 outline-none active:bg-gray-100 hover:cursor-pointer text-left w-full transition-all duration-300 ease-in-out transform motion-safe:hover:scale-[1.01]" v-if="report"
-                    :class="{ 'animate-fade-in': shouldAnimateTitle }"
-                    v-model="report.title" @keyup.enter="saveReportTitle" ref="reportTitleInput" />
-            </span>
-        </h1>
-        <div class="gap-1 hidden md:flex justify-end flex-1">
-            <button @click="toggleSplitScreen" class="p-1.5 rounded text-xl hover:bg-gray-100 flex items-center">
-                <span class="inline-flex items-center">
-                    <Icon name="heroicons:chart-pie" class="inline-block mr-2" /> 
-                </span>
-                <span class="text-sm"
-                :class="isSplitScreen ? 'hidden' : 'inline'"
-                >Dashboard</span>
-            </button>
-            <button class="p-1.5 rounded text-lg hover:bg-gray-100">
-                <Icon name="heroicons:ellipsis-horizontal" />
-            </button>
-            <UTooltip text="Rerun">
-                <button @click="rerunReport" class="hidden px-3 py-1 rounded bg-gray-50 border border-gray-200 text-xs hover:bg-gray-100 mr-4">
-                    <Icon name="heroicons:arrow-path-rounded-square" class="mr-2" />
-                </button>
-            </UTooltip>
+		<!-- Prompt box (in normal flow at the bottom of the left column) -->
+		<div class="shrink-0 bg-white border-t border-gray-200">
+			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+				<PromptBoxExcel 
+					:report_id="report_id"
+					:excelData="{}"
+					:selectedWidgetId="{ widgetId: null, stepId: null, widgetTitle: null }"
+					:latestInProgressCompletion="isStreaming ? {} : undefined"
+					:isStopping="false"
+					@submitCompletion="onSubmitCompletion"
+					@stopGeneration="abortStream"
+				/>
+			</div>
+		</div>
+	</div>
+		</template>
+		<template #right>
+			<div>
+				<DashboardComponent 
+					v-if="reportLoaded && widgets"
+					:report="report" 
+					:edit="true" 
+					:widgets="widgets.filter(widget => widget.status === 'published')" 
+					:textWidgetsIds="textWidgetsIds"
+					@toggleSplitScreen="toggleSplitScreen"
+				/>
+				<div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500">
+					No dashboard items yet.
+				</div>
+			</div>
+		</template>
+	</SplitScreenLayout>
 
-        </div>
-    </header>
-            <div class="flex flex-col h-full relative">
-                <div class="flex-1 overflow-y-auto mt-4 pb-14 h-[calc(100vh-200px)]" ref="agentLogContainer">
-                    <div class="pl-4 pr-2 pb-[3px]">
-                        <div v-if="!isPageLoading && completions.length == 0" class="mx-auto w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
-                            <h1 class="text-4xl mb-4">🪴</h1>
-                            <h1 class="text-lg font-semibold">Ask a question to get started.</h1>
-                            <p class="text-gray-500 text-sm mt-3">Examples:</p>
-                            <ul class="list-none list-inside">
-                                <li class="text-gray-500 text-sm mt-3" v-for="data_source in report.data_sources.filter(ds => ds.conversation_starters?.length > 0 && ds.active) ">
-                                    <button
-                                    class="text-gray-500 hover:bg-gray-50 border border-gray-200 text-xs rounded-md p-1.5"
-                                    @click="handleExampleClick(data_source.conversation_starters?.[0])">  
-                                        <DataSourceIcon :type="data_source.type" class="h-3 inline mr-2" />
-                                        {{ data_source.conversation_starters?.[0].split('\n')[0]  }}
-                                    </button>
-                                </li>
-                            </ul>
-                            <hr class="my-4">
-                            <p class="text-gray-500 text-sm"><span class="font-semibold">Tip:</span> <br />
-                                Use @ to explore data sources and memories<br /> and to mention them in your question.</p>
-
-
-                        </div>
-                        <div class="relative mx-auto" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
-                        <ul v-if="completions.length > 0" class="mx-auto w-full">
-                            <li v-for="completion in completions" :key="completion.id" class="text-gray-700 mb-2 text-sm">
-
-                                <CompletionMessageComponent
-                                    :key="`${completion.id}-${completion._updateKey || 0}`"
-                                    :completion="completion"
-                                    :excel="isExcel"
-                                    :reportId="report_id"
-                                    :selectedWidgetId="selectedWidgetId"
-                                    @update:selectedWidgetId="handleSelectedWidgetId"
-                                    @addWidget="handleAddWidget"
-                                />
-                                
-                            </li>
-                        </ul>
-                        <!-- Removed sticky bar; Stop now lives inside PromptBox -->
-                        </div>
-                    </div>
-                </div>
-
-                <div ref="scrollAnchor"></div>
-                <div class="absolute bottom-14 left-0 right-0" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 mx-auto'">
-                    <PromptBoxExcel 
-                        ref="promptBoxRef"
-                        :widgets="widgets" 
-                        :selectedWidgetId="selectedWidgetId" 
-                        :excelData="excelData" 
-                        :latestInProgressCompletion="latestInProgressCompletion"
-                        :isStopping="isStoppingGeneration"
-                        @submitCompletion="submitCompletion" 
-                        :report_id="report_id" 
-                        @update:selectedWidgetId="handleSelectedWidgetId" 
-                        @stopGeneration="() => sigkill(latestInProgressCompletion)"
-                    />
-                </div>
-            </div>
-
-        </div>
-
-        <!-- Resizer -->
-        <div v-if="isSplitScreen" 
-             class="w-1 bg-gray-200 cursor-col-resize hover:bg-blue-500 active:bg-blue-700"
-             @mousedown="startResize">
-        </div>
-
-        <!-- Right side (White space) -->
-        <div v-if="isSplitScreen" 
-             :style="{ 
-                 width: `calc(100% - ${leftPanelWidth}px)`,
-                 willChange: 'transform, width',
-                 transform: 'translateX(0)',
-                 transition: isResizing ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
-             }"
-             :class="[
-                'bg-white border-gray-200 bg-dots',
-                'overflow-y-scroll'
-             ]">
-            <div>
-                <DashboardComponent 
-                    ref="dashboardRef"
-                    @removeWidget="removeWidget"
-                    v-if="reportLoaded && widgets"
-                    :report="report" 
-                    :edit="true" 
-                    :widgets="widgets.filter(widget => widget.status === 'published')" 
-                    :textWidgetsIds="textWidgetsIds"
-                    @toggleSplitScreen="toggleSplitScreen"
-                />
-                <div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500">
-                    No dashboard items yet.
-                </div>
-            </div>
-        </div>
-    </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import PromptBoxExcel from '~/components/excel/PromptBoxExcel.vue'
+import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
+import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
+import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
+import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
+import ReportHeader from '~/components/report/ReportHeader.vue'
+import DashboardComponent from '~/components/DashboardComponent.vue'
 
-import PromptBoxExcel from '@/components/excel/PromptBoxExcel.vue';
-import GoBackChevron from '@/components/excel/GoBackChevron.vue';
-import DashboardComponent from '~/components/DashboardComponent.vue';
+// Types
+type ChatRole = 'user' | 'system'
+type ChatStatus = 'in_progress' | 'success' | 'error' | 'stopped'
 
-const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
-const { organization, setOrganization } = useOrganization()
-const { isExcel } = useExcel()
+interface ToolCall {
+	id: string
+	tool_name: string
+	tool_action?: string
+	status: string
+	result_summary?: string
+	result_json?: any
+	duration_ms?: number
+	created_widget_id?: string
+	created_step_id?: string
+    created_widget?: any
+    created_step?: any
+}
+
+interface CompletionBlock {
+	id: string
+	seq?: number
+	block_index: number
+	status: string
+	content?: string
+	reasoning?: string
+	title?: string
+	icon?: string
+	started_at?: string
+	completed_at?: string
+	plan_decision?: {
+		reasoning?: string
+		assistant?: string
+		final_answer?: string
+		analysis_complete?: boolean
+		plan_type?: string
+	}
+	tool_execution?: ToolCall
+}
+
+interface ChatMessage {
+	id: string
+	role: ChatRole
+	status?: ChatStatus
+	prompt?: { content: string }
+	completion_blocks?: CompletionBlock[]
+	tool_calls?: ToolCall[]
+	created_at?: string
+	// Backend system completion id used for sigkill
+	system_completion_id?: string
+	sigkill?: string | null
+}
+
 const route = useRoute()
-const config = useRuntimeConfig()
-const wsURL = config.public.wsURL
-const reportLoaded = ref(false); // New loading state
-const router = useRouter()
+const report_id = (route.params.id as string) || ''
 
+const messages = ref<ChatMessage[]>([])
+const promptText = ref<string>('')
+const isStreaming = ref<boolean>(false)
+let currentController: AbortController | null = null
+const scrollContainer = ref<HTMLElement | null>(null)
+const scrollAnchor = ref<HTMLElement | null>(null)
+// No absolute prompt box; no padding ref needed
 
-definePageMeta({ auth: true, layout: 'default' })
+// Report and Dashboard state
+const reportLoaded = ref(false)
+const report = ref<any | null>(null)
+const widgets = ref<any[]>([])
+const textWidgetsIds = ref<string[]>([])
 
-const subscription = computed(() => currentUser.value?.organizations[0]?.subscription)
-
-const completions = ref([])
-const isLoading = ref(false)
-const report_id = route.params.id
-const reportTitleInput = ref(null)
-const isStoppingGeneration = ref(false)
-
-const report = ref({
-    title: '',
-    id: '',
-    slug: ''
-});
-
-const shareModalOpen = ref(false)
-
-const sigkill = async (completion: any) => {
-    isStoppingGeneration.value = true;
-    try {
-        await useMyFetch(`/api/completions/${completion.id}/sigkill`, {
-            method: 'POST'
-        });
-        // After successful sigkill, update the local completion state
-        const idx = completions.value.findIndex(c => c.id === completion.id);
-        if (idx !== -1) {
-            const prev = completions.value[idx];
-            completions.value[idx] = {
-                ...prev,
-                status: 'stopped',
-                sigkill: true,
-                completion: { ...prev.completion }
-            };
-        } else {
-            completion.status = 'stopped';
-            completion.sigkill = true;
-        }
-    } catch (error) {
-        console.error('Error updating sigkill:', error);
-    } finally {
-        isStoppingGeneration.value = false;
-    }
-}
-const applyToExcel = (completion: any) => {
-    // Serialize the entire completion object
-    const serializedData = JSON.stringify(completion);
-
-    console.log('Sending serialized data to Excel:', serializedData);
-    window.parent.postMessage({
-        type: 'applyToExcel',
-        data: serializedData
-    }, '*');
-}
-
-const excelData = ref({
-    sheetName: '',
-    address: '',
-    sheetData: []
-})
-
-const promptValue = ref('')
-const currentCompletion = ref('')
-const isPageLoading = ref(true)
-const widgets = ref([])
-const mentions = ref([
-    {
-        name: 'MEMORY',
-        items: []
-    },
-    {
-        name: 'FILES',
-        items: []
-    },
-    {
-        name: 'DATA SOURCES',
-        items: []
-    },
-]);
-
-const latestInProgressCompletion = computed(() => {
-    const inProgress = completions.value.filter((c: any) => c.role === 'system' && c.status === 'in_progress' && !c.sigkill);
-    return inProgress.length ? inProgress[inProgress.length - 1] : null;
-});
-
-const rerunReport = () => {
-    useMyFetch(`/api/reports/${report_id}/rerun`, {
-        method: 'POST'
-    }).then(() => {
-        loadWidgets();
-    })
-}
-
-function handleExcelMessage(event) {
-    if (event.data.type === 'cellSelected') {
-        // Update excelData reactively
-        excelData.value = {
-            sheetName: event.data.sheetName,
-            address: event.data.address,
-            sheetData: event.data.sheetData
-        }
-        console.log('Updated excelData:', excelData.value) // Add this line for debugging
-    }
-}
-
-onMounted(() => {
-    window.addEventListener('message', handleExcelMessage)
-})
-
-onUnmounted(() => {
-    window.removeEventListener('message', handleExcelMessage)
-})
-
-function saveReportTitle() {
-    const requestBody = {
-        title: report.value.title
-    };
-
-    useMyFetch(`/api/reports/${report_id}`, {
-        method: 'PUT',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-    }).then(() => {
-        if (reportTitleInput.value) {
-            reportTitleInput.value.blur();
-        }
-    });
-}
-
-
-async function loadReport() {
-    const { data } = await useMyFetch(`/api/reports/${report_id}`);
-    await nextTick();
-    report.value = data.value;
-    reportLoaded.value = true;
-}
-
-const selectedWidgetId = ref({ widgetId: null, stepId: null, widgetTitle: null });
-
-// Function to handle the selected widget ID
-function handleSelectedWidgetId(widgetId, stepId, widgetTitle) {
-    selectedWidgetId.value = { widgetId, stepId, widgetTitle };
-}
-
-async function submitCompletion(promptValue) {
-    const report_id = route.params.id
-    const requestBody = {
-        prompt: {
-            content: promptValue.text,
-            mentions: promptValue.mentions,
-            widget_id: selectedWidgetId.value.widgetId,
-            step_id: selectedWidgetId.value.stepId
-        }
-    }
-    
-    isLoading.value = true
-    currentCompletion.value = ''
-
-    // Add a new completion for the user's prompt
-    completions.value.push({
-        id: `user-${Date.now()}`,
-        role: 'user',
-        prompt: { content: promptValue.text }
-    })
-
-    const response = await useMyFetch(`/reports/${report_id}/completions`, {
-        method: 'POST',
-        body: JSON.stringify(requestBody),
-        headers: {
-            'Content-Type': 'application/json',
-        },
-    })
-    // if first completion , send update title request
-    if (completions.value.length == 1) {
-    }
-        if (response.error?.value?.data?.detail) {
-            completions.value.push({
-                id: `system-${Date.now()}`,
-                role: 'system',
-                completion: { content: response.error.value.data.detail  + " " + "Sign in to continue." },
-                status: 'error'
-            })
-        }
-    isLoading.value = false
-    scrollToBottom()
-}
-
-async function loadWidgets() {
-    try {
-        const { data } = await useMyFetch(`/api/reports/${report_id}/widgets`);
-        if (data.value) {
-            widgets.value = data.value.map(widget => ({
-                ...widget,
-                key: Date.now() + widget.id + String(Math.random())
-            }));
-            // check if widget is published and if in not split screen, set isSplitScreen to true
-            if (widgets.value.filter(widget => widget.status === 'published').length > 0 && !isSplitScreen.value) {
-                toggleSplitScreen();
-            }
-            await nextTick();
-        }
-    } catch (error) {
-        console.error('Error loading widgets:', error);
-    }
-}
-
-async function updateCompletion(updated: any) {
-  const index = completions.value.findIndex(c => c.id === updated.id);
-  if (index === -1) return;
-
-  // Check if the current completion has a widget_id property
-  const currentWidgetId = completions.value[index]?.widget_id;
-  const updatedWidgetId = updated?.widget_id;
-
-  // Check if the current completion has a step_id property
-  const currentStepId = completions.value[index]?.step_id;
-  const updatedStepId = updated?.step_id;
-
-  // Reload completions if widget_id or step_id is newly added
-  if ((!currentWidgetId && updatedWidgetId) || (!currentStepId && updatedStepId)) {
-    loadCompletions();
-    return;
-  }
-  // Update in place
-  completions.value[index] = {
-    ...completions.value[index],
-    completion: {
-      ...completions.value[index].completion,
-      content: updated.completion?.content || '',
-      reasoning: updated.completion?.reasoning || '',
-    },
-    status: updated.status || '',
-    sigkill: updated.sigkill || false
-  };
-}
-
-async function loadCompletions() {
-    const { data } = await useMyFetch(`/api/reports/${report_id}/completions`)
-    completions.value = data.value
-    isPageLoading.value = false
-    scrollToBottom()
-}
-const textWidgetsIds = ref([])
-
-function connectWebSocket() {
-
-    const ws = new WebSocket(`${wsURL}/reports/${report_id}`)
-
-    ws.onopen = () => {
-        //console.log('WebSocket connection opened');
-    };
-
-    ws.onmessage = (event) => {
-        //console.log('Received message:', event.data);
-        if (event.data === "ping") {
-            return;
-        }
-        const data = JSON.parse(event.data);
-        const newCompletion = ref({})
-        const role = ref('system')
-        switch (data.event) {
-            case "insert_completion":
-                if (data.role == 'user') {
-                    role.value = 'system'
-                    return
-                } else if (data.role == 'system') {
-                    role.value = 'system'
-                    if (data.status == 'error') {
-                        loadCompletions();
-                        return
-                    }
-                } else {
-                    role.value = 'ai_agent'
-                }
-                newCompletion.value = {
-                    id: data.id,
-                    role: role.value, 
-                    status: data.status,
-                    completion: { content: data.completion.content || "", reasoning: data.completion.reasoning || "" }
-                }
-                // if last completion id is prefix system, dont add
-                if (completions.value.length > 0 && completions.value[completions.value.length - 1].id.startsWith("system-") && completions.value[completions.value.length - 1].completion.content.length == 0) {
-                    return;
-                }
-                completions.value.push(newCompletion.value)
-                if (completions.value.length == 2) {
-                    setTimeout(() => {
-                        loadReport().then(() => {
-                            shouldAnimateTitle.value = true;
-                            // Reset the animation flag after animation completes
-                            setTimeout(() => {
-                                shouldAnimateTitle.value = false;
-                            }, 600); // Match animation duration
-                        });
-                    }, 15000);
-                }
-
-                
-                break;
-            case 'update_completion':
-                //loadCompletions();
-                updateCompletion(data)
-                break;
-            case 'update_widget':
-                loadWidgets()
-                break;
-            case 'insert_text_widget':
-                if (dashboardRef.value) {
-                    dashboardRef.value.refreshTextWidgets();
-                } else {
-                    console.warn("Dashboard component ref not available to refresh text widgets.");
-                }
-                break;
-            case 'update_step':
-                updateStep(data)
-                //console.log('update_step', data)
-                //loadWidgets()
-
-                break;
-            default:
-                //console.log('Unknown event type:', data.event);
-        }
-        if (data.widget_id) {
-            // Implement getWidget function or remove this if not needed
-            // getWidget(data.widget_id);
-        }
-        //loadCompletions();
-    };
-
-    ws.onclose = () => {
-        console.log('WebSocket connection closed');
-    };
-
-    ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-    // Add more detailed error handling here if needed
-    }
-}
-
-const agentLogContainer = ref(null)
-const scrollAnchor = ref(null)
-
-function updateStep(updatedStep: any) {
-  // 1) Prefer exact step match
-  let idx = completions.value.findIndex((c: any) =>
-    c.step_id === updatedStep.step_id || c.step?.id === updatedStep.step_id
-  );
-
-  // 2) If not found yet, pick the MOST RECENT system completion for this widget
-  if (idx === -1) {
-    for (let i = completions.value.length - 1; i >= 0; i--) {
-      const c = completions.value[i];
-      if (c.role === 'system' && c.widget_id === updatedStep.widget_id) {
-        idx = i;
-        break;
-      }
-    }
-  }
-
-  if (idx === -1) return;
-
-  const current = completions.value[idx];
-  const statusChanged = current?.step?.status !== updatedStep.status;
-
-  const newCompletion = {
-    ...current,
-    widget_id: current.widget_id || updatedStep.widget_id,
-    step: {
-      id: updatedStep.step_id,
-      title: updatedStep.title,
-      slug: updatedStep.slug,
-      status: updatedStep.status,
-      code: updatedStep.code,
-      data: updatedStep.data,
-      data_model: updatedStep.data_model,
-      type: updatedStep.type,
-      description: updatedStep.description,
-      widget_id: updatedStep.widget_id
-    },
-    step_id: updatedStep.step_id,
-    _updateKey: statusChanged ? Date.now() : (current._updateKey || 0)
-  };
-
-  completions.value.splice(idx, 1, newCompletion);
-}
-
-function scrollToBottom() {
-  // Wait for two tick cycles to ensure all content is rendered
-    nextTick(() => {
-
-        setTimeout(() => {
-            const container = agentLogContainer.value
-            if (container) {
-                // Force layout recalculation
-                container.offsetHeight
-                // Scroll to the maximum possible position
-                const scrollHeight = container.scrollHeight
-                container.scrollTop = scrollHeight + 1000 // Add extra padding to ensure we reach bottom
-            }
-        }, 50)
-    })
-}
-
-
-onMounted(async () => {
-    await nextTick();
-    await loadReport();
-    await loadWidgets();
-    await loadCompletions();
-    if (route.query.new_message && completions.value.length == 0) {
-        submitCompletion({ text: route.query.new_message as string, mentions: [] })
-    }
-    connectWebSocket();
-    scrollToBottom();
-});
-
-watch(completions, (newCompletions, oldCompletions) => {
-  scrollToBottom()
-}, { deep: true })
-
+// Split screen state
 const isSplitScreen = ref(false)
-
-function toggleSplitScreen() {
-    nextTick(() => {
-        isSplitScreen.value = !isSplitScreen.value;
-        if (isSplitScreen.value) {
-            leftPanelWidth.value = 450;
-        }
-        scrollToBottom();
-    });
-}
-
-const selectedWidget = ref(null);
-
-async function removeWidget(widget: any) {
-    await useMyFetch(`/api/reports/${report_id}/widgets/${widget.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'draft', id: widget.id })
-    }).then(() => {
-        widgets.value = widgets.value.map(w => {
-            if (w.id === widget.id) {
-                return { ...w, status: 'draft' };
-            }
-            return w;
-        });
-    })
-}
-
-async function handleAddWidget(widget: any) {
-    selectedWidget.value = widget;
-    
-    if (!isSplitScreen.value) {
-        isSplitScreen.value = true;
-        await nextTick();
-    }
-
-    if (!isExcel.value) {
-        try {
-            const { data: completeWidgetData } = await useMyFetch(`/api/reports/${report_id}/widgets/${widget.id}`);
-            
-            await useMyFetch(`/api/reports/${report_id}/widgets/${widget.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    status: 'published', 
-                    id: widget.id,
-                })
-            });
-
-            await loadWidgets();
-            
-        } catch (error) {
-            console.error('Error updating widget:', error);
-        }
-    }
-}
-
 const leftPanelWidth = ref(450)
 const isResizing = ref(false)
 const initialMouseX = ref(0)
 const initialPanelWidth = ref(0)
 
+// Toggle states
+const collapsedReasoning = ref<Set<string>>(new Set())
+const expandedToolDetails = ref<Set<string>>(new Set())
+
+// Helper functions for block types
+function isResearchBlock(block: CompletionBlock): boolean {
+	return block.plan_decision?.plan_type === 'research' || (block.title?.includes('research') ?? false)
+}
+
+function isBlockFinalized(block: CompletionBlock): boolean {
+	return !!(block.plan_decision?.analysis_complete || block.completed_at)
+}
+
+function hasCompletedContent(block: CompletionBlock): boolean {
+	return !!(block.content || block.status === 'completed')
+}
+
+function getToolComponent(toolName: string) {
+	switch (toolName) {
+		case 'create_data_model':
+			return CreateDataModelTool
+		case 'create_and_execute_code':
+			return ExecuteCodeTool
+		case 'create_dashboard':
+			return CreateDashboardTool
+		case 'execute_code':
+		case 'execute_sql':
+			return ExecuteCodeTool
+		default:
+			return null
+	}
+}
+
+function shouldUseToolComponent(toolExecution: ToolCall): boolean {
+	return getToolComponent(toolExecution.tool_name) !== null
+}
+
+function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boolean {
+	if (!toolExecution) return false
+	
+	// Only show for create_and_execute_code or execute_code tools with success status
+	const showForTools = ['create_and_execute_code', 'execute_code', 'execute_sql']
+	return showForTools.includes(toolExecution.tool_name) && 
+	       toolExecution.status === 'success' &&
+	       (toolExecution.created_widget || toolExecution.created_step)
+}
+
+function shouldShowWorkingDots(message: ChatMessage): boolean {
+	// Only show for system messages that are in progress
+	if (message.role !== 'system' || message.status !== 'in_progress') {
+		return false
+	}
+	
+	// Don't show dots if the message was killed (sigkill timestamp exists)
+	if (message.sigkill) {
+		return false
+	}
+	
+	// CASE 1: No blocks yet - show dots (initial startup phase)
+	if (!message.completion_blocks || message.completion_blocks.length === 0) {
+		return true
+	}
+	
+	// CASE 2: Blocks exist but no meaningful content yet (early startup)
+	const hasAnyMeaningfulContent = message.completion_blocks.some(block => 
+		block.plan_decision?.reasoning || 
+		block.reasoning || 
+		block.content ||
+		block.tool_execution
+	)
+	
+	// If no meaningful content yet, show dots
+	if (!hasAnyMeaningfulContent) {
+		return true
+	}
+	
+	// CASE 3: Check if we're in a "gap" between blocks during streaming
+	const lastBlock = message.completion_blocks[message.completion_blocks.length - 1]
+	
+	// If the last block has final_answer and analysis_complete, we're truly done
+	if (lastBlock?.plan_decision?.analysis_complete === true) {
+		return false
+	}
+	
+	// Check if the last block has finished its main content but no tools are running
+	const lastBlockHasContent = lastBlock && (
+		lastBlock.content ||
+		lastBlock.plan_decision?.final_answer
+	)
+	
+	// Check if tools are actively running
+	const hasActiveTools = message.completion_blocks.some(block => 
+		block.tool_execution?.status === 'running' || 
+		block.status === 'in_progress'
+	)
+	
+	// Check if any block is actively streaming text (has reasoning but no assistant yet)
+	const hasStreamingContent = message.completion_blocks.some(block => 
+		(block.plan_decision?.reasoning && !block.content) ||
+		(block.reasoning && !block.content)
+	)
+	
+	// Show dots when:
+	// 1. System is in progress AND
+	// 2. No active tools/streaming AND
+	// 3. Last block has content but system continues (preparing next block)
+	return !hasActiveTools && !hasStreamingContent && (!!lastBlockHasContent && message.status === 'in_progress')
+}
+
+function getThoughtProcessLabel(block: CompletionBlock): string {
+	// Calculate duration from started_at to completed_at if available
+	if (block.started_at && block.completed_at) {
+		const startTime = new Date(block.started_at).getTime()
+		const endTime = new Date(block.completed_at).getTime()
+		const durationMs = endTime - startTime
+		const durationSeconds = Math.round(durationMs / 1000)
+		return `Thought for ${durationSeconds}s`
+	}
+	
+	// Fallback to duration from tool execution if available
+	if (block.tool_execution?.duration_ms) {
+		const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
+		return `Thought for ${durationSeconds}s`
+	}
+	
+	// Default fallback
+	return 'Thought Process'
+}
+
+
+
+// Auto-collapse reasoning when content becomes available
+watch(() => messages.value, (newMessages) => {
+	newMessages.forEach(message => {
+		if (message.completion_blocks) {
+			message.completion_blocks.forEach(block => {
+				// Auto-collapse reasoning when assistant content becomes available
+				if (hasCompletedContent(block) && !collapsedReasoning.value.has(block.id)) {
+					collapsedReasoning.value.add(block.id)
+				}
+			})
+		}
+	})
+}, { deep: true })
+
+// Watch for split screen changes and scroll to bottom to maintain position
+watch(() => isSplitScreen.value, () => {
+	nextTick(() => setTimeout(scrollToBottom, 80))
+})
+
+function goBack() {
+	if (history.length > 1) history.back()
+}
+
+function toggleReasoning(messageId: string) {
+	if (collapsedReasoning.value.has(messageId)) {
+		collapsedReasoning.value.delete(messageId)
+	} else {
+		collapsedReasoning.value.add(messageId)
+	}
+}
+
+function isReasoningCollapsed(messageId: string) {
+	return collapsedReasoning.value.has(messageId)
+}
+
+function toggleToolDetails(toolId: string) {
+	if (expandedToolDetails.value.has(toolId)) {
+		expandedToolDetails.value.delete(toolId)
+	} else {
+		expandedToolDetails.value.add(toolId)
+	}
+}
+
+function isToolDetailsExpanded(toolId: string) {
+	return expandedToolDetails.value.has(toolId)
+}
+
+function scrollToBottom() {
+  // Single-pass scroll: go to max scroll position
+  nextTick(() => {
+    setTimeout(() => {
+      const container = scrollContainer.value
+      if (!container) return
+      container.offsetHeight // force reflow
+      container.scrollTop = container.scrollHeight
+    }, 40)
+  })
+}
+
+// Only auto-scroll when the user is already near the bottom to avoid jumpiness
+function autoScrollIfNearBottom() {
+  const container = scrollContainer.value
+  if (!container) return
+  const threshold = 96 // px
+  const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight)
+  if (distanceFromBottom <= threshold) {
+    scrollToBottom()
+  }
+}
+
+function scheduleInitialScroll() {
+    const delays = [0, 80, 160, 320, 640]
+    for (const delay of delays) setTimeout(scrollToBottom, delay)
+}
+
+// Keep scrolling to bottom across successive layout passes until height stabilizes
+function settleScrollToBottom(maxFrames = 24) {
+    const container = scrollContainer.value
+    if (!container) return
+    let frames = 0
+    let lastHeight = -1
+    const tick = () => {
+        if (!scrollContainer.value) return
+        const h = scrollContainer.value.scrollHeight
+        if (h !== lastHeight) {
+            lastHeight = h
+            scrollContainer.value.scrollTop = h
+            frames = 0
+        } else {
+            frames++
+        }
+        if (frames < 3 && maxFrames-- > 0) {
+            requestAnimationFrame(tick)
+        }
+    }
+    requestAnimationFrame(tick)
+}
+
+async function handleStreamingEvent(eventType: string | null, payload: any, sysMessageIndex: number) {
+	if (!eventType || sysMessageIndex === -1) return
+	
+	if (!messages.value[sysMessageIndex]) return
+
+	const sysMessage = messages.value[sysMessageIndex]
+	
+	switch (eventType) {
+		case 'completion.started':
+			// Update system message status
+			sysMessage.status = 'in_progress'
+			// Stash backend system completion id for stop-generation (sigkill)
+			if (payload && payload.system_completion_id) {
+				sysMessage.system_completion_id = payload.system_completion_id
+			}
+			break
+
+		case 'block.upsert':
+			// Add or update a completion block
+			if (payload.block) {
+				const block = payload.block
+				if (!sysMessage.completion_blocks) {
+					sysMessage.completion_blocks = []
+				}
+				
+				// Find existing block or insert in-order by block_index (avoid resorting array)
+				const existingIndex = sysMessage.completion_blocks.findIndex(b => b.id === block.id)
+				if (existingIndex >= 0) {
+					// Update existing block in place
+					Object.assign(sysMessage.completion_blocks[existingIndex], block)
+				} else {
+					console.log('block.upsert', block.id, block.content, block.reasoning)
+					let insertPos = sysMessage.completion_blocks.length
+					for (let i = 0; i < sysMessage.completion_blocks.length; i++) {
+						const bi = sysMessage.completion_blocks[i]
+						if ((bi?.block_index ?? Number.MAX_SAFE_INTEGER) > (block?.block_index ?? Number.MAX_SAFE_INTEGER)) {
+							insertPos = i
+							break
+						}
+					}
+					sysMessage.completion_blocks.splice(insertPos, 0, block)
+				}
+			}
+			break
+
+		case 'block.delta.text':
+			console.log('block.delta.text', payload)
+			// Update text snapshot for a specific block (full overwrite)
+			if (payload.block_id && payload.field && payload.text) {
+				const idx = sysMessage.completion_blocks?.findIndex(b => b.id === payload.block_id) ?? -1
+				if (idx >= 0 && sysMessage.completion_blocks) {
+					const updated = { ...sysMessage.completion_blocks[idx] }
+					if (payload.field === 'content') {
+						updated.content = payload.text
+					} else if (payload.field === 'reasoning') {
+						updated.reasoning = payload.text
+						if (!updated.plan_decision) updated.plan_decision = {}
+						updated.plan_decision.reasoning = payload.text
+					}
+					sysMessage.completion_blocks.splice(idx, 1, updated)
+				}
+			}
+			break
+
+		case 'block.delta.token':
+			console.log('block.delta.token', payload)
+			// Handle individual token streaming for real-time typing effect
+			if (payload.block_id && payload.field && payload.token) {
+				const idx = sysMessage.completion_blocks?.findIndex(b => b.id === payload.block_id) ?? -1
+				if (idx >= 0 && sysMessage.completion_blocks) {
+					const t = String(payload.token || '')
+					const updated = { ...sysMessage.completion_blocks[idx] }
+					if (payload.field === 'content') {
+						updated.content = (updated.content || '') + t
+					} else if (payload.field === 'reasoning') {
+						updated.reasoning = (updated.reasoning || '') + t
+						if (!updated.plan_decision) updated.plan_decision = {}
+						updated.plan_decision.reasoning = (updated.plan_decision.reasoning || '') + t
+					}
+					sysMessage.completion_blocks.splice(idx, 1, updated)
+				}
+			}
+			else{
+				console.log('block.delta.token', payload)
+			}
+			break
+
+		case 'block.delta.text.complete':
+			// Handle text completion finalization
+			if (payload.block_id && payload.field && payload.is_final) {
+				const block = sysMessage.completion_blocks?.find(b => b.id === payload.block_id)
+				if (block) {
+					// Mark field as complete - could be used for UI effects
+				}
+			}
+			break
+
+		case 'block.delta.artifact':
+			// Handle artifact changes (for progressive updates)
+			if (payload.change && payload.change.type === 'step') {
+				const block = sysMessage.completion_blocks?.find(b => b.tool_execution?.created_step_id === payload.change.step_id)
+				if (block && block.tool_execution) {
+					block.status = 'in_progress'
+					// Merge streamed data_model fields into tool_execution.result_json for live UI updates
+					const fields = payload.change.fields || {}
+					if (fields.data_model) {
+						block.tool_execution.result_json = block.tool_execution.result_json || {}
+						const rj: any = block.tool_execution.result_json
+						rj.data_model = { ...(rj.data_model || {}), ...fields.data_model }
+						if (Array.isArray(fields.data_model.columns)) {
+							const existing = new Map<string, any>((rj.data_model.columns || []).map((c: any) => [c.generated_column_name, c]))
+							for (const col of fields.data_model.columns) existing.set(col.generated_column_name, col)
+							rj.data_model.columns = Array.from(existing.values())
+						}
+					}
+				}
+			}
+			break
+
+		case 'tool.started':
+			// Update block to show tool execution started
+			if (payload.tool_name) {
+				// Find the most recent block and update it
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock) {
+					if (!lastBlock.tool_execution) {
+						lastBlock.tool_execution = {
+							id: `temp-${Date.now()}`,
+							tool_name: payload.tool_name,
+							status: 'running'
+						}
+					}
+					lastBlock.status = 'in_progress'
+				}
+			}
+			break
+
+		case 'tool.progress':
+			// Update tool execution progress on the latest block (best-effort) and stream data model deltas
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock) {
+					if (!lastBlock.tool_execution) {
+						lastBlock.tool_execution = {
+							id: `temp-${Date.now()}`,
+							tool_name: payload.tool_name,
+							status: 'running'
+						}
+					} else {
+						lastBlock.tool_execution.status = 'running'
+					}
+
+					// Progressive data model updates for create_data_model tool
+					if (payload.tool_name === 'create_data_model' && payload.payload) {
+						const p = payload.payload
+						// Ensure result_json.data_model structure exists
+						lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
+						const rj = lastBlock.tool_execution.result_json as any
+						rj.data_model = rj.data_model || { type: null, columns: [], series: [] }
+
+						if (p.stage === 'data_model_type_determined' && p.data_model_type) {
+							rj.data_model.type = p.data_model_type
+						}
+						if (p.stage === 'column_added' && p.column) {
+							const exists = (rj.data_model.columns || []).some((c: any) => c.generated_column_name === p.column.generated_column_name)
+							if (!exists) {
+								rj.data_model.columns.push(p.column)
+							}
+						}
+						if (p.stage === 'series_configured' && Array.isArray(p.series)) {
+							rj.data_model.series = p.series
+						}
+						if (p.stage === 'widget_creation_needed' && p.data_model) {
+							rj.data_model = { ...rj.data_model, ...p.data_model }
+						}
+					}
+
+					lastBlock.status = 'in_progress'
+				}
+			}
+			break
+
+		case 'widget.created':
+			// No-op for now; this is displayed in the report UI elsewhere
+			break
+
+		case 'data_model.completed':
+			// No-op; step/widget UIs will reflect final data model. Avoid logging unknown.
+			break
+
+		case 'tool.finished':
+			// Update tool execution status
+			if (payload.tool_name && payload.status) {
+				const blockWithTool = sysMessage.completion_blocks?.find(b => 
+					b.tool_execution?.tool_name === payload.tool_name
+				)
+				if (blockWithTool?.tool_execution) {
+					blockWithTool.tool_execution.status = payload.status
+					blockWithTool.status = payload.status === 'success' ? 'success' : 'error'
+					if (payload.result_summary) {
+						blockWithTool.tool_execution.result_summary = payload.result_summary
+					}
+					if (payload.result_json) {
+						blockWithTool.tool_execution.result_json = payload.result_json
+					}
+					if (payload.duration_ms !== undefined) {
+						blockWithTool.tool_execution.duration_ms = payload.duration_ms
+					}
+					if (payload.created_widget_id) {
+						blockWithTool.tool_execution.created_widget_id = payload.created_widget_id
+					}
+					if (payload.created_step_id) {
+						blockWithTool.tool_execution.created_step_id = payload.created_step_id
+					}
+					// If the dashboard was created successfully, refresh widgets and open the dashboard pane
+					if (payload.tool_name === 'create_dashboard' && payload.status === 'success') {
+						try { await loadWidgets() } catch (e) { /* noop */ }
+						if (!isSplitScreen.value) toggleSplitScreen()
+					}
+				}
+			}
+			break
+
+		case 'decision.partial':
+		case 'decision.final':
+			// Update plan decision information
+			if (payload.reasoning || payload.assistant) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock) {
+					if (!lastBlock.plan_decision) {
+						lastBlock.plan_decision = {}
+					}
+					if (payload.reasoning) {
+						lastBlock.plan_decision.reasoning = payload.reasoning
+					}
+					if (payload.assistant) {
+						lastBlock.plan_decision.assistant = payload.assistant
+					}
+					if (payload.final_answer) {
+						lastBlock.plan_decision.final_answer = payload.final_answer
+					}
+					if (eventType === 'decision.final') {
+						lastBlock.plan_decision.analysis_complete = payload.analysis_complete ?? true
+					}
+				}
+			}
+			break
+
+		case 'completion.finished':
+			// Mark completion as finished
+			sysMessage.status = 'success'
+			break
+
+		default:
+			// Handle unknown events gracefully
+			console.log('Unknown streaming event:', eventType, payload)
+			break
+	}
+}
+
+async function loadCompletions() {
+	try {
+		const { data } = await useMyFetch(`/reports/${report_id}/completions.v2`)
+		const response = data.value as any
+		const list = response?.completions || []
+		messages.value = list.map((c: any) => {
+			// Override status if sigkill timestamp exists - this means it was stopped
+			let status = c.status as ChatStatus
+			if (c.sigkill && status === 'in_progress') {
+				status = 'stopped'
+			}
+			
+			return {
+				id: c.id,
+				role: c.role as ChatRole,
+				status: status,
+				prompt: c.prompt,
+				completion_blocks: c.completion_blocks?.map((b: any) => ({
+					id: b.id,
+					seq: b.seq,
+					block_index: b.block_index,
+					status: b.status,
+					content: b.content,
+					reasoning: b.reasoning,
+					plan_decision: b.plan_decision,
+					tool_execution: b.tool_execution ? {
+						id: b.tool_execution.id,
+						tool_name: b.tool_execution.tool_name,
+						tool_action: b.tool_execution.tool_action,
+						status: b.tool_execution.status,
+						result_summary: b.tool_execution.result_summary,
+						result_json: b.tool_execution.result_json,
+						duration_ms: b.tool_execution.duration_ms,
+						created_widget_id: b.tool_execution.created_widget_id,
+						created_step_id: b.tool_execution.created_step_id,
+						created_widget: b.tool_execution.created_widget,
+						created_step: b.tool_execution.created_step
+					} : undefined
+				})) || [],
+				created_at: c.created_at,
+				sigkill: c.sigkill
+			}
+		})
+		await nextTick()
+		scrollToBottom()
+	} catch (e) {
+		console.error('Error loading completions:', e)
+	}
+}
+
+async function loadReport() {
+	const { data } = await useMyFetch(`/api/reports/${report_id}`)
+	report.value = data.value
+	reportLoaded.value = true
+}
+
+async function loadWidgets() {
+	try {
+		const { data } = await useMyFetch(`/api/reports/${report_id}/widgets`)
+		const arr = Array.isArray(data.value) ? (data.value as any[]) : []
+		widgets.value = arr.map((widget: any) => ({
+			...widget,
+			key: Date.now() + widget.id + String(Math.random())
+		}))
+	} catch (error) {
+		console.error('Error loading widgets:', error)
+	}
+}
+
+function toggleSplitScreen() {
+	nextTick(() => {
+		isSplitScreen.value = !isSplitScreen.value
+		if (isSplitScreen.value) {
+			leftPanelWidth.value = 450
+		}
+		scrollToBottom()
+	})
+}
+
 function startResize(e: MouseEvent) {
-    isResizing.value = true
-    initialMouseX.value = e.clientX
-    initialPanelWidth.value = leftPanelWidth.value
-    
-    document.addEventListener('mousemove', handleResize)
-    document.addEventListener('mouseup', stopResize)
-    document.body.style.userSelect = 'none'
+	isResizing.value = true
+	initialMouseX.value = e.clientX
+	initialPanelWidth.value = leftPanelWidth.value
+		document.addEventListener('mousemove', handleResize)
+	document.addEventListener('mouseup', stopResize)
+	document.body.style.userSelect = 'none'
 }
 
 function handleResize(e: MouseEvent) {
-    if (!isResizing.value) return
-    
-    const minWidth = 280
-    const maxWidth = window.innerWidth * 0.8
-    
-    // Calculate the distance moved from initial position
-    const dx = e.clientX - initialMouseX.value
-    const newWidth = initialPanelWidth.value + dx
-    
-    // Apply constraints
-    leftPanelWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
+	if (!isResizing.value) return
+	const minWidth = 280
+	const maxWidth = window.innerWidth * 0.8
+	const dx = e.clientX - initialMouseX.value
+	const newWidth = initialPanelWidth.value + dx
+	leftPanelWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
+	// Trigger scroll to bottom during live resize to maintain scroll position
+	scrollToBottom()
 }
 
 function stopResize() {
-    isResizing.value = false
-    document.removeEventListener('mousemove', handleResize)
-    document.removeEventListener('mouseup', stopResize)
-    document.body.style.userSelect = 'auto'
+	isResizing.value = false
+	document.removeEventListener('mousemove', handleResize)
+	document.removeEventListener('mouseup', stopResize)
+	document.body.style.userSelect = 'auto'
 }
 
 onUnmounted(() => {
-    document.removeEventListener('mousemove', handleResize)
-    document.removeEventListener('mouseup', stopResize)
-    document.body.style.userSelect = 'auto'
+	document.removeEventListener('mousemove', handleResize)
+	document.removeEventListener('mouseup', stopResize)
+	document.body.style.userSelect = 'auto'
+	window.removeEventListener('resize', scrollToBottom)
 })
 
-// Add new ref for controlling animation
-const shouldAnimateTitle = ref(false)
+function rerunReport() {
+	useMyFetch(`/api/reports/${report_id}/rerun`, { method: 'POST' }).then(() => {
+		loadWidgets()
+	})
+}
 
-// Add ref for PromptBoxExcel component
-const promptBoxRef = ref(null);
-
-// Add ref for DashboardComponent
-const dashboardRef = ref(null);
-
-// Add function to handle example click
-function handleExampleClick(starter: string) {
-    if (promptBoxRef.value) {
-        promptBoxRef.value.updatePromptContent(starter);
+// Handle Add to dashboard from ToolWidgetPreview
+async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any }) {
+    try {
+        const widget = payload?.widget
+        if (!widget?.id) return
+        await useMyFetch(`/api/reports/${report_id}/widgets/${widget.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'published', id: widget.id })
+        })
+        
+        // Update the local widget status immediately to reflect the change in UI
+        // Find the tool execution that contains this widget and update its status
+        messages.value.forEach(message => {
+            if (message.completion_blocks) {
+                message.completion_blocks.forEach(block => {
+                    if (block.tool_execution?.created_widget?.id === widget.id && block.tool_execution) {
+                        block.tool_execution.created_widget.status = 'published'
+                    }
+                })
+            }
+        })
+        
+        		if (!isSplitScreen.value) toggleSplitScreen()
+		await loadWidgets()
+		// Scroll to bottom when dashboard opens after adding widget
+		await nextTick()
+		scrollToBottom()
+    } catch (e) {
+        console.error('Failed to add widget from preview:', e)
     }
 }
+
+function abortStream() {
+	if (currentController) {
+		currentController.abort()
+		currentController = null
+	}
+	// Signal backend to stop the running agent loop if we know the server-side id
+	try {
+		const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
+		const systemId = (sysMsg as any)?.system_completion_id
+		if (systemId) {
+			useMyFetch(`/api/completions/${systemId}/sigkill`, { method: 'POST' })
+			// Mark locally as stopped for immediate UI feedback
+			;(sysMsg as any).status = 'stopped'
+		}
+	} catch (e) {
+		console.error('Failed to send sigkill:', e)
+	}
+	isStreaming.value = false
+}
+
+function onSubmitCompletion(data: { text: string, mentions: any[] }) {
+	const text = data.text.trim()
+	if (!text) return
+
+	// Append user message
+	const userMsg: ChatMessage = {
+		id: `user-${Date.now()}`,
+		role: 'user',
+		prompt: { content: text }
+	}
+	messages.value.push(userMsg)
+
+	// Append placeholder system message for streaming
+	const sysId = `system-${Date.now()}`
+	const sysMsg: ChatMessage = {
+		id: sysId,
+		role: 'system',
+		status: 'in_progress',
+		completion_blocks: []
+	}
+	messages.value.push(sysMsg)
+	scrollToBottom()
+
+	// Start streaming
+	if (isStreaming.value) abortStream()
+	currentController = new AbortController()
+	isStreaming.value = true
+
+	const requestBody = {
+		prompt: {
+			content: text,
+			mentions: data.mentions || []
+		}
+	}
+
+	startStreaming(requestBody, sysId)
+}
+
+async function startStreaming(requestBody: any, sysId: string) {
+
+	try {
+		const options: any = {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(requestBody),
+			signal: currentController?.signal,
+			stream: true
+		}
+		const raw: any = await useMyFetch(`/reports/${report_id}/completions/stream`, options as any)
+		const res: Response = (raw?.data?.value ?? raw?.data) as unknown as Response
+
+		if (!res?.ok || !res?.body) throw new Error(`Stream HTTP error: ${res?.status}`)
+
+		const reader = res.body!.getReader()
+		const decoder = new TextDecoder()
+		let buffer = ''
+		let currentEvent: string | null = null
+
+		const ensureSys = () => messages.value.findIndex(m => m.id === sysId)
+
+		while (true) {
+			const { done, value } = await reader.read()
+			if (done) {
+				console.log('Stream finished normally')
+				break
+			}
+			
+			// Check if stream was aborted
+			if (currentController?.signal.aborted) {
+				console.log('Stream was aborted')
+				break
+			}
+			
+			buffer += decoder.decode(value, { stream: true })
+
+			let nlIndex: number
+			while ((nlIndex = buffer.indexOf('\n')) >= 0) {
+				const line = buffer.slice(0, nlIndex).trimEnd()
+				buffer = buffer.slice(nlIndex + 1)
+
+				if (line.startsWith('event:')) {
+					currentEvent = line.slice(6).trim()
+				} else if (line.startsWith('data:')) {
+					const dataStr = line.slice(5).trim()
+					if (dataStr === '[DONE]') {
+						isStreaming.value = false
+						currentController = null
+						return
+					}
+					try {
+						const parsed = JSON.parse(dataStr)
+						const payload = parsed.data ?? parsed
+						const idx = ensureSys()
+						if (idx !== -1) {
+							await handleStreamingEvent(currentEvent, payload, idx)
+							await nextTick()
+							// Autoscroll only if user is near bottom (guarded inside scrollToBottom)
+							autoScrollIfNearBottom()
+						}
+					} catch (e) {
+						// ignore non-JSON data lines
+					}
+				}
+			}
+		}
+	} catch (err) {
+		console.error('Streaming error:', err)
+		const idx = messages.value.findIndex(m => m.id === sysId)
+		if (idx !== -1) {
+			let errorMessage = 'An error occurred during streaming.'
+			
+			if (err instanceof Error) {
+				if (err.name === 'AbortError') {
+					// Check if this was a user-initiated stop (sigkill) vs connection abort
+					const sysMsg = messages.value[idx]
+					if (sysMsg && sysMsg.system_completion_id) {
+						// This was likely a user stop, mark as stopped without error
+						messages.value[idx] = { ...messages.value[idx], status: 'stopped' }
+						return // Don't add error block for user stops
+					} else {
+						// Connection was aborted for other reasons
+						errorMessage = 'Stream was cancelled.'
+						messages.value[idx] = { ...messages.value[idx], status: 'stopped' }
+					}
+				} else if (err.message.includes('Stream HTTP error')) {
+					errorMessage = `Connection error: ${err.message}`
+					messages.value[idx] = { ...messages.value[idx], status: 'error' }
+				} else {
+					errorMessage = `Error: ${err.message}`
+					messages.value[idx] = { ...messages.value[idx], status: 'error' }
+				}
+			} else {
+				messages.value[idx] = { ...messages.value[idx], status: 'error' }
+			}
+			
+			// Add error block if not already present
+			if (!messages.value[idx].completion_blocks?.some(b => b.status === 'error')) {
+				if (!messages.value[idx].completion_blocks) {
+					messages.value[idx].completion_blocks = []
+				}
+				messages.value[idx].completion_blocks!.push({
+					id: `error-${Date.now()}`,
+					block_index: 999,
+					status: 'error',
+					content: errorMessage,
+					title: 'Error',
+					icon: '❌'
+				})
+			}
+		}
+	} finally {
+		isStreaming.value = false
+		currentController = null
+	}
+}
+
+onMounted(async () => {
+	await Promise.all([
+		loadReport(),
+		loadWidgets(),
+		loadCompletions(),
+		() => {
+			if (route.query.new_message && messages.value.length == 0) {
+				onSubmitCompletion({ text: route.query.new_message as string, mentions: [] })
+			}
+		},
+	])
+	
+	// Open dashboard pane if there are any published widgets
+	if (widgets.value.some(widget => widget.status === 'published')) {
+		isSplitScreen.value = true
+		// Scroll to bottom when automatically opening dashboard
+		nextTick(() => setTimeout(scrollToBottom, 100))
+	}
+	// Aggressive initial scroll to handle async content mounting
+	scheduleInitialScroll()
+	window.addEventListener('resize', scrollToBottom)
+})
 
 </script>
 
 <style scoped>
-.bg-dots {
-    background-image: radial-gradient(circle, rgba(0, 0, 0, 0.15) 1px, #fff 1px);
-    background-size: 20px 20px; /* Adjust the size of the dots */
-}
-
 .overflow-y-auto {
-    overflow-y: auto !important;
-    max-height: calc(100vh - 200px);
+	overflow-y: auto !important;
 }
 
-/* Add this to handle the animation of the right panel appearing/disappearing */
-.v-enter-active,
-.v-leave-active {
-    transition: opacity 0.3s ease, transform 0.3s ease;
+/* Minimal typography akin to CompletionMessageComponent */
+.markdown-wrapper :deep(.markdown-content) {
+	@apply leading-relaxed;
+	font-size: 14px;
+
+	:where(h1, h2, h3, h4, h5, h6) {
+		@apply font-bold mb-4 mt-6;
+	}
+
+	h1 { @apply text-3xl; }
+	h2 { @apply text-2xl; }
+	h3 { @apply text-xl; }
+
+	ul, ol { @apply pl-6 mb-4; }
+	ul { @apply list-disc; }
+	ol { @apply list-decimal; }
+	li { @apply mb-1.5; }
+
+	pre { @apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto; }
+	code { @apply bg-gray-50 px-1 py-0.5 rounded text-sm font-mono; }
+	a { @apply text-blue-600 hover:text-blue-800 underline; }
+	blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; }
+	table { @apply w-full border-collapse mb-4; }
+	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
 }
 
-.v-enter-from,
-.v-leave-to {
-    opacity: 0;
-    transform: translateX(20px);
+/* Streaming text (no re-mount, minimal styles, prevent flicker) */
+.streaming-text {
+    white-space: pre-wrap;
+    will-change: contents;
 }
 
-.cursor-col-resize {
-    cursor: col-resize;
+@keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }
+.simple-dots::after { content: '.'; display: inline-block; margin-top: 5px; animation: simple-ellipsis 1.5s infinite; font-weight: 400; font-size: 14px; color: #888; }
+
+@keyframes shimmer {
+	0% { background-position: -100% 0; }
+	100% { background-position: 100% 0; }
 }
 
-/* Prevent text selection while resizing */
-.user-select-none {
-    user-select: none;
+@keyframes ellipsis {
+	0% { content: 'Thinking.'; }
+	33% { content: 'Thinking..'; }
+	66% { content: 'Thinking...'; }
 }
 
-.fade-in {
-    animation: fadeIn 0.6s ease-in;
+.dots::after {
+	content: 'Thinking...';
+	display: inline-block;
+	margin-top: 5px;
+	background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+	background-size: 200% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: shimmer 2s linear infinite, ellipsis 1s infinite;
+	font-weight: 400;
+	font-size: 14px;
+	opacity: 1;
 }
 
-@keyframes fadeIn {
-    0% {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    100% {
-        opacity: 1;
-        transform: translateY(0);
-    }
+/* Add fade transitions */
+.fade-enter-active,
+.fade-leave-active {
+	transition: opacity 0.3s ease;
 }
 
-@keyframes fade-in {
-    0% {
-        opacity: 0;
-        transform: translateY(-2px);
-    }
-    100% {
-        opacity: 1;
-        transform: translateY(0);
-    }
+.fade-enter-from,
+.fade-leave-to {
+	opacity: 0;
 }
 
-.animate-fade-in {
-    animation: fade-in 0.6s ease-in;
+.reasoning-content { 
+	opacity: 0.8; 
+	transition: opacity 0.2s ease; 
 }
 
-/* Add smooth transition for split screen */
-.flex-row {
-    transform-style: preserve-3d; /* Hardware acceleration */
-    backface-visibility: hidden; /* Reduce visual artifacts */
-    perspective: 1000px; /* 3D acceleration */
-}
-
-/* Add hardware acceleration to resizable elements */
-[style*="transition"] {
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    transform-style: preserve-3d;
-    backface-visibility: hidden;
-    perspective: 1000px;
+.reasoning-content:hover { 
+	opacity: 1; 
 }
 </style>
+
+
+
