@@ -7,8 +7,18 @@
           <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 mr-1.5 text-gray-500" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
         </div>
-        <div v-if="rowCount" class="text-[11px] text-gray-400">
-          {{ rowCount }} rows
+        <div class="flex items-center gap-2">
+          <div v-if="rowCount" class="text-[11px] text-gray-400">
+            {{ rowCount }} rows
+          </div>
+          <button 
+            v-if="hasDataForDownload"
+            @click.stop="downloadCSV"
+            class="text-gray-400 hover:text-gray-600 transition-colors"
+            title="Download CSV"
+          >
+            <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     </div>
@@ -66,11 +76,26 @@
           </Transition>
         </div>
 
-        <!-- Bottom Action Button Placeholder -->
-        <div class="mt-2 pt-2 border-t border-gray-100">
-          <button class="text-[11px] text-gray-400 px-2 py-0.5 rounded hover:bg-gray-50 transition-colors" disabled>
-            Action placeholder
+        <!-- Bottom Action Button -->
+        <div class="mt-2 pt-2 border-t border-gray-100 flex justify-start">
+          <button
+            v-if="!isPublished"
+            :disabled="!canAdd || isAdding"
+            @click="onAddClick"
+            class="text-xs px-2 py-0.5 rounded transition-colors"
+            :class="[
+              canAdd && !isAdding ? 'hover:bg-gray-50' : 'text-gray-400 cursor-not-allowed'
+            ]"
+          >
+            <Icon v-if="isAdding" name="heroicons-arrow-path" class="w-3.5 h-3.5 inline-block mr-1 animate-spin" />
+            <span v-if="!canAdd">Generating…</span>
+            <span v-else class="flex items-center">
+                <Icon name="heroicons-chart-pie" class="w-3.5 h-3.5 text-blue-500 inline-block mr-1" />
+                Add to dashboard</span>
           </button>
+          <span v-else class="text-xs flex items-center">
+            <Icon name="heroicons-check" class="w-3.5 h-3.5 mr-1 text-green-500" />
+            Added to dashboard</span>
         </div>
       </div>
     </Transition>
@@ -95,9 +120,11 @@ interface ToolExecution {
 }
 
 const props = defineProps<{ toolExecution: ToolExecution }>()
+const emit = defineEmits(['addWidget'])
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(false) // Start expanded
+const isAdding = ref(false)
 
 // Tab state - default to chart if available, otherwise table
 const activeTab = ref<'chart' | 'table'>('chart')
@@ -161,6 +188,64 @@ watch([showVisual, hasData], () => {
 
 function toggleCollapsed() {
   isCollapsed.value = !isCollapsed.value
+}
+
+// CSV download functionality
+const hasDataForDownload = computed(() => {
+  const rows = step.value?.data?.rows
+  return Array.isArray(rows) && rows.length > 0
+})
+
+function downloadCSV() {
+  const rows = step.value?.data?.rows
+  const columns = step.value?.data?.columns
+  
+  if (!Array.isArray(rows) || !Array.isArray(columns) || rows.length === 0) {
+    return
+  }
+
+  // Create CSV content
+  const headers = columns.map(col => col.field || col.headerName || col.colId || '').join(',')
+  const csvRows = rows.map(row => 
+    columns.map(col => {
+      const field = col.field || col.colId
+      const value = row[field] || ''
+      // Escape quotes and wrap in quotes if contains comma or quote
+      const stringValue = String(value)
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`
+      }
+      return stringValue
+    }).join(',')
+  )
+  
+  const csvContent = [headers, ...csvRows].join('\n')
+  
+  // Create and trigger download
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const link = document.createElement('a')
+  const url = URL.createObjectURL(blob)
+  link.setAttribute('href', url)
+  link.setAttribute('download', `${widgetTitle.value || 'data'}.csv`)
+  link.style.visibility = 'hidden'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+// Add-to-dashboard gating and action
+const isPublished = computed(() => widget.value?.status === 'published')
+const canAdd = computed(() => !!(widget.value?.id && step.value?.status === 'success'))
+
+async function onAddClick() {
+  if (!canAdd.value || isAdding.value) return
+  isAdding.value = true
+  try {
+    emit('addWidget', { widget: widget.value, step: step.value })
+  } finally {
+    // Let parent control final state; keep short throttle to avoid double clicks
+    setTimeout(() => { isAdding.value = false }, 800)
+  }
 }
 </script>
 

@@ -17,6 +17,8 @@ from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
 from app.project_manager import ProjectManager
 from app.models.step import Step
+from app.models.widget import Widget
+from sqlalchemy import select
 
 
 class AgentV2:
@@ -951,17 +953,7 @@ class AgentV2:
                         await self.project_manager.update_step_with_data_model(
                             self.db, self.current_step, data_model
                         )
-                        # Mark widget as published once the widget is complete at data model stage
-                        try:
-                            if self.current_widget:
-                                # Prefer a dedicated updater if available; fallback to position/size already sets published
-                                # Here we directly update status to 'published'
-                                self.current_widget.status = "published"
-                                self.db.add(self.current_widget)
-                                await self.db.commit()
-                                await self.db.refresh(self.current_widget)
-                        except Exception:
-                            pass
+                        # Do not auto-publish; publishing will be done explicitly by user or create_dashboard
                         
                         # Emit data model completion event to UI
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -1054,20 +1046,40 @@ class AgentV2:
                     await self.project_manager.update_step_status(
                         self.db, step_obj, "success"
                     )
-                    # Also mark the associated widget as published
-                    try:
-                        if self.current_widget:
-                            self.current_widget.status = "published"
-                            self.db.add(self.current_widget)
-                            await self.db.commit()
-                            await self.db.refresh(self.current_widget)
-                    except Exception:
-                        pass
+
                     # Ensure observation carries ids for auditing/tracking
                     if self.current_widget:
                         observation["widget_id"] = str(self.current_widget.id)
                     observation["step_id"] = self.current_step_id
                     
+            elif tool_name == "create_dashboard":
+                # Publish widgets per tool input: publish selected widget_ids or all widgets in report
+                try:
+                    widget_ids = []
+                    use_all_widgets = True
+                    if isinstance(tool_input, dict):
+                        widget_ids = tool_input.get("widget_ids") or []
+                        use_all_widgets = tool_input.get("use_all_widgets", True)
+
+                    if widget_ids:
+                        # Publish only specified widgets
+                        for wid in widget_ids:
+                            w = await self.db.get(Widget, str(wid))
+                            if w and str(getattr(w, "report_id", "")) == str(getattr(self.report, "id", "")):
+                                w.status = "published"
+                                self.db.add(w)
+                    elif use_all_widgets and self.report:
+                        # Publish all widgets belonging to the current report
+                        res = await self.db.execute(select(Widget).where(Widget.report_id == str(self.report.id)))
+                        for w in res.scalars().all():
+                            if w.status != "published":
+                                w.status = "published"
+                                self.db.add(w)
+                    await self.db.commit()
+                except Exception:
+                    # Publishing failure should not break the tool flow
+                    pass
+
         except Exception as e:
             # Import logging if not already available
             import logging

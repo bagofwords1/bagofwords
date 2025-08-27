@@ -62,6 +62,13 @@ class CreateDashboardTool(Tool):
         else:
             allowed_ids = set(data.widget_ids)
             widgets = [w for w in all_widgets if str(getattr(w, "id", "")) in allowed_ids]
+       
+        # Mark all widgets as published
+        db = runtime_ctx.get("db")
+        for w in widgets:
+            w.status = "published"
+            db.add(w)
+        await db.commit()
 
         designer = DashboardDesigner(model, instruction_context_builder)
 

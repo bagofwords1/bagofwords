@@ -1,21 +1,25 @@
 <template>
 
-	<div class="flex flex-col h-screen overflow-y-hidden bg-white">
-		<header class="sticky top-0 bg-white z-10 flex flex-row pt-1 h-[40px] border-gray-200 pb-1 pr-2 items-center">
-			<button class="p-1.5 rounded text-lg hover:bg-gray-100 mr-2" @click="goBack" aria-label="Back">
-				<span>←</span>
-			</button>
-			<h1 class="text-sm md:text-left text-center mt-1">
-				<span class="font-semibold text-sm">Chat</span>
-			</h1>
-			<div class="ml-auto">
-				<button v-if="isStreaming" class="px-2 py-1 text-xs border rounded" @click="abortStream">Stop</button>
-			</div>
-		</header>
+	<SplitScreenLayout 
+		:isSplitScreen="isSplitScreen" 
+		:leftPanelWidth="leftPanelWidth"
+		:isResizing="isResizing"
+		@startResize="startResize"
+	>
+		<template #left>
+	<div class="flex flex-col h-screen overflow-y-hidden bg-white relative">
+		<ReportHeader 
+			:report="report"
+			:isSplitScreen="isSplitScreen"
+			:isStreaming="isStreaming"
+			@toggleSplitScreen="toggleSplitScreen"
+			@rerun="rerunReport"
+			@stop="abortStream"
+		/>
 
 		<!-- Messages -->
-		<div class="flex-1 overflow-y-auto mt-4 pb-32" ref="scrollContainer">
-			<div class="mx-auto w-full md:w-1/2 px-4">
+		<div class="flex-1 overflow-y-auto mt-4 pb-4" ref="scrollContainer">
+			<div class="pl-4 pr-2 pb-[3px]" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full mx-auto'">
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
 					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
 						<div class="flex rounded-lg p-1" :class="{ 'bg-red-50 border border-red-200': m.status === 'error' }">
@@ -75,107 +79,107 @@
 															/>
 
 
-															<!-- Fallback to generic tool display -->
-															<div v-else>
-																<div class="text-xs text-gray-600 mb-1 font-medium">
-																	{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
-																</div>
-																<div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-																	<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
-																	<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
-																	<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
-																	<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
-																</div>
+														<!-- Fallback to generic tool display -->
+														<div v-else>
+															<div class="text-xs text-gray-600 mb-1 font-medium">
+																{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+															</div>
+															<div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+																<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
+																<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
+																<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
+																<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
 															</div>
 														</div>
-														
-														<!-- Assistant message in thinking for research -->
-														<div v-if="block.plan_decision?.assistant || block.content" class="markdown-wrapper">
-															<MDC :value="block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
-														</div>
 													</div>
-												</Transition>
-											</div>
-										</div>
-										
-										<!-- Action blocks: render like before -->
-										<div v-else>
-											<!-- Block reasoning section -->
-											<div v-if="block.plan_decision?.reasoning || block.reasoning">
-												<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
-													<div class="font-normal text-sm text-gray-500 mb-2">
-														<div class="flex items-center">
-															<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-500" />
-															<span v-if="hasCompletedContent(block)" class="ml-1">
-																{{ getThoughtProcessLabel(block) }}
-															</span>
-															<span v-else class="ml-1">
-																<div class="dots" />
-															</span>
-														</div>
+													
+													<!-- Assistant message in thinking for research -->
+													<div v-if="block.plan_decision?.assistant || block.content" class="markdown-wrapper">
+														<MDC :value="block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
 													</div>
 												</div>
-												<Transition name="fade">
-													<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content markdown-wrapper">
-														<MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
-													</div>
-												</Transition>
-											</div>
-											
-											<!-- Block content -->
-											<div v-if="(block.plan_decision?.assistant || block.content) && !block.plan_decision?.final_answer" class="markdown-wrapper">
-												<MDC :value="block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
-											</div>
-											
-											<!-- Final answer (if this is the last block and analysis is complete) -->
-											<div v-else-if="block.plan_decision?.final_answer && block.plan_decision?.analysis_complete" class="mt-2 markdown-wrapper">
-												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
-											</div>
-											
-											<!-- Tool execution details -->
-											<div v-if="block.tool_execution" class="mt-3 mb-4">
-												<!-- Use specialized tool component if available -->
-												<component 
-													v-if="shouldUseToolComponent(block.tool_execution)"
-													:is="getToolComponent(block.tool_execution.tool_name)"
-													:tool-execution="block.tool_execution"
-												/>
-												<!-- Fallback to generic expandable tool display -->
-												<div v-else>
-													<div class="text-xs text-gray-500 mb-1">
-														<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)">
-															{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
-														</span>
-														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
-															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
-															<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
-															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
-															<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
-														</div>
-													</div>
-												</div>
-											</div>
-                                        <div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
-                                            <ToolWidgetPreview :tool-execution="block.tool_execution" />
-                                        </div>
+											</Transition>
 										</div>
 									</div>
 									
-									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-1">Stopped generating</div>
+									<!-- Action blocks: render like before -->
+									<div v-else>
+										<!-- Block reasoning section -->
+										<div v-if="block.plan_decision?.reasoning || block.reasoning">
+											<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
+												<div class="font-normal text-sm text-gray-500 mb-2">
+													<div class="flex items-center">
+														<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-500" />
+														<span v-if="hasCompletedContent(block)" class="ml-1">
+															{{ getThoughtProcessLabel(block) }}
+														</span>
+														<span v-else class="ml-1">
+															<div class="dots" />
+														</span>
+													</div>
+												</div>
+										</div>
+										<Transition name="fade">
+											<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content markdown-wrapper">
+												<MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+											</div>
+										</Transition>
+									</div>
+									
+									<!-- Block content -->
+									<div v-if="(block.plan_decision?.assistant || block.content) && !block.plan_decision?.final_answer" class="markdown-wrapper">
+										<MDC :value="block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
+									</div>
+									
+									<!-- Final answer (if this is the last block and analysis is complete) -->
+									<div v-else-if="block.plan_decision?.final_answer && block.plan_decision?.analysis_complete" class="mt-2 markdown-wrapper">
+										<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
+									</div>
+									
+									<!-- Tool execution details -->
+									<div v-if="block.tool_execution" class="mt-3 mb-4">
+										<!-- Use specialized tool component if available -->
+										<component 
+											v-if="shouldUseToolComponent(block.tool_execution)"
+											:is="getToolComponent(block.tool_execution.tool_name)"
+											:tool-execution="block.tool_execution"
+										/>
+										<!-- Fallback to generic expandable tool display -->
+										<div v-else>
+											<div class="text-xs text-gray-500 mb-1">
+												<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)">
+													{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+												</span>
+												<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
+													<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
+													<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
+													<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
+													<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
+												</div>
+											</div>
+										</div>
+									</div>
+									<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+										<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" />
+									</div>
 								</div>
 							</div>
+							
+							<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-1">Stopped generating</div>
 						</div>
-					</li>
-				</ul>
-				<div v-else class="mx-auto w-full text-center text-gray-500 text-sm mt-24">
-					Ask a question to get started.
-				</div>
+					</div>
+					</div>
+				</li>
+			</ul>
+			<div v-else class="mx-auto w-full text-center text-gray-500 text-sm mt-24">
+				Ask a question to get started.
+			</div>
 			</div>
 		</div>
 
-		<!-- Prompt box (bottom-fixed) -->
-		<div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200">
-			<div class="mx-auto w-full md:w-1/2">
+		<!-- Prompt box (in normal flow at the bottom of the left column) -->
+		<div class="shrink-0 bg-white border-t border-gray-200">
+			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
 				<PromptBoxExcel 
 					:report_id="report_id"
 					:excelData="{}"
@@ -188,15 +192,36 @@
 			</div>
 		</div>
 	</div>
+		</template>
+		<template #right>
+			<div>
+				<DashboardComponent 
+					v-if="reportLoaded && widgets"
+					:report="report" 
+					:edit="true" 
+					:widgets="widgets.filter(widget => widget.status === 'published')" 
+					:textWidgetsIds="textWidgetsIds"
+					@toggleSplitScreen="toggleSplitScreen"
+				/>
+				<div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500">
+					No dashboard items yet.
+				</div>
+			</div>
+		</template>
+	</SplitScreenLayout>
 
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, watch } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import PromptBoxExcel from '~/components/excel/PromptBoxExcel.vue'
 import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
+import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
+import ReportHeader from '~/components/report/ReportHeader.vue'
+import DashboardComponent from '~/components/DashboardComponent.vue'
 
 // Types
 type ChatRole = 'user' | 'system'
@@ -255,6 +280,21 @@ const promptText = ref<string>('')
 const isStreaming = ref<boolean>(false)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
+const scrollAnchor = ref<HTMLElement | null>(null)
+// No absolute prompt box; no padding ref needed
+
+// Report and Dashboard state
+const reportLoaded = ref(false)
+const report = ref<any | null>(null)
+const widgets = ref<any[]>([])
+const textWidgetsIds = ref<string[]>([])
+
+// Split screen state
+const isSplitScreen = ref(false)
+const leftPanelWidth = ref(450)
+const isResizing = ref(false)
+const initialMouseX = ref(0)
+const initialPanelWidth = ref(0)
 
 // Toggle states
 const collapsedReasoning = ref<Set<string>>(new Set())
@@ -274,6 +314,9 @@ function getToolComponent(toolName: string) {
 		case 'create_data_model':
 			return CreateDataModelTool
 		case 'create_and_execute_code':
+			return ExecuteCodeTool
+		case 'create_dashboard':
+			return CreateDashboardTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -391,6 +434,11 @@ watch(() => messages.value, (newMessages) => {
 	})
 }, { deep: true })
 
+// Watch for split screen changes and scroll to bottom to maintain position
+watch(() => isSplitScreen.value, () => {
+	nextTick(() => setTimeout(scrollToBottom, 80))
+})
+
 function goBack() {
 	if (history.length > 1) history.back()
 }
@@ -420,20 +468,43 @@ function isToolDetailsExpanded(toolId: string) {
 }
 
 function scrollToBottom() {
-  // Only autoscroll if user is already near the bottom to prevent jumpiness
-  const maybeAutoScroll = () => {
-    const container = scrollContainer.value as any
+  // Single-pass scroll: go to max scroll position
+  nextTick(() => {
+    setTimeout(() => {
+      const container = scrollContainer.value
+      if (!container) return
+      container.offsetHeight // force reflow
+      container.scrollTop = container.scrollHeight
+    }, 40)
+  })
+}
+
+function scheduleInitialScroll() {
+    const delays = [0, 80, 160, 320, 640]
+    for (const delay of delays) setTimeout(scrollToBottom, delay)
+}
+
+// Keep scrolling to bottom across successive layout passes until height stabilizes
+function settleScrollToBottom(maxFrames = 24) {
+    const container = scrollContainer.value
     if (!container) return
-    const threshold = 120 // px from bottom to still autoscroll
-    const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight)
-    if (distanceFromBottom <= threshold) {
-      // Force layout and scroll
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-      container.offsetHeight
-      container.scrollTop = container.scrollHeight + 1000
+    let frames = 0
+    let lastHeight = -1
+    const tick = () => {
+        if (!scrollContainer.value) return
+        const h = scrollContainer.value.scrollHeight
+        if (h !== lastHeight) {
+            lastHeight = h
+            scrollContainer.value.scrollTop = h
+            frames = 0
+        } else {
+            frames++
+        }
+        if (frames < 3 && maxFrames-- > 0) {
+            requestAnimationFrame(tick)
+        }
     }
-  }
-  nextTick(() => setTimeout(maybeAutoScroll, 40))
+    requestAnimationFrame(tick)
 }
 
 async function handleStreamingEvent(eventType: string | null, payload: any, sysMessageIndex: number) {
@@ -471,7 +542,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							break
 						}
 					}
-					sysMessage.completion_blocks.splice(insertPos, 0, block)
+					//sysMessage.completion_blocks.splice(insertPos, 0, block)
 				}
 			}
 			break
@@ -502,6 +573,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 				}
 			}
+			console.log('block.delta.text', payload)
 			break
 
 		case 'block.delta.text.complete':
@@ -510,7 +582,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				const block = sysMessage.completion_blocks?.find(b => b.id === payload.block_id)
 				if (block) {
 					// Mark field as complete - could be used for UI effects
-					console.log(`Text streaming complete for ${payload.field} in block ${payload.block_id}`)
 				}
 			}
 			break
@@ -632,6 +703,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.created_step_id) {
 						blockWithTool.tool_execution.created_step_id = payload.created_step_id
 					}
+					// If the dashboard was created successfully, refresh widgets and open the dashboard pane
+					if (payload.tool_name === 'create_dashboard' && payload.status === 'success') {
+						try { await loadWidgets() } catch (e) { /* noop */ }
+						if (!isSplitScreen.value) toggleSplitScreen()
+					}
 				}
 			}
 			break
@@ -712,6 +788,108 @@ async function loadCompletions() {
 	} catch (e) {
 		console.error('Error loading completions:', e)
 	}
+}
+
+async function loadReport() {
+	const { data } = await useMyFetch(`/api/reports/${report_id}`)
+	report.value = data.value
+	reportLoaded.value = true
+}
+
+async function loadWidgets() {
+	try {
+		const { data } = await useMyFetch(`/api/reports/${report_id}/widgets`)
+		const arr = Array.isArray(data.value) ? (data.value as any[]) : []
+		widgets.value = arr.map((widget: any) => ({
+			...widget,
+			key: Date.now() + widget.id + String(Math.random())
+		}))
+	} catch (error) {
+		console.error('Error loading widgets:', error)
+	}
+}
+
+function toggleSplitScreen() {
+	nextTick(() => {
+		isSplitScreen.value = !isSplitScreen.value
+		if (isSplitScreen.value) {
+			leftPanelWidth.value = 450
+		}
+		scrollToBottom()
+	})
+}
+
+function startResize(e: MouseEvent) {
+	isResizing.value = true
+	initialMouseX.value = e.clientX
+	initialPanelWidth.value = leftPanelWidth.value
+		document.addEventListener('mousemove', handleResize)
+	document.addEventListener('mouseup', stopResize)
+	document.body.style.userSelect = 'none'
+}
+
+function handleResize(e: MouseEvent) {
+	if (!isResizing.value) return
+	const minWidth = 280
+	const maxWidth = window.innerWidth * 0.8
+	const dx = e.clientX - initialMouseX.value
+	const newWidth = initialPanelWidth.value + dx
+	leftPanelWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
+	// Trigger scroll to bottom during live resize to maintain scroll position
+	scrollToBottom()
+}
+
+function stopResize() {
+	isResizing.value = false
+	document.removeEventListener('mousemove', handleResize)
+	document.removeEventListener('mouseup', stopResize)
+	document.body.style.userSelect = 'auto'
+}
+
+onUnmounted(() => {
+	document.removeEventListener('mousemove', handleResize)
+	document.removeEventListener('mouseup', stopResize)
+	document.body.style.userSelect = 'auto'
+	window.removeEventListener('resize', scrollToBottom)
+})
+
+function rerunReport() {
+	useMyFetch(`/api/reports/${report_id}/rerun`, { method: 'POST' }).then(() => {
+		loadWidgets()
+	})
+}
+
+// Handle Add to dashboard from ToolWidgetPreview
+async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any }) {
+    try {
+        const widget = payload?.widget
+        if (!widget?.id) return
+        await useMyFetch(`/api/reports/${report_id}/widgets/${widget.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'published', id: widget.id })
+        })
+        
+        // Update the local widget status immediately to reflect the change in UI
+        // Find the tool execution that contains this widget and update its status
+        messages.value.forEach(message => {
+            if (message.completion_blocks) {
+                message.completion_blocks.forEach(block => {
+                    if (block.tool_execution?.created_widget?.id === widget.id && block.tool_execution) {
+                        block.tool_execution.created_widget.status = 'published'
+                    }
+                })
+            }
+        })
+        
+        		if (!isSplitScreen.value) toggleSplitScreen()
+		await loadWidgets()
+		// Scroll to bottom when dashboard opens after adding widget
+		await nextTick()
+		scrollToBottom()
+    } catch (e) {
+        console.error('Failed to add widget from preview:', e)
+    }
 }
 
 function abortStream() {
@@ -870,7 +1048,21 @@ async function startStreaming(requestBody: any, sysId: string) {
 }
 
 onMounted(async () => {
-	await loadCompletions()
+	await Promise.all([
+		loadReport(),
+		loadWidgets(),
+		loadCompletions(),
+	])
+	
+	// Open dashboard pane if there are any published widgets
+	if (widgets.value.some(widget => widget.status === 'published')) {
+		isSplitScreen.value = true
+		// Scroll to bottom when automatically opening dashboard
+		nextTick(() => setTimeout(scrollToBottom, 100))
+	}
+	// Aggressive initial scroll to handle async content mounting
+	scheduleInitialScroll()
+	window.addEventListener('resize', scrollToBottom)
 })
 
 </script>

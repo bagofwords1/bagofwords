@@ -113,7 +113,6 @@ const rowCount = computed(() => {
   return null
 })
 
-// Cursor-like action label
 const actionLabel = computed(() => {
   if (status.value === 'running') return 'Generating code'
   if (status.value === 'success') return `Created data`

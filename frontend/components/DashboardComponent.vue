@@ -2,11 +2,11 @@
     <div class="container mx-auto">
         <!-- Header: Kept -->
         <div v-if="props.edit" class="w-full bg-[#fff] p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2 border-gray-200">
-            <div class="flex items-center gap-4">
-                <div class="space-x-2">
+            <div class="flex items-center gap-2">
+                <div class="space-x-0">
                     <UTooltip text="Collapse">
-                        <button @click="$emit('toggleSplitScreen')" class="text-xs items-center flex gap-1 hover:bg-gray-100 px-0 py-1 rounded">
-                            <Icon name="heroicons:chevron-double-right" />
+                        <button @click="$emit('toggleSplitScreen')" class="text-xs items-center flex hover:bg-gray-100 px-0 py-1 rounded">
+                            <Icon name="heroicons:x-mark" class="w-4 h-4" />
                         </button>
                     </UTooltip>
                 </div>
@@ -61,8 +61,8 @@
                      :gs-w="widget.width"
                      :gs-h="widget.height"
                      :gs-auto-position="widget.x === undefined || widget.y === undefined"
-                     @mouseenter="props.edit"
-                     @mouseleave="props.edit">
+                     @mouseenter.stop
+                     @mouseleave.stop>
     
                     <div class="grid-stack-item-content bg-white rounded overflow-hidden flex flex-col relative p-0 shadow-sm" :class="{ 'border': props.edit }">
                         <!-- Controls Overlay -->
