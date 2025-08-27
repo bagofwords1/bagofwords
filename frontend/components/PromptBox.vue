@@ -43,16 +43,16 @@ import MentionComponent from '~/components/excel/MentionComponent.vue';
 import FileUploadComponent from '~/components/FileUploadComponent.vue';
 import InstructionsListModalComponent from '~/components/InstructionsListModalComponent.vue';
 
-const mentionComponentRef = ref(null);
+const mentionComponentRef = ref<any>(null);
 const localTextContent = ref('');
-const memories = ref([])
-const dataSources = ref([])
-const files = ref([])
+const memories = ref<any[]>([])
+const dataSources = ref<any[]>([])
+const files = ref<any[]>([])
 const router = useRouter()
-const mentions = ref([])
-const uploaded_files = ref([])
-const guidelinesModalRef = ref(null)
-const instructionsModalRef = ref(null)
+const mentions = ref<any[]>([])
+const uploaded_files = ref<any[]>([])
+const guidelinesModalRef = ref<any>(null)
+const instructionsModalRef = ref<any>(null)
 
 const props = defineProps({
        textareaContent: {
@@ -61,12 +61,12 @@ const props = defineProps({
        }
    });
 
-const categories = ref([
+const categories = ref<Array<{name: string, items: any[]}>>([
     { name: 'DATA SOURCES', items: [] },
     { name: 'MEMORY', items: [] },
     { name: 'FILES', items: [] },
 ])
-const emit = defineEmits(['submitCompletion'])
+const emit = defineEmits(['submitCompletion', 'update:modelValue'])
 
 // Watch for changes in the textareaContent prop
 watch(() => props.textareaContent, (newValue) => {
@@ -94,7 +94,7 @@ async function getMemories() {
     method: 'GET',
   });
   if (response.data.value) {
-    memories.value = response.data.value;
+    memories.value = response.data.value as any[];
     // Update the MEMORY category with the fetched memories
     categories.value = categories.value.map(category => 
       category.name === 'MEMORY' 
@@ -110,7 +110,7 @@ async function getDataSources() {
     method: 'GET',
   });
   if (response.data.value) {
-    dataSources.value = response.data.value;
+    dataSources.value = response.data.value as any[];
 
     categories.value = categories.value.map(category => 
       category.name === 'DATA SOURCES' 
@@ -134,17 +134,17 @@ const createReport = async () => {
       method: 'POST',
       body: JSON.stringify({
         title: 'untitled report',
-        files: uploaded_files.value.map((file: any) => file.id),
+        files: uploaded_files.value?.map((file: any) => file.id) || [],
         new_message: localTextContent.value,
-        data_sources: dataSources.value.map((ds: any) => ds.id)
+        data_sources: dataSources.value?.map((ds: any) => ds.id) || []
       })
   });
 
-  if (!response.code === 200) {
+  if (response.error.value) {
       throw new Error('Report creation failed');
   }
 
-  const data = await response.data.value;
+  const data = response.data.value as any;
   router.push({
       path: `/reports/${data.id}`,
       query: {

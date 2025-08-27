@@ -48,17 +48,17 @@
 										<!-- Research blocks: put reasoning, tool execution, and assistant in thinking toggle -->
 										<div v-if="isResearchBlock(block)">
 											<!-- Thinking toggle for research blocks -->
-											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.tool_execution">
+											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.tool_execution || block.status === 'stopped'">
 												<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
 													<div class="font-normal text-sm text-gray-400  mb-2">
 														<div class="flex items-center">
 															<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
-															<span v-if="hasCompletedContent(block)" class="ml-1 font-normal">
-																{{ getThoughtProcessLabel(block) }}
-															</span>
-															<span v-else class="ml-1">
-																<div class="dots" />
-															</span>
+														<span v-if="hasCompletedContent(block)" class="ml-1 font-normal">
+															{{ getThoughtProcessLabel(block) }}
+														</span>
+														<span v-else class="ml-1">
+															<div class="dots" />
+														</span>
 														</div>
 													</div>
 												</div>
@@ -72,6 +72,11 @@
 															<template v-else>
 																<div class="streaming-text">{{ block.plan_decision?.reasoning || block.reasoning || '' }}</div>
 															</template>
+														</div>
+														
+														<!-- Fallback for stopped blocks with no reasoning -->
+														<div v-else-if="block.status === 'stopped'" class="text-gray-400 italic mb-2">
+															Generation was stopped before completion.
 														</div>
 														
 														<!-- Tool execution details in thinking -->
@@ -110,7 +115,7 @@
 									<!-- Action blocks: render like before -->
 									<div v-else>
 										<!-- Block reasoning section -->
-										<div v-if="block.plan_decision?.reasoning || block.reasoning">
+										<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'">
 											<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
 												<div class="font-normal text-sm text-gray-500 mb-2">
 													<div class="flex items-center">
@@ -126,7 +131,12 @@
 										</div>
 										<Transition name="fade">
 											<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content markdown-wrapper">
-												<MDC :key="block.id + ':' + (block.content?.length || 0)" :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+												<template v-if="block.plan_decision?.reasoning || block.reasoning">
+													<MDC :key="block.id + ':' + (block.content?.length || 0)" :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+												</template>
+												<template v-else-if="block.status === 'stopped'">
+													<div class="text-gray-400 italic">Generation was stopped before completion.</div>
+												</template>
 											</div>
 										</Transition>
 									</div>
@@ -189,14 +199,19 @@
 					</div>
 				</li>
 			</ul>
-			<div v-else class="mx-auto w-full text-center text-gray-500 text-sm mt-24">
-				Ask a question to get started.
+			<div v-else class="w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
+				<h1 class="text-4xl mb-4">🪴</h1>
+				<h1 class="text-lg font-semibold">Ask a question to get started.</h1>
+
+				<hr class="my-4">
+				<p class="text-gray-500 text-sm"><span class="font-semibold">Tip:</span> <br />
+					Use @ to explore data sources and memories<br /> and to mention them in your question.</p>
 			</div>
 			</div>
 		</div>
 
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
-		<div class="shrink-0 bg-white border-t border-gray-200">
+		<div class="shrink-0 bg-white">
 			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
 				<PromptBoxExcel 
 					:report_id="report_id"
@@ -235,6 +250,7 @@ import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import PromptBoxExcel from '~/components/excel/PromptBoxExcel.vue'
 import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
@@ -327,11 +343,11 @@ function isResearchBlock(block: CompletionBlock): boolean {
 }
 
 function isBlockFinalized(block: CompletionBlock): boolean {
-	return !!(block.plan_decision?.analysis_complete || block.completed_at)
+	return !!(block.plan_decision?.analysis_complete || block.completed_at || block.status === 'stopped')
 }
 
 function hasCompletedContent(block: CompletionBlock): boolean {
-	return !!(block.content || block.status === 'completed')
+	return !!(block.content || block.status === 'completed' || block.status === 'stopped')
 }
 
 function getToolComponent(toolName: string) {
@@ -427,12 +443,23 @@ function shouldShowWorkingDots(message: ChatMessage): boolean {
 }
 
 function getThoughtProcessLabel(block: CompletionBlock): string {
+	// Handle stopped blocks
+	if (block.status === 'stopped') {
+		return 'Thought Process'
+	}
+	
 	// Calculate duration from started_at to completed_at if available
 	if (block.started_at && block.completed_at) {
 		const startTime = new Date(block.started_at).getTime()
 		const endTime = new Date(block.completed_at).getTime()
 		const durationMs = endTime - startTime
 		const durationSeconds = Math.round(durationMs / 1000)
+		
+		// Sanity check for unreasonable durations (over 30 minutes)
+		if (durationSeconds > 1800) {
+			return 'Stopped'
+		}
+		
 		return `Thought for ${durationSeconds}s`
 	}
 	
@@ -577,7 +604,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					// Update existing block in place
 					Object.assign(sysMessage.completion_blocks[existingIndex], block)
 				} else {
-					console.log('block.upsert', block.id, block.content, block.reasoning)
 					let insertPos = sysMessage.completion_blocks.length
 					for (let i = 0; i < sysMessage.completion_blocks.length; i++) {
 						const bi = sysMessage.completion_blocks[i]
@@ -592,7 +618,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'block.delta.text':
-			console.log('block.delta.text', payload)
 			// Update text snapshot for a specific block (full overwrite)
 			if (payload.block_id && payload.field && payload.text) {
 				const idx = sysMessage.completion_blocks?.findIndex(b => b.id === payload.block_id) ?? -1
@@ -611,7 +636,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'block.delta.token':
-			console.log('block.delta.token', payload)
 			// Handle individual token streaming for real-time typing effect
 			if (payload.block_id && payload.field && payload.token) {
 				const idx = sysMessage.completion_blocks?.findIndex(b => b.id === payload.block_id) ?? -1
@@ -627,9 +651,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					sysMessage.completion_blocks.splice(idx, 1, updated)
 				}
-			}
-			else{
-				console.log('block.delta.token', payload)
 			}
 			break
 
@@ -795,13 +816,14 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'completion.finished':
-			// Mark completion as finished
-			sysMessage.status = 'success'
+			// Mark completion as finished with proper status
+			const completionStatus = payload?.status || 'success'
+			sysMessage.status = completionStatus
+			loadReport()
 			break
 
 		default:
 			// Handle unknown events gracefully
-			console.log('Unknown streaming event:', eventType, payload)
 			break
 	}
 }
@@ -879,7 +901,7 @@ function toggleSplitScreen() {
 	nextTick(() => {
 		isSplitScreen.value = !isSplitScreen.value
 		if (isSplitScreen.value) {
-			leftPanelWidth.value = 450
+			leftPanelWidth.value = 460
 		}
 		scrollToBottom()
 	})
@@ -965,17 +987,44 @@ function abortStream() {
 	}
 	// Signal backend to stop the running agent loop if we know the server-side id
 	try {
-		const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
+					const sysMsg = [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
 		const systemId = (sysMsg as any)?.system_completion_id
 		if (systemId) {
 			useMyFetch(`/api/completions/${systemId}/sigkill`, { method: 'POST' })
 			// Mark locally as stopped for immediate UI feedback
-			;(sysMsg as any).status = 'stopped'
+			const msgIndex = messages.value.findIndex(m => m.id === sysMsg?.id)
+			if (msgIndex !== -1) {
+				// Force Vue reactivity by replacing the entire array
+				const newMessages = [...messages.value]
+				const updatedMessage = { ...newMessages[msgIndex], status: 'stopped' as ChatStatus }
+				
+				// Also update all completion blocks to stopped status
+				if (updatedMessage.completion_blocks) {
+					updatedMessage.completion_blocks = updatedMessage.completion_blocks.map(block => ({
+						...block,
+						status: block.status === 'in_progress' ? 'stopped' as ChatStatus : block.status,
+						completed_at: block.completed_at || new Date().toISOString()
+					}))
+				}
+				
+				newMessages[msgIndex] = updatedMessage
+				messages.value = newMessages
+				
+				// Force a nextTick update
+				nextTick(() => {
+				})
+			}
 		}
 	} catch (e) {
 		console.error('Failed to send sigkill:', e)
 	}
 	isStreaming.value = false
+}
+
+function handleExampleClick(starter: string) {
+	if (starter) {
+		onSubmitCompletion({ text: starter, mentions: [] });
+	}
 }
 
 function onSubmitCompletion(data: { text: string, mentions: any[] }) {
@@ -1041,13 +1090,11 @@ async function startStreaming(requestBody: any, sysId: string) {
 		while (true) {
 			const { done, value } = await reader.read()
 			if (done) {
-				console.log('Stream finished normally')
 				break
 			}
 			
 			// Check if stream was aborted
 			if (currentController?.signal.aborted) {
-				console.log('Stream was aborted')
 				break
 			}
 			
@@ -1138,13 +1185,13 @@ onMounted(async () => {
 	await Promise.all([
 		loadReport(),
 		loadWidgets(),
-		loadCompletions(),
-		() => {
-			if (route.query.new_message && messages.value.length == 0) {
-				onSubmitCompletion({ text: route.query.new_message as string, mentions: [] })
-			}
-		},
+		loadCompletions()
 	])
+	
+	// Handle new_message query parameter after everything is loaded
+	if (route.query.new_message && messages.value.length == 0) {
+		onSubmitCompletion({ text: route.query.new_message as string, mentions: [] })
+	}
 	
 	// Open dashboard pane if there are any published widgets
 	if (widgets.value.some(widget => widget.status === 'published')) {
@@ -1234,6 +1281,21 @@ onMounted(async () => {
 .fade-enter-from,
 .fade-leave-to {
 	opacity: 0;
+}
+
+.fade-in {
+    animation: fadeIn 0.6s ease-in;
+}
+
+@keyframes fadeIn {
+    0% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 .reasoning-content { 

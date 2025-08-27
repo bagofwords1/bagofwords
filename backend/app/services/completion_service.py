@@ -724,6 +724,14 @@ class CompletionService:
                         # Run agent execution
                         await agent.main_execution()
                         
+                        # Send completion finished event
+                        finished_event = SSEEvent(
+                            event="completion.finished",
+                            completion_id=str(system_completion.id),
+                            data={"status": "success"}
+                        )
+                        await event_queue.put(finished_event)
+                        
                     except Exception as e:
                         logging.error(f"Agent streaming execution failed: {e}")
                         # Send error event
@@ -828,6 +836,24 @@ class CompletionService:
             raise HTTPException(status_code=404, detail="Completion not found")
         
         completion.sigkill = datetime.now()
+        completion.status = 'stopped'
+        
+        # Also update all in_progress completion blocks to stopped
+        from app.models.completion_block import CompletionBlock
+        blocks_result = await db.execute(
+            select(CompletionBlock).where(
+                CompletionBlock.completion_id == completion_id,
+                CompletionBlock.status == 'in_progress'
+            )
+        )
+        blocks = blocks_result.scalars().all()
+        
+        for block in blocks:
+            block.status = 'stopped'
+            if not block.completed_at:
+                block.completed_at = completion.sigkill
+            db.add(block)
+        
         await db.commit()
         await db.refresh(completion)
 

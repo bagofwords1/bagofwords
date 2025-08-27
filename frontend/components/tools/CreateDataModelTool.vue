@@ -22,17 +22,24 @@
       <div v-if="!isCollapsed" class="mt-1 ml-4">
         <!-- Minimalistic data model table -->
         <div v-if="dataModelColumns.length > 0" class="text-xs mt-2">
-          <div class="space-y-1">
-            <div v-for="column in dataModelColumns" :key="column.generated_column_name" 
-                 class="flex items-start py-0.5">
-              <div class="font-mono text-gray-800 w-32 flex-shrink-0 text-xs">
-                {{ column.generated_column_name }}
-              </div>
-              <div class="text-gray-500 text-xs leading-tight">
-                {{ column.description }}
-              </div>
-            </div>
-          </div>
+          <table class="w-full text-xs mt-2">
+            <tbody>
+              <tr v-for="column in dataModelColumns" :key="column.generated_column_name" 
+                  class="border-b border-gray-100">
+                <td class="font-mono text-gray-800 py-1 pr-4 align-top">
+                  {{ column.generated_column_name }}
+                </td>
+                <td class="text-gray-500 py-1 leading-tight">
+                  {{ column.description }}
+                  
+                  <span v-if="column.source" class="text-gray-400 text-xs">
+                    <Icon name="heroicons-circle-stack" class="w-3 h-3 ml-1 text-gray-400" />
+                    {{ column.source }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
         </div>
         
         <!-- Loading state -->

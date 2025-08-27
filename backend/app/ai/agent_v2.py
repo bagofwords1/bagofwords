@@ -19,6 +19,8 @@ from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
 from app.project_manager import ProjectManager
 from app.models.step import Step
 from app.models.widget import Widget
+from app.models.completion import Completion
+from app.ai.agents.reporter.reporter import Reporter
 from sqlalchemy import select
 
 
@@ -109,6 +111,9 @@ class AgentV2:
             retry=RetryPolicy(max_attempts=2, backoff_ms=500, backoff_multiplier=2.0, jitter_ms=200),
             timeout=TimeoutPolicy(start_timeout_s=5, idle_timeout_s=30, hard_timeout_s=120),
         )
+        
+        # Initialize Reporter for title generation
+        self.reporter = Reporter(model=self.model)
 
     async def _handle_completion_update(self, message: str):
         # Mirror existing sigkill behavior
@@ -736,6 +741,35 @@ class AgentV2:
                 context_view_json=view.model_dump(),
             )
             
+            # Generate report title if this is the first completion
+            try:
+                if self.head_completion and self.report:
+                    first_completion = await self.db.execute(
+                        select(Completion)
+                        .filter(Completion.report_id == self.report.id)
+                        .order_by(Completion.created_at.asc())
+                        .limit(1)
+                    )
+                    first_completion = first_completion.scalar_one_or_none()
+                    
+                    if first_completion and self.head_completion.id == first_completion.id:
+                        # Generate title based on the conversation and plan decisions
+                        messages_context = await self.context_hub.get_messages_context(max_messages=5)
+                        
+                        # Extract plan information from current execution
+                        plan_info = []
+                        if current_plan_decision:
+                            if hasattr(current_plan_decision, 'action_name') and current_plan_decision.action_name:
+                                plan_info.append({"action": current_plan_decision.action_name})
+                        
+                        title = await self.reporter.generate_report_title(messages_context, plan_info)
+                        await self.project_manager.update_report_title(self.db, self.report, title)
+            except Exception as e:
+                # Don't fail the entire execution if title generation fails
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to generate report title: {e}")
+            
             # Finish agent execution
             status = 'sigkill' if self.sigkill_event.is_set() else 'success'
             await self.project_manager.finish_agent_execution(
@@ -743,6 +777,24 @@ class AgentV2:
                 agent_execution=self.current_execution,
                 status=status,
             )
+            
+            # Update system completion status and emit event
+            if self.system_completion:
+                completion_status = 'stopped' if self.sigkill_event.is_set() else 'success'
+                await self.project_manager.update_completion_status(
+                    self.db, 
+                    self.system_completion, 
+                    completion_status
+                )
+                
+                # Emit completion finished event
+                if self.event_queue:
+                    finished_event = SSEEvent(
+                        event="completion.finished",
+                        completion_id=str(self.system_completion.id),
+                        data={"status": completion_status}
+                    )
+                    await self.event_queue.put(finished_event)
             
         except Exception as e:
             # Handle errors and finish execution with error status
@@ -752,6 +804,14 @@ class AgentV2:
                     agent_execution=self.current_execution,
                     status='error',
                     error_json={"message": str(e), "type": type(e).__name__},
+                )
+            
+            # Update system completion status on error
+            if self.system_completion:
+                await self.project_manager.update_completion_status(
+                    self.db, 
+                    self.system_completion, 
+                    'error'
                 )
             raise
         finally:
