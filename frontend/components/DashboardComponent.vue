@@ -670,12 +670,17 @@
                     const newElement = document.querySelector(`[gs-id="${savedWidget.id}"]`);
 
                     if (newElement && grid.value) {
-                         grid.value.addWidget(newElement as HTMLElement, {
-                             id: savedWidget.id,
-                             x: savedWidget.x, y: savedWidget.y,
-                             w: savedWidget.width, h: savedWidget.height,
-                             autoPosition: false
-                         });
+                         grid.value.makeWidget(newElement as HTMLElement);
+                         // Update position/size after making it a widget
+                         const node = grid.value.engine.nodes.find(n => n.el === newElement);
+                         if (node && (node.x !== savedWidget.x || node.y !== savedWidget.y || node.w !== savedWidget.width || node.h !== savedWidget.height)) {
+                             grid.value.update(newElement as HTMLElement, { 
+                                 x: savedWidget.x, 
+                                 y: savedWidget.y, 
+                                 w: savedWidget.width, 
+                                 h: savedWidget.height 
+                             });
+                         }
                     } else {
                          console.warn(`Could not find new element ${savedWidget.id} in DOM to add to gridstack.`);
                          // Consider fallback: await loadWidgetsIntoGrid(grid.value, allWidgets.value);
