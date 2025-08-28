@@ -13,6 +13,7 @@ from app.models.step import Step
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
 from app.services.data_source_service import DataSourceService
+from app.ai.context.sections.code_section import CodeSection
 
 
 class CodeContextBuilder:
@@ -21,6 +22,50 @@ class CodeContextBuilder:
         self.organization = organization
         self.current_user = current_user
         self._ds_service = DataSourceService()
+
+    async def build(
+        self,
+        data_model: Dict,
+        *,
+        top_k_success: int = 2,
+        top_k_failure: int = 2,
+        time_window_days: Optional[int] = None,
+    ) -> CodeSection:
+        """Build a CodeSection with curated success and failure snippets for a data model."""
+        successes = await self.get_top_successful_snippets_for_data_model(
+            data_model, top_k=top_k_success, time_window_days=time_window_days
+        )
+        failures = await self.get_top_failed_snippets_for_data_model(
+            data_model, top_k=top_k_failure, time_window_days=time_window_days
+        )
+
+        lines: list[str] = []
+        if successes:
+            lines.append("=== SUCCESSFUL EXAMPLES ===")
+            for idx, s in enumerate(successes, start=1):
+                lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('usage',{}).get('success_rate')}")
+                if s.get("matched_columns"):
+                    lines.append(f"matched_columns: {', '.join(s['matched_columns'])}")
+                if s.get("last_used_at"):
+                    lines.append(f"last_used_at: {s['last_used_at']}")
+                code = s.get("code") or ""
+                lines.append(code)
+                lines.append("")
+        if failures:
+            lines.append("=== FAILED/ANTIPATTERN EXAMPLES ===")
+            for idx, f in enumerate(failures, start=1):
+                lines.append(f"[{idx}] step_id={f.get('step_id')} score={f.get('score')} failure_rate={f.get('usage',{}).get('failure_rate')}")
+                if f.get("matched_columns"):
+                    lines.append(f"matched_columns: {', '.join(f['matched_columns'])}")
+                if f.get("last_used_at"):
+                    lines.append(f"last_used_at: {f['last_used_at']}")
+                if f.get("error_summary"):
+                    lines.append(f"error_summary: {f['error_summary']}")
+                code_excerpt = f.get("code_excerpt") or ""
+                lines.append(code_excerpt)
+                lines.append("")
+
+        return CodeSection(content="\n".join(lines).strip())
 
     async def get_top_successful_snippets_for_data_model(
         self,

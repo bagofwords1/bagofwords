@@ -46,7 +46,8 @@ class CreateDataModelTool(Tool):
         # Build a compact prompt using schemas/context  
         llm = LLM(runtime_ctx.get("model"))
         context_view = runtime_ctx.get("context_view")
-        schemas_excerpt = getattr(context_view.static, "schemas", "") if context_view else ""
+        schemas_section = getattr(context_view.static, "schemas", None) if context_view else None
+        schemas_excerpt = schemas_section.render() if schemas_section else ""
         import re
         # Enhanced prompt for streaming JS]ON similar to planner
         prompt = f"""

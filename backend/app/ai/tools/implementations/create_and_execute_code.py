@@ -75,9 +75,12 @@ class CreateAndExecuteCodeTool(Tool):
         
         # Get context data for code generation
         context_view = runtime_ctx.get("context_view")
-        schemas = getattr(context_view, "schemas_excerpt", "") if context_view else ""
-        memories_context = getattr(context_view, "memories_context", "") if context_view else ""
-        messages_context = getattr(context_view, "messages_context", "") if context_view else ""
+        schemas_section = getattr(context_view.static, "schemas", None) if context_view else None
+        schemas = schemas_section.render() if schemas_section else ""
+        # Leave these as empty unless you add object sections for them in view
+        memories_context = ""
+        messages_section = getattr(context_view.warm, "messages", None) if context_view else None
+        messages_context = messages_section.render() if messages_section else ""
         
         code = await coder.data_model_to_code(
             data_model=current_step.data_model,

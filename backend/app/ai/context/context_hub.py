@@ -8,20 +8,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .context_specs import (
     ContextMetadata, ContextSnapshot, ContextBuildSpec,
+    ContextObjectsSnapshot,
     SchemaContextConfig, MessageContextConfig, MemoryContextConfig,
     WidgetContextConfig, InstructionContextConfig, CodeContextConfig,
     ResourceContextConfig
 )
 from .builders.schema_context_builder import SchemaContextBuilder
+from .builders.files_context_builder import FilesContextBuilder
 from .builders.message_context_builder import MessageContextBuilder
 from .builders.memory_context_builder import MemoryContextBuilder
 from .builders.widget_context_builder import WidgetContextBuilder
-from .builders.agent_context_builder import AgentContextBuilder
 from .builders.instruction_context_builder import InstructionContextBuilder
 from .builders.code_context_builder import CodeContextBuilder
 from .builders.resource_context_builder import ResourceContextBuilder
 from .builders.observation_context_builder import ObservationContextBuilder
 from .context_view import ContextView, StaticSections, WarmSections
+from .sections.messages_section import MessagesSection
+from .sections.widgets_section import WidgetsSection
+from .sections.observations_section import ObservationsSection
+from .sections.resources_section import ResourcesSection
+from .sections.code_section import CodeSection
 
 
 class ContextHub:
@@ -37,12 +43,14 @@ class ContextHub:
         db: AsyncSession,
         organization,
         report,
+        data_sources,
         user=None,
         head_completion=None,
         widget=None
     ):
         self.db = db
         self.organization = organization
+        self.data_sources = data_sources
         self.report = report
         self.user = user
         self.head_completion = head_completion
@@ -73,27 +81,18 @@ class ContextHub:
         # Existing builders (enhanced)
         self.instruction_builder = InstructionContextBuilder(self.db, self.organization)
         self.code_builder = CodeContextBuilder(self.db, self.organization)
-        self.resource_builder = ResourceContextBuilder(self.db, self.prompt_content)
+        self.resource_builder = ResourceContextBuilder(self.db, self.data_sources, self.organization, self.prompt_content)
+        self.files_builder = FilesContextBuilder(self.db, self.organization, self.report)
         
         # New builders (port from agent.py)
-        self.schema_builder = SchemaContextBuilder(self.db, self.report)
-        self.message_builder = MessageContextBuilder(self.db, self.report, self.organization)
-        self.memory_builder = MemoryContextBuilder(self.db, self.head_completion)
-        self.widget_builder = WidgetContextBuilder(self.db, self.report)
+        self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report)
+        self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
+        self.memory_builder = MemoryContextBuilder(self.db, self.organization, self.user, self.head_completion)
+        self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         
         # Observation context builder (tracks tool execution results)
         self.observation_builder = ObservationContextBuilder()
         
-        # Main agent context builder (orchestrates others)
-        self.agent_builder = AgentContextBuilder(
-            db=self.db,
-            organization=self.organization,
-            report=self.report,
-            user=self.user,
-            head_completion=self.head_completion,
-            widget=self.widget
-        )
-    
     async def build_context(
         self,
         spec: Optional[ContextBuildSpec] = None,
@@ -126,8 +125,14 @@ class ContextHub:
         
         # Core sections
         if spec.include_schemas:
-            # SchemaContextBuilder.build_context() takes no parameters
-            context.schemas_excerpt = await self.schema_builder.build_context()
+            # Build object using config params
+            schema_cfg = spec.schema_config or SchemaContextConfig()
+            schemas_section = await self.schema_builder.build(
+                include_inactive=schema_cfg.include_inactive,
+                with_stats=schema_cfg.with_stats,
+                top_k=schema_cfg.top_k,
+            )
+            context.schemas_excerpt = schemas_section.render()
             self.metadata.schemas_count = len(context.schemas_excerpt.split('\n'))
         
         if spec.include_messages:
@@ -174,12 +179,13 @@ class ContextHub:
             self.metadata.widgets_count = len(context.widgets_context.split('\n'))
         
         if spec.include_instructions:
-            # InstructionContextBuilder uses build_context() method with status/category
+            # Build object, then render for legacy ContextSnapshot
             instruction_config = spec.instruction_config or InstructionContextConfig()
-            context.instructions_context = await self.instruction_builder.build_context(
+            inst_section = await self.instruction_builder.build(
                 status=instruction_config.status,
-                category=instruction_config.category
+                category=instruction_config.category,
             )
+            context.instructions_context = inst_section.render()
         
         # Optional sections
         if spec.include_code:
@@ -188,9 +194,12 @@ class ContextHub:
             context.code_context = ""
         
         if spec.include_resource:
-            # ResourceContextBuilder.build_context(data_sources) expects data_sources
-            data_sources = getattr(self.report, 'data_sources', []) or []
-            context.resource_context = await self.resource_builder.build_context(data_sources)
+            context.resource_context = await self.resource_builder.build()
+
+        # Files section (object cached, string rendered into legacy snapshot)
+        if getattr(spec, 'include_files', True):
+            files_section = await self.files_builder.build()
+            # We do not attach to ContextSnapshot directly; kept for future
         
         # Research context
         if spec.include_research_context and research_context:
@@ -205,24 +214,57 @@ class ContextHub:
         
         return context
 
+    async def build(self, spec: Optional[ContextBuildSpec] = None, research_context: Optional[Dict[str, Any]] = None, loop_index: int = 0) -> ContextObjectsSnapshot:
+        """Build and return object-based snapshot."""
+        if spec is None:
+            spec = ContextBuildSpec()
+        self.metadata.loop_index = loop_index
+        self.metadata.research_step_count = len(research_context or {})
+
+        # Build sections as objects
+        schemas_obj = None
+        files_obj = None
+        if spec.include_schemas:
+            schema_cfg = spec.schema_config or SchemaContextConfig()
+            schemas_obj = await self.schema_builder.build(
+                include_inactive=schema_cfg.include_inactive,
+                with_stats=schema_cfg.with_stats,
+                top_k=schema_cfg.top_k,
+            )
+
+        # Files
+        files_obj = await self.files_builder.build()
+
+        snapshot = ContextObjectsSnapshot(
+            schemas=schemas_obj,
+            files=files_obj,
+            metadata=self.metadata,
+        )
+        # Cache
+        self._static_cache["schemas"] = schemas_obj or self._static_cache.get("schemas")
+        self._static_cache["files"] = files_obj or self._static_cache.get("files")
+        return snapshot
+
     # --------------------------------------------------------------
     # Simple lifecycle helpers to prime static and refresh warm
     # --------------------------------------------------------------
     async def prime_static(self) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources)."""
-        self._static_cache["schemas"] = await self.schema_builder.build_context()
-        self._static_cache["instructions"] = await self.instruction_builder.get_instructions_context()
-        # Optional sections depending on flags
-        self._static_cache["code"] = await self.code_builder.build_context() if self.metadata.enable_code_context else ""
-        data_sources = getattr(self.report, 'data_sources', []) or []
-        self._static_cache["resources"] = await self.resource_builder.build_context(data_sources) if self.metadata.enable_resource_context else ""
+        self._static_cache["schemas"] = await self.schema_builder.build()
+        # Instructions as object
+        self._static_cache["instructions"] = await self.instruction_builder.build()
+        # Optional sections depending on flags (code left None unless provided per data model)
+        self._static_cache["code"] = None
+        self._static_cache["resources"] = await self.resource_builder.build()
+        # Files object
+        self._static_cache["files"] = await self.files_builder.build()
 
     async def refresh_warm(self) -> None:
         """Rebuild warm sections each loop (messages, widgets, observations)."""
-        # Messages and widgets are rebuilt every time for now
-        messages = await self.message_builder.build_context(max_messages=20)
-        widgets = await self.widget_builder.build_context(max_widgets=5)
-        observations = self.observation_builder.build_context(format_for_prompt=True)
+        # Messages and widgets are rebuilt every time for now (object-based)
+        messages = await self.message_builder.build(max_messages=20)
+        widgets = await self.widget_builder.build(max_widgets=5)
+        observations = self.observation_builder.build()
         self._warm_cache.update({
             "messages": messages,
             "widgets": widgets,
@@ -232,15 +274,16 @@ class ContextHub:
     def get_view(self) -> ContextView:
         """Return a read-only grouped view over current static + warm context."""
         static = StaticSections(
-            schemas=self._static_cache.get("schemas", ""),
-            instructions=self._static_cache.get("instructions", ""),
-            resources=self._static_cache.get("resources", ""),
-            code=self._static_cache.get("code", ""),
+            schemas=self._static_cache.get("schemas", None),
+            instructions=self._static_cache.get("instructions", None),
+            resources=self._static_cache.get("resources", None),
+            code=self._static_cache.get("code", None),
+            files=self._static_cache.get("files", None),
         )
         warm = WarmSections(
-            messages=self._warm_cache.get("messages", ""),
-            observations=self._warm_cache.get("observations", ""),
-            widgets=self._warm_cache.get("widgets", ""),
+            messages=self._warm_cache.get("messages", None),
+            observations=self._warm_cache.get("observations", None),
+            widgets=self._warm_cache.get("widgets", None),
         )
         meta = self.metadata.model_dump()
         return ContextView(static=static, warm=warm, meta=meta)
@@ -264,16 +307,18 @@ class ContextHub:
     
     async def get_schemas(self) -> str:
         """Quick access to schemas context only."""
-        return await self.schema_builder.build_context()
+        section = await self.schema_builder.build()
+        return section.render()
     
     async def get_messages_context(self, max_messages: int = 20) -> str:
         """Quick access to messages context only."""
-        return await self.message_builder.build_context(max_messages=max_messages)
+        section = await self.message_builder.build(max_messages=max_messages)
+        return section.render()
     
     async def get_resources_context(self) -> str:
         """Quick access to resources context from metadata resources."""
-        data_sources = getattr(self.report, 'data_sources', []) or []
-        return await self.resource_builder.build_context(data_sources)
+        section = await self.resource_builder.build()
+        return section.render()
     
     async def get_history_summary(self, research_context: Optional[Dict[str, Any]] = None) -> str:
         """Quick access to history summary."""
@@ -377,12 +422,9 @@ class ContextHub:
             parts.append("")
         
         # Add observation context if available
-        observation_context = self.observation_builder.build_context(format_for_prompt=format_for_prompt)
+        observation_context = self.observation_builder.build_context(format_for_prompt=False)
         if observation_context:
-            if format_for_prompt:
-                parts.append("=== RECENT TOOL EXECUTIONS ===")
-            else:
-                parts.append("=== OBSERVATION CONTEXT ===")
+            parts.append("=== OBSERVATION CONTEXT ===")
             parts.append(observation_context)
             parts.append("")
         

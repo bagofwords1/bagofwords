@@ -18,7 +18,8 @@ import logging
 import re
 from collections import Counter, defaultdict
 import json
-from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, DiagnosisMetrics, TraceData
+from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, DiagnosisMetrics, TraceData, CompactIssuesResponse, AgentExecutionSummariesResponse
+from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse
 
 logger = logging.getLogger(__name__)
 
@@ -140,3 +141,32 @@ async def get_trace_data(
 ):
     """Get detailed trace data for debugging"""
     return await console_service.get_trace_data(db, organization, report_id, completion_id)
+
+@router.get("/console/issues/compact", response_model=CompactIssuesResponse)
+@requires_permission("view_organization_overview")
+async def get_compact_issues(
+    params: MetricsQueryParams = Depends(),
+    page: int = 1,
+    page_size: int = 50,
+    filter: Optional[str] = None,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Compact completion-anchored issues list (tool errors or negative feedback)."""
+    return await console_service.get_compact_issues(db, organization, params, page, page_size, filter)
+
+
+@router.get("/console/agent-executions/summaries", response_model=AgentExecutionSummariesResponse)
+@requires_permission("view_organization_overview")
+async def get_agent_execution_summaries(
+    params: MetricsQueryParams = Depends(),
+    page: int = 1,
+    page_size: int = 20,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Agent execution summaries joined with completion, feedback, and tool stats."""
+    return await console_service.get_agent_execution_summaries(db, organization, params, page, page_size)
+

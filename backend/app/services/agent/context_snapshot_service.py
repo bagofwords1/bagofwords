@@ -28,4 +28,11 @@ class ContextSnapshotService:
         await db.refresh(snap)
         return snap
 
+    async def get_snapshot(
+        self,
+        db: AsyncSession,
+        id: str,
+    ) -> ContextSnapshot:
+        return await db.get(ContextSnapshot, id)
+
 

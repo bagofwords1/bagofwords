@@ -8,7 +8,7 @@ class PromptBuilder:
     """Builds prompts for the planner with intelligent plan type decision logic."""
     
     @staticmethod
-    def build_prompt(planner_input: PlannerInput, org_instructions: str) -> str:
+    def build_prompt(planner_input: PlannerInput) -> str:
         """Build the full prompt from PlannerInput and org instructions."""
         
         # Separate tools by category for better decision making
@@ -118,7 +118,7 @@ INPUT ENVELOPE
 <user_prompt>{planner_input.user_message}</user_prompt>
 <context>
   <platform>{planner_input.external_platform}</platform>
-  <organization_instructions>{org_instructions}</organization_instructions>
+  <organization_instructions>{planner_input.instructions}</organization_instructions>
   <schemas>{planner_input.schemas_excerpt}</schemas>
   <resources>{planner_input.resources_context if planner_input.resources_context else 'No metadata resources available'}</resources>
   <history>{planner_input.history_summary}</history>

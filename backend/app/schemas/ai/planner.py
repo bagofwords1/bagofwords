@@ -53,6 +53,7 @@ class PlannerDecision(BaseModel):
 class PlannerInput(BaseModel):
     external_platform: Optional[str] = None
     user_message: str
+    instructions: Optional[str] = None
     schemas_excerpt: Optional[str] = None
     history_summary: Optional[str] = None
     # Detailed conversation messages context for better planning

@@ -4,6 +4,12 @@ Context management specifications and Pydantic models.
 from datetime import datetime
 from typing import Dict, Optional, List, Any
 from pydantic import BaseModel, Field
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # Only for type checking to avoid heavy imports at runtime
+    from app.ai.context.sections.tables_schema_section import TablesSchemaContext
+    from app.ai.context.sections.files_schema_section import FilesSchemaContext
 
 
 class ContextMetadata(BaseModel):
@@ -36,6 +42,7 @@ class ContextMetadata(BaseModel):
     messages_count: int = 0
     widgets_count: int = 0
     memories_count: int = 0
+    metadata_resources_count: int = 0
     
     # External context
     external_platform: Optional[str] = None
@@ -44,7 +51,6 @@ class ContextMetadata(BaseModel):
     # Organization settings
     allow_llm_see_data: bool = True
     enable_code_context: bool = False
-    enable_resource_context: bool = False
 
 
 class ContextSnapshot(BaseModel):
@@ -69,10 +75,30 @@ class ContextSnapshot(BaseModel):
     history_summary: str = ""
 
 
+class ContextObjectsSnapshot(BaseModel):
+    """Object-based context snapshot for agent execution (section objects)."""
+    
+    # Core sections (objects)
+    schemas: 'TablesSchemaContext | None' = None
+    files: 'FilesSchemaContext | None' = None
+    # Placeholders for future object sections
+    messages: Any | None = None
+    memories: Any | None = None
+    widgets: Any | None = None
+    instructions: Any | None = None
+    code: Any | None = None
+    resources: Any | None = None
+    observations: Any | None = None
+    
+    # Metadata
+    metadata: ContextMetadata
+
+
 class SchemaContextConfig(BaseModel):
     """Configuration for schema context building."""
-    # SchemaContextBuilder.build_context() takes no parameters currently
-    pass
+    include_inactive: bool = False
+    with_stats: bool = True
+    top_k: Optional[int] = None
 
 
 class InstructionContextConfig(BaseModel):

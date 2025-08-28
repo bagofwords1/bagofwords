@@ -19,8 +19,10 @@ class MemoryContextBuilder:
     mention associations, step data, and memory content.
     """
     
-    def __init__(self, db: AsyncSession, head_completion):
+    def __init__(self, db: AsyncSession, organization, user, head_completion):
         self.db = db
+        self.organization = organization
+        self.user = user
         self.head_completion = head_completion
     
     async def build_context(self, max_memories: int = 10) -> str:

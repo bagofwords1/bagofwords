@@ -6,19 +6,24 @@ from sqlalchemy import select
 from app.models.metadata_resource import MetadataResource
 from app.models.git_repository import GitRepository
 from app.models.metadata_indexing_job import MetadataIndexingJob
+from app.models.organization import Organization
+from app.ai.context.sections.resources_section import ResourcesSection
+
 
 class ResourceContextBuilder:
-    def __init__(self, db, prompt_content):
+    def __init__(self, db, data_sources, organization, prompt_content):
         self.db = db
+        self.organization = organization
         self.prompt_content = prompt_content
+        self.data_sources = data_sources
 
-    async def build_context(self, data_sources):
-        """Build context from resources based on the prompt content."""
+    async def build_context(self):
+        """Build context from resources based on the prompt content (string)."""
         context = []
         # Extract keywords from the prompt
         keywords = self._extract_keywords_from_prompt(self.prompt_content)
         # For each data source, check if there's a git repository
-        for data_source in data_sources:
+        for data_source in self.data_sources:
             # Find the git repository connected to this data source
             git_repository = await self.db.execute(
                 select(GitRepository).where(GitRepository.data_source_id == data_source.id)
@@ -66,6 +71,10 @@ class ResourceContextBuilder:
                 context.append("</relevant_metadata_resources>")
         
         return "\n".join(context)
+
+    async def build(self) -> ResourcesSection:
+        content = await self.build_context()
+        return ResourcesSection(content=content)
 
     def _extract_keywords_from_prompt(self, prompt_data):
         """Extract important keywords from the prompt."""

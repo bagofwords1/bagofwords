@@ -4,9 +4,7 @@
             <!-- Header -->
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900">
-                        Trace: {{ traceData?.issue_type?.replace('_', ' ').toUpperCase() || 'Issue' }}
-                    </h3>
+                    <h3 class="text-lg font-semibold text-gray-900">Agent Execution</h3>
                     <UButton
                         color="gray"
                         variant="ghost"
@@ -14,116 +12,25 @@
                         @click="closeModal"
                     />
                 </div>
-                <div class="text-sm text-gray-500 mt-1">
-                    Report ID: {{ reportId }} • User: {{ traceData?.user_name }}
-                </div>
+                <div class="text-sm text-gray-500 mt-1">Report ID: {{ reportId }}</div>
             </template>
 
             <!-- Content -->
             <div class="h-[500px] flex flex-col">
                 <div class="grid grid-cols-5 gap-6 flex-1 min-h-0">
-                    <!-- Left Pane: Tree View (2/5 width) -->
+                    <!-- Left Pane: Minimal Block List (2/5 width) -->
                     <div class="col-span-2 border-r border-gray-200 pr-4 flex flex-col min-h-0">
-                        <h4 class="text-sm font-medium text-gray-900 mb-3 flex-shrink-0">Agent Execution Flow</h4>
-                        
-                        <div class="flex-1 min-h-0 overflow-y-auto pr-2">
-                            <div class="space-y-2">
-                                <!-- Head Completion -->
-                                <div v-if="traceData?.head_completion" class="relative">
-                                    <div :class="[
-                                        'p-3 rounded-lg border-2 cursor-pointer transition-colors',
-                                        selectedItem?.id === traceData.head_completion.completion_id 
-                                            ? 'border-blue-500 bg-blue-50' 
-                                            : 'border-gray-200 hover:border-gray-300'
-                                    ]" @click="selectItem(traceData.head_completion, 'completion')">
-                                        <div class="flex items-center">
-                                            <UIcon name="i-heroicons-user" class="w-4 h-4 text-blue-600 mr-2" />
-                                            <div>
-                                                <div class="text-xs font-medium text-gray-900">User Prompt</div>
-                                                <div class="text-xs text-gray-600 truncate mt-1">
-                                                    {{ traceData.head_completion.content?.substring(0, 60) }}...
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
+                        <div class="text-xs text-gray-600 mb-2">Execution Blocks</div>
+                        <div class="flex-1 min-h-0 overflow-y-auto pr-2 space-y-1">
+                            <div v-for="item in leftItems" :key="item.id" :class="[
+                                'px-3 py-2 rounded border cursor-pointer text-xs',
+                                selectedItem?.id === item.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                            ]" @click="selectLeftItem(item)">
+                                <div class="flex items-center justify-between">
+                                    <div class="font-medium text-gray-900 truncate">{{ item.title }}</div>
+                                    <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
                                 </div>
-
-                                <!-- Completions and Steps -->
-                                <div v-for="completion in systemCompletions" :key="completion.completion_id" class="relative ml-4">
-                                    <!-- Completion -->
-                                    <div :class="[
-                                        'p-3 rounded-lg border-2 cursor-pointer transition-colors mb-2',
-                                        completion.has_issue 
-                                            ? 'border-red-500 bg-red-50' 
-                                            : selectedItem?.id === completion.completion_id 
-                                                ? 'border-blue-500 bg-blue-50' 
-                                                : 'border-gray-200 hover:border-gray-300'
-                                    ]" @click="selectItem(completion, 'completion')">
-                                        <div class="flex items-center">
-                                            <UIcon :name="getCompletionIcon(completion)" 
-                                                   :class="getCompletionIconClass(completion)" />
-                                            <div class="ml-2 flex-1">
-                                                <div class="text-xs font-medium text-gray-900">
-                                                    {{ getCompletionLabel(completion) }}
-                                                </div>
-                                                <div class="text-xs text-gray-600 truncate mt-1">
-                                                    {{ completion.content?.substring(0, 50) }}...
-                                                </div>
-                                                <div v-if="completion.has_issue" class="text-xs text-red-600 mt-1 font-medium">
-                                                    {{ getIssueLabel(completion.issue_type) }}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Related Steps -->
-                                    <div v-for="step in getStepsForCompletion(completion.completion_id)" 
-                                         :key="step.step_id" 
-                                         class="ml-6 mb-2">
-                                        <div :class="[
-                                            'p-2 rounded border cursor-pointer transition-colors',
-                                            step.has_issue 
-                                                ? 'border-red-400 bg-red-25' 
-                                                : selectedItem?.id === step.step_id 
-                                                    ? 'border-blue-400 bg-blue-25' 
-                                                    : 'border-gray-300 hover:border-gray-400'
-                                        ]" @click="selectItem(step, 'step')">
-                                            <div class="flex items-center">
-                                                <UIcon :name="getStepIcon(step)" 
-                                                       :class="getStepIconClass(step)" />
-                                                <div class="ml-2">
-                                                    <div class="text-xs font-medium text-gray-900">{{ step.title }}</div>
-                                                    <div class="text-xs text-gray-500">Status: {{ step.status }}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- Related Feedback -->
-                                    <div v-for="feedback in getFeedbackForCompletion(completion.completion_id)" 
-                                         :key="feedback.feedback_id" 
-                                         class="ml-6 mb-2">
-                                        <div :class="[
-                                            'p-2 rounded border cursor-pointer transition-colors',
-                                            feedback.direction === -1 
-                                                ? 'border-orange-400 bg-orange-25' 
-                                                : 'border-green-400 bg-green-25'
-                                        ]" @click="selectItem(feedback, 'feedback')">
-                                            <div class="flex items-center">
-                                                <UIcon :name="feedback.direction === 1 ? 'i-heroicons-hand-thumb-up' : 'i-heroicons-hand-thumb-down'" 
-                                                       :class="feedback.direction === 1 ? 'w-3 h-3 text-green-600' : 'w-3 h-3 text-orange-600'" />
-                                                <div class="ml-2">
-                                                    <div class="text-xs font-medium text-gray-900">
-                                                        {{ feedback.direction === 1 ? 'Positive' : 'Negative' }} Feedback
-                                                    </div>
-                                                    <div class="text-xs text-gray-500 truncate">
-                                                        {{ feedback.message || 'No message' }}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                                <div v-if="item.subtitle" class="text-gray-500 truncate mt-0.5">{{ item.subtitle }}</div>
                             </div>
                         </div>
                     </div>
@@ -148,63 +55,50 @@
                                     {{ formatDate(selectedItem.created_at) }}
                                 </div>
                             </div>
+                            <!-- Block Details (minimal) -->
+                            <div class="space-y-4">
 
-                            <!-- Completion Details -->
-                            <div v-if="selectedItemType === 'completion'" class="space-y-4">
-                                <div>
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Content</label>
-                                    <div class="p-3 bg-gray-50 rounded-lg border">
-                                        <pre class="text-xs text-gray-900 whitespace-pre-wrap">{{ selectedItem.content || 'No content' }}</pre>
+                                <!-- User prompt + context (minimal) -->
+                                <template v-if="selectedItem.id === 'user_prompt'">
+                                    <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">User Prompt</div>
+                                    <pre class="text-xs text-gray-900 font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
+                                    <div v-if="traceData?.head_context_snapshot" class="mt-4">
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Context</div>
+                                        <ContextBrowser :context-data="traceData.head_context_snapshot.context_view_json || {}" />
                                     </div>
-                                </div>
+                                </template>
 
-                                <div v-if="selectedItem.reasoning">
-                                    <label class="block text-xs font-medium text-gray-700 mb-2">Reasoning</label>
-                                    <div class="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                                        <pre class="text-xs text-gray-900 whitespace-pre-wrap">{{ selectedItem.reasoning }}</pre>
-                                    </div>
-                                </div>
-
-                                <!-- AI Scoring Section -->
-                                <div v-if="selectedItem.role === 'user' && hasAnyScores(selectedItem)" class="bg-purple-50 border border-purple-200 rounded-lg p-3">
-                                    <label class="block text-xs font-medium text-purple-800 mb-3">AI Quality Scores (1-5 scale)</label>
-                                    <div class="grid grid-cols-3 gap-3">
-                                        <div v-if="selectedItem.instructions_effectiveness" class="text-center">
-                                            <div class="text-lg font-bold text-purple-700">{{ selectedItem.instructions_effectiveness }}</div>
-                                            <div class="text-xs text-purple-600">Instructions</div>
-                                        </div>
-                                        <div v-if="selectedItem.context_effectiveness" class="text-center">
-                                            <div class="text-lg font-bold text-purple-700">{{ selectedItem.context_effectiveness }}</div>
-                                            <div class="text-xs text-purple-600">Context</div>
-                                        </div>
-                                        <div v-if="selectedItem.response_score" class="text-center">
-                                            <div class="text-lg font-bold text-purple-700">{{ selectedItem.response_score }}</div>
-                                            <div class="text-xs text-purple-600">Response</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Role</label>
-                                        <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
-                                            {{ selectedItem.role }}
-                                        </span>
+                                <!-- Decision details (minimal) -->
+                                <template v-else>
+                                    <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Reasoning</div>
+                                        <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
                                     </div>
                                     <div>
-                                        <label class="block text-xs font-medium text-gray-700 mb-1">Status</label>
-                                        <span :class="[
-                                            'inline-flex px-2 py-1 text-xs font-medium rounded-full',
-                                            selectedItem.status === 'success' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                                        ]">
-                                            {{ selectedItem.status || 'N/A' }}
-                                        </span>
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Content</div>
+                                        <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || 'No content' }}</pre>
                                     </div>
-                                </div>
+
+                                    <!-- Tool execution with specialized rendering -->
+                                    <div v-if="selectedItem.tool_execution" class="mt-4">
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Tool Execution</div>
+                                        <!-- Use specialized tool component if available -->
+                                        <component 
+                                            v-if="shouldUseToolComponent(selectedItem.tool_execution)"
+                                            :is="getToolComponent(selectedItem.tool_execution.tool_name)"
+                                            :tool-execution="selectedItem.tool_execution"
+                                        />
+                                        <!-- Fallback to generic tool display -->
+                                        <GenericTool 
+                                            v-else
+                                            :tool-execution="selectedItem.tool_execution"
+                                        />
+                                    </div>
+                                </template>
                             </div>
 
-                            <!-- Step Details -->
-                            <div v-else-if="selectedItemType === 'step'" class="space-y-4">
+                            <!-- Step Details (unused in compact UI) -->
+                            <div v-if="false" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-xs font-medium text-gray-700 mb-1">Title</label>
@@ -252,8 +146,8 @@
                                 </div>
                             </div>
 
-                            <!-- Feedback Details -->
-                            <div v-else-if="selectedItemType === 'feedback'" class="space-y-4">
+                            <!-- Feedback Details (unused in compact UI) -->
+                            <div v-if="false" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-xs font-medium text-gray-700 mb-1">Direction</label>
@@ -287,6 +181,36 @@
 
 <script setup lang="ts">
 import RenderTable from '../RenderTable.vue'
+import ContextBrowser from './ContextBrowser.vue'
+import GenericTool from '../tools/GenericTool.vue'
+import CreateDataModelTool from '../tools/CreateDataModelTool.vue'
+import ExecuteCodeTool from '../tools/ExecuteCodeTool.vue'
+
+interface ToolExecutionUI {
+    tool_name: string
+    tool_action?: string
+    result_json?: any
+}
+
+interface CompletionBlockV2 {
+    id: string
+    completion_id: string
+    agent_execution_id?: string
+    block_index: number
+    title: string
+    status: string
+    content?: string
+    reasoning?: string
+    tool_execution?: ToolExecutionUI
+    created_at: string
+}
+
+interface AgentExecutionTraceResponse {
+    agent_execution: any
+    completion_blocks: CompletionBlockV2[]
+    head_prompt_snippet?: string
+    head_context_snapshot?: any
+}
 
 interface TraceCompletionData {
     completion_id: string
@@ -347,17 +271,41 @@ const emit = defineEmits<{
 
 // State
 const isLoading = ref(false)
-const traceData = ref<TraceData | null>(null)
+const traceData = ref<AgentExecutionTraceResponse | null>(null)
 const selectedItem = ref<any>(null)
-const selectedItemType = ref<'completion' | 'step' | 'feedback'>('completion')
+const selectedItemType = ref<'block'>('block')
+const blocks = computed(() => traceData.value?.completion_blocks || [])
 
 const isOpen = computed({
     get: () => props.modelValue,
     set: (value) => emit('update:modelValue', value)
 })
 
-const systemCompletions = computed(() => {
-    return traceData.value?.completions.filter(c => c.role !== 'user') || []
+const systemCompletions = computed(() => [])
+const leftItems = computed(() => {
+    const items: any[] = []
+    // 1) User prompt
+    if (traceData.value?.head_prompt_snippet) {
+        items.push({ id: 'user_prompt', kind: 'prompt', title: 'User Prompt', subtitle: traceData.value.head_prompt_snippet })
+    }
+    // 2) Decisions (blocks)
+    for (const b of blocks.value) {
+        const te = (b as any).tool_execution
+        const action = te?.tool_action ? te.tool_action : undefined
+        const tool_call_name = action ? `${te.tool_name}.${action}` : te?.tool_name
+        if (tool_call_name) {
+            items.push({ id: b.id, kind: 'decision', title: `Decision: ${tool_call_name}`, subtitle: undefined, ref: b })
+        } else {
+            // Non-tool decision, show title
+            items.push({ id: b.id, kind: 'decision', title: b.title || 'Decision', subtitle: undefined, ref: b })
+        }
+    }
+    // 3) Analysis completed marker (if any block has analysis_complete)
+    const hasFinal = blocks.value.some((b: any) => b?.plan_decision?.analysis_complete)
+    if (hasFinal) {
+        items.push({ id: 'analysis_completed', kind: 'final', title: 'Decision: analysis_completed' })
+    }
+    return items
 })
 
 // Methods
@@ -366,17 +314,15 @@ const fetchTraceData = async () => {
     
     isLoading.value = true
     try {
-        const response = await useMyFetch<TraceData>(`/api/console/trace/${props.reportId}/${props.completionId}`)
+        const response = await useMyFetch<AgentExecutionTraceResponse>(`/api/console/agent_executions/by-completion/${props.completionId}`)
         
         if (response.error.value) {
             console.error('Error fetching trace data:', response.error.value)
         } else if (response.data.value) {
             traceData.value = response.data.value
-            // Auto-select the issue completion
-            const issueCompletion = traceData.value.completions.find(c => c.completion_id === props.completionId)
-            if (issueCompletion) {
-                selectItem(issueCompletion, 'completion')
-            }
+            // Always open on the prompt block
+            selectedItem.value = { id: 'user_prompt', title: 'User Prompt', content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
+            selectedItemType.value = 'block'
         }
     } catch (error) {
         console.error('Failed to fetch trace data:', error)
@@ -391,18 +337,29 @@ const closeModal = () => {
     traceData.value = null
 }
 
-const selectItem = (item: any, type: 'completion' | 'step' | 'feedback') => {
+const selectItem = (item: any) => {
     selectedItem.value = { ...item, id: item.completion_id || item.step_id || item.feedback_id }
-    selectedItemType.value = type
 }
 
-const getStepsForCompletion = (completionId: string) => {
-    return traceData.value?.steps.filter(s => s.completion_id === completionId) || []
+const selectBlock = (block: any) => {
+    selectedItem.value = { ...block, id: block.id }
+    selectedItemType.value = 'block'
 }
 
-const getFeedbackForCompletion = (completionId: string) => {
-    return traceData.value?.feedbacks.filter(f => f.completion_id === completionId) || []
+const selectLeftItem = (item: any) => {
+    if (item.kind === 'decision' && item.ref) {
+        selectBlock(item.ref)
+    } else if (item.kind === 'prompt') {
+        selectedItem.value = { id: 'user_prompt', title: 'User Prompt', content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
+        selectedItemType.value = 'block'
+    } else if (item.kind === 'final') {
+        selectedItem.value = { id: 'analysis_completed', title: 'Analysis Completed', content: 'Analysis marked complete.', created_at: traceData.value?.agent_execution?.completed_at }
+        selectedItemType.value = 'block'
+    }
 }
+
+const getStepsForCompletion = (_completionId: string) => []
+const getFeedbackForCompletion = (_completionId: string) => []
 
 const getCompletionIcon = (completion: TraceCompletionData) => {
     if (completion.has_issue) return 'i-heroicons-exclamation-triangle'
@@ -438,22 +395,43 @@ const getIssueLabel = (issueType?: string) => {
     }
 }
 
-const getSelectedItemIcon = () => {
-    if (selectedItemType.value === 'completion') return 'i-heroicons-chat-bubble-left-right'
-    if (selectedItemType.value === 'step') return 'i-heroicons-cog-6-tooth'
-    return 'i-heroicons-hand-thumb-up'
+const getSelectedItemIcon = () => 'i-heroicons-cog-6-tooth'
+
+const getSelectedItemTitle = () => selectedItem.value?.title || 'Block'
+
+const getStatusIcon = (status: string) => {
+    if (status === 'error') return 'i-heroicons-x-circle'
+    if (status === 'success' || status === 'completed') return 'i-heroicons-check-circle'
+    return 'i-heroicons-clock'
 }
 
-const getSelectedItemTitle = () => {
-    if (!selectedItem.value) return ''
-    
-    if (selectedItemType.value === 'completion') {
-        return selectedItem.value.role === 'user' ? 'User Prompt' : 'System Response'
+const getStatusIconClass = (status: string) => {
+    if (status === 'error') return 'w-3 h-3 text-red-600'
+    if (status === 'success' || status === 'completed') return 'w-3 h-3 text-green-600'
+    return 'w-3 h-3 text-gray-500'
+}
+
+const getBlockTitle = (block: CompletionBlockV2) => {
+    if (block.title) return block.title
+    if ((block as any)?.tool_execution) {
+        const te = (block as any).tool_execution
+        return `${te.tool_name}${te.tool_action ? ' → ' + te.tool_action : ''}`
     }
-    if (selectedItemType.value === 'step') {
-        return `Step: ${selectedItem.value.title}`
-    }
-    return `${selectedItem.value.direction === 1 ? 'Positive' : 'Negative'} Feedback`
+    return 'Block'
+}
+
+const getLeftItemIcon = (item: any) => {
+    if (item.kind === 'prompt') return 'i-heroicons-user'
+    if (item.kind === 'final') return 'i-heroicons-check-circle'
+    const status = item?.ref?.status
+    return getStatusIcon(status || '')
+}
+
+const getLeftItemIconClass = (item: any) => {
+    if (item.kind === 'prompt') return 'w-3 h-3 text-blue-600'
+    if (item.kind === 'final') return 'w-3 h-3 text-green-600'
+    const status = item?.ref?.status
+    return getStatusIconClass(status || '')
 }
 
 const formatDate = (dateString: string) => {
@@ -462,6 +440,24 @@ const formatDate = (dateString: string) => {
 
 const hasAnyScores = (item: any) => {
     return item.instructions_effectiveness || item.context_effectiveness || item.response_score
+}
+
+// Tool component helpers (matching index.vue)
+function getToolComponent(toolName: string) {
+    switch (toolName) {
+        case 'create_data_model':
+            return CreateDataModelTool
+        case 'create_and_execute_code':
+        case 'execute_code':
+        case 'execute_sql':
+            return ExecuteCodeTool
+        default:
+            return null
+    }
+}
+
+function shouldUseToolComponent(toolExecution: any): boolean {
+    return getToolComponent(toolExecution.tool_name) !== null
 }
 
 // Watch for modal opening

@@ -12,7 +12,7 @@
             <!-- Failed Queries -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ overallMetrics?.failed_steps_count || 0 }}
+                    {{ 0 }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1">Failed Queries</div>
             </div>
@@ -20,7 +20,7 @@
             <!-- Negative Feedback -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ overallMetrics?.negative_feedback_count || 0 }}
+                    {{ 0 }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1">Negative Feedback</div>
             </div>
@@ -87,100 +87,88 @@
             </div>
         </div>
 
-        <!-- Diagnosis Table -->
+        <!-- Agent Executions Table -->
         <div v-else class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Status
-                            </th>
-
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Head Prompt
-                            </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Query
-                            </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Feedback
-                            </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                User
-                            </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Created
-                            </th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Actions
-                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tools</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Report</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 text-xs">
-                        <tr v-for="item in diagnosisItems" :key="item.id" class="hover:bg-gray-50 cursor-pointer" @click="openTrace(item)">
-                            <!-- Status -->
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="inline-flex px-1 py-0.5 text-xs font-medium rounded-full"
-                                      :class="getIssueTypeClass(item.issue_type)">
-                                    {{ getIssueTypeLabel(item.issue_type) }}
-                                </span>
-                            </td>
-                            
-                            <!-- Head Completion -->
+                        <tr v-for="item in executionItems" :key="item.agent_execution_id" class="hover:bg-gray-50 cursor-pointer" @click="openTraceFromAE(item)">
                             <td class="px-6 py-4">
-                                <div class="text-xs text-gray-900 max-w-md">
-                                    <p class="truncate" :title="item.head_completion_prompt">
-                                        {{ item.head_completion_prompt || 'No prompt available' }}
-                                    </p>
+                                <div class="text-xs text-gray-900 max-w-xl">
+                                    <p >{{ truncate(item.prompt || '', 140) }}</p>
                                 </div>
                             </td>
-                            
-                            <!-- Step Info -->
-                            <td class="px-3 py-1">
-                                <div v-if="item.step_info" class="text-xs">
-                                    <div class="text-gray-900">{{ item.step_info.step_title }}</div>
-                                    <div class="text-gray-500">Status: {{ item.step_info.step_status }}</div>
-                                </div>
-                                <div v-else class="text-xs text-gray-400">N/A</div>
-                            </td>
-                            
-                            <!-- Feedback -->
-                            <td class="px-3 py-1">
-                                <div v-if="item.feedback_info" class="text-xs">
-                                    <div class="flex items-center">
-                                        <UIcon name="i-heroicons-hand-thumb-down" class="w-4 h-4 text-red-500 mr-2" />
-            <div class="text-gray-500 max-w-xs truncate" :title="item.feedback_info.message">
-                                        {{ item.feedback_info.message || 'No message' }}
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="flex flex-col">
+                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full self-start"
+                                          :class="item.agent_execution_status === 'error' ? 'bg-red-100 text-red-800' : (item.agent_execution_status === 'completed' || item.agent_execution_status === 'success') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'">
+                                        {{ item.agent_execution_status === 'error' ? 'error' : 'success' }}
+                                    </span>
+                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="mt-1 text-xs text-red-600 max-w-xs">
+                                        <UTooltip :text="item.error_json.message">
+                                            <span class="truncate cursor-help">{{ truncate(item.error_json.message, 120) }}</span>
+                                        </UTooltip>
                                     </div>
-                                    </div>
-                        
                                 </div>
-                                <div v-else class="text-xs text-gray-400">No feedback</div>
                             </td>
-                            
-                            <!-- User -->
+                            <td class="px-6 py-4">
+                                <div class="text-xs text-gray-900">Total: {{ item.total_tools }}</div>
+                                <div class="flex items-center space-x-4 mt-1">
+                                    <div class="flex items-center space-x-1 text-green-600">
+                                        <UIcon name="i-heroicons-check-circle" class="w-4 h-4" />
+                                        <span>{{ item.total_successful_tools }}</span>
+                                    </div>
+                                    <div class="flex items-center space-x-1 text-red-600">
+                                        <UIcon name="i-heroicons-x-circle" class="w-4 h-4" />
+                                        <span>{{ item.total_failed_tools }}</span>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex flex-col">
+                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full self-start"
+                                          :class="item.feedback_direction > 0 ? 'bg-green-100 text-green-800' : item.feedback_direction < 0 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'">
+                                        {{ item.feedback_direction > 0 ? 'Positive' : (item.feedback_direction < 0 ? 'Negative' : 'No Feedback') }}
+                                    </span>
+                                    <div v-if="item.feedback_direction < 0 && item.feedback_message" class="mt-1 text-xs text-gray-600 max-w-sm">
+                                        <UTooltip :text="item.feedback_message">
+                                            <span class="truncate cursor-help">{{ truncate(item.feedback_message, 120) }}</span>
+                                        </UTooltip>
+                                    </div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <a v-if="item.report_link" :href="item.report_link" class="text-blue-600 hover:underline" @click.stop>
+                                    {{ item.report_name || item.report_id }}
+                                </a>
+                                <span v-else>{{ item.report_name || item.report_id }}</span>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex flex-wrap gap-1 max-w-md">
+                                    <span v-for="(title, idx) in item.step_titles || []" :key="idx" class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px]"
+                                          @click.stop="openTraceFromAE(item)">
+                                        {{ title }}
+                                    </span>
+                                    <span v-if="(item.step_titles || []).length === 0" class="text-gray-400">None</span>
+                                </div>
+                            </td>
                             <td class="px-2 py-1">
-                                <div class="text-xs text-gray-900">{{ item.user_name }}</div>
+                                <div class="text-xs text-gray-900">{{ item.user_name || '—' }}</div>
                             </td>
-                            
-                            <!-- Time -->
                             <td class="px-3 py-1">
-                                <span class="text-xs text-gray-500">
-                                    {{ formatDate(item.created_at) }}
-                                </span>
-                            </td>
-                            
-                            <!-- Actions -->
-                            <td class="px-6 py-4 whitespace-nowrap text-xs font-medium">
-                                <UButton
-                                    variant="outline"
-                                    size="xs"
-                                    color="blue"
-                                    @click="openTrace(item)"
-                                >
-                                    Trace
-                                </UButton>
+                                <span class="text-xs text-gray-500">{{ formatDate(item.created_at as any) }}</span>
                             </td>
                         </tr>
                     </tbody>
@@ -188,11 +176,11 @@
             </div>
 
             <!-- Empty state -->
-            <div v-if="diagnosisItems.length === 0 && !isLoading" class="text-center py-12">
+            <div v-if="executionItems.length === 0 && !isLoading" class="text-center py-12">
                 <UIcon name="i-heroicons-clipboard-document-check" class="mx-auto h-12 w-12 text-gray-400" />
                 <h3 class="mt-2 text-sm font-medium text-gray-900">No data found</h3>
                 <p class="mt-1 text-sm text-gray-500">
-                    No {{ selectedFilter.label.toLowerCase() }} found for the selected period.
+                    No agent executions found for the selected period.
                 </p>
                 <div class="mt-2 text-xs text-gray-400">
                     Debug: {{ debugInfo }}
@@ -201,7 +189,7 @@
         </div>
 
         <!-- Pagination -->
-        <div v-if="diagnosisItems.length > 0" class="mt-6 flex items-center justify-between">
+        <div v-if="executionItems.length > 0" class="mt-6 flex items-center justify-between">
             <div class="text-sm text-gray-700">
                 Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, totalItems) }} of {{ totalItems }} results
             </div>
@@ -249,7 +237,7 @@
         <TraceModal
             v-model="showTraceModal"
             :report-id="selectedTraceItem?.report_id || ''"
-            :completion-id="selectedTraceItem?.id || ''"
+            :completion-id="selectedTraceItem?.completion_id || selectedTraceItem?.id || ''"
         />
     </div>
 </template>
@@ -262,48 +250,25 @@ definePageMeta({
     layout: 'console'
 })
 
-// Types
-interface DiagnosisStepData {
-    step_id: string
-    step_title: string
-    step_status: string
-    step_code?: string
-    step_data_model?: any
+// Types for compact issues
+interface CompactIssueItem {
+    completion_id: string
     created_at: string
-}
-
-interface DiagnosisFeedbackData {
-    feedback_id: string
-    direction: number
-    message?: string
-    created_at: string
-}
-
-interface DiagnosisItemData {
-    id: string
-    head_completion_id: string
-    head_completion_prompt: string
-    problematic_completion_id: string
-    problematic_completion_content?: string
-    user_id: string
-    user_name: string
-    user_email?: string
-    report_id: string
     issue_type: string
-    step_info?: DiagnosisStepData
-    feedback_info?: DiagnosisFeedbackData
-    created_at: string
+    summary_text: string
+    full_message?: string
+    tool_name?: string
+    tool_action?: string
+    user_name?: string
+    user_email?: string
+    head_prompt_snippet?: string
+    report_id: string
     trace_url?: string
 }
 
-interface DiagnosisMetrics {
-    diagnosis_items: DiagnosisItemData[]
+interface CompactIssuesResponse {
+    items: CompactIssueItem[]
     total_items: number
-    total_queries_count: number
-    failed_steps_count: number
-    negative_feedback_count: number
-    code_errors_count: number
-    validation_errors_count: number
     date_range: {
         start: string
         end: string
@@ -317,20 +282,21 @@ interface DateRange {
 
 // State (same as ConsoleOverview)
 const isLoading = ref(false)
-const metrics = ref<DiagnosisMetrics | null>(null)
-const overallMetrics = ref<DiagnosisMetrics | null>(null) // Static metrics for top cards
-const diagnosisItems = ref<DiagnosisItemData[]>([])
+const metrics = ref<CompactIssuesResponse | null>(null)
+const overallMetrics = ref<CompactIssuesResponse | null>(null) // Static metrics for top cards
+const diagnosisItems = ref<CompactIssueItem[]>([])
 const currentPage = ref(1)
 const pageSize = ref(10)
 const totalItems = ref(0)
 const debugInfo = ref('')
 const instructionsEffectiveness = ref<number | null>(null)
+// New data for agent execution summaries
+const executionItems = ref<any[]>([])
 
 // Filter state
-const selectedFilter = ref({ label: 'All Issues', value: 'all' })
+const selectedFilter = ref({ label: 'All Items', value: 'all_queries' })
 const filterOptions = ref([
-    { label: 'All Issues', value: 'all', count: 0 },
-    { label: 'All Queries', value: 'all_queries', count: 0 },
+    { label: 'All Items', value: 'all_queries', count: 0 },
     { label: 'Negative Feedback', value: 'negative_feedback', count: 0 },
     { label: 'Code Errors', value: 'code_errors', count: 0 },
     { label: 'Validation Errors', value: 'validation_errors', count: 0 }
@@ -338,7 +304,7 @@ const filterOptions = ref([
 
 // Add these to the state section
 const showTraceModal = ref(false)
-const selectedTraceItem = ref<DiagnosisItemData | null>(null)
+const selectedTraceItem = ref<any | null>(null)
 
 // Date range state (same as ConsoleOverview)
 const selectedPeriod = ref({ label: 'All Time', value: 'all_time' })
@@ -439,8 +405,8 @@ const fetchDiagnosisData = async () => {
         
         debugInfo.value = `Fetching with params: ${params.toString()}`
         
-        // Fetch diagnosis data
-        const diagnosisResponse = await useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`)
+        // Fetch agent execution summaries instead of compact issues
+        const diagnosisResponse = await useMyFetch<any>(`/api/console/agent-executions/summaries?${params}`)
         
         if (diagnosisResponse.error.value) {
             console.error('Error fetching diagnosis data:', diagnosisResponse.error.value)
@@ -449,19 +415,20 @@ const fetchDiagnosisData = async () => {
             diagnosisItems.value = []
             totalItems.value = 0
         } else if (diagnosisResponse.data.value) {
-            metrics.value = diagnosisResponse.data.value
-            diagnosisItems.value = diagnosisResponse.data.value.diagnosis_items || []
-            totalItems.value = diagnosisResponse.data.value.total_items || 0
-            debugInfo.value = `Loaded ${diagnosisItems.value.length} items, total: ${totalItems.value}`
+            const data = diagnosisResponse.data.value
+            executionItems.value = data.items || []
+            totalItems.value = data.total_items || 0
+            debugInfo.value = `Loaded ${executionItems.value.length} agent executions, total: ${totalItems.value}`
             
             // Update filter counts
+            // For now, only total count; per-type counts can be added later via separate endpoint
             updateFilterCounts(diagnosisResponse.data.value)
         }
     } catch (error) {
         console.error('Failed to fetch diagnosis data:', error)
         debugInfo.value = `Exception: ${error}`
         metrics.value = null
-        diagnosisItems.value = []
+        executionItems.value = []
         totalItems.value = 0
     } finally {
         isLoading.value = false
@@ -477,8 +444,6 @@ const getIssueTypeClass = (issueType: string) => {
             return 'bg-yellow-100 text-yellow-800'
         case 'negative_feedback':
             return 'bg-orange-100 text-orange-800'
-        case 'both':
-            return 'bg-purple-100 text-purple-800'
         case 'no_issue':
             return 'bg-green-100 text-green-800'
         default:
@@ -488,18 +453,14 @@ const getIssueTypeClass = (issueType: string) => {
 
 const getIssueTypeLabel = (issueType: string) => {
     switch (issueType) {
-        case 'failed_step':
-            return 'Failed Step'
         case 'code_error':
             return 'Code Error'
         case 'validation_error':
             return 'Validation Error'
         case 'negative_feedback':
             return 'Negative Feedback'
-        case 'both':
-            return 'Both Issues'
         case 'no_issue':
-            return 'Success'
+            return 'OK'
         default:
             return 'Unknown'
     }
@@ -525,7 +486,7 @@ const fetchOverallMetrics = async () => {
         
         // Fetch overall metrics (without any filter) for the top cards
         const [metricsResponse, judgeResponse] = await Promise.all([
-            useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`),
+            useMyFetch<CompactIssuesResponse>(`/api/console/issues/compact?${params}`),
             useMyFetch<any>(`/api/console/metrics?${params}`)
         ])
         
@@ -560,9 +521,37 @@ const getDateRangeDays = () => {
 }
 
 // Add this method
-const openTrace = (item: DiagnosisItemData) => {
+const openTrace = (item: any) => {
     selectedTraceItem.value = item
     showTraceModal.value = true
+}
+
+const openReport = (item: any) => {
+    if (item.report_link) {
+        window.open(item.report_link, '_blank')
+    }
+}
+
+const openTraceFromAE = (item: any) => {
+    selectedTraceItem.value = {
+        report_id: item.report_id,
+        completion_id: item.completion_id || '',
+        id: item.completion_id || ''
+    }
+    showTraceModal.value = true
+}
+
+const formatFeedback = (dir: number | null | undefined) => {
+    if (dir == null) return '0/0'
+    if (dir > 0) return '1/0'
+    if (dir < 0) return '0/1'
+    return '0/0'
+}
+
+const truncate = (text: string, length: number) => {
+    if (!text) return ''
+    if (text.length <= length) return text
+    return text.slice(0, length) + '…'
 }
 
 // Filter methods
@@ -572,13 +561,13 @@ const handleFilterChange = (filter: { label: string, value: string }) => {
     fetchDiagnosisData()
 }
 
-const updateFilterCounts = (data: DiagnosisMetrics) => {
+const updateFilterCounts = (data: CompactIssuesResponse) => {
+    // For now we only have total count from compact API. Keep others at 0.
     filterOptions.value = [
-        { label: 'All Issues', value: 'all', count: data.total_items },
-        { label: 'All Queries', value: 'all_queries', count: data.total_queries_count },
-        { label: 'Negative Feedback', value: 'negative_feedback', count: data.negative_feedback_count },
-        { label: 'Code Errors', value: 'code_errors', count: data.code_errors_count },
-        { label: 'Validation Errors', value: 'validation_errors', count: data.validation_errors_count }
+        { label: 'All Items', value: 'all_queries', count: data.total_items },
+        { label: 'Negative Feedback', value: 'negative_feedback', count: 0 },
+        { label: 'Code Errors', value: 'code_errors', count: 0 },
+        { label: 'Validation Errors', value: 'validation_errors', count: 0 }
     ]
 }
 

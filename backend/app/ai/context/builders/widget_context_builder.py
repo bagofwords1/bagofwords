@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.models.widget import Widget
 from app.models.step import Step
+from app.ai.context.sections.widgets_section import WidgetsSection, WidgetObservation
 
 from app.settings.logging_config import get_logger
 
@@ -21,8 +22,9 @@ class WidgetContextBuilder:
     agent._build_observation_data() with widget associations and step data.
     """
     
-    def __init__(self, db: AsyncSession, report):
+    def __init__(self, db: AsyncSession, organization, report):
         self.db = db
+        self.organization = organization
         self.report = report
     
     async def build_context(
@@ -67,6 +69,35 @@ class WidgetContextBuilder:
             context.append(widget_context)
         
         return "\n\n".join(context)
+
+    async def build(
+        self,
+        max_widgets: int = 5,
+        status_filter: Optional[List[str]] = None,
+        include_data_preview: bool = True
+    ) -> WidgetsSection:
+        """Build object-based widgets section using existing helpers."""
+        items: List[WidgetObservation] = []
+        widgets_and_steps = await self._get_report_widgets_and_steps(self.report.id)
+        if len(widgets_and_steps) > max_widgets:
+            widgets_and_steps = widgets_and_steps[-max_widgets:]
+        for widget, latest_step in widgets_and_steps:
+            data = await self._build_observation_data(widget, latest_step, include_data_preview=include_data_preview)
+            items.append(
+                WidgetObservation(
+                    widget_id=data.get("widget_id", "N/A"),
+                    widget_title=data.get("widget_title", "N/A"),
+                    widget_type=data.get("widget_type", "unknown"),
+                    step_id=data.get("step_id", "N/A"),
+                    step_title=data.get("step_title", "N/A"),
+                    row_count=int(data.get("row_count", 0)),
+                    column_names=list(data.get("column_names", [])),
+                    data_model=data.get("data_model"),
+                    stats=dict(data.get("stats", {})),
+                    data_preview=data.get("data_preview"),
+                )
+            )
+        return WidgetsSection(items=items)
     
     async def _get_report_widgets_and_steps(self, report_id: int) -> List[tuple]:
         """

@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, text, literal
+from sqlalchemy import select, func, text, literal, Integer
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.completion import Completion
@@ -15,7 +15,9 @@ from app.schemas.console_schema import (
     TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData,
     TopUserData, TopUsersMetrics, RecentNegativeFeedbackData, RecentNegativeFeedbackMetrics,
     DiagnosisItemData, DiagnosisStepData, DiagnosisFeedbackData, DiagnosisMetrics,
-    TraceData, TraceCompletionData, TraceStepData, TraceFeedbackData
+    TraceData, TraceCompletionData, TraceStepData, TraceFeedbackData,
+    CompactIssuesResponse, CompactIssueItem,
+    AgentExecutionSummaryItem, AgentExecutionSummariesResponse
 )
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, timezone
@@ -25,6 +27,19 @@ import json
 import re
 from pydantic import BaseModel
 from app.models.membership import Membership
+from app.models.tool_execution import ToolExecution
+from app.models.completion_block import CompletionBlock
+from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse
+from app.schemas.completion_v2_schema import CompletionBlockV2Schema
+from app.serializers.completion_v2 import serialize_block_v2
+from app.models.agent_execution import AgentExecution
+from app.models.context_snapshot import ContextSnapshot
+from app.models.tool_execution import ToolExecution
+from app.models.plan_decision import PlanDecision
+from app.models.completion import Completion
+from app.models.completion_feedback import CompletionFeedback
+from app.models.step import Step
+from sqlalchemy.orm import aliased
 
 logger = get_logger(__name__)
 
@@ -451,6 +466,185 @@ class ConsoleService:
                 response_quality=response_quality_data,
                 positive_feedback_rate=feedback_data
             )
+        )
+
+    async def get_compact_issues(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        params: MetricsQueryParams,
+        page: int = 1,
+        page_size: int = 50,
+        issue_filter: Optional[str] = None
+    ) -> CompactIssuesResponse:
+        """Return compact completion-anchored issues (tool errors or negative feedback)."""
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+
+        # Base completions in org and date range
+        base_query = (
+            select(
+                Completion.id.label('completion_id'),
+                Completion.created_at.label('created_at'),
+                Completion.completion.label('completion_content'),
+                Completion.role.label('completion_role'),
+                Report.id.label('report_id'),
+                func.coalesce(User.name, 'Unknown User').label('user_name'),
+                func.coalesce(User.email, '').label('user_email'),
+                Step.id.label('step_id'),
+                Step.status.label('step_status')
+            )
+            .select_from(Completion)
+            .join(Report, Completion.report_id == Report.id)
+            .outerjoin(User, Report.user_id == User.id)
+            .outerjoin(Step, Completion.step_id == Step.id)
+            .where(
+                Report.organization_id == organization.id,
+                Completion.created_at >= start_date,
+                Completion.created_at <= end_date
+            )
+            .order_by(Completion.created_at.desc())
+        )
+
+        result = await db.execute(base_query)
+        base_rows = result.all()
+
+        if not base_rows:
+            return CompactIssuesResponse(
+                items=[],
+                total_items=0,
+                date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat())
+            )
+
+        completion_ids = [r.completion_id for r in base_rows]
+        step_ids = [r.step_id for r in base_rows if r.step_id]
+
+        # Failed tool executions per step
+        te_rows = []
+        if step_ids:
+            te_query = (
+                select(ToolExecution)
+                .where(
+                    ToolExecution.created_step_id.in_(step_ids),
+                    ToolExecution.success == False
+                )
+                .order_by(
+                    ToolExecution.created_step_id.asc(),
+                    ToolExecution.attempt_number.desc(),
+                    func.coalesce(ToolExecution.completed_at, ToolExecution.created_at).desc()
+                )
+            )
+            te_result = await db.execute(te_query)
+            te_rows = te_result.scalars().all()
+
+        # Keep first failure per step
+        step_id_to_te: Dict[str, ToolExecution] = {}
+        for te in te_rows:
+            if te.created_step_id and te.created_step_id not in step_id_to_te:
+                step_id_to_te[te.created_step_id] = te
+
+        # Negative feedback per completion
+        cf_query = (
+            select(
+                CompletionFeedback.completion_id,
+                CompletionFeedback.direction,
+                CompletionFeedback.message,
+                CompletionFeedback.created_at
+            )
+            .where(
+                CompletionFeedback.completion_id.in_(completion_ids),
+                CompletionFeedback.direction == -1
+            )
+        )
+        cf_result = await db.execute(cf_query)
+        cf_rows = cf_result.all()
+        completion_id_to_cf = {r.completion_id: r for r in cf_rows}
+
+        # Head prompt snippets for reports
+        report_ids = list({r.report_id for r in base_rows})
+        head_prompts: Dict[str, str] = {}
+        if report_ids:
+            hp_query = (
+                select(Completion.report_id, Completion.prompt, Completion.created_at)
+                .where(Completion.report_id.in_(report_ids), Completion.role == 'user')
+                .order_by(Completion.report_id.asc(), Completion.created_at.asc())
+            )
+            hp_result = await db.execute(hp_query)
+            for rep_id, prompt, _ in hp_result.all():
+                if rep_id not in head_prompts:
+                    if isinstance(prompt, dict):
+                        head_prompts[rep_id] = str(prompt.get('content') or '')
+                    else:
+                        head_prompts[rep_id] = str(prompt or '')
+
+        def classify_error(message: Optional[str]) -> str:
+            return self._classify_error_type(message)
+
+        include_all = issue_filter in ('all_queries',)
+
+        items: List[CompactIssueItem] = []
+        for r in base_rows:
+            cf = completion_id_to_cf.get(r.completion_id)
+            te = step_id_to_te.get(r.step_id) if r.step_id else None
+
+            issue_type = None
+            summary_text = None
+            full_message = None
+            tool_name = None
+            tool_action = None
+
+            if te is not None:
+                issue_type = classify_error(te.error_message)
+                full_message = te.error_message or ''
+                summary_text = (str(full_message).split('\n', 1)[0]) if full_message else 'Error'
+                tool_name = te.tool_name
+                tool_action = te.tool_action
+            elif cf is not None:
+                issue_type = 'negative_feedback'
+                full_message = cf.message or ''
+                summary_text = (str(full_message).split('\n', 1)[0]) if full_message else 'Negative feedback'
+            else:
+                if not include_all:
+                    continue
+                issue_type = 'no_issue'
+                # Derive a helpful summary from completion content
+                try:
+                    content_val = r.completion_content
+                    if isinstance(content_val, dict):
+                        content_text = str(content_val.get('content') or content_val.get('text') or '')
+                    else:
+                        content_text = str(content_val or '')
+                    content_text = content_text.strip()
+                    summary_text = content_text.split('\n', 1)[0][:140] if content_text else (r.completion_role.title() + ' Completion' if r.completion_role else 'Completion')
+                except Exception:
+                    summary_text = 'Completion'
+
+            if issue_filter and issue_filter not in ('all', 'all_queries') and issue_type != issue_filter:
+                continue
+
+            items.append(CompactIssueItem(
+                completion_id=str(r.completion_id),
+                created_at=r.created_at,
+                issue_type=issue_type,
+                summary_text=summary_text,
+                full_message=full_message,
+                tool_name=tool_name,
+                tool_action=tool_action,
+                user_name=r.user_name,
+                user_email=r.user_email,
+                head_prompt_snippet=(head_prompts.get(r.report_id) or '')[:140],
+                report_id=str(r.report_id),
+                trace_url=f"/reports/{r.report_id}"
+            ))
+
+        total_items = len(items)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paged = items[start_idx:end_idx]
+
+        return CompactIssuesResponse(
+            items=paged,
+            total_items=total_items,
+            date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat())
         )
 
     async def get_table_usage_metrics(
@@ -1363,3 +1557,348 @@ class ConsoleService:
         if '.' in table_name:
             return table_name.split('.')[0]
         return None
+
+    async def get_agent_execution_trace(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        agent_execution_id: str
+    ) -> AgentExecutionTraceResponse:
+        """Return agent execution with its completion blocks (UI schema) and prompt snippet."""
+        # Fetch AE scoped to org
+        ae_query = (
+            select(AgentExecution)
+            .where(
+                AgentExecution.id == agent_execution_id,
+                AgentExecution.organization_id == organization.id
+            )
+        )
+        ae_result = await db.execute(ae_query)
+        agent_execution = ae_result.scalar_one_or_none()
+        if not agent_execution:
+            raise ValueError("Agent execution not found")
+
+        # Fetch blocks associated to this AE ordered by (seq, block_index)
+        blocks_query = (
+            select(CompletionBlock)
+            .where(CompletionBlock.agent_execution_id == agent_execution.id)
+            .order_by(CompletionBlock.block_index.asc())
+        )
+        blocks_result = await db.execute(blocks_query)
+        blocks = blocks_result.scalars().all()
+
+        # Serialize blocks to UI schema
+        block_schemas: List[CompletionBlockV2Schema] = []
+        for b in blocks:
+            block_schemas.append(await serialize_block_v2(db, b))
+
+        # Head prompt snippet from the head completion (first user completion in report)
+        head_prompt = None
+        head_snapshot: Optional[ContextSnapshot] = None
+        if agent_execution.report_id:
+            hp_query = (
+                select(Completion)
+                .where(Completion.report_id == agent_execution.report_id, Completion.role == 'user')
+                .order_by(Completion.created_at.asc())
+                .limit(1)
+            )
+            hp_res = await db.execute(hp_query)
+            head_c = hp_res.scalar_one_or_none()
+            if head_c and head_c.prompt:
+                if isinstance(head_c.prompt, dict):
+                    head_prompt = str(head_c.prompt.get('content') or '')
+                else:
+                    head_prompt = str(head_c.prompt)
+
+        # Fetch the earliest context snapshot for this agent execution (best-effort)
+        cs_query = (
+            select(ContextSnapshot)
+            .where(ContextSnapshot.agent_execution_id == agent_execution.id)
+            .order_by(ContextSnapshot.created_at.asc())
+            .limit(1)
+        )
+        cs_res = await db.execute(cs_query)
+        head_snapshot = cs_res.scalar_one_or_none()
+
+        return AgentExecutionTraceResponse(
+            agent_execution=agent_execution,
+            completion_blocks=block_schemas,
+            head_prompt_snippet=(head_prompt or '')[:160],
+            head_context_snapshot=head_snapshot
+        )
+
+    async def get_tool_executions_diagnosis(self, db: AsyncSession, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, page: int = 1, page_size: int = 20) -> dict:
+        """Return tool executions joined with plan decisions, feedback (via completion), and related step if exists."""
+        from sqlalchemy import select, and_, desc
+
+        base = (
+            select(
+                ToolExecution.id,
+                ToolExecution.created_at,
+                ToolExecution.tool_name,
+                ToolExecution.tool_action,
+                ToolExecution.status,
+                ToolExecution.duration_ms,
+                PlanDecision.plan_type,
+                PlanDecision.seq,
+                PlanDecision.loop_index,
+                CompletionFeedback.direction.label('feedback_direction'),
+                CompletionFeedback.message.label('feedback_message'),
+                Step.id.label('step_id'),
+                Step.title.label('step_title'),
+                Step.status.label('step_status'),
+            )
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .join(Completion, Completion.id == AgentExecution.completion_id)
+            .outerjoin(CompletionFeedback, CompletionFeedback.completion_id == Completion.id)
+            .outerjoin(PlanDecision, PlanDecision.id == ToolExecution.plan_decision_id)
+            .outerjoin(Step, Step.id == ToolExecution.created_step_id)
+        )
+        conditions = []
+        if start_date:
+            conditions.append(ToolExecution.created_at >= start_date)
+        if end_date:
+            conditions.append(ToolExecution.created_at <= end_date)
+        if conditions:
+            base = base.where(and_(*conditions))
+
+        total_q = select(func.count()).select_from(base.subquery())
+        total_res = await db.execute(total_q)
+        total = total_res.scalar_one() or 0
+
+        q = base.order_by(desc(ToolExecution.created_at)).limit(page_size).offset((page - 1) * page_size)
+        res = await db.execute(q)
+        rows = res.all()
+
+        def map_row(r):
+            d = {
+                'id': str(r.id),
+                'created_at': r.created_at,
+                'tool_name': r.tool_name,
+                'tool_action': r.tool_action,
+                'status': r.status,
+                'duration_ms': r.duration_ms,
+                'plan_type': r.plan_type,
+                'seq': r.seq,
+                'loop_index': r.loop_index,
+                'feedback_direction': r.feedback_direction,
+                'feedback_message': r.feedback_message,
+                'step_id': r.step_id,
+                'step_title': r.step_title,
+                'step_status': r.step_status,
+            }
+            return d
+
+        items = [map_row(r) for r in rows]
+        return {
+            'items': items,
+            'total_items': total,
+            'date_range': {
+                'start': start_date.isoformat() if start_date else '',
+                'end': end_date.isoformat() if end_date else ''
+            }
+        }
+
+    async def get_agent_execution_trace_by_completion(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        completion_id: str
+    ) -> AgentExecutionTraceResponse:
+        """Find latest agent execution for a completion and return its trace."""
+        ae_query = (
+            select(AgentExecution)
+            .where(
+                AgentExecution.completion_id == completion_id,
+                AgentExecution.organization_id == organization.id
+            )
+            .order_by(AgentExecution.created_at.desc())
+            .limit(1)
+        )
+        ae_res = await db.execute(ae_query)
+        ae = ae_res.scalar_one_or_none()
+        if not ae:
+            raise ValueError("Agent execution not found for completion")
+        return await self.get_agent_execution_trace(db, organization, ae.id)
+
+    async def get_agent_execution_summaries(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        params: MetricsQueryParams,
+        page: int = 1,
+        page_size: int = 20
+    ) -> AgentExecutionSummariesResponse:
+        """Aggregate agent executions joined with completion, feedback, tool counts, and report/user metadata."""
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+
+        base_query = (
+            select(
+                AgentExecution.id.label('ae_id'),
+                AgentExecution.created_at.label('created_at'),
+                AgentExecution.status.label('ae_status'),
+                AgentExecution.error_json.label('error_json'),
+                AgentExecution.completion_id.label('completion_id'),
+                AgentExecution.user_id.label('ae_user_id'),
+                AgentExecution.report_id.label('report_id'),
+                func.coalesce(User.name, 'Unknown User').label('user_name'),
+                func.coalesce(User.email, '').label('user_email'),
+                func.coalesce(Report.title, '').label('report_title')
+            )
+            .select_from(AgentExecution)
+            .outerjoin(User, User.id == AgentExecution.user_id)
+            .outerjoin(Report, Report.id == AgentExecution.report_id)
+            .where(
+                AgentExecution.organization_id == organization.id,
+                AgentExecution.created_at >= start_date,
+                AgentExecution.created_at <= end_date
+            )
+            .order_by(AgentExecution.created_at.desc())
+        )
+
+        total_q = select(func.count()).select_from(base_query.subquery())
+        total_res = await db.execute(total_q)
+        total_items = int(total_res.scalar() or 0)
+
+        q = base_query.limit(page_size).offset((page - 1) * page_size)
+        res = await db.execute(q)
+        rows = res.all()
+
+        if not rows:
+            return AgentExecutionSummariesResponse(
+                items=[],
+                total_items=0,
+                date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat())
+            )
+
+        ae_ids = [r.ae_id for r in rows]
+        completion_ids = [r.completion_id for r in rows if r.completion_id]
+        report_ids = [r.report_id for r in rows if r.report_id]
+
+        # Prompts for completions
+        prompts: dict[str, str] = {}
+        if completion_ids:
+            prompt_q = select(Completion.id, Completion.prompt).where(Completion.id.in_(completion_ids))
+            pres = await db.execute(prompt_q)
+            for cid, prompt in pres.all():
+                try:
+                    if isinstance(prompt, dict):
+                        prompts[str(cid)] = str(prompt.get('content') or prompt.get('text') or '')
+                    else:
+                        prompts[str(cid)] = str(prompt or '')
+                except Exception:
+                    prompts[str(cid)] = ''
+
+        # Tool execution counts per AE
+        te_counts = {str(ae_id): {'total': 0, 'success': 0, 'failed': 0} for ae_id in ae_ids}
+        if ae_ids:
+            te_q = (
+                select(
+                    ToolExecution.agent_execution_id,
+                    func.count(ToolExecution.id).label('cnt'),
+                    func.sum(func.cast(ToolExecution.success, Integer)).label('success_cnt')
+                )
+                .where(ToolExecution.agent_execution_id.in_(ae_ids))
+                .group_by(ToolExecution.agent_execution_id)
+            )
+            te_res = await db.execute(te_q)
+            for ae_id, cnt, success_cnt in te_res.all():
+                total = int(cnt or 0)
+                successes = int(success_cnt or 0)
+                failures = max(total - successes, 0)
+                te_counts[str(ae_id)] = {'total': total, 'success': successes, 'failed': failures}
+
+        # Feedback per completion (most recent)
+        feedback_map: dict[str, dict] = {}
+        if completion_ids:
+            fb_q = (
+                select(
+                    CompletionFeedback.completion_id,
+                    CompletionFeedback.direction,
+                    CompletionFeedback.created_at,
+                    CompletionFeedback.message
+                )
+                .where(CompletionFeedback.completion_id.in_(completion_ids))
+                .order_by(CompletionFeedback.completion_id.asc(), CompletionFeedback.created_at.desc())
+            )
+            fb_res = await db.execute(fb_q)
+            for cid, direction, _, message in fb_res.all():
+                scid = str(cid)
+                if scid not in feedback_map:
+                    status = 'positive' if (direction or 0) > 0 else ('negative' if (direction or 0) < 0 else 'none')
+                    feedback_map[scid] = {
+                        'direction': int(direction or 0),
+                        'status': status,
+                        'message': message
+                    }
+
+        # Head user prompt per report (fallback)
+        head_prompts: dict[str, str] = {}
+        # Step titles per AE via ToolExecution.created_step_id
+        ae_step_titles: dict[str, List[str]] = {str(ae_id): [] for ae_id in ae_ids}
+        if ae_ids:
+            te_step_q = (
+                select(ToolExecution.agent_execution_id, Step.title)
+                .join(Step, Step.id == ToolExecution.created_step_id)
+                .where(ToolExecution.agent_execution_id.in_(ae_ids))
+                .order_by(ToolExecution.agent_execution_id.asc(), Step.created_at.asc())
+            )
+            te_step_res = await db.execute(te_step_q)
+            for ae_id, step_title in te_step_res.all():
+                lst = ae_step_titles.get(str(ae_id))
+                if lst is not None and step_title:
+                    # collect unique titles preserving order
+                    if step_title not in lst:
+                        lst.append(step_title)
+        if report_ids:
+            hp_q = (
+                select(Completion.report_id, Completion.prompt, Completion.created_at)
+                .where(Completion.report_id.in_(report_ids), Completion.role == 'user')
+                .order_by(Completion.report_id.asc(), Completion.created_at.asc())
+            )
+            hp_res = await db.execute(hp_q)
+            for rep_id, prompt, _ in hp_res.all():
+                if rep_id not in head_prompts:
+                    try:
+                        if isinstance(prompt, dict):
+                            head_prompts[str(rep_id)] = str(prompt.get('content') or prompt.get('text') or '')
+                        else:
+                            head_prompts[str(rep_id)] = str(prompt or '')
+                    except Exception:
+                        head_prompts[str(rep_id)] = ''
+
+        items: List[AgentExecutionSummaryItem] = []
+        for r in rows:
+            counts = te_counts.get(str(r.ae_id), {'total': 0, 'success': 0, 'failed': 0})
+            fb = feedback_map.get(str(r.completion_id), {'direction': 0, 'status': 'none'})
+            prompt_text = prompts.get(str(r.completion_id), '')
+            if not prompt_text or not str(prompt_text).strip():
+                prompt_text = head_prompts.get(str(r.report_id), '')
+            report_link = f"/reports/{r.report_id}" if r.report_id else None
+
+            items.append(AgentExecutionSummaryItem(
+                agent_execution_id=str(r.ae_id),
+                created_at=r.created_at,
+                completion_id=str(r.completion_id) if r.completion_id else None,
+                prompt=(prompt_text or '')[:200],
+                agent_execution_status=r.ae_status,
+                error_json=r.error_json,
+                total_tools=counts['total'],
+                total_failed_tools=counts['failed'],
+                total_successful_tools=counts['success'],
+                feedback_status=fb['status'],
+                feedback_direction=fb['direction'],
+                feedback_message=fb.get('message'),
+                step_titles=ae_step_titles.get(str(r.ae_id), [])[:5],
+                user_name=r.user_name,
+                user_email=r.user_email,
+                report_id=str(r.report_id) if r.report_id else '',
+                report_name=r.report_title or '',
+                report_link=report_link
+            ))
+
+        return AgentExecutionSummariesResponse(
+            items=items,
+            total_items=total_items,
+            date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat())
+        )

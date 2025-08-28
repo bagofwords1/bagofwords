@@ -74,12 +74,11 @@ class AgentV2:
             db=self.db,
             organization=self.organization,
             report=self.report,
+            data_sources=self.data_sources,
             user=getattr(self.head_completion, 'user', None) if self.head_completion else None,
             head_completion=self.head_completion,
             widget=self.widget
         )
-        
-        # Use ContextHub's observation builder
 
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
@@ -98,11 +97,8 @@ class AgentV2:
         
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
         
-        # Build planner with full catalog (using ContextHub for enhanced context)
-        from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
         self.planner = PlannerV2(
             model=self.model,
-            instruction_context_builder=InstructionContextBuilder(self.db, self.organization),
             tool_catalog=tool_catalog,
         )
         
@@ -141,6 +137,7 @@ class AgentV2:
                 user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
                 report_id=str(self.report.id) if self.report else None,
             )
+
             
             # Prime static once; then refresh warm each loop
             await self.context_hub.prime_static()
@@ -157,10 +154,15 @@ class AgentV2:
             )
             
             # Initial context values
-            schemas_excerpt = view.static.schemas
+            schemas_excerpt = view.static.schemas.render() if view.static.schemas else ""
             
             # History summary based on observation context only
             history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+
+            # Instructions
+            inst_section = await self.context_hub.instruction_builder.build()
+            instructions = inst_section.render()
+
             observation: Optional[dict] = None
             step_limit = 10
 
@@ -193,11 +195,15 @@ class AgentV2:
                 # Build enhanced planner input with validation and retry on failure
                 try:
                     # Get messages context for detailed conversation history
-                    messages_context = await self.context_hub.get_messages_context(max_messages=20)
+                    # Render messages from object section
+                    messages_section = await self.context_hub.message_builder.build(max_messages=20)
+                    messages_context = messages_section.render()
                     # Get resources context from metadata resources
-                    resources_context = await self.context_hub.get_resources_context()
+                    resources_section = await self.context_hub.resource_builder.build()
+                    resources_context = resources_section.render()
                     
                     planner_input = PlannerInput(
+                        instructions=instructions,
                         user_message=self.head_completion.prompt["content"],
                         schemas_excerpt=schemas_excerpt,
                         history_summary=history_summary,
@@ -556,12 +562,11 @@ class AgentV2:
                             "sigkill_event": self.sigkill_event,
                             "observation_context": self.context_hub.observation_builder.to_dict(),  # Pass observation context
                             "context_view": view,
+                            "context_hub": self.context_hub,
                             # Data source clients and files (mirror agent.py pattern)
                             "ds_clients": self.clients,
                             "excel_files": self.files,
-                            # Context builders for tools that need them
-                            "instruction_context_builder": self.planner.instruction_context_builder,
-                            "code_context_builder": getattr(self.context_hub, 'code_builder', None),
+                            # Context builders can be accessed via context_hub when needed
                         }
                         
                         async def emit(ev: dict):
@@ -754,7 +759,8 @@ class AgentV2:
                     
                     if first_completion and self.head_completion.id == first_completion.id:
                         # Generate title based on the conversation and plan decisions
-                        messages_context = await self.context_hub.get_messages_context(max_messages=5)
+                        messages_section = await self.context_hub.message_builder.build(max_messages=5)
+                        messages_context = messages_section.render()
                         
                         # Extract plan information from current execution
                         plan_info = []

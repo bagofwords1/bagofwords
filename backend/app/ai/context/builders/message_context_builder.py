@@ -10,6 +10,8 @@ from sqlalchemy import select
 from app.models.completion import Completion
 from app.models.widget import Widget
 from app.models.step import Step
+from app.models.organization import Organization
+from app.ai.context.sections.messages_section import MessagesSection, MessageItem
 
 
 class MessageContextBuilder:
@@ -20,7 +22,7 @@ class MessageContextBuilder:
     completion history, widget associations, and step information.
     """
     
-    def __init__(self, db: AsyncSession, report, organization=None):
+    def __init__(self, db: AsyncSession, organization, report, user=None):
         self.db = db
         self.report = report
         self.organization = organization
@@ -238,6 +240,111 @@ class MessageContextBuilder:
             conversation_text = conversation_text[:max_context_length] + "...\n[Context truncated due to length]"
         
         return conversation_text
+
+    async def build(
+        self,
+        max_messages: int = 20,
+        role_filter: Optional[List[str]] = None
+    ) -> MessagesSection:
+        """Build object-based messages section using the same data path as build_context."""
+        from app.models.completion_block import CompletionBlock
+
+        items: List[MessageItem] = []
+
+        allow_llm_see_data = True
+        if self.organization_settings:
+            try:
+                settings_dict = self.organization_settings.config
+                allow_llm_see_data = settings_dict.get("allow_llm_see_data", {}).get("value", True)
+            except Exception:
+                allow_llm_see_data = False
+
+        report_completions = await self.db.execute(
+            select(Completion)
+            .filter(Completion.report_id == self.report.id)
+            .order_by(Completion.created_at.asc())
+        )
+        report_completions = report_completions.scalars().all()
+
+        completions_to_process = (
+            report_completions[:-1]
+            if report_completions and report_completions[-1].role == 'user'
+            else report_completions
+        )
+
+        if role_filter:
+            completions_to_process = [c for c in completions_to_process if c.role in role_filter]
+
+        completions_to_process = completions_to_process[-max_messages:]
+
+        for completion in completions_to_process:
+            ts = completion.created_at.strftime("%H:%M") if getattr(completion, 'created_at', None) else None
+            if completion.role == 'user':
+                content = completion.prompt.get('content', '') if completion.prompt else ''
+                if content and content.strip():
+                    items.append(MessageItem(role="user", timestamp=ts, text=content.strip()))
+            elif completion.role == 'system':
+                # Aggregate blocks like build_context
+                blocks_result = await self.db.execute(
+                    select(CompletionBlock)
+                    .filter(CompletionBlock.completion_id == completion.id)
+                    .order_by(CompletionBlock.block_index.asc())
+                )
+                blocks = blocks_result.scalars().all()
+                system_parts: List[str] = []
+                for block in blocks:
+                    if block.reasoning and block.reasoning.strip():
+                        system_parts.append(f"Thinking: {block.reasoning.strip()}")
+                    if block.content and block.content.strip():
+                        system_parts.append(f"Response: {block.content.strip()}")
+                    if block.tool_execution_id:
+                        from app.models.tool_execution import ToolExecution
+                        tool_result = await self.db.execute(
+                            select(ToolExecution).filter(ToolExecution.id == block.tool_execution_id)
+                        )
+                        tool_execution = tool_result.scalars().first()
+                        if tool_execution:
+                            tool_info = f"Tool: {tool_execution.tool_name}"
+                            if tool_execution.tool_action:
+                                tool_info += f" → {tool_execution.tool_action}"
+                            tool_info += f" ({tool_execution.status})"
+                            if tool_execution.status == 'success' and tool_execution.tool_name == 'create_and_execute_code' and tool_execution.result_json:
+                                result_json = tool_execution.result_json
+                                data_preview = result_json.get('data_preview', {})
+                                stats = result_json.get('stats', {})
+                                if data_preview and stats:
+                                    total_rows = stats.get('total_rows', 0)
+                                    if allow_llm_see_data and total_rows > 0:
+                                        rows = data_preview.get('rows', [])
+                                        columns = data_preview.get('columns', [])
+                                        if rows and columns:
+                                            df_cols = [col.get('field', col.get('headerName', '')) for col in columns]
+                                            import pandas as pd
+                                            df = pd.DataFrame(rows, columns=df_cols)
+                                            sample_df = df.sample(n=2, random_state=42) if len(df) >= 2 else df.head()
+                                            data_sample = sample_df.to_dict(orient='records')
+                                            tool_info += f" ({total_rows} rows, data sample: {data_sample})"
+                                        else:
+                                            tool_info += f" ({total_rows} rows)"
+                                    else:
+                                        tool_info += f" ({total_rows} rows)"
+                            elif tool_execution.status == 'error' and tool_execution.error_message:
+                                error = tool_execution.error_message
+                                if len(error) > 50:
+                                    error = error[:50] + "..."
+                                tool_info += f" - Error: {error}"
+                            system_parts.append(tool_info)
+                if not system_parts and completion.completion:
+                    if isinstance(completion.completion, dict):
+                        content = completion.completion.get('content', '') or completion.completion.get('message', '')
+                    else:
+                        content = str(completion.completion)
+                    if content.strip():
+                        system_parts.append(f"Response: {content.strip()}")
+                if system_parts:
+                    items.append(MessageItem(role="system", timestamp=ts, text=" | ".join(system_parts)))
+
+        return MessagesSection(items=items)
     
     async def get_message_count(self, role_filter: Optional[List[str]] = None) -> int:
         """Get total number of messages for this report."""

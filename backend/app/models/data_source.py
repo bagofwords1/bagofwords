@@ -348,9 +348,9 @@ class DataSource(BaseSchema):
         from app.ai.context.builders.resource_context_builder import ResourceContextBuilder
         
         # Create a ResourceContextBuilder instance
-        context_builder = ResourceContextBuilder(db, prompt_content)
+        context_builder = ResourceContextBuilder(db, [self], prompt_content)
         # Build context for just this data source
-        return await context_builder.build_context([self])
+        return await context_builder.build([self])
     
     def has_membership(self, user_id: str) -> bool:
         """

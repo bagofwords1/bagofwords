@@ -1,3 +1,16 @@
+from pydantic import BaseModel
+from typing import Optional
+
+
+class DataSourceSummarySchema(BaseModel):
+    id: str
+    name: str
+    type: str
+    context: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 from pydantic import BaseModel, Field, validator
 from typing import Optional, Dict, Any, List
 import uuid

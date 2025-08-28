@@ -10,7 +10,6 @@ from .context_specs import (
     ResourceContextConfig, ResearchContextConfig
 )
 from .builders import (
-    AgentContextBuilder,
     SchemaContextBuilder,
     MessageContextBuilder,
     MemoryContextBuilder,
@@ -37,7 +36,6 @@ __all__ = [
     "CodeContextConfig",
     "ResourceContextConfig",
     "ResearchContextConfig",
-    "AgentContextBuilder",
     "SchemaContextBuilder",
     "MessageContextBuilder",
     "MemoryContextBuilder",

@@ -6,6 +6,9 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 
+from app.ai.context.sections.observations_section import ObservationsSection, ToolExecutionItem, WidgetUpdateItem, StepUpdateItem
+
+
 class ObservationContextBuilder:
     """
     Builds and manages observation context from tool executions.
@@ -107,24 +110,44 @@ class ObservationContextBuilder:
         return None
     
     def build_context(self, format_for_prompt: bool = True, max_observations: int = 5) -> str:
-        """
-        Build observation context string.
-        
-        Args:
-            format_for_prompt: If True, format for LLM prompt inclusion.
-                             If False, format for debugging/inspection.
-            max_observations: Maximum number of recent observations to include
-                             
-        Returns:
-            Formatted observation context string
-        """
         if not self.has_observations():
             return ""
-        
-        if format_for_prompt:
-            return self._build_prompt_context(max_observations)
-        else:
-            return self._build_debug_context()
+        return self._build_prompt_context(max_observations) if format_for_prompt else self._build_debug_context()
+
+    def build(self) -> ObservationsSection:
+        obs_items = [
+            ToolExecutionItem(
+                execution_number=obs.get("execution_number"),
+                tool_name=obs.get("tool_name"),
+                tool_input=obs.get("tool_input", {}),
+                timestamp=obs.get("timestamp"),
+                observation=obs.get("observation", {}),
+            )
+            for obs in self.tool_observations
+        ]
+        widget_items = [
+            WidgetUpdateItem(
+                widget_id=wu.get("widget_id"),
+                timestamp=wu.get("timestamp"),
+                data=wu.get("data", {}),
+            )
+            for wu in self.widget_updates
+        ]
+        step_items = [
+            StepUpdateItem(
+                step_id=su.get("step_id"),
+                timestamp=su.get("timestamp"),
+                data=su.get("data", {}),
+            )
+            for su in self.step_updates
+        ]
+        return ObservationsSection(
+            execution_count=self.execution_count,
+            tool_observations=obs_items,
+            widget_updates=widget_items,
+            step_updates=step_items,
+            artifacts=self.artifacts,
+        )
     
     def _build_prompt_context(self, max_observations: int) -> str:
         """Build context formatted for LLM prompt inclusion."""

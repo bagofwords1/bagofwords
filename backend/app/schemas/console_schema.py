@@ -186,3 +186,74 @@ class TraceData(BaseModel):
     issue_type: str
     user_name: str
     user_email: Optional[str] = None
+
+# Compact issues (completion-anchored)
+class CompactIssueItem(BaseModel):
+    completion_id: str
+    created_at: datetime
+    issue_type: str
+    summary_text: str
+    full_message: Optional[str] = None
+    tool_name: Optional[str] = None
+    tool_action: Optional[str] = None
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    head_prompt_snippet: Optional[str] = None
+    report_id: str
+    trace_url: Optional[str] = None
+
+class CompactIssuesResponse(BaseModel):
+    items: List[CompactIssueItem]
+    total_items: int
+    date_range: DateRange
+
+# Tool executions table (diagnosis)
+class ToolExecutionDiagnosisItem(BaseModel):
+    id: str
+    created_at: datetime
+    tool_name: str
+    tool_action: Optional[str] = None
+    status: str
+    duration_ms: Optional[float] = None
+    # Plan decision context
+    plan_type: Optional[str] = None
+    seq: Optional[int] = None
+    loop_index: Optional[int] = None
+    # Feedback joined via completion
+    feedback_direction: Optional[int] = None
+    feedback_message: Optional[str] = None
+    # Related step
+    step_id: Optional[str] = None
+    step_title: Optional[str] = None
+    step_status: Optional[str] = None
+
+class ToolExecutionsDiagnosisResponse(BaseModel):
+    items: List[ToolExecutionDiagnosisItem]
+    total_items: int
+    date_range: DateRange
+
+# Agent executions summary
+class AgentExecutionSummaryItem(BaseModel):
+    agent_execution_id: str
+    created_at: datetime
+    completion_id: Optional[str] = None
+    prompt: Optional[str] = None
+    agent_execution_status: str
+    error_json: Optional[Dict] = None
+    total_tools: int
+    total_failed_tools: int
+    total_successful_tools: int
+    feedback_status: Optional[str] = None  # "positive", "negative", or "none"
+    feedback_direction: Optional[int] = None  # 1, -1, or 0
+    feedback_message: Optional[str] = None
+    step_titles: List[str] = []
+    user_name: Optional[str] = None
+    user_email: Optional[str] = None
+    report_id: str
+    report_name: Optional[str] = None
+    report_link: Optional[str] = None
+
+class AgentExecutionSummariesResponse(BaseModel):
+    items: List[AgentExecutionSummaryItem]
+    total_items: int
+    date_range: DateRange

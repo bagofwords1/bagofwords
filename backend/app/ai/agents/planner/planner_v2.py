@@ -4,7 +4,6 @@ import time
 from typing import AsyncIterator
 
 from app.ai.llm import LLM
-from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from app.schemas.ai.planner import (
     PlannerDecision,
     PlannerInput,
@@ -32,11 +31,9 @@ class PlannerV2:
     def __init__(
         self,
         model,
-        instruction_context_builder: InstructionContextBuilder,
         tool_catalog: list[ToolDescriptor],
     ) -> None:
         self.llm = LLM(model)
-        self.instruction_context_builder = instruction_context_builder
         self.tool_catalog = tool_catalog
         self.parser = JSONParser()
         self.prompt_builder = PromptBuilder()
@@ -51,11 +48,8 @@ class PlannerV2:
             input=planner_input,
             start_time=time.monotonic()
         )
-        # Get org instructions
-        org_instructions = await self.instruction_context_builder.get_instructions_context()
-        
         # Build prompt using dedicated builder
-        prompt = self.prompt_builder.build_prompt(planner_input, org_instructions)
+        prompt = self.prompt_builder.build_prompt(planner_input)
         # Calculate prompt tokens
         prompt_tokens = count_tokens(prompt, getattr(self.llm, "model_name", None))
         completion_tokens = 0

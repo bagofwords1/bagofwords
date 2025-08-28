@@ -11,6 +11,9 @@ from app.models.organization import Organization
 from app.models.user import User
 
 
+from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem
+
+
 class InstructionContextBuilder:
     """
     Helper for fetching instructions that should be supplied to the LLM.
@@ -69,37 +72,16 @@ class InstructionContextBuilder:
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
-    async def build_context(
+    async def build(
         self,
         *,
         status: str = "published",
         category: Optional[str] = None,
-    ) -> str:
-        """
-        Convenience wrapper that returns the instructions as a single string
-        block ready to be appended to an LLM prompt.
-
-        The XML-like tags are purely to delimit the section and make parsing
-        simpler on the model side.
-
-        Example output
-        --------------
-        <instructions>
-          <instruction id="123" category="code_gen">
-            Create SQL that sums revenue by month …
-          </instruction>
-          ...
-        </instructions>
-        """
+    ) -> InstructionsSection:
+        """Build object-based instructions section."""
         instructions = await self.load_instructions(status=status, category=category)
-        if not instructions:
-            return ""
-
-        lines: list[str] = ["<instructions>"]
-        for inst in instructions:
-            lines.append(self._format_instruction(inst))
-        lines.append("</instructions>")
-        return "\n".join(lines)
+        items = [InstructionItem(id=str(i.id), category=i.category, text=i.text or "") for i in instructions]
+        return InstructionsSection(items=items)
 
     # --------------------------------------------------------------------- #
     # Private helpers                                                       #
@@ -116,7 +98,3 @@ class InstructionContextBuilder:
             f"{instruction.text.strip()}\n"
             f"  </instruction>"
         )
-
-    async def get_instructions_context(self):
-        text = await self.build_context()
-        return text
