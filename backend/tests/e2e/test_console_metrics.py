@@ -169,37 +169,7 @@ def test_table_usage_metrics(
     assert isinstance(data["top_tables"], list)
     assert isinstance(data["total_queries_analyzed"], int)
 
-@pytest.mark.e2e
-def test_diagnosis_metrics(
-    get_diagnosis_metrics,
-    create_user,
-    login_user,
-    create_organization
-):
-    """Test diagnosis metrics endpoint"""
-    # Setup user and organization
-    user = create_user()
-    user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
-    
-    response = get_diagnosis_metrics(user_token=user_token, org_id=org_id)
-    
-    assert response.status_code == 200
-    data = response.json()
-    
-    # Verify diagnosis structure
-    assert "diagnosis_items" in data
-    assert "total_items" in data
-    assert "total_queries_count" in data
-    assert "failed_steps_count" in data
-    assert "negative_feedback_count" in data
-    assert "code_errors_count" in data
-    assert "validation_errors_count" in data
-    assert "date_range" in data
-    
-    assert isinstance(data["diagnosis_items"], list)
-    assert isinstance(data["total_items"], int)
-    assert isinstance(data["total_queries_count"], int)
+
 
 @pytest.mark.e2e  
 def test_top_users_metrics(
@@ -266,29 +236,73 @@ def test_unauthorized_access_to_console_metrics(
     # Should return 401 or 403 for unauthorized access
     assert response.status_code in [400, 401, 403]
 
+
+
 @pytest.mark.e2e
-def test_console_metrics_different_filters(
-    get_diagnosis_metrics,
+def test_diagnosis_dashboard_metrics(
+    get_diagnosis_dashboard_metrics,
     create_user,
     login_user,
     create_organization
 ):
-    """Test diagnosis metrics with different filter options"""
+    """Test new diagnosis dashboard metrics endpoint (used by diagnosis page dashboard cards)"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
     org_id = create_organization(user_token=user_token)
     
-    # Test different filter options
-    filters = ["all", "code_errors", "validation_errors", "negative_feedback", "all_queries"]
+    response = get_diagnosis_dashboard_metrics(user_token=user_token, org_id=org_id)
     
+    assert response.status_code == 200
+    data = response.json()
+    
+    # Verify dashboard metrics structure
+    assert "failed_queries" in data
+    assert "negative_feedback" in data
+    assert "code_errors" in data
+    assert "total_items" in data
+    
+    assert isinstance(data["failed_queries"], int)
+    assert isinstance(data["negative_feedback"], int)
+    assert isinstance(data["code_errors"], int)
+    assert isinstance(data["total_items"], int)
+
+@pytest.mark.e2e
+def test_agent_execution_summaries(
+    get_agent_execution_summaries,
+    create_user,
+    login_user,
+    create_organization
+):
+    """Test agent execution summaries endpoint (used by diagnosis page table)"""
+    # Setup user and organization
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = create_organization(user_token=user_token)
+    
+    response = get_agent_execution_summaries(user_token=user_token, org_id=org_id)
+    
+    assert response.status_code == 200
+    data = response.json()
+    
+    # Verify agent execution summaries structure
+    assert "items" in data
+    assert "total_items" in data
+    assert "date_range" in data
+    
+    assert isinstance(data["items"], list)
+    assert isinstance(data["total_items"], int)
+    assert "start" in data["date_range"]
+    assert "end" in data["date_range"]
+    
+    # Test with filters
+    filters = ["negative_feedback", "code_errors", "failed_queries"]
     for filter_type in filters:
-        response = get_diagnosis_metrics(
+        filtered_response = get_agent_execution_summaries(
             user_token=user_token, 
             org_id=org_id,
             filter=filter_type
         )
-        
-        assert response.status_code == 200, f"Filter {filter_type} failed"
-        data = response.json()
-        assert "diagnosis_items" in data
+        assert filtered_response.status_code == 200
+        filtered_data = filtered_response.json()
+        assert "items" in filtered_data

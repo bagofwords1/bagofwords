@@ -47,6 +47,10 @@ def upgrade() -> None:
     sa.UniqueConstraint('agent_execution_id', 'source_type', 'plan_decision_id', 'tool_execution_id', name='uq_blocks_source'),
     sa.UniqueConstraint('completion_id', 'block_index', name='uq_blocks_completion_block_index')
     )
+    with op.batch_alter_table('completion_blocks', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_completion_blocks_id'), ['id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_completion_blocks_completion_id'), ['completion_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_completion_blocks_agent_execution_id'), ['agent_execution_id'], unique=False)
 
 def downgrade() -> None:
     with op.batch_alter_table('completion_blocks', schema=None) as batch_op:

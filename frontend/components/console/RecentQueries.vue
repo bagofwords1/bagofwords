@@ -36,10 +36,10 @@
                             <td class="w-1/4 px-6 py-4">
                                 <div class="flex items-center">
                                     <UIcon 
-                                        :name="getIssueIcon(query.issue_type)"
-                                        :class="getIssueIconClass(query.issue_type)"
+                                        :name="getIssueIcon(query)"
+                                        :class="getIssueIconClass(query)"
                                     />
-                                    <span :class="getIssueTypeClass(query.issue_type)" class="whitespace-nowrap">
+                                    <span :class="getIssueTypeClass(query)" class="whitespace-nowrap">
                                         {{ getIssueTypeLabel(query) }}
                                     </span>
                                 </div>
@@ -54,7 +54,7 @@
         <TraceModal
             v-model="showTraceModal"
             :report-id="selectedQuery?.report_id || ''"
-            :completion-id="selectedQuery?.id || ''"
+            :completion-id="selectedQuery?.completion_id || ''"
         />
     </div>
 </template>
@@ -63,44 +63,30 @@
 import TraceModal from './TraceModal.vue'
 
 // Types
-interface DiagnosisStepData {
-    step_id: string
-    step_title: string
-    step_status: string
-    step_code?: string
-    step_data_model?: any
+interface AgentExecutionSummaryItem {
+    agent_execution_id: string
     created_at: string
-}
-
-interface DiagnosisFeedbackData {
-    feedback_id: string
-    direction: number
-    message?: string
-    created_at: string
-}
-
-interface DiagnosisItemData {
-    id: string
-    head_completion_id: string
-    head_completion_prompt: string
-    problematic_completion_id: string
-    problematic_completion_content?: string
-    user_id: string
+    completion_id?: string
+    prompt: string
+    agent_execution_status: string
+    error_json?: any
+    total_tools: number
+    total_failed_tools: number
+    total_successful_tools: number
+    feedback_status: string
+    feedback_direction: number
+    feedback_message?: string
+    step_titles: string[]
     user_name: string
-    user_email?: string
+    user_email: string
     report_id: string
-    issue_type: string
-    step_info?: DiagnosisStepData
-    feedback_info?: DiagnosisFeedbackData
-    created_at: string
-    trace_url?: string
+    report_name: string
+    report_link?: string
 }
 
-interface DiagnosisMetrics {
-    diagnosis_items: DiagnosisItemData[]
+interface AgentExecutionSummariesResponse {
+    items: AgentExecutionSummaryItem[]
     total_items: number
-    failed_steps_count: number
-    negative_feedback_count: number
     date_range: {
         start: string
         end: string
@@ -123,9 +109,9 @@ const props = withDefaults(defineProps<Props>(), {
 
 // State
 const isLoading = ref(false)
-const recentQueries = ref<DiagnosisItemData[]>([])
+const recentQueries = ref<AgentExecutionSummaryItem[]>([])
 const showTraceModal = ref(false)
-const selectedQuery = ref<DiagnosisItemData | null>(null)
+const selectedQuery = ref<AgentExecutionSummaryItem | null>(null)
 
 // Methods
 const fetchRecentQueries = async () => {
@@ -133,7 +119,7 @@ const fetchRecentQueries = async () => {
     try {
         const params = new URLSearchParams({
             page: '1',
-            page_size: '7' // Only fetch 5 items
+            page_size: '5' // Only fetch 5 items
         })
         
         if (props.dateRange.start) {
@@ -143,14 +129,19 @@ const fetchRecentQueries = async () => {
             params.append('end_date', new Date(props.dateRange.end).toISOString())
         }
         
-        const response = await useMyFetch<DiagnosisMetrics>(`/api/console/metrics/diagnosis?${params}`)
+        const response = await useMyFetch<AgentExecutionSummariesResponse>(`/api/console/agent_executions/summaries?${params}`)
         
         if (response.error.value) {
             console.error('Error fetching recent queries:', response.error.value)
             recentQueries.value = []
         } else if (response.data.value) {
-            // Show failed steps and negative feedback (both are query-related issues)
-            recentQueries.value = response.data.value.diagnosis_items.slice(0, 5) || []
+            // Filter to only show executions with issues (errors or negative feedback)
+            const itemsWithIssues = response.data.value.items.filter(item => 
+                item.agent_execution_status === 'error' || 
+                item.feedback_direction < 0 ||
+                item.total_failed_tools > 0
+            )
+            recentQueries.value = itemsWithIssues.slice(0, 5) || []
         }
     } catch (error) {
         console.error('Failed to fetch recent queries:', error)
@@ -160,77 +151,72 @@ const fetchRecentQueries = async () => {
     }
 }
 
-const openTrace = (query: DiagnosisItemData) => {
+const openTrace = (query: AgentExecutionSummaryItem) => {
     selectedQuery.value = query
     showTraceModal.value = true
 }
 
-const getIssueIcon = (issueType: string) => {
-    switch (issueType) {
-        case 'failed_step':
-            return 'i-heroicons-x-circle'
-        case 'negative_feedback':
-            return 'i-heroicons-exclamation-triangle'
-        case 'both':
-            return 'i-heroicons-exclamation-triangle'
-        default:
-            return 'i-heroicons-question-mark-circle'
+const getIssueIcon = (query: AgentExecutionSummaryItem) => {
+    if (query.agent_execution_status === 'error') {
+        return 'i-heroicons-x-circle'
+    } else if (query.feedback_direction < 0) {
+        return 'i-heroicons-exclamation-triangle'
+    } else if (query.total_failed_tools > 0) {
+        return 'i-heroicons-x-circle'
+    } else {
+        return 'i-heroicons-question-mark-circle'
     }
 }
 
-const getIssueIconClass = (issueType: string) => {
-    switch (issueType) {
-        case 'failed_step':
-            return 'w-4 h-4 mr-2 text-red-500'
-        case 'negative_feedback':
-            return 'w-4 h-4 mr-2 text-yellow-500'
-        case 'both':
-            return 'w-4 h-4 mr-2 text-purple-500'
-        default:
-            return 'w-4 h-4 mr-2 text-gray-500'
+const getIssueIconClass = (query: AgentExecutionSummaryItem) => {
+    if (query.agent_execution_status === 'error') {
+        return 'w-4 h-4 mr-2 text-red-500'
+    } else if (query.feedback_direction < 0) {
+        return 'w-4 h-4 mr-2 text-yellow-500'
+    } else if (query.total_failed_tools > 0) {
+        return 'w-4 h-4 mr-2 text-red-500'
+    } else {
+        return 'w-4 h-4 mr-2 text-gray-500'
     }
 }
 
-const getIssueTypeClass = (issueType: string) => {
-    switch (issueType) {
-        case 'failed_step':
-            return 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800'
-        case 'negative_feedback':
-            return 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800'
-        case 'both':
-            return 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800'
-        default:
-            return 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800'
+const getIssueTypeClass = (query: AgentExecutionSummaryItem) => {
+    if (query.agent_execution_status === 'error') {
+        return 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800'
+    } else if (query.feedback_direction < 0) {
+        return 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800'
+    } else if (query.total_failed_tools > 0) {
+        return 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800'
+    } else {
+        return 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800'
     }
 }
 
-const getIssueTypeLabel = (query: DiagnosisItemData) => {
-    if (query.issue_type === 'negative_feedback') {
+const getIssueTypeLabel = (query: AgentExecutionSummaryItem) => {
+    if (query.agent_execution_status === 'error') {
+        return 'Execution Error'
+    } else if (query.feedback_direction < 0) {
         return 'Negative Feedback'
-    } else if (query.step_info?.step_status === 'error') {
-        return 'Code Error'
-    } else if (query.issue_type === 'failed_step') {
-        return 'Failed Query'
-    } else if (query.issue_type === 'both') {
-        return 'Multiple Issues'
+    } else if (query.total_failed_tools > 0) {
+        return 'Failed Tools'
     } else {
         return 'Unknown'
     }
 }
 
-const getContentText = (query: DiagnosisItemData) => {
-    // For negative feedback, show the feedback message
-    if (query.issue_type === 'negative_feedback' && query.feedback_info?.message) {
-        return query.feedback_info.message
+const getContentText = (query: AgentExecutionSummaryItem) => {
+    // For negative feedback, show the feedback message if available
+    if (query.feedback_direction < 0 && query.feedback_message) {
+        return query.feedback_message
     }
     
-    // For failed steps, show the original prompt
-    if (query.issue_type === 'failed_step' || query.issue_type === 'both') {
-        return query.head_completion_prompt || 'No prompt available'
+    // For execution errors, show error message if available
+    if (query.agent_execution_status === 'error' && query.error_json?.message) {
+        return `Error: ${query.error_json.message}`
     }
     
     // Fallback to prompt
-    return query.head_completion_prompt || 'No content available'
+    return query.prompt || 'No content available'
 }
 
 const formatDate = (dateString: string) => {

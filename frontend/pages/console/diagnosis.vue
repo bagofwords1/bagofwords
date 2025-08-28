@@ -12,7 +12,7 @@
             <!-- Failed Queries -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ 0 }}
+                    {{ dashboardMetrics?.failed_queries || 0 }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1">Failed Queries</div>
             </div>
@@ -20,7 +20,7 @@
             <!-- Negative Feedback -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ 0 }}
+                    {{ dashboardMetrics?.negative_feedback || 0 }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1">Negative Feedback</div>
             </div>
@@ -38,12 +38,12 @@
                 </div>
             </div>
             
-            <!-- Total Issues -->
+            <!-- Total Items -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
-                    {{ overallMetrics?.total_items || 0 }}
+                    {{ dashboardMetrics?.total_items || 0 }}
                 </div>
-                <div class="text-sm font-medium text-gray-600 mt-1">Total Issues</div>
+                <div class="text-sm font-medium text-gray-600 mt-1">Total Agent Runs</div>
             </div>
         </div>
 
@@ -93,12 +93,12 @@
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
                         <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[320px] w-[320px]">Prompt</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tools</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Feedback</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Report</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Data</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
                         </tr>
@@ -106,21 +106,33 @@
                     <tbody class="bg-white divide-y divide-gray-200 text-xs">
                         <tr v-for="item in executionItems" :key="item.agent_execution_id" class="hover:bg-gray-50 cursor-pointer" @click="openTraceFromAE(item)">
                             <td class="px-6 py-4">
-                                <div class="text-xs text-gray-900 max-w-xl">
-                                    <p >{{ truncate(item.prompt || '', 140) }}</p>
+                                <div class="text-xs text-gray-900">
+                                    <div class="relative group max-w-[320px] w-[320px]">
+                                        <p class="truncate">{{ truncate(item.prompt || '', 40) }}</p>
+                                        <div class="pointer-events-none absolute left-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
+                                            {{ item.prompt || '—' }}
+                                        </div>
+                                    </div>
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="flex flex-col">
-                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full self-start"
+                                <div class="relative inline-block group">
+                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
                                           :class="item.agent_execution_status === 'error' ? 'bg-red-100 text-red-800' : (item.agent_execution_status === 'completed' || item.agent_execution_status === 'success') ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'">
                                         {{ item.agent_execution_status === 'error' ? 'error' : 'success' }}
                                     </span>
-                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="mt-1 text-xs text-red-600 max-w-xs">
-                                        <UTooltip :text="item.error_json.message">
-                                            <span class="truncate cursor-help">{{ truncate(item.error_json.message, 120) }}</span>
-                                        </UTooltip>
+                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="pointer-events-none absolute left-0 top-full mt-1 z-10 hidden group-hover:block bg-white border border-gray-200 rounded-md shadow-sm p-2 text-xs text-red-700 whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
+                                        {{ item.error_json.message }}
                                     </div>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex flex-wrap gap-1 max-w-md">
+                                    <span v-for="(title, idx) in item.step_titles || []" :key="idx" class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px]"
+                                          @click.stop="openTraceFromAE(item)">
+                                        {{ title }}
+                                    </span>
+                                    <span v-if="(item.step_titles || []).length === 0" class="text-gray-400">None</span>
                                 </div>
                             </td>
                             <td class="px-6 py-4">
@@ -154,15 +166,6 @@
                                     {{ item.report_name || item.report_id }}
                                 </a>
                                 <span v-else>{{ item.report_name || item.report_id }}</span>
-                            </td>
-                            <td class="px-6 py-4">
-                                <div class="flex flex-wrap gap-1 max-w-md">
-                                    <span v-for="(title, idx) in item.step_titles || []" :key="idx" class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-[11px]"
-                                          @click.stop="openTraceFromAE(item)">
-                                        {{ title }}
-                                    </span>
-                                    <span v-if="(item.step_titles || []).length === 0" class="text-gray-400">None</span>
-                                </div>
                             </td>
                             <td class="px-2 py-1">
                                 <div class="text-xs text-gray-900">{{ item.user_name || '—' }}</div>
@@ -292,14 +295,14 @@ const debugInfo = ref('')
 const instructionsEffectiveness = ref<number | null>(null)
 // New data for agent execution summaries
 const executionItems = ref<any[]>([])
+const dashboardMetrics = ref<any>(null)
 
 // Filter state
-const selectedFilter = ref({ label: 'All Items', value: 'all_queries' })
+const selectedFilter = ref({ label: 'All Agent Runs', value: 'all' })
 const filterOptions = ref([
-    { label: 'All Items', value: 'all_queries', count: 0 },
+    { label: 'All Agent Runs', value: 'all', count: 0 },
     { label: 'Negative Feedback', value: 'negative_feedback', count: 0 },
-    { label: 'Code Errors', value: 'code_errors', count: 0 },
-    { label: 'Validation Errors', value: 'validation_errors', count: 0 }
+    { label: 'Failed Queries', value: 'failed_queries', count: 0 }
 ])
 
 // Add these to the state section
@@ -406,7 +409,7 @@ const fetchDiagnosisData = async () => {
         debugInfo.value = `Fetching with params: ${params.toString()}`
         
         // Fetch agent execution summaries instead of compact issues
-        const diagnosisResponse = await useMyFetch<any>(`/api/console/agent-executions/summaries?${params}`)
+        const diagnosisResponse = await useMyFetch<any>(`/api/console/agent_executions/summaries?${params}`)
         
         if (diagnosisResponse.error.value) {
             console.error('Error fetching diagnosis data:', diagnosisResponse.error.value)
@@ -419,10 +422,6 @@ const fetchDiagnosisData = async () => {
             executionItems.value = data.items || []
             totalItems.value = data.total_items || 0
             debugInfo.value = `Loaded ${executionItems.value.length} agent executions, total: ${totalItems.value}`
-            
-            // Update filter counts
-            // For now, only total count; per-type counts can be added later via separate endpoint
-            updateFilterCounts(diagnosisResponse.data.value)
         }
     } catch (error) {
         console.error('Failed to fetch diagnosis data:', error)
@@ -438,7 +437,7 @@ const fetchDiagnosisData = async () => {
 const getIssueTypeClass = (issueType: string) => {
     switch (issueType) {
         case 'failed_step':
-        case 'code_error':
+        case 'failed_query':
             return 'bg-red-100 text-red-800'
         case 'validation_error':
             return 'bg-yellow-100 text-yellow-800'
@@ -453,8 +452,8 @@ const getIssueTypeClass = (issueType: string) => {
 
 const getIssueTypeLabel = (issueType: string) => {
     switch (issueType) {
-        case 'code_error':
-            return 'Code Error'
+        case 'failed_query':
+            return 'Failed Query'
         case 'validation_error':
             return 'Validation Error'
         case 'negative_feedback':
@@ -484,14 +483,21 @@ const fetchOverallMetrics = async () => {
             params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
         
-        // Fetch overall metrics (without any filter) for the top cards
-        const [metricsResponse, judgeResponse] = await Promise.all([
-            useMyFetch<CompactIssuesResponse>(`/api/console/issues/compact?${params}`),
+        // Fetch dashboard metrics and judge response
+        const [dashboardResponse, judgeResponse] = await Promise.all([
+            useMyFetch<any>(`/api/console/diagnosis/metrics?${params}`),
             useMyFetch<any>(`/api/console/metrics?${params}`)
         ])
         
-        if (metricsResponse.data.value) {
-            overallMetrics.value = metricsResponse.data.value
+        if (dashboardResponse.data.value) {
+            dashboardMetrics.value = dashboardResponse.data.value
+            
+            // Update filter counts
+            filterOptions.value = [
+                { label: 'All Agent Runs', value: 'all', count: dashboardResponse.data.value.total_items },
+                { label: 'Negative Feedback', value: 'negative_feedback', count: dashboardResponse.data.value.negative_feedback },
+                { label: 'Failed Queries', value: 'failed_queries', count: dashboardResponse.data.value.failed_queries }
+            ]
         }
         
         if (judgeResponse.data.value) {
@@ -561,15 +567,7 @@ const handleFilterChange = (filter: { label: string, value: string }) => {
     fetchDiagnosisData()
 }
 
-const updateFilterCounts = (data: CompactIssuesResponse) => {
-    // For now we only have total count from compact API. Keep others at 0.
-    filterOptions.value = [
-        { label: 'All Items', value: 'all_queries', count: data.total_items },
-        { label: 'Negative Feedback', value: 'negative_feedback', count: 0 },
-        { label: 'Code Errors', value: 'code_errors', count: 0 },
-        { label: 'Validation Errors', value: 'validation_errors', count: 0 }
-    ]
-}
+
 
 // Watch for page changes
 watch(currentPage, () => {
@@ -579,7 +577,7 @@ watch(currentPage, () => {
 // Initialize
 onMounted(async () => {
     initializeDateRange()
-    // Fetch both overall metrics and diagnosis data on initial load
+    // Fetch dashboard metrics and diagnosis data on initial load
     await Promise.all([
         fetchOverallMetrics(),
         fetchDiagnosisData()

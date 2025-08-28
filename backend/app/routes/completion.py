@@ -63,7 +63,7 @@ async def create_completion_stream(
         organization
     )
 
-@router.get("/api/reports/{report_id}/completions")
+@router.get("/api/reports/{report_id}/completions.legacy")
 @requires_permission('view_reports', model=Report)
 async def get_completions(report_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
     return await completion_service.get_completions(db, report_id, organization, current_user)
@@ -99,7 +99,7 @@ async def get_completion_plans(completion_id: str, current_user: User = Depends(
     return await completion_service.get_completion_plans(db, current_user, organization, completion_id)
 
 
-@router.get("/api/reports/{report_id}/completions.v2")
+@router.get("/api/reports/{report_id}/completions")
 @requires_permission('view_reports', model=Report)
 async def get_completions_v2(
     report_id: str,

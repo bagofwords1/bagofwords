@@ -848,7 +848,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 async function loadCompletions() {
 	try {
-		const { data } = await useMyFetch(`/reports/${report_id}/completions.v2`)
+		const { data } = await useMyFetch(`/reports/${report_id}/completions`)
 		const response = data.value as any
 		const list = response?.completions || []
 		messages.value = list.map((c: any) => {

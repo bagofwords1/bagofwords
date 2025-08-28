@@ -18,7 +18,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 import json
-from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, DiagnosisMetrics, TraceData, CompactIssuesResponse, AgentExecutionSummariesResponse
+from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, TraceData, CompactIssuesResponse, AgentExecutionSummariesResponse
 from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse
 
 logger = logging.getLogger(__name__)
@@ -116,19 +116,7 @@ async def get_recent_negative_feedback(
     return await console_service.get_recent_negative_feedback_metrics(db, organization, params)
 
 
-@router.get("/console/metrics/diagnosis", response_model=DiagnosisMetrics)
-@requires_permission("view_organization_overview")
-async def get_diagnosis_metrics(
-    params: MetricsQueryParams = Depends(),
-    page: int = 1,
-    page_size: int = 50,
-    filter: Optional[str] = None,
-    organization: Organization = Depends(get_current_organization),
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """Get diagnosis metrics for failed steps and negative feedback"""
-    return await console_service.get_diagnosis_metrics(db, organization, params, page, page_size, filter)
+
 
 @router.get("/console/trace/{report_id}/{completion_id}", response_model=TraceData)
 @requires_permission("view_organization_overview")
@@ -157,16 +145,28 @@ async def get_compact_issues(
     return await console_service.get_compact_issues(db, organization, params, page, page_size, filter)
 
 
-@router.get("/console/agent-executions/summaries", response_model=AgentExecutionSummariesResponse)
+@router.get("/console/agent_executions/summaries", response_model=AgentExecutionSummariesResponse)
 @requires_permission("view_organization_overview")
 async def get_agent_execution_summaries(
     params: MetricsQueryParams = Depends(),
     page: int = 1,
     page_size: int = 20,
+    filter: Optional[str] = None,
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Agent execution summaries joined with completion, feedback, and tool stats."""
-    return await console_service.get_agent_execution_summaries(db, organization, params, page, page_size)
+    return await console_service.get_agent_execution_summaries(db, organization, params, page, page_size, filter)
+
+@router.get("/console/diagnosis/metrics")
+@requires_permission("view_organization_overview")
+async def get_diagnosis_dashboard_metrics(
+    params: MetricsQueryParams = Depends(),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get dashboard metrics for diagnosis page."""
+    return await console_service.get_diagnosis_dashboard_metrics(db, organization, params)
 
