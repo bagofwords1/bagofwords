@@ -16,6 +16,7 @@ class WidgetObservation(BaseModel):
     data_preview: Optional[str] = None
 
 
+
 class WidgetsSection(ContextSection):
     tag_name: ClassVar[str] = "widgets"
 

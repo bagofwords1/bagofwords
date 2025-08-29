@@ -24,6 +24,7 @@ class CreateDataModelTool(Tool):
             max_retries=1,
             timeout_seconds=30,
             idempotent=True,
+            is_active=False,
             required_permissions=[],
             tags=["data-model", "generation", "widget"],
         )

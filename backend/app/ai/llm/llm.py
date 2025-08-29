@@ -39,9 +39,38 @@ class LLM:
         print(f"Model: {self.model_id}, prompt: {prompt}")
         response = self.client.inference(model_id=self.model_id, prompt=prompt)
         print(f"response: {response}")
+        response = response.replace("```json", "").replace("```", "")
+        response = response.replace("```python", "").replace("```", "")
         return response
     
     async def inference_stream(self, prompt: str) -> AsyncGenerator[str, None]:
         print(f"Model: {self.model_id}, prompt: {prompt}")
+        # Some providers (e.g., Anthropic) occasionally wrap JSON in markdown fences or a stray 'json' tag.
+        # Sanitize streamed chunks to remove opening ```json, language-only tags like 'json\n', and any closing ```.
+        first_chunk = True
+        started_payload = False
+        import re
         async for chunk in self.client.inference_stream(model_id=self.model_id, prompt=prompt):
+            if first_chunk:
+                # Strip an opening fence like ```json, ```python or ```
+                chunk = re.sub(r"^\s*```(?:json|JSON|python|PYTHON)?\s*", "", chunk)
+                # Also handle cases where only a leading language tag remains (e.g., 'json\n')
+                chunk = re.sub(r"^\s*(?:json|JSON|python|PYTHON)\s*\n", "", chunk)
+                # If the chunk is only the language tag without newline yet (e.g., 'json'), skip it
+                if re.fullmatch(r"\s*(?:json|JSON|python|PYTHON)\s*", chunk or ""):
+                    continue
+                first_chunk = False
+            # Remove any stray fence closers mid-stream or at the end
+            if "```" in chunk:
+                chunk = chunk.replace("```", "")
+            # Before payload actually starts, tolerate a stray leading 'json\n' or 'python\n'
+            if not started_payload:
+                orig = chunk
+                chunk = re.sub(r"^\s*(?:json|JSON|python|PYTHON)\s*\n", "", chunk)
+                # Mark payload as started once we see a likely JSON start character
+                if any(ch in chunk for ch in ['{', '[']):
+                    started_payload = True
+                # If nothing left after removing the tag, skip yielding
+                if not chunk and orig:
+                    continue
             yield chunk
