@@ -1,8 +1,8 @@
 <template>
     <div class="pt-0 pl-2">
         <div v-if="show_title" class="font-bold text-gray-400">{{ widget.title }}</div>
-        <div v-if="countValue" class="text-xl font-bold mt-2">
-            {{ countValue }}
+        <div v-if="data?.info?.total_rows" class="text-xl font-bold mt-2">
+            {{ countValue || "None" }}
         </div>
         <div v-else>
             Loading..

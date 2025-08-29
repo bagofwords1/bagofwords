@@ -239,7 +239,6 @@ class Coder:
         result = re.sub(r'^```python\n|^```\n|```$', '', result.strip())
         # Remove any code after return df
         result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
-        
         return result
     
     async def validate_code(self, code, data_model):
@@ -278,5 +277,5 @@ class Coder:
         result = self.llm.inference(text)
         result = re.sub(r'^```json\n|^```\n|```$', '', result.strip())
         result = json.loads(result)
-
+        
         return result

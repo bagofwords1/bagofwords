@@ -725,7 +725,7 @@ class AgentV2:
                         # Refresh warm sections and view for next iteration
                         await self.context_hub.refresh_warm()
                         view = self.context_hub.get_view()
-                        schemas_excerpt = view.static.schemas
+                        schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
                         
                         # Refresh history summary with updated context
                         history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
@@ -999,7 +999,35 @@ class AgentV2:
                 elif stage == "widget_creation_needed":
                     # Update step with final complete data_model
                     data_model = payload.get("data_model", {})
+                    widget_title = (tool_input and tool_input.get("widget_title")) or payload.get("widget_title") or "Untitled Widget"
                     
+                    # If for some reason earlier streaming did not create widget/step, create them now
+                    if data_model and not self.current_step and self.report:
+                        try:
+                            self.current_widget = await self.project_manager.create_widget(
+                                self.db, self.report, widget_title
+                            )
+                            self.current_step = await self.project_manager.create_step(
+                                self.db, widget_title, self.current_widget, "chart"
+                            )
+                            self.current_step_id = str(self.current_step.id)
+                            # Emit widget.created event so UI can latch to ids
+                            seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event="widget.created",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq,
+                                data={
+                                    "widget_id": str(self.current_widget.id),
+                                    "step_id": str(self.current_step.id),
+                                    "widget_title": widget_title,
+                                    "data_model_type": data_model.get("type")
+                                }
+                            ))
+                        except Exception:
+                            pass
+
                     if data_model and self.current_step:
                         # Update step with final data_model
                         await self.project_manager.update_step_with_data_model(

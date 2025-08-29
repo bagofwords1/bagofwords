@@ -11,241 +11,58 @@ from app.ai.context.builders.code_context_builder import CodeContextBuilder
 
 class CodeExecutionManager:
     """
-    Manages the entire code generation, validation, and execution process with retries.
+    Deprecated shim. Use StreamingCodeExecutor instead.
+    Provides only minimal helpers to preserve imports.
     """
-    
     def __init__(self, logger=None, project_manager=None, db=None, report=None, head_completion=None, widget=None, step=None, organization_settings: OrganizationSettingsConfig = None):
-        """
-        Initialize the CodeExecutionManager with all required dependencies.
-        
-        Args:
-            logger: Logger instance
-            project_manager: ProjectManager instance (required)
-            db: Database session (required)
-            report: Current report object
-            head_completion: Parent completion object
-            widget: Current widget object
-            step: Current step object
-            organization_settings: Organization settings (dict)
-        """
         self.logger = logger
-        
-        # Validate essential dependencies
-        if not project_manager:
-            raise ValueError("project_manager is required for CodeExecutionManager")
-        if not db:
-            raise ValueError("db is required for CodeExecutionManager")
-            
-        self.project_manager = project_manager
-        self.db = db
-        self.report = report
-        self.head_completion = head_completion
-        self.widget = widget
-        self.step = step
         self.organization_settings = organization_settings
+        # Other params are ignored; legacy API compatibility only
 
-    async def generate_and_execute_with_retries(self, 
-                                         data_model: Dict,
-                                         code_generator_fn: Callable,
-                                         validator_fn: Optional[Callable] = None,
-                                         max_retries: int = 3,
-                                         db_clients: Dict = None, 
-                                         excel_files: List = None,
-                                         code_context_builder: CodeContextBuilder = None,
-                                         step=None,  # Optional override for current step
-                                         sigkill_event=None,
-                                         **generator_kwargs) -> Tuple[pd.DataFrame, str, List]:
-        """
-        Comprehensive function that handles:
-        1. Code generation 
-        2. Code validation
-        3. Code execution
-        4. Retries with error feedback
-        
-        Args:
-            data_model: The data model to generate code for
-            code_generator_fn: Async function that generates code
-            validator_fn: Optional async function to validate code
-            max_retries: Maximum number of retry attempts
-            db_clients: Database clients
-            excel_files: Excel files
-            step: Override for the step object (uses self.step if None)
-            **generator_kwargs: Additional arguments to pass to code_generator_fn
-            
-        Returns:
-            Tuple containing (dataframe, final_code, error_messages)
-        """
-        retries = 0
-        code_and_error_messages = []
-        df = pd.DataFrame()
+    async def generate_and_execute_with_retries(self, *args, **kwargs):
+        raise RuntimeError("CodeExecutionManager.generate_and_execute_with_retries is deprecated. Use StreamingCodeExecutor.generate_and_execute_stream.")
+
+    def _execute_code(self, code: str, db_clients: Dict, excel_files: List):
+        executor = StreamingCodeExecutor(organization_settings=self.organization_settings, logger=self.logger)
+        return executor.execute_code(code=code, ds_clients=db_clients, excel_files=excel_files)
+
+    def format_df_for_widget(self, df: pd.DataFrame, max_rows: int = 1000) -> Dict:
+        executor = StreamingCodeExecutor(organization_settings=self.organization_settings, logger=self.logger)
+        return executor.format_df_for_widget(df=df, max_rows=max_rows)
+
+
+class StreamingCodeExecutor:
+    """
+    Pure, tool-first streaming executor with retries. No project_manager/DB side-effects.
+    """
+    def __init__(self, organization_settings: OrganizationSettingsConfig = None, logger=None, context_hub=None):
+        self.organization_settings = organization_settings
+        self.logger = logger
+        self.context_hub = context_hub
+
+    def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List) -> Tuple[pd.DataFrame, str]:
+        """Execute Python code and return the resulting DataFrame and captured stdout log."""
         output_log = ""
-        code = ""
-        
-        # Use provided step or fall back to instance step
-        current_step = step or self.step
-        
-        while retries < max_retries:
-            # Early cancel before each attempt
-            if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
-                return pd.DataFrame(), code, code_and_error_messages
-            try:
-                # Generate code
-                code = await code_generator_fn(
-                    data_model=data_model,
-                    code_and_error_messages=code_and_error_messages,
-                    retries=retries,
-                    excel_files=excel_files,
-                    code_context_builder=code_context_builder,
-                    **generator_kwargs
-                )
-
-                # Validate if enabled
-                if validator_fn:
-                    validation_result = await validator_fn(code, data_model)
-                    if validation_result.get('valid') is False:
-                        error_msg = validation_result.get('reasoning', 'Validation failed')
-                        if self.logger:
-                            self.logger.warning(f"Validation failed (attempt {retries+1}/{max_retries}): {error_msg}")
-                        
-                        # Update step status to error when validation fails
-                        if current_step:
-                            try:
-                                await self.project_manager.update_step_status(self.db, current_step, "error", status_reason=f"Validation failed: {error_msg}")
-                            except Exception as step_error:
-                                if self.logger:
-                                    self.logger.error(f"Error updating step status to error: {str(step_error)}")
-                        
-                        # Create validation failed message
-                        try:
-                            await self.project_manager.create_message(
-                                report=self.report,
-                                db=self.db,
-                                message=f"Validation failed: {error_msg}",
-                                status="success",
-                                completion=self.head_completion,
-                                widget=self.widget,
-                                role="ai_agent"
-                            )
-                        except Exception as msg_error:
-                            if self.logger:
-                                self.logger.error(f"Error creating validation message: {str(msg_error)}")
-                    
-                        code_and_error_messages.append((code, error_msg))
-                        retries += 1
-                        continue
-                    elif validation_result.get('valid') is True:
-                        try:
-                            await self.project_manager.create_message(
-                                report=self.report,
-                                db=self.db,
-                                message=f"Validation passed",
-                                status="success",
-                                completion=self.head_completion,
-                                widget=self.widget,
-                                role="ai_agent"
-                            )
-                        except Exception as msg_error:
-                            if self.logger:
-                                self.logger.error(f"Error creating validation success message: {str(msg_error)}")
-
-                # Execute code
-                # Cancel between generate and execute
-                if sigkill_event and sigkill_event.is_set():
-                    return pd.DataFrame(), code, code_and_error_messages
-
-                df, output_log = self._execute_code(code, db_clients, excel_files)
-                
-                # Check if the DataFrame has columns (even if empty)
-                if len(df.columns) == 0:
-                    raise Exception("Generated DataFrame has no columns")
-                
-                # Update step with code
-                if current_step:
-                    try:
-                        await self.project_manager.update_step_with_code(self.db, current_step, code)
-                    except Exception as step_error:
-                        if self.logger:
-                            self.logger.error(f"Error updating step with code: {str(step_error)}")
-                
-                # If we got here without exceptions, we succeeded
-                if current_step:
-                    try:
-                        await self.project_manager.update_step_status(self.db, current_step, "success")
-                    except Exception as status_error:
-                        if self.logger:
-                            self.logger.error(f"Error updating step status: {str(status_error)}")
-                
-                return df, code, code_and_error_messages
-                
-            except Exception as e:
-                import traceback
-                trace = traceback.format_exc()
-                error_msg = f"{output_log}\n\nError in execution: {str(e)}\n{trace}"
-                if self.logger:
-                    self.logger.error(f"Code execution failed (attempt {retries+1}/{max_retries}): {error_msg}")
-                
-                # Create error message
-                await self.project_manager.create_message(
-                    report=self.report,
-                    db=self.db,
-                    message=f"Self-healing and optimizing code (attempt {retries+1}/{max_retries}): {str(e)}",
-                    status="success",
-                    completion=self.head_completion,
-                    widget=self.widget,
-                    role="ai_agent"
-                )
-            
-                code_and_error_messages.append((code, error_msg))
-                retries += 1
-                
-                if retries >= max_retries:
-                    # Update step status to error if all retries failed
-                    if current_step:
-                        try:
-                            await self.project_manager.update_step_status(self.db, current_step, "error", status_reason=f"Code execution failed: {error_msg}")
-                        except Exception as status_error:
-                            if self.logger:
-                                self.logger.error(f"Error updating step status: {str(status_error)}")
-                    
-                    # Return an empty DataFrame with no columns to indicate failure
-                    return pd.DataFrame(), code, code_and_error_messages
-        
-        # This should be unreachable but included as a fallback
-        return df, code, code_and_error_messages
-
-    def _execute_code(self, code: str, db_clients: Dict, excel_files: List) -> Tuple[pd.DataFrame, str]:
-        """Execute Python code and return the resulting DataFrame and output log"""
-        output_log = ""
-        
         local_namespace = {
-            'pd': pd, 
+            'pd': pd,
             'np': np,
-            'db_clients': db_clients, 
-            'excel_files': excel_files
+            'db_clients': ds_clients,
+            'excel_files': excel_files,
         }
-        
         if self.logger:
             self.logger.debug(f"Executing code:\n{code}")
-            
-        # Capture stdout during the entire execution process
         with io.StringIO() as stdout_capture:
             with redirect_stdout(stdout_capture):
                 exec(code, local_namespace)
-                
                 generate_df = local_namespace.get('generate_df')
                 if not generate_df:
                     raise Exception("No generate_df function found in code")
-                    
-                df = generate_df(db_clients, excel_files)
-                
-            # Get all the captured output
+                df = generate_df(ds_clients, excel_files)
             output_log = stdout_capture.getvalue()
-            
         return df, output_log
 
     def get_df_info(self, df: pd.DataFrame) -> Dict:
-        """Extract comprehensive information from a DataFrame"""
-        # Convert NumPy types to Python native types
+        """Extract comprehensive information from a DataFrame."""
         def convert_to_native(obj):
             if isinstance(obj, (np.int64, np.int32, np.int16, np.int8)):
                 return int(obj)
@@ -266,13 +83,9 @@ class CodeExecutionManager:
             "total_columns": int(len(df.columns)),
             "column_info": {},
             "memory_usage": int(df.memory_usage(deep=True).sum()),
-            "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().items()}
+            "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().items()},
         }
-        
-        # Get statistical description for all types
         desc_dict = df.describe(include='all').to_dict()
-        
-        # Parse column information
         for column in df.columns:
             column_info = {
                 "dtype": str(df[column].dtype),
@@ -281,22 +94,14 @@ class CodeExecutionManager:
                 "null_count": int(df[column].isna().sum()),
                 "unique_count": int(df[column].nunique()),
             }
-            
-            # Merge statistical description if available
             if column in desc_dict:
-                stats = {
-                    stat: convert_to_native(value)
-                    for stat, value in desc_dict[column].items()
-                    if pd.notna(value)
-                }
+                stats = {stat: convert_to_native(value) for stat, value in desc_dict[column].items() if pd.notna(value)}
                 column_info.update(stats)
-            
             info_dict["column_info"][column] = column_info
-        
         return info_dict
 
     def postprocess_df(self, widget: Dict) -> Dict:
-        """Clean and format DataFrame data for widget display"""
+        """Clean and format DataFrame data for widget display."""
         def clean_value(value):
             if isinstance(value, (pd.Timestamp, datetime.date)):
                 return value.isoformat()
@@ -307,29 +112,163 @@ class CodeExecutionManager:
             return value
 
         if 'rows' in widget:
-            widget['rows'] = [{k: clean_value(v) for k, v in row.items()} 
-                             for row in widget['rows']]
+            widget['rows'] = [{k: clean_value(v) for k, v in row.items()} for row in widget['rows']]
         return widget
 
     def format_df_for_widget(self, df: pd.DataFrame, max_rows: int = 1000) -> Dict:
-        """Format a DataFrame into a widget-compatible structure"""
+        """Format a DataFrame into a widget-compatible structure."""
+        columns = [{"headerName": col, "field": col} for col in df.columns]
         if df.empty:
-            columns = []
             rows = []
-            df_info = {}
+            df_info = {
+                "total_rows": 0,
+                "total_columns": int(len(df.columns)),
+                "column_info": {col: {
+                    "dtype": str(df[col].dtype),
+                    "non_null_count": 0,
+                    "memory_usage": 0,
+                    "null_count": 0,
+                    "unique_count": 0,
+                } for col in df.columns},
+                "memory_usage": int(df.memory_usage(deep=True).sum()),
+                "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().items()},
+            }
         else:
-            columns = [{"headerName": col, "field": col} for col in df.columns]
             rows = df.to_dict(orient='records')[:max_rows]
             df_info = self.get_df_info(df)
-        
         widget = {
             "rows": rows,
             "columns": columns,
             "loadingColumn": False,
             "info": df_info,
         }
-        
         return self.postprocess_df(widget)
+
+    async def generate_and_execute_stream(
+        self,
+        *,
+        data_model: Dict,
+        prompt: str,
+        schemas: str,
+        ds_clients: Dict,
+        excel_files: List,
+        code_context_builder: CodeContextBuilder,
+        code_generator_fn: Callable,
+        validator_fn: Optional[Callable] = None,
+        max_retries: int = 2,
+        sigkill_event=None,
+    ):
+        """
+        Async generator that yields dict events:
+          { "type": "progress"|"stdout", "payload": {...} }
+        At the end, returns (df, code, code_and_error_messages, execution_log)
+        """
+        retries = 0
+        code_and_error_messages: List[Tuple[str, str]] = []
+        final_code = ""
+        exec_df = pd.DataFrame()
+        execution_log = ""
+
+        while retries < max_retries:
+            # Cooperative cancellation check at loop start
+            if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                break
+            if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                break
+
+            # Generating code
+            yield {"type": "progress", "payload": {"stage": "generating_code", "attempt": retries}}
+            try:
+                # Cancellation before expensive LLM call
+                if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                    break
+                final_code = await code_generator_fn(
+                    data_model=data_model,
+                    prompt=prompt,
+                    schemas=schemas,
+                    ds_clients=ds_clients,
+                    excel_files=excel_files,
+                    code_and_error_messages=code_and_error_messages,
+                    memories="",
+                    previous_messages="",
+                    retries=retries,
+                    prev_data_model_code_pair=None,
+                    sigkill_event=sigkill_event,
+                    code_context_builder=code_context_builder,
+                )
+                yield {"type": "progress", "payload": {"stage": "generated_code", "attempt": retries}}
+            except Exception as e:
+                msg = f"Code generation error: {str(e)}"
+                code_and_error_messages.append((final_code, msg))
+                yield {"type": "stdout", "payload": msg}
+                retries += 1
+                if retries < max_retries:
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                continue
+
+            # Optional validation
+            if validator_fn:
+                try:
+                    validation = await validator_fn(final_code, data_model)
+                    if not validation.get("valid", True):
+                        msg = f"Validation failed: {validation.get('reasoning', '')}"
+                        code_and_error_messages.append((final_code, msg))
+                        yield {"type": "stdout", "payload": msg}
+                        retries += 1
+                        if retries < max_retries:
+                            yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                        continue
+                except Exception as e:
+                    msg = f"Validation error: {str(e)}"
+                    code_and_error_messages.append((final_code, msg))
+                    yield {"type": "stdout", "payload": msg}
+                    retries += 1
+                    if retries < max_retries:
+                        yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                    continue
+
+            # Executing code
+            yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
+            try:
+                # Cancellation before executing user code
+                if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                    break
+                exec_df, execution_log = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                break
+            except Exception as e:
+                import traceback
+                trace = traceback.format_exc()
+                msg = f"Execution error: {str(e)}\n{trace}"
+                code_and_error_messages.append((final_code, msg))
+                yield {"type": "stdout", "payload": msg}
+                retries += 1
+                if retries < max_retries:
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                continue
+
+        # If cancelled, emit a final done with empty results to let caller stop cleanly
+        if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+            yield {
+                "type": "done",
+                "payload": {
+                    "df": pd.DataFrame(),
+                    "code": final_code,
+                    "errors": code_and_error_messages,
+                    "execution_log": execution_log,
+                },
+            }
+            return
+        else:
+            # Emit a final done event carrying the results instead of returning values
+            yield {
+                "type": "done",
+                "payload": {
+                    "df": exec_df,
+                    "code": final_code,
+                    "errors": code_and_error_messages,
+                    "execution_log": execution_log,
+                },
+            }
 
     async def execute_and_update_step(self, 
                               data_model: Dict,

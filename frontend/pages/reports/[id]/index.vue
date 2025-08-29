@@ -86,6 +86,7 @@
 																v-if="shouldUseToolComponent(block.tool_execution)"
 																:is="getToolComponent(block.tool_execution.tool_name)"
 																:tool-execution="block.tool_execution"
+																@addWidget="handleAddWidgetFromPreview"
 															/>
 
 
@@ -163,6 +164,7 @@
 											v-if="shouldUseToolComponent(block.tool_execution)"
 											:is="getToolComponent(block.tool_execution.tool_name)"
 											:tool-execution="block.tool_execution"
+											@addWidget="handleAddWidgetFromPreview"
 										/>
 										<!-- Fallback to generic expandable tool display -->
 										<div v-else>
@@ -468,6 +470,14 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 	if (block.status === 'stopped') {
 		return 'Thought Process'
 	}
+
+	// Prefer planner-provided reasoning duration when available
+	const metricsAny: any = (block.plan_decision as any)?.metrics || (block.plan_decision as any)?.metrics_json
+	const thinkingMs: number | undefined = metricsAny?.thinking_ms
+	if (typeof thinkingMs === 'number' && isFinite(thinkingMs) && thinkingMs >= 0) {
+		const secs = Math.max(0, Math.round(thinkingMs / 1000))
+		return `Thought for ${secs}s`
+	}
 	
 	// Calculate duration from started_at to completed_at if available
 	if (block.started_at && block.completed_at) {
@@ -740,8 +750,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						lastBlock.tool_execution.status = 'running'
 					}
 
-					// Progressive data model updates for create_data_model tool
-					if (payload.tool_name === 'create_data_model' && payload.payload) {
+					// Record progress stage for tool-specific UIs
+					if (payload.payload && lastBlock.tool_execution) {
+						;(lastBlock.tool_execution as any).progress_stage = payload.payload.stage || null
+					}
+
+					// Progressive data model updates for create_data_model/create_widget tools
+					if ((payload.tool_name === 'create_data_model' || payload.tool_name === 'create_widget') && payload.payload) {
 						const p = payload.payload
 						// Ensure result_json.data_model structure exists
 						lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
