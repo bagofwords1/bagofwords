@@ -72,13 +72,17 @@ class DashboardDesigner:
         else:
             steps_str = "No analysis steps preceded this design request."
 
+        # Build instruction context using the standard ContextHub builder pattern
+        inst_section = await self.instruction_context_builder.build()
+        instructions_context = inst_section.render()
+
         text = f"""
         You are an expert dashboard / report analyst and designer. Your task is to create a dashboard layout based on a user's request, the available data widgets, the analysis steps performed, and the conversation history.
         The goal is NOT just to place widgets, but to arrange them **thoughtfully** and add explanatory **text widgets** to create a clear, compelling narrative that summarizes the analysis and directly addresses the user's initial prompt.
 
         **General Organization Instructions**:
         **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
-        {self.instruction_context_builder.get_instructions_context()}
+        {instructions_context}
 
         **Context Provided**:
 

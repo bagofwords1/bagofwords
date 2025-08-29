@@ -49,9 +49,12 @@ class CreateDashboardTool(Tool):
         # Early progress to guarantee first emission
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 
-        # Pull runtime context (new context implementation)
+        # Pull runtime context (supports new ContextHub wiring)
         model = runtime_ctx.get("model")
-        instruction_context_builder = runtime_ctx.get("instruction_context_builder")
+        context_hub = runtime_ctx.get("context_hub")
+        instruction_context_builder = runtime_ctx.get("instruction_context_builder") or (
+            getattr(context_hub, "instruction_builder", None) if context_hub else None
+        )
         all_widgets: List[Any] = runtime_ctx.get("widgets") or []
         steps = runtime_ctx.get("steps")
         previous_messages = data.previous_messages or runtime_ctx.get("previous_messages") or ""
