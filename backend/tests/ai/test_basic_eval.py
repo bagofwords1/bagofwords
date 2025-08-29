@@ -7,8 +7,8 @@ import time
 
 def validate_response_completions(completions):
     """
-    Validates the entire completions response array and each individual completion
-    Returns (bool, dict) tuple with validation result and statistics
+    Validates v2 completions (CompletionV2Schema list).
+    Returns (bool, dict) tuple with validation result and statistics.
     """
     assert isinstance(completions, list), "Completions must be a list"
     assert len(completions) > 0, "Completions list cannot be empty"
@@ -17,38 +17,38 @@ def validate_response_completions(completions):
         "total_completions": len(completions),
         "completions_with_code": 0,
         "completions_with_data_model": 0,
-        "completions_with_widget": 0
+        "completions_with_widget": 0,
     }
+
     for completion in completions:
-        # Validate basic required fields
+        # Basic fields in v2
         assert "id" in completion, "Completion missing required 'id' field"
         assert "status" in completion, "Completion missing required 'status' field"
         assert "role" in completion, "Completion missing required 'role' field"
-        assert "completion" in completion, "Completion missing required 'completion' object"
-        
-        # Validate completion content structure
-        assert "content" in completion["completion"], "Completion missing 'content' field"
-        assert "reasoning" in completion["completion"], "Completion missing 'reasoning' field"
+        assert "report_id" in completion, "Completion missing required 'report_id' field"
 
-        # Validate widget if present and not None
-        if completion.get("widget"):
-            stats["completions_with_widget"] += 1
-            assert "title" in completion["widget"], "Widget missing required 'title' field"
-            assert completion["widget"]["title"] is not None, "Widget title cannot be None"
+        # Inspect blocks for outputs (reasoning/content and tool outputs)
+        blocks = completion.get("completion_blocks") or []
+        assert isinstance(blocks, list), "completion_blocks must be a list"
 
-        # Validate step if present and not None
-        if completion.get("step"):
-            # Validate data model if present and not None
-            data_model = completion["step"].get("data_model")
-            if data_model and isinstance(data_model, dict) and data_model.get("columns"):
+        for b in blocks:
+            te = b.get("tool_execution") or {}
+            result_json = te.get("result_json") or {}
+
+            # Data model presence via result_json
+            data_model = result_json.get("data_model")
+            if isinstance(data_model, dict) and data_model.get("columns"):
                 stats["completions_with_data_model"] += 1
 
-            # Validate code if present and not None
-            code = completion["step"].get("code")
-            if code and len(str(code)) > 5:
+            # Code presence via result_json (heuristics)
+            code_val = result_json.get("code") or result_json.get("python") or result_json.get("sql")
+            if code_val and len(str(code_val)) > 5:
                 stats["completions_with_code"] += 1
 
-
+            # Widget created
+            created_widget = te.get("created_widget")
+            if created_widget or te.get("created_widget_id"):
+                stats["completions_with_widget"] += 1
 
     return True, stats
 

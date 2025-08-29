@@ -5,7 +5,7 @@ from datetime import datetime
 from .widget_schema import WidgetSchema
 from .step_schema import StepSchema
 from .tool_execution_schema import ToolExecutionSchema
-from .agent_execution_schema import PlanDecisionSchema
+from .agent_execution_schema import PlanDecisionReducedSchema
 
 
 class ToolExecutionUISchema(ToolExecutionSchema):
@@ -33,6 +33,20 @@ class BlockTextDeltaSchema(BaseModel):
     token_index: Optional[int] = None
     is_final_chunk: Optional[bool] = None
 
+class PromptSchema(BaseModel):
+    content: str = ""
+    widget_id: Optional[str] = None
+    step_id: Optional[str] = None
+    mentions: Optional[List[dict]] = None
+
+    class Config:
+        from_attributes = True
+
+class CompletionBase(BaseModel):
+    prompt: Optional[PromptSchema]
+
+class CompletionCreate(CompletionBase):
+    stream: Optional[bool] = False
 
 class CompletionBlockV2Schema(BaseModel):
     id: str
@@ -52,7 +66,7 @@ class CompletionBlockV2Schema(BaseModel):
     reasoning: Optional[str]
 
     # Source objects
-    plan_decision: Optional[PlanDecisionSchema] = None
+    plan_decision: Optional[PlanDecisionReducedSchema] = None
     tool_execution: Optional[ToolExecutionUISchema] = None
 
     # Optional artifact deltas for progressive UIs
@@ -80,7 +94,6 @@ class CompletionV2Schema(BaseModel):
     agent_execution_id: Optional[str] = None
 
     prompt: Optional[Dict[str, Any]] = None
-    completion: Optional[Dict[str, Any]] = None
 
     completion_blocks: List[CompletionBlockV2Schema] = []
 

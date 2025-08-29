@@ -62,3 +62,20 @@ class PlanDecisionSchema(BaseModel):
         from_attributes = True
 
 
+class PlanDecisionReducedSchema(BaseModel):
+    id: str
+    agent_execution_id: str
+    seq: int
+    loop_index: int
+    plan_type: Optional[str]
+    analysis_complete: bool
+    action_name: Optional[str]
+    action_args_json: Optional[Dict[str, Any]]
+    metrics_json: Optional[Dict[str, Any]]
+    context_snapshot_id: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+

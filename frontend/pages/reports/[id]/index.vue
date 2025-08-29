@@ -1078,7 +1078,8 @@ function onSubmitCompletion(data: { text: string, mentions: any[] }) {
 		prompt: {
 			content: text,
 			mentions: data.mentions || []
-		}
+		},
+		stream: true
 	}
 
 	startStreaming(requestBody, sysId)
@@ -1094,7 +1095,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 			signal: currentController?.signal,
 			stream: true
 		}
-		const raw: any = await useMyFetch(`/reports/${report_id}/completions/stream`, options as any)
+		const raw: any = await useMyFetch(`/reports/${report_id}/completions`, options as any)
 		const res: Response = (raw?.data?.value ?? raw?.data) as unknown as Response
 
 		if (!res?.ok || !res?.body) throw new Error(`Stream HTTP error: ${res?.status}`)

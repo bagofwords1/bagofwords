@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
 from app.services.completion_service import CompletionService
-from app.schemas.completion_schema import CompletionCreate
+from app.schemas.completion_v2_schema import CompletionCreate
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
 from app.websocket_manager import websocket_manager
@@ -29,38 +29,45 @@ completion_service = CompletionService()
 @router.post("/api/reports/{report_id}/completions")
 @requires_permission('create_reports')
 async def create_completion(
-    report_id: str, 
-    completion: CompletionCreate, 
-    background: bool = True,
-    current_user: User = Depends(current_user),
-    organization: Organization = Depends(get_current_organization),
-    db: AsyncSession = Depends(get_async_db)
-):
-    return await completion_service.create_completion(
-        db, 
-        report_id, 
-        completion, 
-        current_user, 
-        organization, 
-        background=background
-    )
-
-@router.post("/api/reports/{report_id}/completions/stream")
-@requires_permission('create_reports')
-async def create_completion_stream(
     report_id: str,
     completion: CompletionCreate,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """Create a completion with real-time streaming events via SSE."""
-    return await completion_service.create_completion_stream(
+    """Unified completion endpoint.
+
+    - Streams if: body `stream: true`, or `Accept: text/event-stream`, or `?stream=true`
+    - Otherwise returns JSON response
+    """
+    accept_header = request.headers.get("accept", "")
+    body_stream_flag = getattr(completion, "stream", None)
+    query_stream_flag = request.query_params.get("stream", "false").lower() == "true"
+    wants_stream = (
+        (body_stream_flag is True)
+        or ("text/event-stream" in accept_header.lower())
+        or query_stream_flag
+    )
+
+    if wants_stream:
+        return await completion_service.create_completion_stream(
+            db,
+            report_id,
+            completion,
+            current_user,
+            organization,
+        )
+
+    # Default to no background execution unless explicitly overridden via `?background=true`
+    background = request.query_params.get("background", "false").lower() == "true"
+    return await completion_service.create_completion(
         db,
         report_id,
         completion,
         current_user,
-        organization
+        organization,
+        background=background,
     )
 
 @router.get("/api/reports/{report_id}/completions.legacy")

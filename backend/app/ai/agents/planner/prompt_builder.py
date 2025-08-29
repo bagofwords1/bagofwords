@@ -118,11 +118,11 @@ INPUT ENVELOPE
 <user_prompt>{planner_input.user_message}</user_prompt>
 <context>
   <platform>{planner_input.external_platform}</platform>
-  <organization_instructions>{planner_input.instructions}</organization_instructions>
-  <schemas>{planner_input.schemas_excerpt}</schemas>
-  <resources>{planner_input.resources_context if planner_input.resources_context else 'No metadata resources available'}</resources>
-  <history>{planner_input.history_summary}</history>
-  <messages>{planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}</messages>
+  {planner_input.instructions}
+  {planner_input.schemas_excerpt}
+  {planner_input.resources_context if planner_input.resources_context else 'No metadata resources available'}
+  {planner_input.history_summary}
+  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}</messages>
   <past_observations>{json.dumps(planner_input.past_observations) if planner_input.past_observations else '[]'}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
   <error_guidance>

@@ -13,7 +13,8 @@ from app.models.step import Step
 from app.models.user import User
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.schemas.completion_schema import CompletionSchema, CompletionCreate, PromptSchema
+from app.schemas.completion_schema import CompletionSchema, PromptSchema
+from app.schemas.completion_v2_schema import CompletionCreate
 from app.schemas.step_schema import StepSchema
 from app.schemas.widget_schema import WidgetSchema
 from app.schemas.completion_v2_schema import (
@@ -108,13 +109,12 @@ class CompletionService:
         completion_data: CompletionCreate, 
         current_user: User, 
         organization: Organization, 
-        background: bool = True,
+        background: bool = False,
         external_user_id: str = None,
         external_platform: str = None,
     ):
         try:
-            
-            print("CompletionService: Starting create_completion")
+            print("CompletionService: Starting create_completion (v2, non-stream)")
 
             # Validate report exists
             result = await db.execute(select(Report).filter(Report.id == report_id))
@@ -123,16 +123,16 @@ class CompletionService:
                 raise HTTPException(status_code=404, detail="Report not found")
 
             # Validate widget if provided
-            if completion_data.prompt.widget_id:
+            if completion_data.prompt and completion_data.prompt.widget_id:
                 result = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
                 widget = result.scalar_one_or_none()
                 if not widget:
                     raise HTTPException(status_code=404, detail="Widget not found")
             else:
                 widget = None
-            
+
             # Validate step if provided
-            if completion_data.prompt.step_id:
+            if completion_data.prompt and completion_data.prompt.step_id:
                 step = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
                 step = step.scalar_one_or_none()
                 if not step:
@@ -144,20 +144,19 @@ class CompletionService:
             default_model = await organization.get_default_llm_model(db)
             if not default_model:
                 raise HTTPException(
-                    status_code=400, 
+                    status_code=400,
                     detail="No default LLM model configured. Please configure a default model in organization settings."
                 )
 
-            # Create user completion
-            prompt_dict = completion_data.prompt.dict()
-            prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
+            # Create user completion (head)
+            prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
+            prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
             last_completion = await self.get_last_completion(db, report.id)
-            completion = Completion(
-                prompt=prompt_dict,
-                model=default_model.model_id,  # We know this exists now
+            head_completion = Completion(
+                prompt=prompt_dict or None,
+                model=default_model.model_id,
                 widget_id=str(widget.id) if widget else None,
                 report_id=report.id,
-                #parent_id=last_completion.id if last_completion else None,
                 turn_index=last_completion.turn_index + 1 if last_completion else 0,
                 message_type="table",
                 role="user",
@@ -168,25 +167,22 @@ class CompletionService:
             )
 
             try:
-                db.add(completion)
+                db.add(head_completion)
                 await db.commit()
-                await db.refresh(completion)
+                await db.refresh(head_completion)
             except Exception as e:
                 await db.rollback()
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to save user completion: {str(e)}"
-                )
+                raise HTTPException(status_code=500, detail=f"Failed to save user completion: {str(e)}")
 
-            # Create system completion
+            # Create system completion to populate with results
             system_completion = Completion(
                 prompt=None,
                 completion={"content": ""},
                 model=default_model.model_id,
-                widget_id=prompt_dict['widget_id'],
+                widget_id=prompt_dict.get('widget_id'),
                 report_id=report.id,
-                parent_id=completion.id,
-                turn_index=completion.turn_index + 1,
+                parent_id=head_completion.id,
+                turn_index=head_completion.turn_index + 1,
                 message_type="table",
                 role="system",
                 status="in_progress",
@@ -200,31 +196,25 @@ class CompletionService:
                 await db.refresh(system_completion)
             except Exception as e:
                 await db.rollback()
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to save system completion: {str(e)}"
-                )
+                raise HTTPException(status_code=500, detail=f"Failed to save system completion: {str(e)}")
 
             org_settings = await organization.get_settings(db)
 
             if background:
-                logging.info("CompletionService: Starting agent execution in background")
+                logging.info("CompletionService: Scheduling background agent (non-stream API)")
 
                 async def run_agent_task():
-                    # Create a new session factory and session for the background task
                     async_session = create_async_session_factory()
                     async with async_session() as session:
                         try:
-                            # Re-fetch all database-dependent objects using the new session
-                            # to ensure they are not attached to the closed, request-level session.
                             report_obj = await session.get(Report, report.id)
-                            completion_obj = await session.get(Completion, completion.id)
-                            system_completion_obj = await session.get(Completion, system_completion.id)
+                            head_obj = await session.get(Completion, head_completion.id)
+                            system_obj = await session.get(Completion, system_completion.id)
                             widget_obj = await session.get(Widget, widget.id) if widget else None
                             step_obj = await session.get(Step, step.id) if step else None
 
-                            if not all([report_obj, completion_obj, system_completion_obj]):
-                                logging.error("Failed to fetch necessary objects for background agent.")
+                            if not all([report_obj, head_obj, system_obj]):
+                                logging.error("Background agent init failed: missing objects")
                                 return
 
                             agent = AgentV2(
@@ -234,28 +224,40 @@ class CompletionService:
                                 model=default_model,
                                 report=report_obj,
                                 messages=[],
-                                head_completion=completion_obj,
-                                system_completion=system_completion_obj,
+                                head_completion=head_obj,
+                                system_completion=system_obj,
                                 widget=widget_obj,
-                                step=step_obj
+                                step=step_obj,
                             )
                             await agent.main_execution()
                         except Exception as e:
                             logging.error(f"Agent background execution failed: {e}")
-                            if system_completion.id:
-                                # Use a new query to update the status in the new session
+                            try:
                                 await session.execute(
                                     update(Completion)
                                     .where(Completion.id == system_completion.id)
-                                    .values(status='error', completion={'content': f"Agent failed: {str(e)}", "error": True})
+                                    .values(status='error', completion={'content': f"Agent failed: {str(e)}", 'error': True})
                                 )
                                 await session.commit()
+                            except Exception:
+                                pass
 
                 asyncio.create_task(run_agent_task())
-                return None
+                # Return minimal v2 response with just created placeholders
+                v2_list = await self._assemble_v2_for_completion_ids(db, [head_completion.id, system_completion.id])
+                return CompletionsV2Response(
+                    report_id=report.id,
+                    completions=v2_list,
+                    total_completions=len(v2_list),
+                    total_blocks=sum(len(c.completion_blocks or []) for c in v2_list),
+                    total_widgets_created=0,
+                    total_steps_created=0,
+                    earliest_completion=min((c.created_at for c in v2_list), default=None),
+                    latest_completion=max((c.updated_at for c in v2_list), default=None),
+                )
             else:
                 try:
-                    # Setup agent for foreground execution
+                    # Foreground execution (wait and return final v2)
                     agent = AgentV2(
                         db=db,
                         organization=organization,
@@ -263,25 +265,46 @@ class CompletionService:
                         model=default_model,
                         report=report,
                         messages=[],
-                        head_completion=completion,
+                        head_completion=head_completion,
                         system_completion=system_completion,
                         widget=widget,
-                        step=step
+                        step=step,
                     )
-                    # Run the agent
                     await agent.main_execution()
 
-                    # Get the response completions by parent_id
-                    response_completions = await self._get_response_completions(db, completion, current_user, organization)
-                    completions = [await self._serialize_completion(db, completion, current_user, organization) for completion in response_completions]
-                    return completions
-                except Exception as e:
-                    # Create error completion and raise exception
-                    await self._create_error_completion(db, completion, str(e))
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Agent execution failed: {str(e)}"
+                    # Assemble v2 for the new message pair (user + system children)
+                    response_completions = await self._get_response_completions(db, head_completion, current_user, organization)
+                    ids = [c.id for c in response_completions]
+                    v2_list = await self._assemble_v2_for_completion_ids(db, ids)
+
+                    # Compute aggregates similar to get_completions_v2 but for this set
+                    earliest = min((c.created_at for c in v2_list), default=None)
+                    latest = max((c.updated_at for c in v2_list), default=None)
+                    total_blocks = sum(len(c.completion_blocks or []) for c in v2_list)
+                    # Best-effort counts from tool_execution created artifacts
+                    total_widgets = 0
+                    total_steps = 0
+                    for c in v2_list:
+                        for b in (c.completion_blocks or []):
+                            te = getattr(b, 'tool_execution', None)
+                            if te and getattr(te, 'created_widget', None):
+                                total_widgets += 1
+                            if te and getattr(te, 'created_step', None):
+                                total_steps += 1
+
+                    return CompletionsV2Response(
+                        report_id=report.id,
+                        completions=v2_list,
+                        total_completions=len(v2_list),
+                        total_blocks=total_blocks,
+                        total_widgets_created=total_widgets,
+                        total_steps_created=total_steps,
+                        earliest_completion=earliest,
+                        latest_completion=latest,
                     )
+                except Exception as e:
+                    await self._create_error_completion(db, head_completion, str(e))
+                    raise HTTPException(status_code=500, detail=f"Agent execution failed: {str(e)}")
 
         except HTTPException as he:
             # Log the error and re-raise HTTP exceptions
@@ -481,7 +504,6 @@ class CompletionService:
                 report_id=c.report_id,
                 agent_execution_id=exec_obj.id if exec_obj else None,
                 prompt=c.prompt,
-                completion=completion_data,
                 completion_blocks=c_blocks,
                 created_widgets=[],
                 created_steps=[],
@@ -506,6 +528,102 @@ class CompletionService:
             earliest_completion=earliest,
             latest_completion=latest,
         )
+
+    async def _assemble_v2_for_completion_ids(self, db: AsyncSession, completion_ids: list[str]) -> list[CompletionV2Schema]:
+        """Build v2 completion objects for specific completion IDs.
+
+        Mirrors the assembly logic from get_completions_v2 but scoped to a subset.
+        """
+        if not completion_ids:
+            return []
+
+        # Fetch completions preserving created_at order
+        completions_stmt = select(Completion).where(Completion.id.in_(completion_ids)).order_by(Completion.created_at.asc())
+        completions_res = await db.execute(completions_stmt)
+        all_completions = completions_res.scalars().all()
+
+        ids = [c.id for c in all_completions]
+        system_ids = [c.id for c in all_completions if c.role == 'system']
+
+        # Agent executions for these completions
+        ae_stmt = select(AgentExecution).where(AgentExecution.completion_id.in_(ids))
+        ae_res = await db.execute(ae_stmt)
+        execs = ae_res.scalars().all()
+        completion_id_to_exec = {e.completion_id: e for e in execs}
+
+        # Blocks joined with decision/tool for system completions
+        blocks: list[CompletionBlock] = []
+        pd_map: dict[str, PlanDecision] = {}
+        te_map: dict[str, ToolExecution] = {}
+        if system_ids:
+            join_stmt = (
+                select(
+                    CompletionBlock,
+                    PlanDecision,
+                    ToolExecution,
+                )
+                .where(CompletionBlock.completion_id.in_(system_ids))
+                .outerjoin(PlanDecision, CompletionBlock.plan_decision_id == PlanDecision.id)
+                .outerjoin(ToolExecution, CompletionBlock.tool_execution_id == ToolExecution.id)
+                .order_by(CompletionBlock.completion_id.asc(), CompletionBlock.block_index.asc())
+            )
+            join_res = await db.execute(join_stmt)
+            for row in join_res.all():
+                b: CompletionBlock = row[0]
+                pd: PlanDecision | None = row[1]
+                te: ToolExecution | None = row[2]
+                blocks.append(b)
+                if pd is not None:
+                    pd_map[pd.id] = pd
+                if te is not None:
+                    te_map[te.id] = te
+
+        # Build per-completion block lists
+        completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in ids}
+        for b in blocks:
+            block_schema = await serialize_block_v2(db, b)
+            completion_id_to_blocks[b.completion_id].append(block_schema)
+
+        # Assemble v2 objects
+        v2_list: list[CompletionV2Schema] = []
+        for c in all_completions:
+            exec_obj = completion_id_to_exec.get(c.id)
+            c_blocks = completion_id_to_blocks.get(c.id, [])
+            c_blocks.sort(key=lambda x: (x.seq if x.seq is not None else 10_000_000, x.block_index))
+
+            # Normalize completion payload to dict
+            completion_data = c.completion
+            if isinstance(completion_data, str):
+                if completion_data == "":
+                    completion_data = {}
+                else:
+                    try:
+                        completion_data = json.loads(completion_data)
+                    except (json.JSONDecodeError, TypeError):
+                        completion_data = {"content": completion_data}
+
+            v2 = CompletionV2Schema(
+                id=c.id,
+                role=c.role,
+                status=c.status,
+                model=c.model,
+                turn_index=c.turn_index,
+                parent_id=c.parent_id,
+                report_id=c.report_id,
+                agent_execution_id=exec_obj.id if exec_obj else None,
+                prompt=c.prompt,
+                completion=completion_data,
+                completion_blocks=c_blocks,
+                created_widgets=[],
+                created_steps=[],
+                summary={"total_blocks": len(c_blocks)},
+                sigkill=c.sigkill,
+                created_at=c.created_at,
+                updated_at=c.updated_at,
+            )
+            v2_list.append(v2)
+
+        return v2_list
     
     async def _create_error_completion(self, db: AsyncSession, completion: Completion, error: str):
         error_completion = Completion(
