@@ -565,7 +565,7 @@ class AgentV2:
                             "context_hub": self.context_hub,
                             # Data source clients and files (mirror agent.py pattern)
                             "ds_clients": self.clients,
-                            "excel_files": self.files,
+                            "excel_files": self.files
                             # Context builders can be accessed via context_hub when needed
                         }
                         
@@ -873,7 +873,7 @@ class AgentV2:
         stage = payload.get("stage")
         
         try:
-            if tool_name == "create_data_model":
+            if tool_name in ["create_data_model", "create_widget"]:
                 if stage == "data_model_type_determined":
                     # Create widget and step early when we know the type
                     data_model_type = payload.get("data_model_type")
@@ -1071,7 +1071,7 @@ class AgentV2:
                             self.db, self.current_step, data_model
                         )
                     
-            elif tool_name == "create_and_execute_code":
+            elif tool_name in ["create_and_execute_code", "create_widget"]:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return

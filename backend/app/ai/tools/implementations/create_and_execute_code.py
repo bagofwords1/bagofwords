@@ -27,6 +27,8 @@ class CreateAndExecuteCodeTool(Tool):
             idempotent=False,
             required_permissions=[],
             tags=["code", "execution", "data-model"],
+            is_active=False,
+            observation_policy="never",
         )
 
     @property
@@ -71,7 +73,7 @@ class CreateAndExecuteCodeTool(Tool):
 
         # 1) Generate code from data model
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
-        coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, instruction_context_builder=runtime_ctx.get("instruction_context_builder"))
+        coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, context_hub=runtime_ctx.get("context_hub"))
         
         # Get context data for code generation
         context_view = runtime_ctx.get("context_view")

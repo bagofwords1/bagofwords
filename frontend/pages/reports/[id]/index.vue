@@ -255,6 +255,7 @@
 import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
 import PromptBoxExcel from '~/components/excel/PromptBoxExcel.vue'
 import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
+import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -372,6 +373,8 @@ function getToolComponent(toolName: string) {
 	switch (toolName) {
 		case 'create_data_model':
 			return CreateDataModelTool
+		case 'create_widget':
+			return CreateWidgetTool
 		case 'create_and_execute_code':
 			return ExecuteCodeTool
 		case 'create_dashboard':

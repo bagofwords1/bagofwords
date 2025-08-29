@@ -4,14 +4,15 @@ from app.models.llm_model import LLMModel
 import re
 import json
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
-from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 
 class Coder:
-    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder: InstructionContextBuilder) -> None:
+    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder=None, context_hub=None) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
         self.enable_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
+        # Back-compat: accept either legacy builder or new context hub
         self.instruction_context_builder = instruction_context_builder
+        self.context_hub = context_hub
 
     async def execute(self, schemas, persona, prompt, memories, previous_messages):
         # Implementation left out as not requested.
@@ -35,7 +36,25 @@ class Coder:
         # Optional early exit if a cancellation was requested before generation
         if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
             return "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame()"
-        instructions_context = await self.instruction_context_builder.get_instructions_context()
+        # Resolve instructions from context hub when available; otherwise fallback to legacy builder
+        instructions_context = ""
+        if self.context_hub is not None:
+            try:
+                view = self.context_hub.get_view()
+                inst_obj = getattr(view.static, "instructions", None)
+                instructions_context = inst_obj.render() if inst_obj else ""
+            except Exception:
+                instructions_context = ""
+        elif self.instruction_context_builder is not None:
+            # Legacy compatibility
+            if hasattr(self.instruction_context_builder, "get_instructions_context"):
+                instructions_context = await self.instruction_context_builder.get_instructions_context()
+            else:
+                try:
+                    inst_section = await self.instruction_context_builder.build()
+                    instructions_context = inst_section.render()
+                except Exception:
+                    instructions_context = ""
 
         # Build a section with existing widget data if applicable
         modify_existing_widget_text = ""
