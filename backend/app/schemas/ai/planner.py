@@ -12,6 +12,8 @@ class ToolDescriptor(BaseModel):
     max_retries: Optional[int] = None
     timeout_seconds: Optional[int] = None
     tags: Optional[List[str]] = None
+    is_active: Optional[bool] = True
+    observation_policy: Optional[Literal["never", "on_trigger", "always"]] = None
 
 
 class TokenUsage(BaseModel):

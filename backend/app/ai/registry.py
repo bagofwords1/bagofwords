@@ -69,6 +69,9 @@ class ToolRegistry:
 
     def get(self, name: str) -> Optional[Tool]:
         """Get tool instance by name."""
+        meta = self._metadata_cache.get(name)
+        if meta and hasattr(meta, "is_active") and meta.is_active is False:
+            return None
         factory = self._factories.get(name)
         return factory() if factory else None
 
@@ -95,6 +98,9 @@ class ToolRegistry:
         
         catalog = []
         for metadata in metadata_list:
+            # Skip inactive tools from catalog
+            if hasattr(metadata, "is_active") and metadata.is_active is False:
+                continue
             catalog.append({
                 "name": metadata.name,
                 "description": metadata.description,
@@ -105,6 +111,8 @@ class ToolRegistry:
                 "max_retries": metadata.max_retries,
                 "timeout_seconds": metadata.timeout_seconds,
                 "tags": metadata.tags,
+                "is_active": getattr(metadata, "is_active", True),
+                "observation_policy": getattr(metadata, "observation_policy", None),
             })
         
         return catalog

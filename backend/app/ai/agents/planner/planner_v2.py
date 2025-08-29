@@ -53,7 +53,6 @@ class PlannerV2:
         # Calculate prompt tokens
         prompt_tokens = count_tokens(prompt, getattr(self.llm, "model_name", None))
         completion_tokens = 0
-        breakpoint()
         # Stream LLM tokens and build decision snapshots
         async for chunk in self.llm.inference_stream(prompt):
             if sigkill_event.is_set():

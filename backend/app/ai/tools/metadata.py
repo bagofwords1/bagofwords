@@ -22,6 +22,10 @@ class ToolMetadata(BaseModel):
     max_retries: int = Field(default=2, description="Default retry attempts")
     timeout_seconds: int = Field(default=30, description="Default execution timeout")
     idempotent: bool = Field(default=False, description="Safe to retry without side effects")
+    is_active: bool = Field(default=True, description="If false, hide from catalog and disallow execution")
+    observation_policy: Optional[Literal["never", "on_trigger", "always"]] = Field(
+        default="on_trigger", description="History persistence policy"
+    )
     
     # Discovery and UI
     tags: List[str] = Field(default_factory=list, description="Searchable tags")
