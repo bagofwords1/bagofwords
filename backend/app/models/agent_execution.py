@@ -27,6 +27,9 @@ class AgentExecution(BaseSchema):
     token_usage_json = Column(JSON, nullable=True, default=dict)
     error_json = Column(JSON, nullable=True)
     config_json = Column(JSON, nullable=True)
+    
+    # Version tracking
+    bow_version = Column(String, nullable=True, index=True)
 
     # Relationships (optional lazy loading)
     plan_decisions = relationship('PlanDecision', back_populates='agent_execution', lazy='select')

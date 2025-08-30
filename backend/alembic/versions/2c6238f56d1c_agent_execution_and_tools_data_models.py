@@ -10,12 +10,94 @@ from typing import Sequence, Union
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy import text
+import uuid
+from datetime import datetime
 
 # revision identifiers, used by Alembic.
 revision: str = '2c6238f56d1c'
 down_revision: Union[str, None] = '8c1061a09336'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
+
+
+def backfill_agent_executions_for_completions():
+    """Create AgentExecution records for existing system completions that don't have them."""
+    connection = op.get_bind()
+    
+    # Historic version for all tracking completions
+    historic_version = "0.0.189"
+    current_time = datetime.utcnow()
+    
+    # Find system completions without agent_executions
+    query = text("""
+        SELECT c.id, c.report_id, c.user_id, c.status, c.created_at, c.updated_at,
+               r.organization_id
+        FROM completions c
+        LEFT JOIN reports r ON c.report_id = r.id
+        LEFT JOIN agent_executions ae ON c.id = ae.completion_id
+        WHERE c.role = 'system' AND ae.id IS NULL
+        ORDER BY c.created_at ASC
+    """)
+    
+    completions = connection.execute(query).fetchall()
+    
+    if not completions:
+        print("No historical completions found that need agent executions.")
+        return
+        
+    print(f"Backfilling {len(completions)} agent executions for historical completions...")
+    
+    # Insert agent executions in batches
+    batch_size = 100
+    for i in range(0, len(completions), batch_size):
+        batch = completions[i:i + batch_size]
+        values = []
+        
+        for comp in batch:
+            # Calculate duration if both timestamps exist
+            duration_ms = None
+            if comp.created_at and comp.updated_at:
+                duration_delta = comp.updated_at - comp.created_at
+                duration_ms = duration_delta.total_seconds() * 1000
+            
+            # Map completion status to agent execution status
+            ae_status = comp.status if comp.status in ['success', 'error', 'stopped'] else 'success'
+            
+            values.append({
+                'id': str(uuid.uuid4()),
+                'completion_id': comp.id,
+                'organization_id': comp.organization_id,
+                'user_id': comp.user_id,
+                'report_id': comp.report_id,
+                'status': ae_status,
+                'started_at': comp.created_at,
+                'completed_at': comp.updated_at,
+                'total_duration_ms': duration_ms,
+                'latest_seq': 0,
+                'bow_version': historic_version,
+                'config_json': '{"backfilled": true}',
+                'created_at': current_time,
+                'updated_at': current_time
+            })
+        
+        # Insert batch
+        insert_query = text("""
+            INSERT INTO agent_executions (
+                id, completion_id, organization_id, user_id, report_id,
+                status, started_at, completed_at, total_duration_ms, 
+                latest_seq, bow_version, config_json, created_at, updated_at
+            ) VALUES (
+                :id, :completion_id, :organization_id, :user_id, :report_id,
+                :status, :started_at, :completed_at, :total_duration_ms,
+                :latest_seq, :bow_version, :config_json, :created_at, :updated_at
+            )
+        """)
+        
+        connection.execute(insert_query, values)
+        print(f"Inserted agent executions for batch {i//batch_size + 1}/{(len(completions) + batch_size - 1)//batch_size}")
+    
+    print(f"Backfill complete! Created agent executions for {len(completions)} historical completions with version '{historic_version}'")
 
 
 def upgrade() -> None:
@@ -36,6 +118,7 @@ def upgrade() -> None:
     sa.Column('error_json', sa.JSON(), nullable=True),
     sa.Column('config_json', sa.JSON(), nullable=True),
     sa.Column('id', sa.String(length=36), nullable=False),
+    sa.Column('bow_version', sa.String(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.Column('deleted_at', sa.DateTime(), nullable=True),
@@ -128,6 +211,13 @@ def upgrade() -> None:
     with op.batch_alter_table('tool_executions', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_tool_executions_agent_execution_id'), ['agent_execution_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_tool_executions_id'), ['id'], unique=True)
+
+    # Add index for bow_version for performance
+    with op.batch_alter_table('agent_executions', schema=None) as batch_op:
+        batch_op.create_index('ix_agent_executions_bow_version', ['bow_version'], unique=False)
+
+    # Backfill: Create AgentExecution records for historical system completions
+    backfill_agent_executions_for_completions()
 
     # ### end Alembic commands ###
 

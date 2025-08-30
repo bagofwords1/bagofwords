@@ -305,6 +305,8 @@ class ProjectManager:
 
     async def start_agent_execution(self, db, completion_id, organization_id=None, user_id=None, report_id=None, config_json=None):
         """Start tracking an agent execution run."""
+        from app.settings.config import settings
+        
         execution = AgentExecution(
             completion_id=completion_id,
             organization_id=organization_id,
@@ -313,6 +315,7 @@ class ProjectManager:
             status='in_progress',
             started_at=datetime.datetime.utcnow(),
             config_json=config_json or {},
+            bow_version=settings.PROJECT_VERSION,
         )
         db.add(execution)
         await db.commit()

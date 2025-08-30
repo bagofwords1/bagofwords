@@ -19,6 +19,7 @@ class AgentExecutionSchema(BaseModel):
     token_usage_json: Optional[Dict[str, Any]] = None
     error_json: Optional[Dict[str, Any]] = None
     config_json: Optional[Dict[str, Any]] = None
+    bow_version: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
