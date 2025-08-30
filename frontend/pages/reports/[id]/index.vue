@@ -22,7 +22,7 @@
 			<div class="pl-4 pr-2 pb-[3px]" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full mx-auto'">
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
 					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
-						<div class="flex rounded-lg p-1" :class="{ 'bg-red-50 border border-red-200': m.status === 'error' }">
+						<div class="flex rounded-lg p-1">
 							<div class="w-[28px] mr-2">
 								<div v-if="m.role === 'user'" class="h-7 w-7 flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
 									Y
@@ -44,7 +44,7 @@
 									</div>
 									
 									<!-- Render each completion block -->
-									<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id" class="mb-5">
+									<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
 										<!-- Research blocks: put reasoning, tool execution, and assistant in thinking toggle -->
 										<div v-if="isResearchBlock(block)">
 											<!-- Thinking toggle for research blocks -->
@@ -143,7 +143,7 @@
 									</div>
 									
 									<!-- Block content -->
-									<div v-if="block.content && !block.plan_decision?.final_answer" class="markdown-wrapper">
+									<div v-if="block.content && !block.plan_decision?.final_answer && block.status !== 'error'" class="markdown-wrapper">
 										<template v-if="isBlockFinalized(block)">
 											<MDC :value="block.content || ''" class="markdown-content" />
 										</template>
@@ -188,19 +188,20 @@
 							</div>
 							
 							<!-- Show status messages for stopped/error completions -->
-							<div class="mt-2">
-								<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" 
-								v-if="isRealCompletion(m) && m.status !== 'in_progress'" 
-								/>
+							<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
+								<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" />
 							</div>
 
 							<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 								<Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
 								Generation stopped
 							</div>
-							<div v-else-if="m.status === 'error'" class="text-xs text-red-500 mt-2 italic">
-								<Icon name="heroicons-exclamation-triangle" class="w-4 h-4 inline mr-1" />
-								An error occurred
+							<div v-else-if="m.status === 'error'" class="text-xs text-gray-500">
+								<Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
+								<span v-if="getMessageError(m)" class="pre-wrap">
+									<Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
+									{{ getMessageError(m) }}</span>
+								<span v-else class="italic">An error occurred</span>
 							</div>
 						</div>
 					</div>
@@ -318,6 +319,10 @@ interface ChatMessage {
 	system_completion_id?: string
 	sigkill?: string | null
 	feedback_score?: number
+	// Transient streaming error message (set from SSE completion.error)
+	error_message?: string
+	// Optional structured error
+	error?: any
 }
 
 const route = useRoute()
@@ -355,6 +360,23 @@ function isRealCompletion(m: ChatMessage): boolean {
     // UUID v4 pattern (loose): 8-4-4-4-12 hex
     const uuidRe = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/
     return uuidRe.test(cid)
+}
+
+function getMessageError(m: any): string | null {
+  // Prefer a content message stored on the completion (backend persisted), else last error block content
+  try {
+    // Some backends put message into completion.completion.content
+    const content = (m?.completion?.content) || (m?.prompt?.content && m.status==='error' ? null : null)
+    if (typeof content === 'string' && content.trim()) return content.trim()
+  } catch {}
+  const blocks = m?.completion_blocks || []
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]
+    if (b?.status === 'error' && typeof b?.content === 'string' && b.content.trim()) {
+      return b.content.trim()
+    }
+  }
+  return null
 }
 
 
@@ -852,10 +874,33 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'completion.finished':
-			// Mark completion as finished with proper status
-			const completionStatus = payload?.status || 'success'
-			sysMessage.status = completionStatus
+			// Mark completion as finished with proper status if provided; don't default to success
+			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
+			if (completionStatus) {
+				sysMessage.status = completionStatus as any
+				if (completionStatus === 'error' && payload?.error?.message) {
+					sysMessage.error_message = String(payload.error.message)
+					// Ensure a single error block exists for history (won't render duplicate due to block suppression)
+					if (!sysMessage.completion_blocks?.some((b: any) => b.status === 'error')) {
+						sysMessage.completion_blocks = sysMessage.completion_blocks || []
+						sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
+					}
+				}
+			}
 			loadReport()
+			break
+
+		case 'completion.error':
+			// Dedicated error event; ensure UI flips to error state and capture the message
+			sysMessage.status = 'error'
+			if (payload?.error) {
+				const msg = typeof payload.error === 'string' ? payload.error : (payload.error.message || '')
+				if (msg) sysMessage.error_message = String(msg)
+				if (!sysMessage.completion_blocks?.some((b: any) => b.status === 'error')) {
+					sysMessage.completion_blocks = sysMessage.completion_blocks || []
+					sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
+				}
+			}
 			break
 
 		default:
@@ -1277,7 +1322,6 @@ onMounted(async () => {
 
 /* Streaming text (no re-mount, minimal styles, prevent flicker) */
 .streaming-text {
-    white-space: pre-wrap;
     will-change: contents;
 }
 

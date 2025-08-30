@@ -805,12 +805,23 @@ class AgentV2:
         except Exception as e:
             # Handle errors and finish execution with error status
             if self.current_execution:
+                error_payload = {"message": str(e), "type": type(e).__name__}
                 await self.project_manager.finish_agent_execution(
                     self.db,
                     agent_execution=self.current_execution,
                     status='error',
-                    error_json={"message": str(e), "type": type(e).__name__},
+                    error_json=error_payload,
                 )
+                # Persist error on completion and latest block for UI
+                try:
+                    # Update completion record with status and message
+                    if self.system_completion:
+                        await self.project_manager.update_completion_status(self.db, self.system_completion, 'error')
+                        await self.project_manager.update_message(self.db, self.system_completion, message=error_payload.get('message'), reasoning=None)
+                    # Mark last block as error with message
+                    await self.project_manager.mark_error_on_latest_block(self.db, self.current_execution, error_payload.get('message'))
+                except Exception:
+                    pass
             
             # Update system completion status on error
             if self.system_completion:
@@ -819,6 +830,19 @@ class AgentV2:
                     self.system_completion, 
                     'error'
                 )
+            # Emit a final completion.finished event with error details for UI consumption
+            try:
+                if self.event_queue:
+                    await self.event_queue.put(SSEEvent(
+                        event="completion.finished",
+                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                        data={
+                            "status": "error",
+                            "error": error_payload,
+                        }
+                    ))
+            except Exception:
+                pass
             raise
         finally:
             # Cleanup

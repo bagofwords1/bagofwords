@@ -209,22 +209,30 @@ class StreamingCodeExecutor:
             # Optional validation
             if validator_fn:
                 try:
+                    yield {"type": "progress", "payload": {"stage": "validating_code", "attempt": retries}}
                     validation = await validator_fn(final_code, data_model)
                     if not validation.get("valid", True):
-                        msg = f"Validation failed: {validation.get('reasoning', '')}"
-                        code_and_error_messages.append((final_code, msg))
-                        yield {"type": "stdout", "payload": msg}
+                        error_msg = validation.get('reasoning', 'Validation failed')
+                        if self.logger:
+                            self.logger.warning(f"Validation failed (attempt {retries+1}/{max_retries}): {error_msg}")
+                        # Create validation failed message
+                        yield {"type":"progress", "payload": {"stage": "validated_code", "valid": False, "error": error_msg, "attempt": retries}}
+                        code_and_error_messages.append((final_code, error_msg))
                         retries += 1
                         if retries < max_retries:
-                            yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                            yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
                         continue
+                    else:
+                        # Validation succeeded; emit event and proceed to execution without looping
+                        yield {"type": "progress", "payload": {"stage": "validated_code", "valid": True, "attempt": retries}}
+                        # Do not continue; fall through to execution stage below
                 except Exception as e:
                     msg = f"Validation error: {str(e)}"
                     code_and_error_messages.append((final_code, msg))
                     yield {"type": "stdout", "payload": msg}
                     retries += 1
                     if retries < max_retries:
-                        yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                        yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
                     continue
 
             # Executing code

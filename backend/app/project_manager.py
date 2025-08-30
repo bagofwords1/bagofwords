@@ -652,3 +652,24 @@ class ProjectManager:
         await db.commit()
         await db.refresh(completion)
         return completion
+
+    async def mark_error_on_latest_block(self, db, agent_execution, error_message: str | None = None):
+        """Mark the latest decision block as error and append error message to its content."""
+        from datetime import datetime
+        stmt = select(CompletionBlock).where(
+            CompletionBlock.agent_execution_id == agent_execution.id
+        ).order_by(CompletionBlock.block_index.desc())
+        block = (await db.execute(stmt)).scalar_one_or_none()
+        if not block:
+            return None
+        block.status = 'error'
+        if error_message:
+            base = block.content or ''
+            suffix = f"\n\nError: {error_message}"
+            block.content = (base + suffix) if suffix not in base else base
+        if not block.completed_at:
+            block.completed_at = datetime.utcnow()
+        db.add(block)
+        await db.commit()
+        await db.refresh(block)
+        return block

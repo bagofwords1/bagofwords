@@ -21,6 +21,7 @@ class ReadFileTool(Tool):
             max_retries=3,  # File reads can be retried safely
             timeout_seconds=10,
             idempotent=True,  # Read operations are safe to retry
+            is_active=False,
             required_permissions=["file:read"],
             tags=["file", "read", "research", "analysis"],
             examples=[

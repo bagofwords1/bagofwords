@@ -62,7 +62,8 @@
             <Icon v-if="isCodeRunning" name="eos-icons:loading" class="w-3 h-3 mr-1.5 animate-spin text-gray-400" />
             <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-            <span v-if="isCodeRunning" class="tool-shimmer">Generating Code</span>
+            <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">Validating Code</span>
+            <span v-else-if="isCodeRunning" class="tool-shimmer">Generating Code</span>
             <span v-else class="text-gray-700">Generating Code</span>
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ml-2" />
           </div>
@@ -73,11 +74,12 @@
                 
                 
                 <div class="mb-2 text-xs bg-gray-50 rounded-lg px-4 py-3 text-gray-500 flex items-center">
-                  <span v-if="isCodeRunning" class="tool-shimmer">Running... (Attempt {{ currentAttempt }})</span>
+                  <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">Validating... (Attempt {{ currentAttempt }})</span>
+                  <span v-else-if="isCodeRunning" class="tool-shimmer">Running... (Attempt {{ currentAttempt }})</span>
                   <span v-else-if="status === 'success'" class="flex items-center">
                     <span class="text-green-500 flex items-center">
                       <Icon name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-                      Success</span>
+                      {{ validationSucceeded ? 'Success and validated' : 'Success' }}</span>
                     <span class="ml-2" v-if="successDetails"> • {{ successDetails }}</span>
                   </span>
                   <span v-else-if="status === 'error'" class="flex items-center">
@@ -195,6 +197,9 @@ const progressStageLabel = computed(() => {
     widget_creation_needed: 'finalizing model',
     generating_code: 'code',
     generated_code: 'code ready',
+    validating_code: 'validating',
+    'validating_code.retry': 'validating (retry)',
+    validated_code: 'validated',
     executing_code: 'executing'
   }
   return map[s] || s
@@ -229,6 +234,13 @@ const currentAttempt = computed(() => {
   return len > 0 ? len + 1 : 1
 })
 
+// Validation success flag when progress reports validated_code with valid true
+const validationSucceeded = computed(() => {
+  const stage = progressStage.value
+  const valid = (props.toolExecution as any).progress_valid
+  return stage === 'validated_code' && valid === true
+})
+
 const hasPreview = computed(() => status.value === 'success' && !!(props.toolExecution?.created_widget || props.toolExecution?.created_step))
 
 // Running/done flags based on progress stage and status
@@ -238,7 +250,7 @@ const isDMRunning = computed(() => progressStage.value && [
 const dmDone = computed(() => !!dataModelType.value && dataModelColumns.value.length >= 0 && !isDMRunning.value)
 
 const isCodeRunning = computed(() => progressStage.value && [
-  'generating_code', 'generated_code', 'executing_code'
+  'generating_code', 'generated_code', 'validating_code', 'validating_code.retry', 'executing_code'
 ].includes(progressStage.value))
 const codeDone = computed(() => !!codeContent.value && !isCodeRunning.value)
 

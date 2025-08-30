@@ -18,8 +18,8 @@ class ClarifyTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="clarify",
-            description="Ask clarifying questions when user request is ambiguous or needs more specific information",
-            category="research",  # Research tool - gathers information
+            description="Ask clarifying questions when user request is ambiguous or needs more specific information. Use also when user is using a metric/measure that is not well defined.",
+            category="action",  # Research tool - gathers information
             version="1.0.0",
             input_schema=ClarifyInput.model_json_schema(),
             output_schema=ClarifyOutput.model_json_schema(),

@@ -13,8 +13,8 @@ class AnswerQuestionTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="answer_question",
-            description="Answer questions directly from available context with concise responses",
-            category="both",  # Can be used in both research and action modes
+            description="Answer questions directly from available context with concise responses. This tool is for record purposes only, do not use it for research or gathering information. And keep the response in the main message.",
+            category="action",  # Can be used in both research and action modes
             version="1.0.0",
             input_schema=AnswerQuestionInput.model_json_schema(),
             output_schema=AnswerQuestionOutput.model_json_schema(),
