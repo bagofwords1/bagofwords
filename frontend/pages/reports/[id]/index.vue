@@ -267,6 +267,7 @@ import PromptBoxExcel from '~/components/excel/PromptBoxExcel.vue'
 import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
+import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
@@ -410,6 +411,8 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'create_dashboard':
 			return CreateDashboardTool
+		case 'answer_question':
+			return AnswerQuestionTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -810,6 +813,29 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 
 					lastBlock.status = 'in_progress'
+				}
+			}
+			break
+
+		case 'tool.partial':
+			// Streamed partial output for tools (e.g., answer_question)
+			if (payload.tool_name) {
+				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
+				if (lastBlock) {
+					if (!lastBlock.tool_execution) {
+						lastBlock.tool_execution = {
+							id: `temp-${Date.now()}`,
+							tool_name: payload.tool_name,
+							status: 'running'
+						}
+					}
+					const delta = (payload.payload && typeof payload.payload.delta === 'string') ? payload.payload.delta : ''
+					if (delta) {
+						lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
+						const rj: any = lastBlock.tool_execution.result_json
+						rj.answer = (rj.answer || '') + delta
+						lastBlock.status = 'in_progress'
+					}
 				}
 			}
 			break

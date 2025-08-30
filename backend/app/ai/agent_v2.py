@@ -581,7 +581,7 @@ class AgentV2:
                             await self._handle_streaming_event(tool_name, ev, tool_input)
                             
                             # Forward tool events to UI and persist important ones
-                            if ev.get("type") in ["tool.progress", "tool.error"]:
+                            if ev.get("type") in ["tool.progress", "tool.error", "tool.partial", "tool.stdout"]:
                                 seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event=ev.get("type", "tool.progress"),
