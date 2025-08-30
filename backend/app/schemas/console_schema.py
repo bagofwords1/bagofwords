@@ -74,6 +74,16 @@ class TableJoinsHeatmap(BaseModel):
     total_queries_analyzed: int
     date_range: DateRange
 
+# New: Tool usage metrics
+class ToolUsageItem(BaseModel):
+    tool_name: str
+    label: str
+    count: int
+
+class ToolUsageMetrics(BaseModel):
+    items: List[ToolUsageItem]
+    date_range: DateRange
+
 class TopUserData(BaseModel):
     user_id: str
     name: str

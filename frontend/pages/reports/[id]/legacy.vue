@@ -86,19 +86,10 @@
                 </div>
 
                 <div ref="scrollAnchor"></div>
-                <div class="absolute bottom-14 left-0 right-0" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 mx-auto'">
-                    <PromptBoxExcel 
-                        ref="promptBoxRef"
-                        :widgets="widgets" 
-                        :selectedWidgetId="selectedWidgetId" 
-                        :excelData="excelData" 
-                        :latestInProgressCompletion="latestInProgressCompletion"
-                        :isStopping="isStoppingGeneration"
-                        @submitCompletion="submitCompletion" 
-                        :report_id="report_id" 
-                        @update:selectedWidgetId="handleSelectedWidgetId" 
-                        @stopGeneration="() => sigkill(latestInProgressCompletion)"
-                    />
+                <div class="absolute bottom-28 font-bold text-center left-0 right-0" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 mx-auto'">
+                    We've upgraded our AI agent!<br />
+                    <span class=" text-md font-normal text-gray-500">This report is in read-only mode.</span><br />
+                    <span class="font-normal text-blue-500">Please <button class="text-blue-500" @click="createNewReport">start a new report</button></span>
                 </div>
             </div>
 
@@ -325,7 +316,7 @@ async function submitCompletion(promptValue) {
         prompt: { content: promptValue.text }
     })
 
-    const response = await useMyFetch(`/reports/${report_id}/completions`, {
+    const response = await useMyFetch(`/reports/${report_id}/completions.legacy`, {
         method: 'POST',
         body: JSON.stringify(requestBody),
         headers: {
@@ -397,7 +388,7 @@ async function updateCompletion(updated: any) {
 }
 
 async function loadCompletions() {
-    const { data } = await useMyFetch(`/api/reports/${report_id}/completions`)
+    const { data } = await useMyFetch(`/api/reports/${report_id}/completions.legacy`)
     completions.value = data.value
     isPageLoading.value = false
     scrollToBottom()
@@ -672,6 +663,23 @@ function stopResize() {
     document.removeEventListener('mousemove', handleResize)
     document.removeEventListener('mouseup', stopResize)
     document.body.style.userSelect = 'auto'
+}
+
+const createNewReport = async () => {
+    const response = await useMyFetch('/reports', {
+        method: 'POST',
+        body: JSON.stringify({title: 'untitled report',
+         files: []})
+    });
+
+    if (!response.code === 200) {
+        throw new Error('Report creation failed');
+    }
+
+    const data = await response.data.value;
+    router.push({
+        path: `/reports/${data.id}`
+    })
 }
 
 onUnmounted(() => {

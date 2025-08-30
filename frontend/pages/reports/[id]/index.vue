@@ -92,7 +92,7 @@
 
 														<!-- Fallback to generic tool display -->
 														<div v-else>
-															<div class="text-xs text-gray-600 mb-1 font-medium">
+															<div class="text-xs text-gray-600 mb-1 font-medium" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question'">
 																{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
 															</div>
 															<div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
@@ -141,7 +141,6 @@
 											</div>
 										</Transition>
 									</div>
-									
 									<!-- Block content -->
 									<div v-if="block.content && !block.plan_decision?.final_answer && block.status !== 'error'" class="markdown-wrapper">
 										<template v-if="isBlockFinalized(block)">
@@ -169,7 +168,7 @@
 										<!-- Fallback to generic expandable tool display -->
 										<div v-else>
 											<div class="text-xs text-gray-500 mb-1">
-												<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)">
+												<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question'">
 													{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
 												</span>
 												<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
@@ -216,6 +215,14 @@
 				<p class="text-gray-500 text-sm"><span class="font-semibold">Tip:</span> <br />
 					Use @ to explore data sources and memories<br /> and to mention them in your question.</p>
 			</div>
+			</div>
+		</div>
+
+		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
+		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+			<div class="text-xs text-gray-500 flex items-center">
+				<Icon name="eos-icons:loading" class="w-3 h-3 mr-2 animate-spin text-gray-400" />
+				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
 
@@ -964,6 +971,12 @@ async function loadReport() {
 	const { data } = await useMyFetch(`/api/reports/${report_id}`)
 	report.value = data.value
 	reportLoaded.value = true
+	
+	// Check if we need to redirect to legacy UI based on app version
+	if (report.value?.app_version === "0.0.189") {
+		await navigateTo(`/reports/${report_id}/legacy`)
+		return
+	}
 }
 
 async function loadWidgets() {
@@ -1021,6 +1034,8 @@ onUnmounted(() => {
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
 	window.removeEventListener('resize', scrollToBottom)
+	// Stop any polling timers
+	stopPollingInProgressCompletion()
 })
 
 function rerunReport() {
@@ -1131,6 +1146,9 @@ function onSubmitCompletion(data: { text: string, mentions: any[] }) {
 	}
 	messages.value.push(sysMsg)
 	scrollToBottom()
+
+	// Stop any background polling and start streaming
+	stopPollingInProgressCompletion()
 
 	// Start streaming
 	if (isStreaming.value) abortStream()
@@ -1264,6 +1282,55 @@ async function startStreaming(requestBody: any, sysId: string) {
 	}
 }
 
+// === Minimal polling for refresh resume (no SSE resume) ===
+const isPolling = ref<boolean>(false)
+const pollIntervalMs = 1200
+let pollHandle: number | null = null
+
+function getLastInProgressSystem(): ChatMessage | undefined {
+	return [...messages.value].reverse().find(m => m.role === 'system' && m.status === 'in_progress')
+}
+
+function stopPollingInProgressCompletion() {
+	if (pollHandle !== null) {
+		clearTimeout(pollHandle)
+		pollHandle = null
+	}
+	isPolling.value = false
+}
+
+async function startPollingInProgressCompletion() {
+	if (isStreaming.value || isPolling.value) return
+	const sys = getLastInProgressSystem()
+	if (!sys) return
+
+	isPolling.value = true
+	const startTs = Date.now()
+	const maxDurationMs = 2 * 60 * 1000
+
+	const tick = async () => {
+		try {
+			await loadCompletions()
+			autoScrollIfNearBottom()
+			const still = getLastInProgressSystem()
+			if (!still) {
+				stopPollingInProgressCompletion()
+				return
+			}
+			if (Date.now() - startTs > maxDurationMs) {
+				stopPollingInProgressCompletion()
+				return
+			}
+		} catch (e) {
+			// keep polling on transient errors
+		} finally {
+			pollHandle = window.setTimeout(tick, pollIntervalMs)
+		}
+	}
+
+	pollHandle = window.setTimeout(tick, pollIntervalMs)
+}
+
 onMounted(async () => {
 	await Promise.all([
 		loadReport(),
@@ -1274,6 +1341,11 @@ onMounted(async () => {
 	// Handle new_message query parameter after everything is loaded
 	if (route.query.new_message && messages.value.length == 0) {
 		onSubmitCompletion({ text: route.query.new_message as string, mentions: [] })
+	}
+
+	// If a system message is still in progress (after refresh), begin polling until it finishes
+	if (!isStreaming.value && getLastInProgressSystem()) {
+		startPollingInProgressCompletion()
 	}
 	
 	// Open dashboard pane if there are any published widgets
@@ -1387,6 +1459,18 @@ onMounted(async () => {
 
 .reasoning-content:hover { 
 	opacity: 1; 
+}
+
+/* Minimal shimmer for reconnect banner */
+.poll-shimmer {
+	background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+	background-size: 200% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	color: transparent;
+	animation: shimmer 2s linear infinite;
+	font-weight: 400;
+	opacity: 1;
 }
 </style>
 

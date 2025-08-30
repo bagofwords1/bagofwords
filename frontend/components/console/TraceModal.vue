@@ -70,29 +70,47 @@
 
                                 <!-- Decision details (minimal) -->
                                 <template v-else>
-                                    <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Reasoning</div>
-                                        <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
+                                    <!-- Feedback details -->
+                                    <div v-if="selectedItem.kind === 'feedback'">
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Feedback</div>
+                                        <div class="flex items-center space-x-2 mb-2">
+                                            <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
+                                                  :class="(selectedItem.direction || 0) > 0 ? 'bg-green-100 text-green-800' : (selectedItem.direction || 0) < 0 ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'">
+                                                {{ (selectedItem.direction || 0) > 0 ? 'Positive' : (selectedItem.direction || 0) < 0 ? 'Negative' : 'Neutral' }}
+                                            </span>
+                                            <span class="text-xs text-gray-500">{{ formatDate(selectedItem.created_at) }}</span>
+                                        </div>
+                                        <div v-if="selectedItem.message">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Message</div>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.message }}</pre>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Content</div>
-                                        <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || 'No content' }}</pre>
-                                    </div>
+                                    <!-- Non-feedback details -->
+                                    <div v-else>
+                                        <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Reasoning</div>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
+                                        </div>
+                                        <div>
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Content</div>
+                                            <pre class="text-xs text-gray-900 whitespace-pre-wrap font-sans leading-relaxed">{{ selectedItem.content || selectedItem.plan_decision?.assistant || 'No content' }}</pre>
+                                        </div>
 
-                                    <!-- Tool execution with specialized rendering -->
-                                    <div v-if="selectedItem.tool_execution" class="mt-4">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Tool Execution</div>
-                                        <!-- Use specialized tool component if available -->
-                                        <component 
-                                            v-if="shouldUseToolComponent(selectedItem.tool_execution)"
-                                            :is="getToolComponent(selectedItem.tool_execution.tool_name)"
-                                            :tool-execution="selectedItem.tool_execution"
-                                        />
-                                        <!-- Fallback to generic tool display -->
-                                        <GenericTool 
-                                            v-else
-                                            :tool-execution="selectedItem.tool_execution"
-                                        />
+                                        <!-- Tool execution with specialized rendering -->
+                                        <div v-if="selectedItem.tool_execution" class="mt-4">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Tool Execution</div>
+                                            <!-- Use specialized tool component if available -->
+                                            <component 
+                                                v-if="shouldUseToolComponent(selectedItem.tool_execution)"
+                                                :is="getToolComponent(selectedItem.tool_execution.tool_name)"
+                                                :tool-execution="selectedItem.tool_execution"
+                                            />
+                                            <!-- Fallback to generic tool display -->
+                                            <GenericTool 
+                                                v-else
+                                                :tool-execution="selectedItem.tool_execution"
+                                            />
+                                        </div>
                                     </div>
                                 </template>
                             </div>
@@ -185,11 +203,19 @@ import ContextBrowser from './ContextBrowser.vue'
 import GenericTool from '../tools/GenericTool.vue'
 import CreateDataModelTool from '../tools/CreateDataModelTool.vue'
 import ExecuteCodeTool from '../tools/ExecuteCodeTool.vue'
+import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
 
 interface ToolExecutionUI {
     tool_name: string
     tool_action?: string
     result_json?: any
+}
+
+interface CompletionFeedbackUI {
+    id: string
+    direction: number
+    message?: string
+    created_at: string
 }
 
 interface CompletionBlockV2 {
@@ -210,6 +236,7 @@ interface AgentExecutionTraceResponse {
     completion_blocks: CompletionBlockV2[]
     head_prompt_snippet?: string
     head_context_snapshot?: any
+    latest_feedback?: CompletionFeedbackUI | null
 }
 
 interface TraceCompletionData {
@@ -300,6 +327,13 @@ const leftItems = computed(() => {
             items.push({ id: b.id, kind: 'decision', title: b.title || 'Decision', subtitle: undefined, ref: b })
         }
     }
+    // 2b) Latest feedback (if exists)
+    if (traceData.value?.latest_feedback) {
+        const fb = traceData.value.latest_feedback
+        const label = fb.direction > 0 ? 'Positive' : (fb.direction < 0 ? 'Negative' : 'Neutral')
+        const subtitle = fb.message ? (fb.message.length > 140 ? fb.message.slice(0, 140) + '…' : fb.message) : undefined
+        items.push({ id: 'latest_feedback', kind: 'feedback', title: `Feedback: ${label}`, subtitle, ref: fb })
+    }
     // 3) Analysis completed marker (if any block has analysis_complete)
     const hasFinal = blocks.value.some((b: any) => b?.plan_decision?.analysis_complete)
     if (hasFinal) {
@@ -351,6 +385,10 @@ const selectLeftItem = (item: any) => {
         selectBlock(item.ref)
     } else if (item.kind === 'prompt') {
         selectedItem.value = { id: 'user_prompt', title: 'User Prompt', content: traceData.value?.head_prompt_snippet, created_at: traceData.value?.agent_execution?.started_at }
+        selectedItemType.value = 'block'
+    } else if (item.kind === 'feedback' && item.ref) {
+        const fb = item.ref as CompletionFeedbackUI
+        selectedItem.value = { id: 'latest_feedback', kind: 'feedback', title: 'Feedback', direction: fb.direction, message: fb.message, created_at: fb.created_at }
         selectedItemType.value = 'block'
     } else if (item.kind === 'final') {
         selectedItem.value = { id: 'analysis_completed', title: 'Analysis Completed', content: 'Analysis marked complete.', created_at: traceData.value?.agent_execution?.completed_at }
@@ -423,6 +461,7 @@ const getBlockTitle = (block: CompletionBlockV2) => {
 const getLeftItemIcon = (item: any) => {
     if (item.kind === 'prompt') return 'i-heroicons-user'
     if (item.kind === 'final') return 'i-heroicons-check-circle'
+    if (item.kind === 'feedback') return (item?.ref?.direction || 0) > 0 ? 'i-heroicons-hand-thumb-up' : 'i-heroicons-hand-thumb-down'
     const status = item?.ref?.status
     return getStatusIcon(status || '')
 }
@@ -430,6 +469,7 @@ const getLeftItemIcon = (item: any) => {
 const getLeftItemIconClass = (item: any) => {
     if (item.kind === 'prompt') return 'w-3 h-3 text-blue-600'
     if (item.kind === 'final') return 'w-3 h-3 text-green-600'
+    if (item.kind === 'feedback') return (item?.ref?.direction || 0) > 0 ? 'w-3 h-3 text-green-600' : 'w-3 h-3 text-red-600'
     const status = item?.ref?.status
     return getStatusIconClass(status || '')
 }
@@ -447,6 +487,8 @@ function getToolComponent(toolName: string) {
     switch (toolName) {
         case 'create_data_model':
             return CreateDataModelTool
+        case 'create_widget':
+            return CreateWidgetTool
         case 'create_and_execute_code':
         case 'execute_code':
         case 'execute_sql':

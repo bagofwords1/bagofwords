@@ -75,6 +75,7 @@ class DashboardDesigner:
         # Build instruction context using the standard ContextHub builder pattern
         inst_section = await self.instruction_context_builder.build()
         instructions_context = inst_section.render()
+        breakpoint()
 
         text = f"""
         You are an expert dashboard / report analyst and designer. Your task is to create a dashboard layout based on a user's request, the available data widgets, the analysis steps performed, and the conversation history.

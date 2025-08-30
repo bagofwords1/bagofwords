@@ -196,6 +196,24 @@ def test_top_users_metrics(
     
     assert isinstance(data["top_users"], list)
     assert isinstance(data["total_users_analyzed"], int)
+@pytest.mark.e2e
+def test_tool_usage_metrics(
+    get_tool_usage_metrics,
+    create_user,
+    login_user,
+    create_organization
+):
+    """Test tool usage metrics endpoint"""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = create_organization(user_token=user_token)
+
+    response = get_tool_usage_metrics(user_token=user_token, org_id=org_id)
+    assert response.status_code == 200
+    data = response.json()
+    assert "items" in data
+    assert "date_range" in data
+    assert isinstance(data["items"], list)
 
 @pytest.mark.e2e
 def test_recent_negative_feedback(

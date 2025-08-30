@@ -27,7 +27,7 @@
 
         <!-- Secondary Charts Section -->
         <div class="space-y-6 mb-8">
-            <!-- First Row: Table Usage (Bar Chart) + Table Joins Heatmap -->
+            <!-- First Row: Table Usage (Bar Chart) + Tool Usage (Bar Chart) -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- Table Usage Chart -->
                 <TableUsageChart
@@ -35,10 +35,10 @@
                     :is-loading="isLoadingTableCharts"
                 />
                 
-                <!-- Table Joins Heatmap -->
-                <TopUsersTable
-                    :top-users-data="topUsersData"
-                    :is-loading="isLoadingWidgets"
+                <!-- Tool Usage Chart -->
+                <ToolUsageChart
+                    :tool-usage-data="toolUsageData"
+                    :is-loading="isLoadingTableCharts"
                 />
             </div>
 
@@ -55,6 +55,12 @@
                 />
             </div>
 
+            <!-- Bottom Row: Top Users -->
+            <TopUsersTable
+                :top-users-data="topUsersData"
+                :is-loading="isLoadingWidgets"
+            />
+
         </div>
     </div>
 </template>
@@ -66,6 +72,7 @@ import MetricsCards from '~/components/console/MetricsCards.vue'
 import ActivityChart from '~/components/console/ActivityChart.vue'
 import PerformanceChart from '~/components/console/PerformanceChart.vue'
 import TableUsageChart from '~/components/console/TableUsageChart.vue'
+import ToolUsageChart from '~/components/console/ToolUsageChart.vue'
 import TableJoinsHeatmap from '~/components/console/TableJoinsHeatmap.vue'
 import TopPromptTypesChart from '~/components/console/TopPromptTypesChart.vue'
 import TopUsersTable from '~/components/console/TopUsersTable.vue'
@@ -158,6 +165,17 @@ interface TableJoinsHeatmap {
     date_range: DateRange
 }
 
+interface ToolUsageItem {
+    tool_name: string
+    label: string
+    count: number
+}
+
+interface ToolUsageMetrics {
+    items: ToolUsageItem[]
+    date_range: DateRange
+}
+
 interface TopUserData {
     user_id: string
     name: string
@@ -199,6 +217,8 @@ const isLoadingTableCharts = ref(false)
 
 const topUsersData = ref<TopUsersMetrics | null>(null)
 const isLoadingWidgets = ref(false)
+
+const toolUsageData = ref<ToolUsageMetrics | null>(null)
 
 // Keep the other mock data for widgets that don't have backend yet
 const mockLeaderboardData = ref([
@@ -382,6 +402,29 @@ const fetchTableJoinsData = async () => {
     }
 }
 
+const fetchToolUsageData = async () => {
+    isLoadingTableCharts.value = true
+    try {
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
+        }
+        const { data, error } = await useMyFetch<ToolUsageMetrics>(`/api/console/metrics/tool-usage?${params}`, { method: 'GET' })
+        if (error.value) {
+            console.error('Failed to fetch tool usage data:', error.value)
+        } else if (data.value) {
+            toolUsageData.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching tool usage data:', err)
+    } finally {
+        isLoadingTableCharts.value = false
+    }
+}
+
 const fetchTopUsers = async () => {
     isLoadingWidgets.value = true
     try {
@@ -414,7 +457,8 @@ const refreshData = async () => {
         fetchTimeSeriesData(),
         fetchTableUsageData(),
         fetchTableJoinsData(),
-        fetchTopUsers()
+        fetchTopUsers(),
+        fetchToolUsageData()
     ])
 }
 
@@ -438,7 +482,8 @@ onMounted(async () => {
             fetchTimeSeriesData(),
             fetchTableUsageData(),
             fetchTableJoinsData(),
-            fetchTopUsers()
+            fetchTopUsers(),
+            fetchToolUsageData()
         ])
     } catch (err) {
         console.error('Error fetching data:', err)

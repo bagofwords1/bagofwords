@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import AsyncIterator, Dict, Any, Type, Optional
 from pydantic import BaseModel, ValidationError
 
@@ -49,8 +50,39 @@ class CreateWidgetTool(Tool):
         # Context
         organization_settings = runtime_ctx.get("settings")
         context_view = runtime_ctx.get("context_view")
-        schemas_section = getattr(context_view.static, "schemas", None) if context_view else None
-        schemas_excerpt = schemas_section.render() if schemas_section else ""
+        # Schemas
+        _schemas_section_obj = getattr(context_view.static, "schemas", None) if context_view else None
+        schemas_excerpt = _schemas_section_obj.render() if _schemas_section_obj else ""
+        # Resources
+        _resources_section_obj = getattr(context_view.static, "resources", None) if context_view else None
+        resources_context = _resources_section_obj.render() if _resources_section_obj else ""
+        # Instructions
+        _instructions_section_obj = getattr(context_view.static, "instructions", None) if context_view else None
+        instructions_context = _instructions_section_obj.render() if _instructions_section_obj else ""
+        # Messages
+        _messages_section_obj = getattr(context_view.warm, "messages", None) if context_view else None
+        messages_context = _messages_section_obj.render() if _messages_section_obj else ""
+        # Platform
+        platform = (getattr(context_view, "meta", {}) or {}).get("external_platform") if context_view else None
+        # Observations and history
+        context_hub = runtime_ctx.get("context_hub")
+        past_observations = []
+        last_observation = None
+        if context_hub and getattr(context_hub, "observation_builder", None):
+            try:
+                past_observations = context_hub.observation_builder.tool_observations or []
+                last_observation = context_hub.observation_builder.get_latest_observation()
+            except Exception:
+                past_observations = []
+                last_observation = None
+        history_summary = ""
+        if context_hub and hasattr(context_hub, "get_history_summary"):
+            try:
+                history_summary = await context_hub.get_history_summary()
+            except Exception:
+                history_summary = ""
+
+
 
         # Phase 1: Generate Data Model (streamed parsing like create_data_model)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_data_model"})
@@ -59,13 +91,18 @@ class CreateWidgetTool(Tool):
 You are a data modeling assistant.
 Given the user's goal and available schemas, produce a normalized JSON data_model that will be streamed progressively.
 
-<schemas>
-{schemas_excerpt}
-</schemas>
-
-<user_prompt>
-{data.user_prompt}
-</user_prompt>
+INPUT ENVELOPE
+<user_prompt>{data.user_prompt}</user_prompt>
+<context>
+  <platform>{platform}</platform>
+  {instructions_context}
+  {schemas_excerpt}
+  {resources_context if resources_context else 'No metadata resources available'}
+  {history_summary}
+  {messages_context if messages_context else 'No detailed conversation history available'}
+  <past_observations>{json.dumps(past_observations) if past_observations else '[]'}</past_observations>
+  <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
+</context>
 
 <interpreted_prompt>
 {data.interpreted_prompt}
@@ -120,8 +157,10 @@ CRITICAL:
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_call_start"})
         import re
-        import json
         async for chunk in llm.inference_stream(prompt):
+            # Guard against empty SSE heartbeats
+            if not chunk:
+                continue
             buffer += chunk
             try:
                 parsed = parser.parse(buffer)
@@ -246,7 +285,7 @@ CRITICAL:
             current_step_id = runtime_ctx.get("current_step_id")
             error_observation = {
                 "summary": "Create widget failed",
-                "error": {"type": "execution_failure", "message": "execution failed"},
+                "error": {"type": "execution_failure", "message": "execution failed (validation or execution error)"},
             }
             if current_step_id:
                 error_observation["step_id"] = current_step_id
@@ -290,9 +329,9 @@ CRITICAL:
             "data_model": final_data_model,
             "data_preview": data_preview,
             "stats": info,
-            # Signal the agent loop that no further planning is needed for this single tool run
-            "analysis_complete": True,
-            "final_answer": f"Created widget '{data.widget_title}' with {info.get('total_rows', 0)} rows."
+            # Allow planner reflection and further steps in next loop
+            "analysis_complete": False,
+            "final_answer": None
         }
         if current_step_id:
             observation["step_id"] = current_step_id

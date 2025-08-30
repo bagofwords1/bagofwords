@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     bow_config: BowConfig | None = None
     email_client: FastMail | None = None
 
+    @property
+    def version(self) -> str:
+        return self.PROJECT_VERSION
+
     @classmethod
     def load(cls):
         # Load YAML configuration

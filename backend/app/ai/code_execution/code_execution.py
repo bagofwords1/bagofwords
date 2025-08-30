@@ -168,6 +168,7 @@ class StreamingCodeExecutor:
         final_code = ""
         exec_df = pd.DataFrame()
         execution_log = ""
+        executed_successfully = False
 
         while retries < max_retries:
             # Cooperative cancellation check at loop start
@@ -242,6 +243,7 @@ class StreamingCodeExecutor:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
                 exec_df, execution_log = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                executed_successfully = True
                 break
             except Exception as e:
                 import traceback
@@ -267,16 +269,29 @@ class StreamingCodeExecutor:
             }
             return
         else:
-            # Emit a final done event carrying the results instead of returning values
-            yield {
-                "type": "done",
-                "payload": {
-                    "df": exec_df,
-                    "code": final_code,
-                    "errors": code_and_error_messages,
-                    "execution_log": execution_log,
-                },
-            }
+            # If we never executed successfully (e.g., validation failed up to max retries),
+            # signal failure by returning df=None so callers can treat as error.
+            if not executed_successfully and code_and_error_messages:
+                yield {
+                    "type": "done",
+                    "payload": {
+                        "df": None,
+                        "code": final_code,
+                        "errors": code_and_error_messages,
+                        "execution_log": execution_log,
+                    },
+                }
+            else:
+                # Emit a final done event carrying the results instead of returning values
+                yield {
+                    "type": "done",
+                    "payload": {
+                        "df": exec_df,
+                        "code": final_code,
+                        "errors": code_and_error_messages,
+                        "execution_log": execution_log,
+                    },
+                }
 
     async def execute_and_update_step(self, 
                               data_model: Dict,

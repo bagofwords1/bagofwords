@@ -30,6 +30,7 @@ class ReportSchema(ReportBase):
     created_at: datetime
     updated_at: datetime
     cron_schedule: Optional[str] = None
+    app_version: Optional[str] = None  # Version for routing decisions
 
     class Config:
         from_attributes = True

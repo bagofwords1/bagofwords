@@ -552,7 +552,17 @@ class ProjectManager:
         title = f"Planning ({plan_decision.plan_type or 'unknown'})"
         status = 'completed' if plan_decision.analysis_complete else 'in_progress'
         icon = '🧠'
-        content = plan_decision.assistant or plan_decision.final_answer or ''
+        # Project content rules:
+        # - If analysis is complete: use final_answer
+        # - Else if the action is user-facing (clarify/answer_question): surface assistant message
+        # - Else: suppress content (keep in reasoning only)
+        user_facing_actions = {"clarify", "answer_question"}
+        if plan_decision.analysis_complete:
+            content = plan_decision.final_answer or plan_decision.assistant or None
+        elif plan_decision.action_name in user_facing_actions:
+            content = plan_decision.assistant or None
+        else:
+            content = None
         reasoning = plan_decision.reasoning or None
 
         # Try to find an existing block for this loop iteration

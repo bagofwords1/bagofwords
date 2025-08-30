@@ -13,19 +13,22 @@ class AnswerQuestionTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="answer_question",
-            description="Answer questions directly from available context with concise responses. This tool is for record purposes only, do not use it for research or gathering information. And keep the response in the main message.",
+            description="Answer questions that can be answered directly from available context. Must be called, even for simple questions.",
             category="action",  # Can be used in both research and action modes
             version="1.0.0",
             input_schema=AnswerQuestionInput.model_json_schema(),
             output_schema=AnswerQuestionOutput.model_json_schema(),
-            max_retries=1,  # Simple question answering doesn't need many retries
+            max_retries=0,  # Simple question answering doesn't need many retries
             timeout_seconds=15,
-            idempotent=True,  # Safe to retry
+            is_active=True,
+            idempotent=False,  # Safe to retry
             tags=["question", "context", "research"],
             examples=[
                 {
-                    "input": {"question": "What is the main purpose of this system?"},
-                    "description": "General question about system purpose"
+                    "input": {"question": "What is the schema for the orders table?"}
+                }, 
+                {
+                    "input": {"question": "Are there dbt models about the orders table?"}
                 }
             ]
         )
@@ -47,18 +50,10 @@ class AnswerQuestionTool(Tool):
             payload={"question": data.question}
         )
 
-        # In a real impl, call LLM or use context. Here, mock with a brief delay.
-        await asyncio.sleep(0)
-        yield ToolPartialEvent(
-            type="tool.partial", 
-            payload={"draft": f"Answering: {data.question}"}
-        )
-
         await asyncio.sleep(0)
         yield ToolEndEvent(
             type="tool.end",
             payload={
-                "output": {"answer": "This is a placeholder answer.", "citations": []},
-                "observation": {"summary": "Answered user question.", "artifacts": []},
+                "output": {"answer": "Create an answer for the user's question. Use only data that is available in the context. You can use markdown for formatting. ", "citations": []}
             }
         )

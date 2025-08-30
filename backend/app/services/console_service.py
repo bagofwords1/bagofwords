@@ -39,6 +39,7 @@ from app.models.completion import Completion
 from app.models.completion_feedback import CompletionFeedback
 from app.models.step import Step
 from sqlalchemy.orm import aliased
+from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
 
 logger = get_logger(__name__)
 
@@ -788,6 +789,51 @@ class ConsoleService:
             )
         )
 
+    async def get_tool_usage_metrics(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        params: MetricsQueryParams
+    ) -> ToolUsageMetrics:
+        """Count tool executions for specific tools within date range, mapped to friendly labels."""
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+
+        # Define target tools and labels
+        target_labels = {
+            'create_widget': 'Create Data',
+            'clarify': 'Request Clarification',
+            'answer_question': 'Search Context',
+            "create_dashboard": "Create Dashboard"
+        }
+
+        q = (
+            select(ToolExecution.tool_name, func.count(ToolExecution.id))
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(
+                AgentExecution.organization_id == organization.id,
+                ToolExecution.created_at >= start_date,
+                ToolExecution.created_at <= end_date,
+                ToolExecution.tool_name.in_(list(target_labels.keys()))
+            )
+            .group_by(ToolExecution.tool_name)
+        )
+        res = await db.execute(q)
+        rows = res.all()
+
+        counts = {name: 0 for name in target_labels.keys()}
+        for name, cnt in rows:
+            counts[str(name)] = int(cnt or 0)
+
+        items = [
+            ToolUsageItem(tool_name=name, label=target_labels[name], count=counts[name])
+            for name in target_labels.keys()
+        ]
+
+        return ToolUsageMetrics(
+            items=items,
+            date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat())
+        )
+
     async def get_top_users_metrics(
         self, 
         db: AsyncSession, 
@@ -1214,11 +1260,27 @@ class ConsoleService:
         cs_res = await db.execute(cs_query)
         head_snapshot = cs_res.scalar_one_or_none()
 
+        # Fetch latest feedback for the completion, if any
+        latest_feedback = None
+        try:
+            if agent_execution.completion_id:
+                fb_q = (
+                    select(CompletionFeedback)
+                    .where(CompletionFeedback.completion_id == agent_execution.completion_id)
+                    .order_by(CompletionFeedback.created_at.desc())
+                    .limit(1)
+                )
+                fb_res = await db.execute(fb_q)
+                latest_feedback = fb_res.scalars().first()
+        except Exception as e:
+            logger.warning(f"Failed to fetch latest feedback for completion {agent_execution.completion_id}: {e}")
+
         return AgentExecutionTraceResponse(
             agent_execution=agent_execution,
             completion_blocks=block_schemas,
             head_prompt_snippet=(head_prompt or '')[:160],
-            head_context_snapshot=head_snapshot
+            head_context_snapshot=head_snapshot,
+            latest_feedback=latest_feedback
         )
 
     async def get_tool_executions_diagnosis(self, db: AsyncSession, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, page: int = 1, page_size: int = 20) -> dict:

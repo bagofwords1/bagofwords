@@ -544,6 +544,13 @@ class AgentV2:
                             }
                         ))
                         
+                        # Refresh warm context to include the latest planner decision blocks in messages
+                        try:
+                            await self.context_hub.refresh_warm()
+                            view = self.context_hub.get_view()
+                        except Exception:
+                            pass
+
                         # RUN TOOL with enhanced context tracking
                         runtime_ctx = {
                             "db": self.db,
@@ -1019,6 +1026,17 @@ class AgentV2:
                             ))
                         except Exception:
                             pass
+                elif stage == "validating_code":
+                    # If validation fails, mark the step as error with the validation message
+                    try:
+                        is_valid = payload.get("valid", None)
+                        if is_valid is False and self.current_step:
+                            error_msg = payload.get("error") or "Validation failed"
+                            await self.project_manager.update_step_status(
+                                self.db, self.current_step, "error", status_reason=str(error_msg)
+                            )
+                    except Exception:
+                        pass
                         
                 elif stage == "widget_creation_needed":
                     # Update step with final complete data_model

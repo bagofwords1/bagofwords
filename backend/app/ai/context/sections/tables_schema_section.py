@@ -19,6 +19,8 @@ class TablesSchemaContext(ContextSection):
                     f'<column name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"/>'
                     for c in (t.columns or [])
                 )
+
+                # ignored for now
                 pks = "\n".join(
                     f'<pk name="{xml_escape(pk.name)}" dtype="{xml_escape(pk.dtype or "")}"/>'
                     for pk in (t.pks or [])
@@ -48,7 +50,7 @@ class TablesSchemaContext(ContextSection):
                     if t.last_feedback_at:
                         metrics_lines.append(f'<last_feedback_at value="{xml_escape(t.last_feedback_at)}"/>')
                 metrics_xml = xml_tag("metrics", "\n".join(metrics_lines)) if metrics_lines else ""
-                inner = "\n".join(filter(None, [xml_tag("columns", cols), xml_tag("pks", pks), xml_tag("fks", fks), metrics_xml]))
+                inner = "\n".join(filter(None, [xml_tag("columns", cols), metrics_xml]))
                 tables_xml.append(xml_tag("table", inner, {"name": t.name}))
             content_parts = []
             if self.info.context:

@@ -32,6 +32,42 @@ class ReportService:
 
     def __init__(self):
         self.widget_service = WidgetService()
+    
+    async def _detect_app_version(self, db: AsyncSession, report_id: str) -> str:
+        """Detect app version for routing decisions based on agent execution data."""
+        from app.models.agent_execution import AgentExecution
+        from app.models.completion import Completion
+        
+        # Check if there are any agent executions for this report
+        ae_query = select(AgentExecution).join(
+            Completion, AgentExecution.completion_id == Completion.id
+        ).where(
+            Completion.report_id == report_id,
+            Completion.role == 'system'
+        ).order_by(AgentExecution.created_at.desc()).limit(1)
+        
+        result = await db.execute(ae_query)
+        latest_execution = result.scalar_one_or_none()
+        
+        if latest_execution and latest_execution.bow_version:
+            return latest_execution.bow_version
+        
+        # Fallback: check if any system completions exist (indicating it has AI interactions)
+        completion_query = select(Completion).where(
+            Completion.report_id == report_id,
+            Completion.role == 'system'
+        ).limit(1)
+        
+        completion_result = await db.execute(completion_query)
+        has_system_completions = completion_result.scalar_one_or_none() is not None
+        
+        # If it has system completions but no agent executions, it's legacy
+        if has_system_completions:
+            return "0.0.189"  # Legacy version
+        
+        # New reports default to current version
+        from app.settings.config import settings
+        return settings.version
         
 
     async def get_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> ReportSchema:
@@ -49,6 +85,9 @@ class ReportService:
         
         user_schema = UserSchema.from_orm(report.user)
 
+        # Detect app version for routing
+        app_version = await self._detect_app_version(db, report.id)
+
         report_schema = ReportSchema(
             id=report.id,
             title=report.title,
@@ -58,6 +97,7 @@ class ReportService:
             cron_schedule=report.cron_schedule,
             created_at=report.created_at,
             updated_at=report.updated_at,
+            app_version=app_version,
             data_sources=report.data_sources,
             external_platform=report.external_platform
         )

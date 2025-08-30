@@ -122,6 +122,28 @@ def get_top_users_metrics(test_client):
     return _get_top_users_metrics
 
 @pytest.fixture
+def get_tool_usage_metrics(test_client):
+    def _get_tool_usage_metrics(user_token=None, org_id=None, start_date=None, end_date=None):
+        headers = {}
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+        if org_id:
+            headers["X-Organization-Id"] = str(org_id)
+        params = {}
+        if start_date:
+            params["start_date"] = start_date.isoformat()
+        if end_date:
+            params["end_date"] = end_date.isoformat()
+        response = test_client.get(
+            "/api/console/metrics/tool-usage",
+            headers=headers,
+            params=params
+        )
+        return response
+    
+    return _get_tool_usage_metrics
+
+@pytest.fixture
 def get_recent_negative_feedback(test_client):
     def _get_recent_negative_feedback(user_token=None, org_id=None, start_date=None, end_date=None):
         headers = {}

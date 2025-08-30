@@ -29,56 +29,16 @@ def backfill_agent_executions_for_completions():
     historic_version = "0.0.189"
     current_time = datetime.utcnow()
     
-    # Use SQLAlchemy's metadata to get table references (database-agnostic)
-    metadata = sa.MetaData()
-    completions_table = sa.Table('completions', metadata,
-        sa.Column('id', sa.String(36)),
-        sa.Column('report_id', sa.String(36)),
-        sa.Column('user_id', sa.String(36)),
-        sa.Column('status', sa.String),
-        sa.Column('role', sa.String),
-        sa.Column('created_at', sa.DateTime),
-        sa.Column('updated_at', sa.DateTime),
-    )
-    reports_table = sa.Table('reports', metadata,
-        sa.Column('id', sa.String(36)),
-        sa.Column('organization_id', sa.String(36)),
-    )
-    agent_executions_table = sa.Table('agent_executions', metadata,
-        sa.Column('id', sa.String(36)),
-        sa.Column('completion_id', sa.String(36)),
-        sa.Column('organization_id', sa.String(36)),
-        sa.Column('user_id', sa.String(36)),
-        sa.Column('report_id', sa.String(36)),
-        sa.Column('status', sa.String),
-        sa.Column('started_at', sa.DateTime),
-        sa.Column('completed_at', sa.DateTime),
-        sa.Column('total_duration_ms', sa.Float),
-        sa.Column('latest_seq', sa.Integer),
-        sa.Column('bow_version', sa.String),
-        sa.Column('config_json', sa.JSON),
-        sa.Column('created_at', sa.DateTime),
-        sa.Column('updated_at', sa.DateTime),
-    )
-    
-    # Build query using SQLAlchemy (works with both SQLite and PostgreSQL)
-    query = sa.select([
-        completions_table.c.id,
-        completions_table.c.report_id,
-        completions_table.c.user_id,
-        completions_table.c.status,
-        completions_table.c.created_at,
-        completions_table.c.updated_at,
-        reports_table.c.organization_id
-    ]).select_from(
-        completions_table.outerjoin(reports_table, completions_table.c.report_id == reports_table.c.id)
-        .outerjoin(agent_executions_table, completions_table.c.id == agent_executions_table.c.completion_id)
-    ).where(
-        sa.and_(
-            completions_table.c.role == 'system',
-            agent_executions_table.c.id.is_(None)
-        )
-    ).order_by(completions_table.c.created_at.asc())
+    # Simple raw SQL query that works with both SQLite and PostgreSQL
+    query = text("""
+        SELECT c.id, c.report_id, c.user_id, c.status, c.created_at, c.updated_at,
+               r.organization_id
+        FROM completions c
+        LEFT JOIN reports r ON c.report_id = r.id
+        LEFT JOIN agent_executions ae ON c.id = ae.completion_id
+        WHERE c.role = 'system' AND ae.id IS NULL
+        ORDER BY c.created_at
+    """)
     
     completions = connection.execute(query).fetchall()
     
@@ -132,10 +92,32 @@ def backfill_agent_executions_for_completions():
                 'updated_at': current_time
             })
         
-        # Insert batch using SQLAlchemy (database-agnostic)
+        # Insert batch using bulk insert (database-agnostic)
         if values:  # Only insert if we have values
-            insert_stmt = agent_executions_table.insert().values(values)
-            connection.execute(insert_stmt)
+            # Use bulk insert with text() for better compatibility
+            placeholders = ', '.join([
+                f"('{val['id']}', '{val['completion_id']}', "
+                f"{'NULL' if val['organization_id'] is None else f\"'{val['organization_id']}'\"}, "
+                f"{'NULL' if val['user_id'] is None else f\"'{val['user_id']}'\"}, "
+                f"{'NULL' if val['report_id'] is None else f\"'{val['report_id']}'\"}, "
+                f"'{val['status']}', "
+                f"{'NULL' if val['started_at'] is None else f\"'{val['started_at']}'\"}, "
+                f"{'NULL' if val['completed_at'] is None else f\"'{val['completed_at']}'\"}, "
+                f"{'NULL' if val['total_duration_ms'] is None else val['total_duration_ms']}, "
+                f"{val['latest_seq']}, '{val['bow_version']}', '{val['config_json']}', "
+                f"'{val['created_at']}', '{val['updated_at']}')"
+                for val in values
+            ])
+            
+            insert_sql = text(f"""
+                INSERT INTO agent_executions (
+                    id, completion_id, organization_id, user_id, report_id,
+                    status, started_at, completed_at, total_duration_ms, 
+                    latest_seq, bow_version, config_json, created_at, updated_at
+                ) VALUES {placeholders}
+            """)
+            
+            connection.execute(insert_sql)
         print(f"Inserted agent executions for batch {i//batch_size + 1}/{(len(completions) + batch_size - 1)//batch_size}")
     
     print(f"Backfill complete! Created agent executions for {len(completions)} historical completions with version '{historic_version}'")
