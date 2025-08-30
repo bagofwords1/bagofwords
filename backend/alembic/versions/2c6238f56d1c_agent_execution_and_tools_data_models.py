@@ -29,16 +29,56 @@ def backfill_agent_executions_for_completions():
     historic_version = "0.0.189"
     current_time = datetime.utcnow()
     
-    # Find system completions without agent_executions
-    query = text("""
-        SELECT c.id, c.report_id, c.user_id, c.status, c.created_at, c.updated_at,
-               r.organization_id
-        FROM completions c
-        LEFT JOIN reports r ON c.report_id = r.id
-        LEFT JOIN agent_executions ae ON c.id = ae.completion_id
-        WHERE c.role = 'system' AND ae.id IS NULL
-        ORDER BY c.created_at ASC
-    """)
+    # Use SQLAlchemy's metadata to get table references (database-agnostic)
+    metadata = sa.MetaData()
+    completions_table = sa.Table('completions', metadata,
+        sa.Column('id', sa.String(36)),
+        sa.Column('report_id', sa.String(36)),
+        sa.Column('user_id', sa.String(36)),
+        sa.Column('status', sa.String),
+        sa.Column('role', sa.String),
+        sa.Column('created_at', sa.DateTime),
+        sa.Column('updated_at', sa.DateTime),
+    )
+    reports_table = sa.Table('reports', metadata,
+        sa.Column('id', sa.String(36)),
+        sa.Column('organization_id', sa.String(36)),
+    )
+    agent_executions_table = sa.Table('agent_executions', metadata,
+        sa.Column('id', sa.String(36)),
+        sa.Column('completion_id', sa.String(36)),
+        sa.Column('organization_id', sa.String(36)),
+        sa.Column('user_id', sa.String(36)),
+        sa.Column('report_id', sa.String(36)),
+        sa.Column('status', sa.String),
+        sa.Column('started_at', sa.DateTime),
+        sa.Column('completed_at', sa.DateTime),
+        sa.Column('total_duration_ms', sa.Float),
+        sa.Column('latest_seq', sa.Integer),
+        sa.Column('bow_version', sa.String),
+        sa.Column('config_json', sa.JSON),
+        sa.Column('created_at', sa.DateTime),
+        sa.Column('updated_at', sa.DateTime),
+    )
+    
+    # Build query using SQLAlchemy (works with both SQLite and PostgreSQL)
+    query = sa.select([
+        completions_table.c.id,
+        completions_table.c.report_id,
+        completions_table.c.user_id,
+        completions_table.c.status,
+        completions_table.c.created_at,
+        completions_table.c.updated_at,
+        reports_table.c.organization_id
+    ]).select_from(
+        completions_table.outerjoin(reports_table, completions_table.c.report_id == reports_table.c.id)
+        .outerjoin(agent_executions_table, completions_table.c.id == agent_executions_table.c.completion_id)
+    ).where(
+        sa.and_(
+            completions_table.c.role == 'system',
+            agent_executions_table.c.id.is_(None)
+        )
+    ).order_by(completions_table.c.created_at.asc())
     
     completions = connection.execute(query).fetchall()
     
@@ -58,11 +98,22 @@ def backfill_agent_executions_for_completions():
             # Calculate duration if both timestamps exist
             duration_ms = None
             if comp.created_at and comp.updated_at:
-                duration_delta = comp.updated_at - comp.created_at
-                duration_ms = duration_delta.total_seconds() * 1000
+                try:
+                    # Parse timestamp strings to datetime objects
+                    created_at = datetime.fromisoformat(comp.created_at.replace('Z', '+00:00')) if isinstance(comp.created_at, str) else comp.created_at
+                    updated_at = datetime.fromisoformat(comp.updated_at.replace('Z', '+00:00')) if isinstance(comp.updated_at, str) else comp.updated_at
+                    duration_delta = updated_at - created_at
+                    duration_ms = duration_delta.total_seconds() * 1000
+                except (ValueError, TypeError):
+                    # If timestamp parsing fails, just skip duration calculation
+                    duration_ms = None
             
             # Map completion status to agent execution status
             ae_status = comp.status if comp.status in ['success', 'error', 'stopped'] else 'success'
+            
+            # Parse timestamps for insertion
+            started_at = datetime.fromisoformat(comp.created_at.replace('Z', '+00:00')) if isinstance(comp.created_at, str) else comp.created_at
+            completed_at = datetime.fromisoformat(comp.updated_at.replace('Z', '+00:00')) if isinstance(comp.updated_at, str) else comp.updated_at
             
             values.append({
                 'id': str(uuid.uuid4()),
@@ -71,8 +122,8 @@ def backfill_agent_executions_for_completions():
                 'user_id': comp.user_id,
                 'report_id': comp.report_id,
                 'status': ae_status,
-                'started_at': comp.created_at,
-                'completed_at': comp.updated_at,
+                'started_at': started_at,
+                'completed_at': completed_at,
                 'total_duration_ms': duration_ms,
                 'latest_seq': 0,
                 'bow_version': historic_version,
@@ -81,20 +132,10 @@ def backfill_agent_executions_for_completions():
                 'updated_at': current_time
             })
         
-        # Insert batch
-        insert_query = text("""
-            INSERT INTO agent_executions (
-                id, completion_id, organization_id, user_id, report_id,
-                status, started_at, completed_at, total_duration_ms, 
-                latest_seq, bow_version, config_json, created_at, updated_at
-            ) VALUES (
-                :id, :completion_id, :organization_id, :user_id, :report_id,
-                :status, :started_at, :completed_at, :total_duration_ms,
-                :latest_seq, :bow_version, :config_json, :created_at, :updated_at
-            )
-        """)
-        
-        connection.execute(insert_query, values)
+        # Insert batch using SQLAlchemy (database-agnostic)
+        if values:  # Only insert if we have values
+            insert_stmt = agent_executions_table.insert().values(values)
+            connection.execute(insert_stmt)
         print(f"Inserted agent executions for batch {i//batch_size + 1}/{(len(completions) + batch_size - 1)//batch_size}")
     
     print(f"Backfill complete! Created agent executions for {len(completions)} historical completions with version '{historic_version}'")
