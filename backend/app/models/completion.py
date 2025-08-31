@@ -193,14 +193,15 @@ def after_update_completion(mapper, connection, target):
         if target.step_id:
             data["step_id"] = str(target.step_id)
 
-        # Check for the specific conditions to send the final DM
+        # Send completion blocks to Slack when completion finishes
         if (target.status == "success" and
             target.role == "system" and
             target.external_platform == "slack" and
             target.external_user_id is not None):
             
-            print(f"DM_SENDER: Triggering final Slack DM for completion {target.id}")
-            asyncio.create_task(send_final_slack_dm(str(target.id)))
+            print(f"SLACK_SENDER: Triggering completion blocks DM for completion {target.id}")
+            from app.models.completion_block import send_completion_blocks_to_slack
+            asyncio.create_task(send_completion_blocks_to_slack(str(target.id)))
 
         asyncio.create_task(broadcast_event(data))
 

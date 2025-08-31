@@ -1,6 +1,15 @@
-from sqlalchemy import Column, String, Integer, Boolean, JSON, ForeignKey, DateTime, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, String, Integer, Boolean, JSON, ForeignKey, DateTime, UniqueConstraint, event, select
+from sqlalchemy.orm import relationship, selectinload
 from .base import BaseSchema
+import asyncio
+
+# Async DB + adapter imports used by event callbacks
+from app.settings.database import create_async_session_factory
+from app.services.platform_adapters.adapter_factory import PlatformAdapterFactory
+from app.models.external_platform import ExternalPlatform
+from app.models.completion import Completion
+from app.models.tool_execution import ToolExecution
+from app.services.slack_notification_service import send_step_result_to_slack
 
 
 class CompletionBlock(BaseSchema):
@@ -35,4 +44,172 @@ class CompletionBlock(BaseSchema):
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
+
+
+# ---------------------------
+# Slack DM push for blocks
+# ---------------------------
+
+# Best-effort in-process guard to reduce duplicate sends on rapid updates.
+_sent_block_ids = set()
+
+
+async def send_completion_blocks_to_slack(completion_id: str):
+    """Send all terminal completion blocks for a finished completion to Slack."""
+    session_maker = create_async_session_factory()
+    async with session_maker() as db:
+        try:
+            # Load completion with report for organization routing
+            comp_stmt = select(Completion).options(selectinload(Completion.report)).where(Completion.id == completion_id)
+            comp_result = await db.execute(comp_stmt)
+            completion = comp_result.scalar_one_or_none()
+            if not completion:
+                return
+
+            # Route only if originated from Slack
+            if not (completion.external_platform == 'slack' and completion.external_user_id):
+                return
+
+            # Get all terminal completion blocks for this completion
+            blocks_stmt = select(CompletionBlock).where(
+                CompletionBlock.completion_id == completion_id,
+                CompletionBlock.source_type.in_(['decision', 'final']),
+                CompletionBlock.status.in_(['completed', 'success'])
+            ).order_by(CompletionBlock.block_index)
+            
+            blocks_result = await db.execute(blocks_stmt)
+            blocks = blocks_result.scalars().all()
+            
+            if not blocks:
+                return
+
+            # Resolve Slack platform for the organization
+            org_id = completion.report.organization_id if completion.report else None
+            if not org_id:
+                return
+
+            platform_stmt = select(ExternalPlatform).where(
+                ExternalPlatform.organization_id == org_id,
+                ExternalPlatform.platform_type == 'slack'
+            )
+            platform_result = await db.execute(platform_stmt)
+            platform = platform_result.scalar_one_or_none()
+            if not platform:
+                return
+
+            adapter = PlatformAdapterFactory.create_adapter(platform)
+
+            # Send each block as a separate message
+            for block in blocks:
+                content = (block.content or '').strip()
+                if content and len(content) >= 10:  # Skip very short content
+                    await adapter.send_dm(completion.external_user_id, content)
+                
+                # If this block has a tool execution that created a step, send the step result (chart/table)
+                if block.tool_execution_id:
+                    try:
+                        te_stmt = select(ToolExecution).where(ToolExecution.id == block.tool_execution_id)
+                        te_result = await db.execute(te_stmt)
+                        te = te_result.scalar_one_or_none()
+                        if te and te.created_step_id:
+                            print(f"SLACK_SENDER: Sending step result for step {te.created_step_id} from block {block.id}")
+                            await send_step_result_to_slack(str(te.created_step_id))
+                    except Exception as e:
+                        print(f"Error sending step result for block {block.id}: {e}")
+
+        except Exception as e:
+            print(f"Error sending Slack DMs for completion {completion_id}: {e}")
+
+
+async def _send_block_to_slack(block_id: str):
+    session_maker = create_async_session_factory()
+    async with session_maker() as db:
+        try:
+            # Load block
+            block_stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
+            block_result = await db.execute(block_stmt)
+            block = block_result.scalar_one_or_none()
+            if not block:
+                return
+
+            # Load parent completion with report for organization routing
+            comp_stmt = select(Completion).options(selectinload(Completion.report)).where(Completion.id == block.completion_id)
+            comp_result = await db.execute(comp_stmt)
+            completion = comp_result.scalar_one_or_none()
+            if not completion:
+                return
+
+            # Route only if originated from Slack
+            if not (completion.external_platform == 'slack' and completion.external_user_id):
+                return
+
+            # Tool-origin content: if a tool execution exists and finished, send the step output (chart/table/file)
+            if getattr(block, 'tool_execution_id', None) and (block.status in ('success', 'error', 'completed')):
+                try:
+                    te_stmt = select(ToolExecution).where(ToolExecution.id == block.tool_execution_id)
+                    te_result = await db.execute(te_stmt)
+                    te = te_result.scalar_one_or_none()
+                except Exception:
+                    te = None
+                if te and te.created_step_id:
+                    _sent_block_ids.add(block_id)
+                    await send_step_result_to_slack(str(te.created_step_id))
+                    return
+
+            # Decision/final blocks: send concise text when meaningful
+            is_user_facing_source = (block.source_type in ('decision', 'final'))
+            has_content = bool((block.content or '').strip())
+            is_terminal_status = (block.status in ('completed', 'success'))
+            if not (is_user_facing_source and has_content and is_terminal_status):
+                return
+
+            # Basic duplicate suppression for the process lifetime
+            if block_id in _sent_block_ids:
+                return
+
+            # Resolve Slack platform for the organization
+            org_id = completion.report.organization_id if completion.report else None
+            if not org_id:
+                return
+
+            platform_stmt = select(ExternalPlatform).where(
+                ExternalPlatform.organization_id == org_id,
+                ExternalPlatform.platform_type == 'slack'
+            )
+            platform_result = await db.execute(platform_stmt)
+            platform = platform_result.scalar_one_or_none()
+            if not platform:
+                return
+
+            adapter = PlatformAdapterFactory.create_adapter(platform)
+
+            # Format a concise Slack message for decision/final blocks
+            content = (block.content or '').strip()
+            
+            # Skip very short content (likely partial streaming)
+            if len(content) < 10:
+                return
+
+            # Debounce: wait briefly and re-check if content changed (still streaming)
+            initial_updated_at = block.updated_at
+            await asyncio.sleep(0.5)
+            
+            # Re-read block to check if it's still being updated
+            fresh_stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
+            fresh_result = await db.execute(fresh_stmt)
+            fresh_block = fresh_result.scalar_one_or_none()
+            if not fresh_block or fresh_block.updated_at != initial_updated_at:
+                # Block was updated while we waited, skip this send
+                return
+
+            _sent_block_ids.add(block_id)
+            await adapter.send_dm(completion.external_user_id, fresh_block.content or content)
+        except Exception as e:
+            # Swallow errors to avoid interrupting transaction lifecycles
+            print(f"Error sending Slack DM for block {block_id}: {e}")
+
+
+# Remove the individual block listeners - we'll send all blocks when completion finishes
+# event.listen(CompletionBlock, 'after_insert', after_insert_block)
+# event.listen(CompletionBlock, 'after_update', after_update_block)
 

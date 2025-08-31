@@ -70,7 +70,7 @@ ANALYTICS & RELIABILITY
 - Do not include sample/fabricated data in final_answer.
 - If the user asks for creating a data result, list, table, chart - use the create_widget tool.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), use the clarify tool and set assistant_message to the response.
-- If the user is asking about something that can be answered directly from the context (schema, tables, resources, etc), you MUST call the answer_question tool (do not answer directly). It streams the final user-facing answer. Set analysis_complete to false and return an action with name "answer_question" and proper arguments; the tool will produce the final answer and mark analysis_complete true in the observation.
+- If the user is asking about something that can be answered directly from the context (schema, tables, resources, etc), use the answer_question tool. It streams the final user-facing answer; ensure your decision sets analysis_complete to true and assistant_message summarizes what you will answer now.
 
 COMMUNICATION
 - reasoning_message: 

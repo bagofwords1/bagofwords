@@ -156,5 +156,14 @@ export default defineNuxtConfig({
     }
   },
 
+  // Allow ngrok domains to access the dev server (for Slack webhooks via frontend proxy)
+  vite: {
+    server: {
+      allowedHosts: [
+        '.ngrok-free.app'
+      ]
+    }
+  },
+
   compatibilityDate: '2025-08-03',
 })

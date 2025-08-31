@@ -1,5 +1,22 @@
 # Release Notes
 
+## Version 0.0.190 (August 31, 2025)
+- Launched Agent 2.0, a comprehensive redesign of the backend agentic architecture
+  - Implements ReAct methodology with single-tool execution per planning cycle
+  - Enhanced tool registry featuring comprehensive tracking and governance capabilities
+  - Added clarify tool for detecting user queries with undefined metrics/measures or ambiguous requirements
+  - Improved error handling, tool schema validation, and enhanced reliability throughout agent execution
+  - Comprehensive tracking system for agent executions, tool usage, and AI decision-making processes
+- Released Context Management 1.0, providing robust and reliable context tracking for both warm and cold AI interactions
+  - Complete monitoring of context utilization patterns
+  - Streamlined interface for context construction and management during agent operations
+- Enhanced compatibility with LLMs that generate prefix/postfix formatting symbols such as json/``` markers
+- Redesigned streaming architecture with server-sent events (SSE) implementation for real-time user prompt processing
+- Enhanced admin interface for monitoring agent execution flows and tracking user request patterns
+- Introduced new analytics visualization in console dashboard displaying metrics for data request creation (user-initiated), AI clarification requests, and additional operational insights
+- Added automated testing for the system
+
+
 ## Version 0.0.189 (August 25, 2025)
 - Enhanced table usage analytics with comprehensive success/failure tracking, performance scoring, and intelligent usage pattern recognition
 - Implemented automated TableStats model to capture query performance metrics, execution outcomes, and user satisfaction data in real-time

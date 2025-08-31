@@ -272,6 +272,8 @@ class AgentV2:
                 current_block_id = None
                 token_accumulator = {"reasoning": "", "content": ""}
                 plan_streamer = None
+                # Stable sequence for the entire planner decision lifespan
+                decision_seq = None
 
                 # Pre-create a placeholder PlanDecision and corresponding block for this loop
                 try:
@@ -296,6 +298,8 @@ class AgentV2:
                         self.db, self.system_completion, self.current_execution, pre_pd
                     )
                     current_block_id = str(pre_block.id)
+                    # Pin the decision sequence so partial/final frames upsert the same row
+                    decision_seq = pre_seq
                     # Emit initial block snapshot
                     try:
                         block_schema = await serialize_block_v2(self.db, pre_block)
@@ -335,14 +339,16 @@ class AgentV2:
                     elif evt.type == "planner.decision.partial":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
                         
-                        # Get next sequence number
-                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                        # Get next sequence number for SSE event ordering (not used for DB upsert)
+                        event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                         
-                        # Save partial decision (Pydantic model)
+                        # Save partial decision (Pydantic model) using stable decision_seq
+                        if decision_seq is None:
+                            decision_seq = event_seq
                         current_plan_decision = await self.project_manager.save_plan_decision_from_model(
                             self.db,
                             agent_execution=self.current_execution,
-                            seq=seq,
+                            seq=decision_seq,
                             loop_index=loop_index,
                             planner_decision_model=decision,
                         )
@@ -365,7 +371,7 @@ class AgentV2:
                                         event="block.upsert",
                                         completion_id=str(self.system_completion.id),
                                         agent_execution_id=str(self.current_execution.id),
-                                        seq=seq,
+                                        seq=event_seq,
                                         data={"block": block_schema.model_dump()}
                                     ))
                                 except Exception:
@@ -403,7 +409,7 @@ class AgentV2:
                                 event="decision.partial",
                                 completion_id=str(self.system_completion.id),
                                 agent_execution_id=str(self.current_execution.id),
-                                seq=seq,
+                                seq=event_seq,
                                 data={
                                     "plan_type": decision.plan_type,
                                     "reasoning": decision.reasoning_message,
@@ -449,14 +455,16 @@ class AgentV2:
                             # Stop streaming loop; outer loop will attempt again
                             break
                         
-                        # Get next sequence number
-                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                        # Get next sequence number for SSE event ordering (not used for DB upsert)
+                        event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                         
-                        # Save final decision (Pydantic model)
+                        # Save final decision (Pydantic model) using stable decision_seq
+                        if decision_seq is None:
+                            decision_seq = event_seq
                         current_plan_decision = await self.project_manager.save_plan_decision_from_model(
                             self.db,
                             agent_execution=self.current_execution,
-                            seq=seq,
+                            seq=decision_seq,
                             loop_index=loop_index,
                             planner_decision_model=decision,
                         )
@@ -475,7 +483,7 @@ class AgentV2:
                                     event="block.upsert",
                                     completion_id=str(self.system_completion.id),
                                     agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
+                                    seq=event_seq,
                                     data={"block": block_schema.model_dump()}
                                 ))
                                 # Finalize field streaming (snapshots + completion markers)
@@ -494,7 +502,7 @@ class AgentV2:
                             event="decision.final",
                             completion_id=str(self.system_completion.id),
                             agent_execution_id=str(self.current_execution.id),
-                            seq=seq,
+                            seq=event_seq,
                             data={
                                 "analysis_complete": decision.analysis_complete,
                                 "final_answer": decision.final_answer,

@@ -21,6 +21,7 @@ class ModifyDataModelTool(Tool):
             input_schema=ModifyDataModelInput.model_json_schema(),
             output_schema=ModifyDataModelOutput.model_json_schema(),
             max_retries=1,
+            is_active=False,
             timeout_seconds=20,
             idempotent=True,
             required_permissions=[],

@@ -553,16 +553,12 @@ class ProjectManager:
         status = 'completed' if plan_decision.analysis_complete else 'in_progress'
         icon = '🧠'
         # Project content rules:
-        # - If analysis is complete: use final_answer
-        # - Else if the action is user-facing (clarify/answer_question): surface assistant message
-        # - Else: suppress content (keep in reasoning only)
-        user_facing_actions = {"clarify", "answer_question"}
+        # - If analysis is complete: prefer final_answer, fall back to assistant
+        # - If analysis is not complete: surface assistant text so the UI isn't stuck on "Thinking"
         if plan_decision.analysis_complete:
             content = plan_decision.final_answer or plan_decision.assistant or None
-        elif plan_decision.action_name in user_facing_actions:
-            content = plan_decision.assistant or None
         else:
-            content = None
+            content = plan_decision.assistant or None
         reasoning = plan_decision.reasoning or None
 
         # Try to find an existing block for this loop iteration
@@ -630,7 +626,13 @@ class ProjectManager:
         # Update block with tool execution info
         existing.tool_execution_id = str(tool_execution.id)
         existing.title = f"{existing.title.split(' →')[0]} → {tool_execution.tool_name}"
-        existing.status = tool_execution.status
+        # Normalize status values for blocks
+        if tool_execution.status == 'success':
+            existing.status = 'completed'
+        elif tool_execution.status == 'error':
+            existing.status = 'error'
+        else:
+            existing.status = 'in_progress'
         existing.completed_at = tool_execution.completed_at
         
         db.add(existing)
