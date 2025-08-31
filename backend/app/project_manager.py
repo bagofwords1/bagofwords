@@ -44,7 +44,7 @@ class ProjectManager:
                     user_id=user_id,
                     table_fqn=table_fqn,
                     datasource_table_id=entry.get("datasource_table_id"),
-                    source_type=source_type,
+                    source_type=source_type or "sql",
                     columns=entry.get("columns") or [],
                     success=(step.status == "success"),
                     user_role=user_role,
