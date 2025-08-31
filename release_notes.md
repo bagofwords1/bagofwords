@@ -15,6 +15,7 @@
 - Enhanced admin interface for monitoring agent execution flows and tracking user request patterns
 - Introduced new analytics visualization in console dashboard displaying metrics for data request creation (user-initiated), AI clarification requests, and additional operational insights
 - Added automated testing for the system
+- As this change was signifcant, old reports (in version prior 0.0.190) will be set as read-only.
 
 
 ## Version 0.0.189 (August 25, 2025)
