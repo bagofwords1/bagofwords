@@ -15,7 +15,7 @@ class AnswerQuestionTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="answer_question",
-            description="Stream a direct, context-grounded answer to the user. Uses org instructions, schemas, messages, resources, and observations. Never fabricate; if insufficient context, ask for clarification.",
+            description="For any user question that is about schema, metadata, context, or history, use this tool to answer the question.",
             category="action",  # Can be used in both research and action modes
             version="1.0.0",
             input_schema=AnswerQuestionInput.model_json_schema(),

@@ -125,6 +125,33 @@ class AgentV2:
         except Exception:
             pass
 
+    async def _persist_partial_decision_text(self, reasoning_text: str | None, content_text: str | None):
+        """Persist partial reasoning/content into the current decision block for resilience on stop."""
+        try:
+            if not self.current_execution or not self.system_completion:
+                return
+            # Fetch latest decision block and update fields if present
+            from sqlalchemy import select
+            from app.models.completion_block import CompletionBlock
+            stmt = select(CompletionBlock).where(
+                CompletionBlock.agent_execution_id == self.current_execution.id
+            ).order_by(CompletionBlock.block_index.desc())
+            block = (await self.db.execute(stmt)).scalar_one_or_none()
+            if not block:
+                return
+            updated = False
+            if content_text is not None and content_text.strip():
+                block.content = content_text
+                updated = True
+            if reasoning_text is not None and reasoning_text.strip():
+                block.reasoning = reasoning_text
+                updated = True
+            if updated:
+                self.db.add(block)
+                await self.db.commit()
+        except Exception:
+            # Best-effort; ignore persistence failures
+            pass
 
 
     async def main_execution(self):
@@ -319,6 +346,13 @@ class AgentV2:
                             loop_index=loop_index,
                             planner_decision_model=decision,
                         )
+                        # Persist partial content/reasoning to the decision block so a stop retains text
+                        try:
+                            await self.project_manager.upsert_block_for_decision(
+                                self.db, self.system_completion, self.current_execution, current_plan_decision
+                            )
+                        except Exception:
+                            pass
                         # Ensure a block exists if pre-creation failed; emit one snapshot once
                         if current_block_id is None:
                             try:

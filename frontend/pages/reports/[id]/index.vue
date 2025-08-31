@@ -85,6 +85,7 @@
 															<component 
 																v-if="shouldUseToolComponent(block.tool_execution)"
 																:is="getToolComponent(block.tool_execution.tool_name)"
+																:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
 																:tool-execution="block.tool_execution"
 																@addWidget="handleAddWidgetFromPreview"
 															/>
@@ -162,6 +163,7 @@
 										<component 
 											v-if="shouldUseToolComponent(block.tool_execution)"
 											:is="getToolComponent(block.tool_execution.tool_name)"
+											:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
 											:tool-execution="block.tool_execution"
 											@addWidget="handleAddWidgetFromPreview"
 										/>
@@ -762,6 +764,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							status: 'running'
 						}
 					}
+					// Reset result_json for fresh run to avoid stale shared references
+					lastBlock.tool_execution.result_json = {}
 					lastBlock.status = 'in_progress'
 				}
 			}
