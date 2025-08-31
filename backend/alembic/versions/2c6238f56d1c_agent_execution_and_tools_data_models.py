@@ -95,26 +95,32 @@ def backfill_agent_executions_for_completions():
         # Insert batch using bulk insert (database-agnostic)
         if values:  # Only insert if we have values
             # Use bulk insert with text() for better compatibility
-            placeholders = ', '.join([
-                f"('{val['id']}', '{val['completion_id']}', "
-                f"{'NULL' if val['organization_id'] is None else f\"'{val['organization_id']}'\"}, "
-                f"{'NULL' if val['user_id'] is None else f\"'{val['user_id']}'\"}, "
-                f"{'NULL' if val['report_id'] is None else f\"'{val['report_id']}'\"}, "
-                f"'{val['status']}', "
-                f"{'NULL' if val['started_at'] is None else f\"'{val['started_at']}'\"}, "
-                f"{'NULL' if val['completed_at'] is None else f\"'{val['completed_at']}'\"}, "
-                f"{'NULL' if val['total_duration_ms'] is None else val['total_duration_ms']}, "
-                f"{val['latest_seq']}, '{val['bow_version']}', '{val['config_json']}', "
-                f"'{val['created_at']}', '{val['updated_at']}')"
-                for val in values
-            ])
+            placeholders = []
+            for val in values:
+                org_id = 'NULL' if val['organization_id'] is None else f"'{val['organization_id']}'"
+                user_id = 'NULL' if val['user_id'] is None else f"'{val['user_id']}'"
+                report_id = 'NULL' if val['report_id'] is None else f"'{val['report_id']}'"
+                started_at = 'NULL' if val['started_at'] is None else f"'{val['started_at']}'"
+                completed_at = 'NULL' if val['completed_at'] is None else f"'{val['completed_at']}'"
+                duration_ms = 'NULL' if val['total_duration_ms'] is None else str(val['total_duration_ms'])
+                
+                placeholder = (
+                    f"('{val['id']}', '{val['completion_id']}', "
+                    f"{org_id}, {user_id}, {report_id}, "
+                    f"'{val['status']}', {started_at}, {completed_at}, "
+                    f"{duration_ms}, {val['latest_seq']}, '{val['bow_version']}', "
+                    f"'{val['config_json']}', '{val['created_at']}', '{val['updated_at']}')"
+                )
+                placeholders.append(placeholder)
+            
+            placeholders_str = ', '.join(placeholders)
             
             insert_sql = text(f"""
                 INSERT INTO agent_executions (
                     id, completion_id, organization_id, user_id, report_id,
                     status, started_at, completed_at, total_duration_ms, 
                     latest_seq, bow_version, config_json, created_at, updated_at
-                ) VALUES {placeholders}
+                ) VALUES {placeholders_str}
             """)
             
             connection.execute(insert_sql)
