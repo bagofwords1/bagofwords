@@ -90,15 +90,20 @@ def create_completion_stream(test_client):
             "Accept": "text/event-stream"
         }
 
-        with test_client.stream(
-            "POST",
-            f"/api/reports/{report_id}/completions",
-            json=payload,
-            headers=headers,
-        ) as resp:
-            assert resp.status_code == 200
-            assert resp.headers.get("content-type", "").startswith("text/event-stream")
-            # Return the streaming response iterator to the test
-            return resp.iter_lines()
+        def _line_iter():
+            # Keep the response context open for the duration of iteration
+            with test_client.stream(
+                "POST",
+                f"/api/reports/{report_id}/completions",
+                json=payload,
+                headers=headers,
+            ) as resp:
+                assert resp.status_code == 200
+                assert resp.headers.get("content-type", "").startswith("text/event-stream")
+                for line in resp.iter_lines():
+                    yield line
+
+        # Return a generator instance so the context stays open while consuming
+        return _line_iter()
 
     return _create_completion_stream

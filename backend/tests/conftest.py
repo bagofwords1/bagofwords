@@ -45,14 +45,14 @@ def alembic_config():
 
 @pytest.fixture(scope="function", autouse=True)
 def run_migrations(alembic_config):
-    """Run migrations before each test and downgrade after."""
+    """Run migrations once per test session to avoid SQLite locking issues."""
     print("Starting migrations...")
     command.upgrade(alembic_config, "head")
     print("Migrations completed!")
     yield
     print("Downgrading migrations...")
     command.downgrade(alembic_config, "base")
-    # Clean up test database file
+    # Clean up test database file at the end of the session
     db_file = alembic_config.get_main_option("sqlalchemy.url").replace('sqlite:///', '')
     if os.path.exists(db_file):
         os.remove(db_file)
