@@ -112,7 +112,6 @@ async def send_completion_blocks_to_slack(completion_id: str):
                         te_result = await db.execute(te_stmt)
                         te = te_result.scalar_one_or_none()
                         if te and te.created_step_id:
-                            print(f"SLACK_SENDER: Sending step result for step {te.created_step_id} from block {block.id}")
                             await send_step_result_to_slack(str(te.created_step_id))
                     except Exception as e:
                         print(f"Error sending step result for block {block.id}: {e}")
