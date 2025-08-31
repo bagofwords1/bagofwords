@@ -207,7 +207,7 @@ async def delete_instruction(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Delete an instruction (only if private and user owns it)"""
+    """Delete an instruction (admins can delete any instruction)"""
     success = await instruction_service.delete_instruction(db, instruction_id, organization, current_user)
     if not success:
         raise HTTPException(status_code=404, detail="Instruction not found")

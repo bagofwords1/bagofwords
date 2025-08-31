@@ -330,12 +330,14 @@ class LLMService:
 
         # Azure: endpoint_url
         if provider.provider_type == "azure":
-            endpoint_url = credentials.get("endpoint_url")
-            if endpoint_url:
-                existing_additional_config = { **existing_additional_config, "endpoint_url": endpoint_url }
-            elif "endpoint_url" in existing_additional_config and not credentials.get("endpoint_url"):
-                # If explicitly empty, remove to fallback to default behavior
-                existing_additional_config.pop("endpoint_url", None)
+            # Only act on endpoint_url if the key is present in the payload
+            if "endpoint_url" in credentials:
+                endpoint_url = credentials.get("endpoint_url")
+                if endpoint_url:
+                    existing_additional_config = { **existing_additional_config, "endpoint_url": endpoint_url }
+                elif credentials.get("endpoint_url") is None or credentials.get("endpoint_url") == "":
+                    # Explicitly clear endpoint_url when set to empty/null
+                    existing_additional_config.pop("endpoint_url", None)
 
         # OpenAI: base_url (optional)
         if provider.provider_type == "openai":

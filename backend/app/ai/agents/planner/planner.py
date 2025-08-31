@@ -16,18 +16,8 @@ class Planner:
         self.organization_settings = organization_settings
         self.instruction_context_builder = instruction_context_builder
 
-        # Handle tokenizer selection with better fallback logic
-        try:
-            if hasattr(model, 'name'):
-                # Try to get encoding for the model
-                self.tokenizer = tiktoken.encoding_for_model(model.name)
-            else:
-                # Fallback to cl100k_base
-                self.tokenizer = tiktoken.get_encoding("cl100k_base")
-        except KeyError:
-            # If model name isn't recognized (like GPT-4o), use cl100k_base
-            print(f"Warning: Could not find tokenizer for {model.name if hasattr(model, 'name') else 'unknown model'}. Using cl100k_base instead.")
-            self.tokenizer = tiktoken.get_encoding("cl100k_base")
+        # Always use local, offline-safe tokenizer to avoid remote lookups
+        self.tokenizer = tiktoken.get_encoding("cl100k_base")
 
     def count_tokens(self, text):
         """Count the number of tokens in a text string."""

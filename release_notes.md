@@ -22,13 +22,15 @@
 - Implemented automated TableStats model to capture query performance metrics, execution outcomes, and user satisfaction data in real-time
 - Advanced code generation now leverages historical success patterns and proven code snippets, significantly improving accuracy and reliability
 - Upgraded AI planner with feedback-driven decision algorithms that incorporate table performance scores and usage data for continuous self-improvement
-- Added tests covering llm providers and console metrics
+- Added weighted performance/feedback scoring based on user role (admin vs. rest)
+- Added tests covering llm providers, azure backend, and console metrics
 
 ## Version 0.0.188 (August 23, 2025)
 - Enhanced streaming reliability for data models and query results in chat interface
 - Strengthened completion termination handling with comprehensive SIGKILL support across all agent lifecycle stages
 - Introduced custom base URL configuration for OpenAI provider deployments
-- Fixed issue with console metrics and usage data
+- Resolved console metrics and usage data functionality issues
+- Corrected admin permissions to allow deletion (not just archival/rejection) of suggested instructions
 
 
 ## Version 0.0.186 (August 19, 2025)

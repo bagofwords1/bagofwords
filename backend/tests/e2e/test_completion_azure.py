@@ -67,4 +67,3 @@ def test_completion_streaming_azure(
     assert saw_started
     assert saw_finished
 
-

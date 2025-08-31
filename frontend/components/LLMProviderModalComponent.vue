@@ -47,6 +47,17 @@
                                 class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
                             />
                         </div>
+                        <div class="" v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
+                            <label class="text-sm font-medium text-gray-700 mb-2">
+                                Endpoint URL
+                            </label>
+                            <input 
+                                v-model="selectedProvider.credentials.endpoint_url" 
+                                type="text" 
+                                placeholder="e.g. https://<resource>.openai.azure.com"
+                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
+                            />
+                        </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
                             <div class="mt-1">
                                 <button type="button" @click="toggleBaseUrl" class="text-xs text-blue-600 hover:underline">
@@ -431,6 +442,16 @@ watch(providerModalOpen, (newValue) => {
             } else {
                 showBaseUrl.value = false;
             }
+            // Hydrate Azure endpoint_url for edit
+            if ((selectedProvider.value.provider_type === 'azure' || selectedProvider.value.type === 'azure')) {
+                const existingEndpoint = selectedProvider.value.additional_config?.endpoint_url;
+                if (existingEndpoint && (!selectedProvider.value.credentials.endpoint_url || selectedProvider.value.credentials.endpoint_url === '')) {
+                    (selectedProvider.value.credentials as any).endpoint_url = existingEndpoint;
+                }
+                if (selectedProvider.value.credentials.endpoint_url === undefined) {
+                    (selectedProvider.value.credentials as any).endpoint_url = null;
+                }
+            }
         }
     }
 });
@@ -459,6 +480,16 @@ watch(() => props.editProviderId, (newId) => {
                 showBaseUrl.value = !!selectedProvider.value.credentials.base_url;
             } else {
                 showBaseUrl.value = false;
+            }
+            // Hydrate Azure endpoint_url for edit
+            if ((selectedProvider.value.provider_type === 'azure' || selectedProvider.value.type === 'azure')) {
+                const existingEndpoint = selectedProvider.value.additional_config?.endpoint_url;
+                if (existingEndpoint && (!selectedProvider.value.credentials.endpoint_url || selectedProvider.value.credentials.endpoint_url === '')) {
+                    (selectedProvider.value.credentials as any).endpoint_url = existingEndpoint;
+                }
+                if (selectedProvider.value.credentials.endpoint_url === undefined) {
+                    (selectedProvider.value.credentials as any).endpoint_url = null;
+                }
             }
         }
     }
@@ -620,6 +651,16 @@ watch(selectedProvider, (newValue) => {
             showBaseUrl.value = !!newValue.credentials.base_url;
         } else {
             showBaseUrl.value = false;
+        }
+        // Ensure endpoint_url field exists for Azure so users can view/update it
+        if ((newValue.provider_type === 'azure' || newValue.type === 'azure')) {
+            const existingEndpoint = (newValue as any)?.additional_config?.endpoint_url;
+            if (existingEndpoint && (!newValue.credentials.endpoint_url || newValue.credentials.endpoint_url === '')) {
+                (newValue.credentials as any).endpoint_url = existingEndpoint;
+            }
+            if (newValue.credentials.endpoint_url === undefined) {
+                (newValue.credentials as any).endpoint_url = null;
+            }
         }
         providerForm.value = {
             name: '',
