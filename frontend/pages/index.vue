@@ -31,10 +31,11 @@
     </div>
 
     <div class="flex flex-col p-4 flex-grow md:w-2/3 text-center md:mx-auto mt-20">
-      <h1 class="text-5xl mt-10 font-bold">
-        Get the data you need
+      <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="w-10 mx-auto" />
+      <h1 class="text-5xl mt-5 font-bold">
+        {{ orgAIAnalystName || 'AI Analyst' }}
       </h1>
-      <div class="w-full mx-auto mt-5 space-x-3 space-y-3 bg-red-100">
+      <div class="w-full mx-auto mt-2 space-x-3 space-y-3 bg-red-100">
       </div>
       <p class="text-lg mt-5 text-gray-500">
           Create reports, dashboards, and simply get the data you need
@@ -147,6 +148,19 @@ const getModels = async () => {
 
 const { signIn, signOut, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
 const { organization, ensureOrganization } = useOrganization()
+const orgIconUrl = computed(() => {
+  const orgId = organization.value?.id
+  const orgs = (currentUser.value as any)?.organizations || []
+  const org = orgs.find((o: any) => o.id === orgId) || orgs[0]
+  return org?.icon_url || null
+})
+
+const orgAIAnalystName = computed(() => {
+  const orgId = organization.value?.id
+  const orgs = (currentUser.value as any)?.organizations || []
+  const org = orgs.find((o: any) => o.id === orgId) || orgs[0]
+  return org?.ai_analyst_name || "AI Analyst"
+})
 
 definePageMeta({ 
   layout: 'default',

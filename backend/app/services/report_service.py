@@ -192,7 +192,23 @@ class ReportService:
         if report.status != 'published':
             raise HTTPException(status_code=404, detail="Report not found")
         
-        return ReportSchema.from_orm(report)
+        schema = ReportSchema.from_orm(report)
+        # Attach minimal general settings from organization settings
+        try:
+            from app.models.organization_settings import OrganizationSettings
+            settings_result = await db.execute(select(OrganizationSettings).filter(OrganizationSettings.organization_id == report.organization_id))
+            settings = settings_result.scalar_one_or_none()
+            if settings and isinstance(settings.config, dict):
+                general = settings.config.get("general", {}) or {}
+                schema.general = ReportSchema.PublicGeneralSettings(
+                    ai_analyst_name=general.get("ai_analyst_name", "AI Analyst"),
+                    bow_credit=general.get("bow_credit", True),
+                    icon_url=general.get("icon_url")
+                )
+        except Exception:
+            pass
+
+        return schema
 
     async def get_reports(self, db: AsyncSession, current_user: User, organization: Organization, page: int = 1, limit: int = 10, filter: str = "my"):
         # Calculate offset

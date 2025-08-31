@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.organization import Organization
 from app.models.membership import Membership
-from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema
+from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema, OrganizationUpdate
 from app.schemas.organization_schema import MembershipCreate, MembershipSchema, MembershipUpdate
 from app.schemas.organization_settings_schema import OrganizationSettingsCreate
 from app.services.organization_settings_service import OrganizationSettingsService
@@ -114,15 +114,33 @@ class OrganizationService:
             .where(Membership.user_id == current_user.id)
         )
         results = result.all()
-        return [
-            OrganizationAndRoleSchema(
+        org_ids = [org.id for org, _ in results]
+        # Load settings for these orgs to extract icon_url
+        from app.models.organization_settings import OrganizationSettings
+        settings_map = {}
+        if org_ids:
+            sres = await db.execute(select(OrganizationSettings).where(OrganizationSettings.organization_id.in_(org_ids)))
+            for s in sres.scalars().all():
+                settings_map[s.organization_id] = s
+
+        formatted = []
+        for org, role in results:
+            icon_url = None
+            ai_analyst_name = "AI Analyst"  # Default value
+            settings = settings_map.get(org.id)
+            if settings and isinstance(settings.config, dict):
+                general = settings.config.get('general') or {}
+                icon_url = general.get('icon_url')
+                ai_analyst_name = general.get('ai_analyst_name') or "AI Analyst"
+            formatted.append(OrganizationAndRoleSchema(
                 id=org.id,
                 name=org.name,
                 description=org.description,
-                role=role
-            ) 
-            for org, role in results
-        ]
+                role=role,
+                icon_url=icon_url,
+                ai_analyst_name=ai_analyst_name
+            ))
+        return formatted
 
 
     async def remove_member(self, db: AsyncSession, organization_id, membership_id: str, current_user: User, organization: Organization) -> None:
@@ -155,6 +173,17 @@ class OrganizationService:
         await db.refresh(membership)
 
         return MembershipSchema.from_orm(membership)
+
+    async def update_organization(self, db: AsyncSession, organization: Organization, data: OrganizationUpdate, current_user: User) -> OrganizationSchema:
+        """Update organization basic fields like name/description."""
+        update = data.dict(exclude_unset=True)
+        if 'name' in update and update['name']:
+            organization.name = update['name']
+        if 'description' in update:
+            organization.description = update['description']
+        await db.commit()
+        await db.refresh(organization)
+        return OrganizationSchema.from_orm(organization)
     
     async def _is_email_already_in_organization(self, db: AsyncSession, email: str, organization_id: str) -> bool:
         user = await db.execute(select(User).where(User.email == email))

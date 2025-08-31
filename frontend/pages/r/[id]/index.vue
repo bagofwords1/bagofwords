@@ -2,7 +2,7 @@
     <div class="flex pl-2 md:pl-4 text-sm" v-if="report.title !== ''">
         <div class="w-full px-4 pl-0">
             <div class="container mx-auto">
-                <a href="https://bagofwords.com" target="_blank" class="fixed z-[1000] bottom-5 right-5 block bg-black text-gray-200 font-light px-2 py-1 rounded-md text-xs">
+                <a v-if="report.general?.bow_credit !== false" href="https://bagofwords.com" target="_blank" class="fixed z-[1000] bottom-5 right-5 block bg-black text-gray-200 font-light px-2 py-1 rounded-md text-xs">
                     Made with <span class="font-bold text-white">Bag of words</span>
                 </a>
                 <div class="p-2 pl-5">

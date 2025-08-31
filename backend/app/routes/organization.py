@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from app.dependencies import get_async_db
 from app.services.organization_service import OrganizationService
-from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema
+from app.schemas.organization_schema import OrganizationCreate, OrganizationSchema, OrganizationAndRoleSchema, OrganizationUpdate
 from app.schemas.organization_schema import MembershipCreate, MembershipSchema, MembershipUpdate
 from app.models.user import User
 from app.models.organization import Organization
@@ -49,3 +49,14 @@ async def get_organizations(db: AsyncSession = Depends(get_async_db), current_us
 @router.get("/organization/members", response_model=List[UserSchema])
 async def get_organization_members(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
     return await organization_service.get_organization_members(db, current_user, organization)
+
+
+@router.put("/organization", response_model=OrganizationSchema)
+@requires_permission('manage_organization_settings')
+async def update_organization(
+    payload: OrganizationUpdate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization)
+):
+    return await organization_service.update_organization(db, organization, payload, current_user)

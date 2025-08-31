@@ -68,4 +68,8 @@ class PlannerInput(BaseModel):
     past_observations: Optional[List[Dict[str, Any]]] = None
     tool_catalog: Optional[List[ToolDescriptor]] = None
 
+    # Identity
+    organization_name: Optional[str] = None
+    organization_ai_analyst_name: Optional[str] = None
+
 

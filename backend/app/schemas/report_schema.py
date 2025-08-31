@@ -20,6 +20,11 @@ class ReportUpdate(ReportBase):
     cron_schedule: Optional[str] = None
 
 class ReportSchema(ReportBase):
+    class PublicGeneralSettings(BaseModel):
+        ai_analyst_name: str = "AI Analyst"
+        bow_credit: bool = True
+        icon_url: Optional[str] = None
+
     id: str
     status: Literal["draft", "published", "archived"]
     slug: str
@@ -31,6 +36,7 @@ class ReportSchema(ReportBase):
     updated_at: datetime
     cron_schedule: Optional[str] = None
     app_version: Optional[str] = None  # Version for routing decisions
+    general: Optional[PublicGeneralSettings] = None
 
     class Config:
         from_attributes = True

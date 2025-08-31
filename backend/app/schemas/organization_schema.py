@@ -33,3 +33,9 @@ class MembershipSchema(MembershipCreate):
 
 class OrganizationAndRoleSchema(OrganizationSchema):
     role: str
+    icon_url: Optional[str] = None
+    ai_analyst_name: Optional[str] = None
+
+class OrganizationUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None

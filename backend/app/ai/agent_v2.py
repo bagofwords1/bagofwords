@@ -32,6 +32,10 @@ class AgentV2:
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
+
+
+        self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
+
         self.report = report
         self.model = model
         self.head_completion = head_completion
@@ -228,8 +232,9 @@ class AgentV2:
                     # Get resources context from metadata resources
                     resources_section = await self.context_hub.resource_builder.build()
                     resources_context = resources_section.render()
-                    
                     planner_input = PlannerInput(
+                        organization_name=self.organization.name,
+                        organization_ai_analyst_name=self.ai_analyst_name,
                         instructions=instructions,
                         user_message=self.head_completion.prompt["content"],
                         schemas_excerpt=schemas_excerpt,

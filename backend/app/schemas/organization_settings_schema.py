@@ -83,6 +83,25 @@ class FeatureConfig(BaseModel):
     #     return v
 
 class OrganizationSettingsConfig(BaseModel):
+    # General (workspace) settings
+    class GeneralConfig(BaseModel):
+        ai_analyst_name: str = "AI Analyst"
+        bow_credit: bool = True
+        # Icon storage fields (disk/object storage)
+        icon_key: Optional[str] = None
+        icon_url: Optional[str] = None
+
+        @validator('ai_analyst_name')
+        def validate_ai_name(cls, v: str) -> str:
+            name = (v or "").strip()
+            if len(name) == 0:
+                raise ValueError("AI analyst name cannot be empty")
+            if len(name) > 50:
+                raise ValueError("AI analyst name must be 50 characters or less")
+            return name
+
+    general: GeneralConfig = GeneralConfig()
+
     # Update defaults to use 'value' instead of 'enabled'
     allow_llm_see_data: FeatureConfig = FeatureConfig(value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
     allow_file_upload: FeatureConfig = FeatureConfig(value=True, name="Allow file upload", description="Allow users to upload spreadsheets and docuemnts (xls/pdf) and push their content to the LLM", is_lab=False, editable=False)

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db, get_current_organization
@@ -47,3 +47,24 @@ async def update_agent_setting(
 ):
     """Enable/disable a specific agent"""
     return await settings_service.update_agent_setting(db, organization, current_user, agent_name, enabled) 
+
+
+@router.post("/organization/general/icon", response_model=OrganizationSettingsSchema)
+@requires_permission('manage_organization_settings')
+async def upload_general_icon(
+    icon: UploadFile = File(...),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    return await settings_service.set_general_icon(db, organization, current_user, icon)
+
+
+@router.delete("/organization/general/icon", response_model=OrganizationSettingsSchema)
+@requires_permission('manage_organization_settings')
+async def delete_general_icon(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    return await settings_service.remove_general_icon(db, organization, current_user)

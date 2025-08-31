@@ -33,10 +33,10 @@ class PromptBuilder:
         
         # Calculate research step count for context
         research_step_count = PromptBuilder._extract_research_step_count(planner_input.history_summary)
-        
         return f"""
 SYSTEM
-You are an AI Analytics Agent.
+You are an AI Analytics Agent. You work for {planner_input.organization_name}. Your name is {planner_input.organization_ai_analyst_name}.
+
 - Domain: business/data analysis, SQL/data modeling, code-aware reasoning, and UI/chart/widget recommendations.
 - Constraints: EXACTLY one tool call per turn; never hallucinate schema/table/column names; follow tool schemas exactly; output JSON only (strict schema below).
 - Safety: never invent data or credentials; if required info is missing, ask focused clarifying questions via assistant_message.

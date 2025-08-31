@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.models.organization import Organization
@@ -14,6 +14,10 @@ from app.schemas.organization_settings_schema import (
     FeatureState
 )
 from datetime import datetime
+import os
+import hashlib
+from PIL import Image
+from io import BytesIO
 
 
 class OrganizationSettingsService:
@@ -221,6 +225,99 @@ class OrganizationSettingsService:
                 await db.commit()
                 await db.refresh(settings)
 
+        return settings
+
+    async def set_general_icon(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        file: UploadFile
+    ):
+        """Validate, process (square resize), store icon on disk and update settings.general.icon fields."""
+        settings = await self.get_settings(db, organization, current_user)
+        if settings.config is None:
+            settings.config = {}
+
+        content_type = (file.content_type or "").lower()
+        if content_type not in ("image/png", "image/jpeg", "image/jpg"):
+            raise HTTPException(status_code=400, detail="Unsupported image type. Use PNG or JPEG")
+
+        raw = await file.read()
+        if len(raw) > 512 * 1024:
+            raise HTTPException(status_code=400, detail="Icon too large. Max 512KB")
+
+        try:
+            image = Image.open(BytesIO(raw))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid image file")
+
+        # Convert to RGBA for consistent output
+        image = image.convert("RGBA")
+        width, height = image.size
+        # center-crop to square
+        side = min(width, height)
+        left = (width - side) // 2
+        top = (height - side) // 2
+        image = image.crop((left, top, left + side, top + side))
+        # resize to 256x256
+        image = image.resize((256, 256))
+
+        # storage path
+        base_dir = os.path.abspath(os.path.join(os.getcwd(), "branding_uploads"))
+        os.makedirs(base_dir, exist_ok=True)
+
+        digest = hashlib.sha256(raw).hexdigest()[:16]
+        filename = f"{organization.id}-{digest}.png"
+        file_path = os.path.join(base_dir, filename)
+
+        # save as PNG
+        with open(file_path, "wb") as f:
+            buf = BytesIO()
+            image.save(buf, format="PNG")
+            f.write(buf.getvalue())
+
+        # update settings
+        general = dict(settings.config.get("general", {}))
+        general["icon_key"] = filename
+        general["icon_url"] = f"/api/general/icon/{filename}"
+        settings.config["general"] = general
+
+        flag_modified(settings, "config")
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+
+        return settings
+
+    async def remove_general_icon(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User
+    ):
+        settings = await self.get_settings(db, organization, current_user)
+        if settings.config is None:
+            settings.config = {}
+
+        general = dict(settings.config.get("general", {}))
+        icon_key = general.get("icon_key")
+        if icon_key:
+            base_dir = os.path.abspath(os.path.join(os.getcwd(), "branding_uploads"))
+            file_path = os.path.join(base_dir, icon_key)
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+        general["icon_key"] = None
+        general["icon_url"] = None
+        settings.config["general"] = general
+
+        flag_modified(settings, "config")
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
         return settings
 
     async def create_default_settings(

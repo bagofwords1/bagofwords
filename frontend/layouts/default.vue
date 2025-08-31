@@ -1,6 +1,3 @@
-<script setup lang="ts">
-</script>
-
 <template>
 
   <aside id="separator-sidebar"
@@ -11,7 +8,7 @@
       <ul class="font-normal text-sm">
         <li>
             <button @click="router.push('/')" class="flex items-center text-center p-1 text-gray-700 group">
-              <img src="/assets/logo-128.png" alt="Bag of words" class="w-10 " />
+              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="w-10 " />
             </button>
         </li>
         <li class="">
@@ -57,7 +54,7 @@
           </NuxtLink>
         </li>
 
-        <li class="" v-if="currentUser?.organizations[0]?.role === 'admin'">
+        <li class="" v-if="isAdmin">
           <a href="/console" class="flex items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
             <UTooltip text="Console" :popper="{ placement: 'right' }">
               <span class="font-medium text-lg ">
@@ -81,7 +78,7 @@
           <a href="#" class="flex items-center text-center p-1 text-gray-700 rounded-lg group hover:text-blue-500">
             <UTooltip text="" :popper="{ placement: 'right' }">
               <template #text>
-                Logged in as {{ currentUser?.name }}
+                Logged in as {{ currentUserName }}
               </template>
               <span class="font-medium text-lg">
                 <UIcon name="heroicons-user" />
@@ -138,23 +135,35 @@
 </template>
 
 <script setup lang="ts">
-
+  const workspaceIconUrl = computed<string | null>(() => {
+    const orgId = organization.value?.id
+    const orgs = (currentUser.value as any)?.organizations || []
+    const org = orgs.find((o: any) => o.id === orgId) || orgs[0]
+    return org?.icon_url || null
+  })
   const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
-  const { organization, clearOrganization } = useOrganization()
+  const { organization } = useOrganization()
   const { isExcel } = useExcel()
   const router = useRouter()
-  const selectedDataSources = ref([])
+  const selectedDataSources = ref<any[]>([])
   const { $intercom } = useNuxtApp()
   const { version, environment, app_url, intercom } = useRuntimeConfig().public
+  
+  const isAdmin = computed(() => {
+    const orgs = (currentUser.value as any)?.organizations || []
+    return orgs?.[0]?.role === 'admin'
+  })
+
+  const currentUserName = computed(() => (currentUser.value as any)?.name || 'User')
  
   if (environment === 'production' && intercom) {
     $intercom.boot()
     watch([currentUser, organization], ([user, org]) => {
       if (user && org) {
         $intercom.update({
-          user_id: user.id,
-          name: user.name,
-          email: user.email,
+          user_id: (user as any).id,
+          name: (user as any)?.name,
+          email: (user as any)?.email,
           version: version,
           environment: environment,
           app_url: app_url,
@@ -172,11 +181,11 @@
         method: 'GET',
     });
 
-    if (!response.code === 200) {
+    if ((response as any).error?.value) {
         throw new Error('Could not fetch data sources');
     }
 
-    selectedDataSources.value = await response.data.value;
+    selectedDataSources.value = (((response as any).data?.value) as any[]) || [];
 }
 
 
@@ -189,11 +198,11 @@ const createNewReport = async () => {
          data_sources: selectedDataSources.value.map((ds: any) => ds.id)})
     });
 
-    if (!response.code === 200) {
+    if ((response as any).error?.value) {
         throw new Error('Report creation failed');
     }
 
-    const data = await response.data.value;
+    const data = ((response as any).data?.value) as any;
     router.push({
         path: `/reports/${data.id}`
     })
