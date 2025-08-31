@@ -7,7 +7,7 @@ class Anthropic(LLMClient):
         self.client = AnthropicAPI(api_key=api_key)
         self.async_client = AsyncAnthropic(api_key=api_key)
         self.max_tokens = 1024
-        self.temperature = 0.7
+        self.temperature = 0.3
 
     def inference(self, model_id: str, prompt: str) -> str:
         message = self.client.messages.create(

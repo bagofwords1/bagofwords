@@ -509,7 +509,6 @@ class AgentV2:
                                 "metrics": decision.metrics.model_dump() if decision.metrics else None,
                             }
                         ))
-                        
                         if decision.analysis_complete:
                             # Final answer path
                             invalid_retry_count = 0
@@ -543,7 +542,9 @@ class AgentV2:
                                 pass
                             # End streaming loop so outer loop can retry
                             break
-                            
+                        if not action:
+                            continue
+
                         tool_name = action.name
                         tool_input = action.arguments
 

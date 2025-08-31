@@ -20,7 +20,7 @@ class AzureClient(LLMClient):
 
     def inference(self, model_id: str, prompt: str) -> str:
         # For Azure, model_id is the deployment (deployment name)
-        temperature = 0.7
+        temperature = 0.3
         if model_id == "gpt-5":
             temperature = 1.0
 
@@ -38,7 +38,7 @@ class AzureClient(LLMClient):
     
     async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
         # For Azure, model_id is the deployment (deployment name)
-        temperature = 0.7
+        temperature = 0.3
         if model_id == "gpt-5":
             temperature = 1.0
 
