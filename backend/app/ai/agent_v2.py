@@ -23,6 +23,7 @@ from app.models.completion import Completion
 from app.ai.agents.reporter.reporter import Reporter
 from sqlalchemy import select
 from app.ai.agents.judge.judge import Judge
+from app.settings.database import create_async_session_factory
 
 
 class AgentV2:
@@ -118,6 +119,41 @@ class AgentV2:
         # Initialize Judge using ContextHub's instruction builder
         self.judge = Judge(model=self.model, organization_settings=self.organization_settings, instruction_context_builder=self.context_hub.instruction_builder)
 
+    async def _run_early_scoring_background(self, planner_input: PlannerInput):
+        """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
+        try:
+            SessionLocal = create_async_session_factory()
+            async with SessionLocal() as session:
+                try:
+                    # Use a new Judge instance (stateless) and score from the same planner input
+                    judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                    instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
+                    # Re-fetch completion to avoid using objects from another session
+                    completion = await session.get(Completion, str(self.head_completion.id))
+                    if completion is not None:
+                        await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    async def _run_late_scoring_background(self, messages_context: str, observation_data: dict):
+        """Run response scoring in a fresh DB session to avoid concurrency conflicts."""
+        try:
+            SessionLocal = create_async_session_factory()
+            async with SessionLocal() as session:
+                try:
+                    judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                    original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
+                    response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+                    completion = await session.get(Completion, str(self.head_completion.id))
+                    if completion is not None:
+                        await self.project_manager.update_completion_response_score(session, completion, response_score)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     async def _handle_completion_update(self, message: str):
         # Mirror existing sigkill behavior
         try:
@@ -212,13 +248,7 @@ class AgentV2:
             successful_tool_actions = []
             max_repeated_successes = 2
             
-            # Early scoring (non-blocking): use the same context as planner (PlannerInput)
-            async def _score_early(planner_input):
-                try:
-                    scores = await self.judge.score_instructions_and_context_from_planner_input(planner_input)
-                    await self.project_manager.update_completion_scores(self.db, self.head_completion, scores[0], scores[1])
-                except Exception:
-                    pass
+            # Early scoring will be launched as a background task using an isolated session
 
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
@@ -257,8 +287,8 @@ class AgentV2:
                         external_platform=getattr(self.head_completion, "external_platform", None),
                         tool_catalog=self.planner.tool_catalog,
                     )
-                    # Kick off early scoring in background without blocking the loop
-                    asyncio.create_task(_score_early(planner_input))
+                    # Kick off early scoring in background without blocking the loop (isolated DB session)
+                    asyncio.create_task(self._run_early_scoring_background(planner_input))
                 except ValidationError as ve:
                     if invalid_retry_count >= max_invalid_retries:
                         # Too many retries, exit loop
@@ -844,14 +874,13 @@ class AgentV2:
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to generate report title: {e}")
             
-            # Late scoring (non-blocking): response quality using same (final) context view
-            async def _score_late():
-                try:
-                    score = await self.judge.score_response_quality_with_hub(self.head_completion.prompt, self.context_hub)
-                    await self.project_manager.update_completion_response_score(self.db, self.head_completion, score)
-                except Exception:
-                    pass
-            asyncio.create_task(_score_late())
+            # Late scoring (non-blocking): capture context string and observation snapshot, then run in isolated session
+            try:
+                final_messages_context = await self.context_hub.get_messages_context(max_messages=20)
+            except Exception:
+                final_messages_context = ""
+            observation_snapshot = self.context_hub.observation_builder.to_dict()
+            asyncio.create_task(self._run_late_scoring_background(final_messages_context, observation_snapshot))
 
             # Finish agent execution
             status = 'sigkill' if self.sigkill_event.is_set() else 'success'
