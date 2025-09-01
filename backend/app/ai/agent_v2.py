@@ -22,6 +22,7 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.ai.agents.reporter.reporter import Reporter
 from sqlalchemy import select
+from app.ai.agents.judge.judge import Judge
 
 
 class AgentV2:
@@ -114,6 +115,8 @@ class AgentV2:
         
         # Initialize Reporter for title generation
         self.reporter = Reporter(model=self.model)
+        # Initialize Judge using ContextHub's instruction builder
+        self.judge = Judge(model=self.model, organization_settings=self.organization_settings, instruction_context_builder=self.context_hub.instruction_builder)
 
     async def _handle_completion_update(self, message: str):
         # Mirror existing sigkill behavior
@@ -209,6 +212,14 @@ class AgentV2:
             successful_tool_actions = []
             max_repeated_successes = 2
             
+            # Early scoring (non-blocking): use the same context as planner (PlannerInput)
+            async def _score_early(planner_input):
+                try:
+                    scores = await self.judge.score_instructions_and_context_from_planner_input(planner_input)
+                    await self.project_manager.update_completion_scores(self.db, self.head_completion, scores[0], scores[1])
+                except Exception:
+                    pass
+
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
                     break
@@ -246,6 +257,8 @@ class AgentV2:
                         external_platform=getattr(self.head_completion, "external_platform", None),
                         tool_catalog=self.planner.tool_catalog,
                     )
+                    # Kick off early scoring in background without blocking the loop
+                    asyncio.create_task(_score_early(planner_input))
                 except ValidationError as ve:
                     if invalid_retry_count >= max_invalid_retries:
                         # Too many retries, exit loop
@@ -831,6 +844,15 @@ class AgentV2:
                 logger = logging.getLogger(__name__)
                 logger.warning(f"Failed to generate report title: {e}")
             
+            # Late scoring (non-blocking): response quality using same (final) context view
+            async def _score_late():
+                try:
+                    score = await self.judge.score_response_quality_with_hub(self.head_completion.prompt, self.context_hub)
+                    await self.project_manager.update_completion_response_score(self.db, self.head_completion, score)
+                except Exception:
+                    pass
+            asyncio.create_task(_score_late())
+
             # Finish agent execution
             status = 'sigkill' if self.sigkill_event.is_set() else 'success'
             await self.project_manager.finish_agent_execution(

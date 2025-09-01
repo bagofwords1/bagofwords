@@ -62,6 +62,26 @@
                                 <template v-if="selectedItem.id === 'user_prompt'">
                                     <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">User Prompt</div>
                                     <pre class="text-xs text-gray-900 font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
+                                    
+                                    <!-- AI Scoring section -->
+                                    <div v-if="traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)" class="mt-4">
+                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">AI Scoring</div>
+                                        <div class="grid grid-cols-3 gap-3">
+                                            <div v-if="traceData.agent_execution.instructions_effectiveness !== null" class="text-center">
+                                                <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Instructions</div>
+                                                <div class="text-sm font-medium text-gray-900">{{ traceData.agent_execution.instructions_effectiveness }}/5</div>
+                                            </div>
+                                            <div v-if="traceData.agent_execution.context_effectiveness !== null" class="text-center">
+                                                <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Context</div>
+                                                <div class="text-sm font-medium text-gray-900">{{ traceData.agent_execution.context_effectiveness }}/5</div>
+                                            </div>
+                                            <div v-if="traceData.agent_execution.response_score !== null" class="text-center">
+                                                <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Response</div>
+                                                <div class="text-sm font-medium text-gray-900">{{ traceData.agent_execution.response_score }}/5</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
                                         <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Context</div>
                                         <ContextBrowser :context-data="traceData.head_context_snapshot.context_view_json || {}" />
@@ -480,6 +500,12 @@ const formatDate = (dateString: string) => {
 
 const hasAnyScores = (item: any) => {
     return item.instructions_effectiveness || item.context_effectiveness || item.response_score
+}
+
+const hasAnyCompletionScores = (completion: any) => {
+    return completion.instructions_effectiveness !== null || 
+           completion.context_effectiveness !== null || 
+           completion.response_score !== null
 }
 
 // Tool component helpers (matching index.vue)

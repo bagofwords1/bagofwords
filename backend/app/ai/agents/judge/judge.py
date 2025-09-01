@@ -4,24 +4,21 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 import tiktoken 
 import json
 from partialjson.json_parser import JSONParser
-from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+from app.schemas.ai.planner import PlannerInput
 
 class Judge:
 
-    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder: InstructionContextBuilder) -> None:
+    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder=None) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
-        self.instruction_context_builder = instruction_context_builder
-
-    async def score_instructions_and_context(self, prompt, schemas, memories, previous_messages) -> tuple[int, int]:
+        
+    async def score_instructions_and_context(self, prompt, instructions_context, schemas, previous_messages) -> tuple[int, int]:
         """
         Score the relevance of instructions and context for the user's request.
         Returns (instructions_score, context_score) both 1-5 scale.
         """
         try:
             # Get organization instructions
-            instructions_context = await self.instruction_context_builder.get_instructions_context()
-            
             scoring_prompt = f"""
             You are an expert evaluator assessing the quality and relevance of instructions and context for a data analytics request.
 
@@ -33,9 +30,6 @@ class Judge:
 
             **AVAILABLE SCHEMAS:**
             {schemas}
-
-            **MEMORIES:**
-            {memories if memories else "No memories available"}
 
             **PREVIOUS MESSAGES:**
             {previous_messages if previous_messages else "No previous conversation"}
@@ -66,7 +60,6 @@ class Judge:
             """
 
             response = self.llm.inference(scoring_prompt)
-            
             try:
                 scores = json.loads(response)
                 instructions_score = max(1, min(5, int(scores.get("instructions_score", 3))))
@@ -82,33 +75,18 @@ class Judge:
             print(f"Error in score_instructions_and_context: {e}")
             return 3, 3  # Default middle scores on error
 
-    async def score_response_quality(self, original_prompt, widgets_and_steps, observation_data=None) -> int:
+    async def score_response_quality(self, original_prompt, messages_context, observation_data=None) -> int:
         """
         Score the overall quality of the agent's response against the original user intent.
         Returns response_score 1-5 scale.
         """
         try:
-            # Build summary of what was created
-            widgets_summary = []
-            for widget, step in widgets_and_steps:
-                if widget and step:
-                    summary = f"""
-                    Widget: {widget.title}
-                    Type: {step.data_model.get('type', 'unknown') if step.data_model else 'unknown'}
-                    Status: {step.status}
-                    Rows: {len(step.data.get('rows', [])) if step.data else 0}
-                    Columns: {len(step.data.get('columns', [])) if step.data else 0}
-                    """
-                    widgets_summary.append(summary)
-
-            widgets_summary_text = "\n".join(widgets_summary) if widgets_summary else "No widgets created"
-
             # Include observation data if available
             observation_summary = ""
-            if observation_data and observation_data.get("widgets"):
+            if observation_data:
                 observation_summary = f"""
                 **FINAL RESULTS SUMMARY:**
-                {len(observation_data['widgets'])} widgets were successfully created and executed.
+                {observation_data}
                 """
 
             scoring_prompt = f"""
@@ -118,9 +96,10 @@ class Judge:
             {original_prompt}
 
             **WHAT THE AGENT CREATED:**
-            {widgets_summary_text}
-
             {observation_summary}
+
+            **PREVIOUS MESSAGES:**
+            {messages_context if messages_context else "No previous conversation"}
 
             **SCORING TASK:**
             Evaluate the overall response quality on a 1-5 scale where:
@@ -164,3 +143,30 @@ class Judge:
         except Exception as e:
             print(f"Error in score_response_quality: {e}")
             return 3  # Default middle score on error
+
+    # --------------------------------------------------------------
+    # ContextHub helpers (AgentV2 integration)
+    # --------------------------------------------------------------
+    async def score_instructions_and_context_from_planner_input(self, planner_input: PlannerInput) -> tuple[int, int]:
+        """Use the exact same context that PlannerV2 used (via PlannerInput)."""
+        try:
+            return await self.score_instructions_and_context(
+                prompt=planner_input.user_message,
+                instructions_context=planner_input.instructions,
+                schemas=planner_input.schemas_excerpt,
+                previous_messages=planner_input.messages_context,
+            )
+        except Exception:
+            return 3, 3
+
+    async def score_response_quality_with_hub(self, original_prompt, context_hub) -> int:
+        """
+        Convenience wrapper that pulls observation data from ContextHub for AgentV2.
+        """
+        try:
+            observation_data = context_hub.observation_builder.to_dict()
+            messages_context = await context_hub.get_messages_context(max_messages=20)
+
+            return await self.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+        except Exception:
+            return 3

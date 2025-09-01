@@ -6,6 +6,7 @@ from datetime import datetime
 class AgentExecutionSchema(BaseModel):
     id: str
     completion_id: str
+    user_completion_id: Optional[str] = None
     organization_id: Optional[str] = None
     user_id: Optional[str] = None
     report_id: Optional[str] = None
@@ -20,6 +21,10 @@ class AgentExecutionSchema(BaseModel):
     error_json: Optional[Dict[str, Any]] = None
     config_json: Optional[Dict[str, Any]] = None
     bow_version: Optional[str] = None
+    # AI scoring fields (denormalized from Completion for UI convenience)
+    instructions_effectiveness: Optional[int] = None
+    context_effectiveness: Optional[int] = None
+    response_score: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 

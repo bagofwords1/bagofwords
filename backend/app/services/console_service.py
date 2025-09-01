@@ -29,6 +29,7 @@ from app.models.membership import Membership
 from app.models.tool_execution import ToolExecution
 from app.models.completion_block import CompletionBlock
 from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse
+from app.schemas.agent_execution_schema import AgentExecutionSchema
 from app.schemas.completion_v2_schema import CompletionBlockV2Schema
 from app.serializers.completion_v2 import serialize_block_v2
 from app.models.agent_execution import AgentExecution
@@ -1234,6 +1235,7 @@ class ConsoleService:
 
         # Head prompt snippet from the head completion (first user completion in report)
         head_prompt = None
+        head_user_completion: Optional[Completion] = None
         head_snapshot: Optional[ContextSnapshot] = None
         if agent_execution.report_id:
             hp_query = (
@@ -1243,12 +1245,12 @@ class ConsoleService:
                 .limit(1)
             )
             hp_res = await db.execute(hp_query)
-            head_c = hp_res.scalar_one_or_none()
-            if head_c and head_c.prompt:
-                if isinstance(head_c.prompt, dict):
-                    head_prompt = str(head_c.prompt.get('content') or '')
+            head_user_completion = hp_res.scalar_one_or_none()
+            if head_user_completion and head_user_completion.prompt:
+                if isinstance(head_user_completion.prompt, dict):
+                    head_prompt = str(head_user_completion.prompt.get('content') or '')
                 else:
-                    head_prompt = str(head_c.prompt)
+                    head_prompt = str(head_user_completion.prompt)
 
         # Fetch the earliest context snapshot for this agent execution (best-effort)
         cs_query = (
@@ -1275,8 +1277,29 @@ class ConsoleService:
         except Exception as e:
             logger.warning(f"Failed to fetch latest feedback for completion {agent_execution.completion_id}: {e}")
 
+        # Fetch the head user completion to get AI scoring data (preferred)
+        completion_with_scores = None
+        try:
+            if head_user_completion:
+                completion_with_scores = head_user_completion
+            elif agent_execution.completion_id:
+                completion_q = select(Completion).where(Completion.id == agent_execution.completion_id)
+                completion_with_scores = (await db.execute(completion_q)).scalar_one_or_none()
+        except Exception as e:
+            logger.warning(f"Failed to fetch completion for scoring (ae {agent_execution.id}): {e}")
+
+        # Build agent_execution payload with scoring using schema to ensure fields are present
+        ae_payload = AgentExecutionSchema.model_validate(agent_execution)
+        if completion_with_scores:
+            ae_payload.instructions_effectiveness = completion_with_scores.instructions_effectiveness
+            ae_payload.context_effectiveness = completion_with_scores.context_effectiveness
+            ae_payload.response_score = completion_with_scores.response_score
+        # Always set the head user completion id if available
+        if head_user_completion:
+            ae_payload.user_completion_id = str(head_user_completion.id)
+
         return AgentExecutionTraceResponse(
-            agent_execution=agent_execution,
+            agent_execution=ae_payload,
             completion_blocks=block_schemas,
             head_prompt_snippet=(head_prompt or '')[:160],
             head_context_snapshot=head_snapshot,
