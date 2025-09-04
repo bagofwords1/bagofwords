@@ -1,5 +1,5 @@
 # Bag of words
-> Build and share smart data apps in seconds
+> Deploy chat-with-your-data AI agents in minutes
 
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
@@ -7,10 +7,18 @@
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
 ---
 
-Bag of words is an open-source AI platform that helps data teams deploy and manage chat-with-your-data agents in a controlled, reliable, and monitored environment.
+Bag of words is an open-source AI platform that helps data teams deploy and manage chat-with-your-data agents in a controlled, reliable, and self-learning environment.
 
-It integrates with databases, APIs, and enrichment sources like dbt and git to ground answers in your data, supports creating comprehensive reports from a single prompt with iterative refinement, and automatically improves results through self-learning from feedback and usage patterns.
 
+* **Chat**: Create charts, tables, and full dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
+* **Observability**: Capture AI decisions, traces, user feedback, latency; analyze quality and usage in the console.
+* **Self-learning**: Automatically improve prompts, instructions, and data mappings from feedback and usage patterns.
+* **Data sources**: Snowflake, BigQuery, Postgres, and more. Enrich context with `dbt`, `LookML`, docs, and code repos.
+* **LLM integration**: Bring your own API key (OpenAI, Azure OpenAI, Anthropic Claude, or any OpenAI-compatible API).
+* **Governance & integrations**: Users and orgs, RBAC, audit logs, SSO (Google), SMTP.
+***Deployment**: Self-host in your VPC via VMs, Docker/Compose, or Kubernetes.
+
+Additional integrations to offer an AI Analyst in Slack, Excel, Google Sheets, and more. Get started in minutes, scale to org-wide analytics
 
 <div style="text-align: center; margin: 40px 0;">
     <img src="./media/home.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
@@ -24,15 +32,7 @@ It integrates with databases, APIs, and enrichment sources like dbt and git to g
     <img src="./media/cloud-spend.png" alt="Cloud Spend" style="width: 30%;">
 </div>
 
-## Key Features:
 
-* Create charts, tables, and full dashboards by chatting with your data. Powered by an agentic loop for tool use, reflection, and reasoning.
-* Console: Monitor AI quality, instructions, issues, and usage with detailed analytics and observability.
-* Self-learning: AI will improve results based on feedback and usage patterns.
-* Data sources: Snowflake, BigQuery, Postgres, and 10+ more. Enrich with `dbt`, `LookML`, `agents.md`, docs, and code repos.
-* LLM integration: Bring your own API key (OpenAI, Azure OpenAI, Anthropic Claude, or any OpenAI-compatible API).
-* Application features: User management, granular data permissions, Google Sign-In, custom SMTP, and more.
-* Self-hosted: Deploy in your VPC via VMs, Docker/Compose, or Kubernetes.
 
 ## Quick Start
 
