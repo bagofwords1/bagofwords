@@ -12,8 +12,8 @@ Bag of words is an open-source AI platform that helps data teams deploy and mana
 
 * **Chat**: Create charts, tables, and full dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
 * **Observability**: Capture AI decisions, traces, user feedback, latency; analyze quality and usage in the console.
-* **Self-learning**: Automatically improve prompts, instructions, and data mappings from feedback and usage patterns.
-* **Data sources**: Snowflake, BigQuery, Postgres, and more. Enrich context with `dbt`, `LookML`, docs, and code repos.
+* **Self-learning**: Automatically improve AI quality with optimized instructions from feedback and usage patterns.
+* **Data sources**: Snowflake, BigQuery, Postgres, and more. Enrich context with `dbt`, `LookML`, docs, and code.
 * **LLM integration**: Bring your own API key (OpenAI, Azure OpenAI, Anthropic Claude, or any OpenAI-compatible API).
 * **Governance & integrations**: Users and orgs, RBAC, audit logs, SSO (Google), SMTP.
 ***Deployment**: Self-host in your VPC via VMs, Docker/Compose, or Kubernetes.
