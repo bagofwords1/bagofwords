@@ -93,6 +93,7 @@ COPY --from=frontend-builder --chown=app:app /app/frontend/.output /app/frontend
 
 # Copy runtime configs and scripts
 COPY --chown=app:app ./backend/requirements_versioned.txt /app/backend/
+RUN mkdir -p /app/backend/uploads
 
 WORKDIR /app
 

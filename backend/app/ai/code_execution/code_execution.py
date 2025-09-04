@@ -22,7 +22,7 @@ class CodeExecutionManager:
     async def generate_and_execute_with_retries(self, *args, **kwargs):
         raise RuntimeError("CodeExecutionManager.generate_and_execute_with_retries is deprecated. Use StreamingCodeExecutor.generate_and_execute_stream.")
 
-    def _execute_code(self, code: str, db_clients: Dict, excel_files: List):
+    def execute_code(self, code: str, db_clients: Dict, excel_files: List):
         executor = StreamingCodeExecutor(organization_settings=self.organization_settings, logger=self.logger)
         return executor.execute_code(code=code, ds_clients=db_clients, excel_files=excel_files)
 

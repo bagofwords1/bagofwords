@@ -27,7 +27,7 @@ def create_async_database_engine():
         database_url = settings.TEST_DATABASE_URL.replace('sqlite:', 'sqlite+aiosqlite:')
         engine = create_async_engine(
             database_url,
-            echo=True,
+            echo=False,
             future=True,
             # Required for SQLite to handle concurrent requests
             connect_args={"check_same_thread": False}
@@ -50,7 +50,7 @@ def create_async_database_engine():
             database_url = "sqlite+aiosqlite:///./app.db"
             print(f"🔍 Using default SQLite database: {database_url}")
         
-        engine = create_async_engine(database_url, echo=True)
+        engine = create_async_engine(database_url, echo=False)
 
     return engine
 

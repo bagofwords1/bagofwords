@@ -7,7 +7,10 @@
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
 ---
 
-Bag of words is an AI-powered platform to enables users to create comprehensive dashboards with a single prompt and refine them iteratively. It integrates seamlessly with various data sources, including databases, APIs, and business systems, allowing for effective data utilization.
+Bag of words is an open-source AI platform that helps data teams deploy and manage chat-with-your-data agents in a controlled, reliable, and monitored environment.
+
+It integrates with databases, APIs, and enrichment sources like dbt and git to ground answers in your data, supports creating comprehensive reports from a single prompt with iterative refinement, and automatically improves results through self-learning from feedback and usage patterns.
+
 
 <div style="text-align: center; margin: 40px 0;">
     <img src="./media/home.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
@@ -21,15 +24,15 @@ Bag of words is an AI-powered platform to enables users to create comprehensive 
     <img src="./media/cloud-spend.png" alt="Cloud Spend" style="width: 30%;">
 </div>
 
-**Key Features:**
+## Key Features:
 
-	• Data Source Integration: Connect to databases, APIs, files, and business systems.
-
-	• Natural Language Queries: Formulate complex queries using natural language.
-
-	• Dashboard Management: Schedule and share beautiful dashboards effortlessly.
-
-	• LLM Compatibility: Use your preferred LLM (OpenAI, Anthropic, etc.).
+* Create charts, tables, and full dashboards by chatting with your data. Powered by an agentic loop for tool use, reflection, and reasoning.
+* Console: Monitor AI quality, instructions, issues, and usage with detailed analytics and observability.
+* Self-learning: AI will improve results based on feedback and usage patterns.
+* Data sources: Snowflake, BigQuery, Postgres, and 10+ more. Enrich with `dbt`, `LookML`, `agents.md`, docs, and code repos.
+* LLM integration: Bring your own API key (OpenAI, Azure OpenAI, Anthropic Claude, or any OpenAI-compatible API).
+* Application features: User management, granular data permissions, Google Sign-In, custom SMTP, and more.
+* Self-hosted: Deploy in your VPC via VMs, Docker/Compose, or Kubernetes.
 
 ## Quick Start
 

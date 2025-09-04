@@ -17,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.report import Report
 
+from app.ai.code_execution.code_execution import CodeExecutionManager
+
 
 
 class StepService:
@@ -26,7 +28,14 @@ class StepService:
 
     async def get_step_by_id(self, db: AsyncSession, step_id: str):
         result = await db.execute(
-            select(Step).options(selectinload(Step.widget)).filter(Step.id == step_id)
+            select(Step).options(
+                selectinload(Step.widget)
+                .selectinload(Widget.report)
+                .selectinload(Report.data_sources),
+                selectinload(Step.widget)
+                .selectinload(Widget.report)
+                .selectinload(Report.files)
+            ).filter(Step.id == step_id)
         )
         step = result.scalar_one_or_none()
         return step
@@ -104,33 +113,22 @@ class StepService:
     async def rerun_step(self, db: AsyncSession, step_id: str):
 
         step = await self.get_step_by_id(db, step_id)
-
-
         if not step:
             raise ValueError("Step not found")
         
-        widget = await db.execute(select(Widget).filter(Widget.id == step.widget_id))
-        widget = widget.scalar_one_or_none()
-        if not widget:
-            raise ValueError("Widget not found")
-
-        report = await db.execute(select(Report).filter(Report.id == widget.report_id))
-        report = report.scalar_one_or_none()
+        # get messages from the original step
+        report = step.widget.report
         if not report:
             raise ValueError("Report not found")
         
-        # get original head completion
-        completion = await db.execute(select(Completion).filter(Completion.widget_id == widget.id).order_by(Completion.created_at.asc()).limit(1))
-        completion = completion.scalar_one_or_none()
-        if not completion:
-            raise ValueError("Completion not found")
-        
-        # get messages from the original step
-        default_model = await report.organization.get_default_llm_model(db)
+        db_clients = {data_source.name: data_source.get_client() for data_source in report.data_sources}
 
-        agent = Agent(db=db, report=report, messages=[], head_completion=completion, step=step, model=default_model)
-        df = agent.execute_code_and_return_df(step.code)
-        df = agent._format_df(df)
+        excel_files = report.files
+        code_execution_manager = CodeExecutionManager()
+        code = step.code
+        
+        df, output_log = code_execution_manager.execute_code(code=code, db_clients=db_clients, excel_files=excel_files)
+        df = code_execution_manager.format_df_for_widget(df)
         
         # Update existing step instead of creating new one
         step.data = df

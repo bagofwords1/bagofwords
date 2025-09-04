@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.192
+- Fixed file upload functionality within Docker container environment
+- Resolved issues with report rerunning capabilities
+- Reduced database logging output to only display warnings and errors
+
 ## Version 0.0.190 (August 31, 2025)
 - Launched Agent 2.0, a comprehensive redesign of the backend agentic architecture
   - Implements ReAct methodology with single-tool execution per planning cycle
