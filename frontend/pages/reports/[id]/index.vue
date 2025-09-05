@@ -93,7 +93,7 @@
 
 														<!-- Fallback to generic tool display -->
 														<div v-else>
-															<div class="text-xs text-gray-600 mb-1 font-medium" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question'">
+															<div class="text-xs text-gray-600 mb-1 font-medium" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
 																{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
 															</div>
 															<div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
@@ -170,7 +170,7 @@
 										<!-- Fallback to generic expandable tool display -->
 										<div v-else>
 											<div class="text-xs text-gray-500 mb-1">
-												<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question'">
+												<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
 													{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
 												</span>
 												<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
@@ -270,6 +270,7 @@ import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
+import SuggestInstructionsTool from '~/components/tools/SuggestInstructionsTool.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
@@ -415,6 +416,8 @@ function getToolComponent(toolName: string) {
 			return CreateDashboardTool
 		case 'answer_question':
 			return AnswerQuestionTool
+		case 'suggest_instructions':
+			return SuggestInstructionsTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -813,6 +816,21 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 						if (p.stage === 'widget_creation_needed' && p.data_model) {
 							rj.data_model = { ...rj.data_model, ...p.data_model }
+						}
+					}
+
+					// Progressive instruction drafts for suggest_instructions tool
+					if (payload.tool_name === 'suggest_instructions' && payload.payload) {
+						const p = payload.payload
+						if (p.stage === 'instruction_added' && p.instruction) {
+							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
+							const rj: any = lastBlock.tool_execution.result_json
+							rj.drafts = Array.isArray(rj.drafts) ? rj.drafts : []
+							const draft = { text: String(p.instruction.text || ''), category: p.instruction.category || null }
+							if (draft.text) {
+								rj.drafts.push(draft)
+								lastBlock.status = 'in_progress'
+							}
 						}
 					}
 

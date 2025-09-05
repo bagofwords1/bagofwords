@@ -815,11 +815,20 @@ class AgentV2:
                             }
                         ))
                         
-                        # Track tool execution in observation builder
-                        self.context_hub.observation_builder.add_tool_observation(tool_name, tool_input, observation)
+                        # Track tool execution in observation builder unless tool opts out
+                        try:
+                            meta = self.registry.get_metadata(tool_name)
+                            if not meta or getattr(meta, "observation_policy", "on_trigger") != "never":
+                                self.context_hub.observation_builder.add_tool_observation(tool_name, tool_input, observation)
+                        except Exception:
+                            pass
                         # Reset invalid retry counter after a successful tool attempt (even if tool errors, planner was valid)
                         invalid_retry_count = 0
                         
+                        # If suggest_instructions just ran, mark analysis complete to end execution
+                        if tool_name == "suggest_instructions":
+                            analysis_done = True
+
                         # Refresh warm sections and view for next iteration
                         await self.context_hub.refresh_warm()
                         view = self.context_hub.get_view()
