@@ -21,8 +21,11 @@ from app.models.step import Step
 from app.models.widget import Widget
 from app.models.completion import Completion
 from app.ai.agents.reporter.reporter import Reporter
-from sqlalchemy import select
+from sqlalchemy import select, func
+from app.models.tool_execution import ToolExecution
+from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge
+from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
 from app.settings.database import create_async_session_factory
 
 
@@ -118,6 +121,9 @@ class AgentV2:
         self.reporter = Reporter(model=self.model)
         # Initialize Judge using ContextHub's instruction builder
         self.judge = Judge(model=self.model, organization_settings=self.organization_settings, instruction_context_builder=self.context_hub.instruction_builder)
+
+        # Initialize SuggestInstructions agent for post-analysis suggestions
+        self.suggest_instructions = SuggestInstructions(model=self.model)
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
@@ -228,6 +234,30 @@ class AgentV2:
             
             # History summary based on observation context only
             history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+
+            # Compute previous tool call before this user message (DB-based, robust)
+            prev_tool_name_before_last_user = None
+            try:
+                report_id = str(self.report.id) if self.report else None
+                completion_created_at = getattr(self.system_completion, "created_at", None)
+                if report_id:
+                    stmt = (
+                        select(ToolExecution.tool_name, ToolExecution.started_at)
+                        .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                        .where(AgentExecution.report_id == report_id)
+                    )
+                    if completion_created_at is not None:
+                        # Only consider tool executions strictly before this system completion
+                        stmt = stmt.where(
+                            (ToolExecution.started_at == None) | (ToolExecution.started_at < completion_created_at)
+                        )
+                    stmt = stmt.order_by(ToolExecution.started_at.desc()).limit(1)
+                    res = await self.db.execute(stmt)
+                    row = res.first()
+                    if row is not None:
+                        prev_tool_name_before_last_user = row[0]
+            except Exception:
+                prev_tool_name_before_last_user = None
 
             # Instructions
             inst_section = await self.context_hub.instruction_builder.build()
@@ -560,6 +590,69 @@ class AgentV2:
                         if decision.analysis_complete:
                             # Final answer path
                             invalid_retry_count = 0
+                            # === Post-analysis: determine if instruction suggestions are required
+                            res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
+                            should_trigger_suggestions = res.get("decision", False)
+                            hint = res.get("hint", "")
+
+                            if should_trigger_suggestions:
+                                # Stream suggestions via SSE
+                                try:
+                                    # Build fresh context for suggestions
+                                    await self.context_hub.refresh_warm()
+                                    view_for_suggest = self.context_hub.get_view()
+                                except Exception:
+                                    view_for_suggest = None
+                                try:
+                                    seq_si = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="instructions.suggest.started",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq_si,
+                                        data={}
+                                    ))
+                                except Exception:
+                                    pass
+                                try:
+                                    if self.suggest_instructions is not None:
+                                        drafts = []
+                                        async for draft in self.suggest_instructions.stream_suggestions(context_view=view_for_suggest, context_hub=self.context_hub, hint=hint):
+                                            drafts.append(draft)
+                                            try:
+                                                seq_si_p = await self.project_manager.next_seq(self.db, self.current_execution)
+                                                await self._emit_sse_event(SSEEvent(
+                                                    event="instructions.suggest.partial",
+                                                    completion_id=str(self.system_completion.id),
+                                                    agent_execution_id=str(self.current_execution.id),
+                                                    seq=seq_si_p,
+                                                    data={"instruction": draft}
+                                                ))
+                                            except Exception:
+                                                pass
+                                        try:
+                                            seq_si_f = await self.project_manager.next_seq(self.db, self.current_execution)
+                                            await self._emit_sse_event(SSEEvent(
+                                                event="instructions.suggest.finished",
+                                                completion_id=str(self.system_completion.id),
+                                                agent_execution_id=str(self.current_execution.id),
+                                                seq=seq_si_f,
+                                                data={"instructions": drafts}
+                                            ))
+                                        except Exception:
+                                            pass
+                                except Exception:
+                                    try:
+                                        seq_si_e = await self.project_manager.next_seq(self.db, self.current_execution)
+                                        await self._emit_sse_event(SSEEvent(
+                                            event="instructions.suggest.finished",
+                                            completion_id=str(self.system_completion.id),
+                                            agent_execution_id=str(self.current_execution.id),
+                                            seq=seq_si_e,
+                                            data={"instructions": []}
+                                        ))
+                                    except Exception:
+                                        pass
                             break
 
                         action = decision.action
@@ -825,9 +918,7 @@ class AgentV2:
                         # Reset invalid retry counter after a successful tool attempt (even if tool errors, planner was valid)
                         invalid_retry_count = 0
                         
-                        # If suggest_instructions just ran, mark analysis complete to end execution
-                        if tool_name == "suggest_instructions":
-                            analysis_done = True
+                        # suggest_instructions tool removed; no special-case handling
 
                         # Refresh warm sections and view for next iteration
                         await self.context_hub.refresh_warm()
@@ -987,6 +1078,68 @@ class AgentV2:
                 
         except Exception as e:
             print(f"Error emitting SSE event: {e}")
+
+    async def _should_suggest_instructions(self, prev_tool_name_before_last_user: Optional[str]) -> bool:
+        """Decide whether to run suggest_instructions based on report history.
+
+        Conditions:
+        - A) This agent_execution includes a create_widget tool AND the previous tool before the latest user message was clarify.
+        - OR
+        - B) Within THIS agent_execution, there exists a successful create_widget whose result_json.errors has length >= 1
+             (i.e., one or more internal retries/failures before eventual success).
+        """
+        hint = ""
+        try:
+            report_id = str(self.report.id) if self.report else None
+            if not report_id:
+                return False
+
+            # A) Current execution contains create_widget
+            ran_create_widget = False
+            try:
+                if self.current_execution:
+                    stmt_cw_current = (
+                        select(ToolExecution.id)
+                        .where(ToolExecution.agent_execution_id == str(self.current_execution.id))
+                        .where(ToolExecution.tool_name == "create_widget")
+                        .limit(1)
+                    )
+                    res_cw_current = await self.db.execute(stmt_cw_current)
+                    ran_create_widget = res_cw_current.first() is not None
+            except Exception:
+                ran_create_widget = False
+
+            trigger_a = bool(ran_create_widget and prev_tool_name_before_last_user == "clarify")
+            hint += "Suggesting instructions due to a clarification tool call followed by a user message that triggered a create_widget tool" if trigger_a else ""
+
+            # B) Success with internal retries in the CURRENT execution (errors list present on success)
+            success_with_retries = False
+            try:
+                if self.current_execution:
+                    stmt_successes = (
+                        select(ToolExecution.result_json)
+                        .where(ToolExecution.agent_execution_id == str(self.current_execution.id))
+                        .where(ToolExecution.tool_name == "create_widget")
+                        .where((ToolExecution.success == True) | (ToolExecution.status == "success"))
+                        .order_by(ToolExecution.started_at.desc())
+                        .limit(10)
+                    )
+                    res_rows = await self.db.execute(stmt_successes)
+                    for (result_json,) in res_rows.all():
+                        try:
+                            errors = (result_json or {}).get("errors", [])
+                            if isinstance(errors, list) and len(errors) >= 1:
+                                success_with_retries = True
+                                hint += "\n\nSuggesting instructions due to a successful create_widget tool with internal retries"
+                                break
+                        except Exception:
+                            continue
+            except Exception:
+                success_with_retries = False
+
+            return { "decision": bool(trigger_a or success_with_retries), "hint": hint }
+        except Exception:
+            return False
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type."""

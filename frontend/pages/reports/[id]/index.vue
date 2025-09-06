@@ -270,7 +270,7 @@ import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
-import SuggestInstructionsTool from '~/components/tools/SuggestInstructionsTool.vue'
+import InstructionSuggestions from '~/components/InstructionSuggestions.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
@@ -417,7 +417,7 @@ function getToolComponent(toolName: string) {
 		case 'answer_question':
 			return AnswerQuestionTool
 		case 'suggest_instructions':
-			return SuggestInstructionsTool
+			return InstructionSuggestions
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -655,6 +655,55 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			// Stash backend system completion id for stop-generation (sigkill)
 			if (payload && payload.system_completion_id) {
 				sysMessage.system_completion_id = payload.system_completion_id
+			}
+			break
+
+		case 'instructions.suggest.started':
+			// Create a lightweight synthetic block to display drafts streaming
+			if (!sysMessage.completion_blocks) sysMessage.completion_blocks = []
+			// Avoid duplicating if already created in the same completion
+			if (!sysMessage.completion_blocks.some(b => b.title === 'Instruction Suggestions')) {
+				sysMessage.completion_blocks.push({
+					id: `instr-${Date.now()}`,
+					block_index: (sysMessage.completion_blocks.length || 0) + 1,
+					status: 'in_progress',
+					title: 'Instruction Suggestions',
+					icon: '📝',
+					tool_execution: {
+						id: `instr-te-${Date.now()}`,
+						tool_name: 'suggest_instructions',
+						status: 'running',
+						result_json: { drafts: [] }
+					}
+				} as any)
+			}
+			break
+
+		case 'instructions.suggest.partial':
+			// Append each streamed draft to the synthetic block
+			{
+				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
+				if (b && b.tool_execution) {
+					b.tool_execution.result_json = b.tool_execution.result_json || {}
+					const rj: any = b.tool_execution.result_json
+					rj.drafts = Array.isArray(rj.drafts) ? rj.drafts : []
+					const instr = payload?.instruction
+					if (instr && typeof instr.text === 'string') {
+						rj.drafts.push({ text: String(instr.text), category: instr.category || null })
+						b.status = 'in_progress'
+					}
+				}
+			}
+			break
+
+		case 'instructions.suggest.finished':
+			// Mark the synthetic block done
+			{
+				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
+				if (b && b.tool_execution) {
+					b.tool_execution.status = 'success'
+					b.status = 'success'
+				}
 			}
 			break
 

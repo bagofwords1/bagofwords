@@ -16,11 +16,6 @@ from .events import (
     ToolEndEvent,
     ToolErrorEvent,
 )
-from .suggest_instructions import (
-    SuggestInstructionsInput,
-    SuggestInstructionsOutput,
-    InstructionDraft,
-)
 
 __all__ = [
     "AnswerQuestionInput",
@@ -46,7 +41,4 @@ __all__ = [
     "ToolStdoutEvent",
     "ToolEndEvent",
     "ToolErrorEvent",
-    "SuggestInstructionsInput",
-    "SuggestInstructionsOutput",
-    "InstructionDraft",
 ]
