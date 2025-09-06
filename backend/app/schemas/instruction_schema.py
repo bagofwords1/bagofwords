@@ -43,6 +43,8 @@ class InstructionBase(BaseModel):
     # Audit and relationships
     reviewed_by_user_id: Optional[str] = None
     source_instruction_id: Optional[str] = None
+    # If created by AI, the provenance source label (e.g., 'completion')
+    ai_source: Optional[str] = None
 
 class InstructionCreate(InstructionBase):
     data_source_ids: Optional[List[str]] = []  # Empty list means applies to all data sources
@@ -63,14 +65,16 @@ class InstructionUpdate(BaseModel):
 # Simplified schema without complex computed properties
 class InstructionSchema(InstructionBase):
     id: str
-    user_id: str
+    user_id: Optional[str] = None
     organization_id: str
-    user: UserSchema
+    user: Optional[UserSchema] = None
     reviewed_by: Optional[UserSchema] = None
     data_sources: List[DataSourceSchema] = []
     references: List[InstructionReferenceSchema] = []
     created_at: datetime
     updated_at: datetime
+    agent_execution_id: Optional[str] = None
+    trigger_reason: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -91,7 +95,7 @@ class InstructionListSchema(BaseModel):
     text: str
     status: str
     category: str
-    user_id: str
+    user_id: Optional[str] = None
     organization_id: str
     
     # Dual-status lifecycle fields

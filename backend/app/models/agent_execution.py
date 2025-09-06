@@ -35,5 +35,6 @@ class AgentExecution(BaseSchema):
     plan_decisions = relationship('PlanDecision', back_populates='agent_execution', lazy='select')
     tool_executions = relationship('ToolExecution', back_populates='agent_execution', lazy='select')
     context_snapshots = relationship('ContextSnapshot', back_populates='agent_execution', lazy='select')
+    instructions = relationship('Instruction', back_populates='agent_execution', lazy='select')
 
 

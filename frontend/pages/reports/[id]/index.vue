@@ -36,14 +36,9 @@
 									<MDC :value="m.prompt.content" class="markdown-content" />
 								</div>
 
-								<!-- System message -->
-								<div v-else-if="m.role === 'system'">
-									<!-- Thinking dots when system is working but no visible progress -->
-									<div v-if="shouldShowWorkingDots(m)">
-										<div class="simple-dots"></div>
-									</div>
-									
-									<!-- Render each completion block -->
+							<!-- System message -->
+							<div v-else-if="m.role === 'system'">
+								<!-- Render each completion block -->
 									<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
 										<!-- Research blocks: put reasoning, tool execution, and assistant in thinking toggle -->
 										<div v-if="isResearchBlock(block)">
@@ -186,6 +181,23 @@
 										<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" />
 									</div>
 								</div>
+							
+							<!-- Thinking dots when system is working but no visible progress - moved to end -->
+							<div v-if="shouldShowWorkingDots(m)" class="mt-2">
+								<div class="simple-dots"></div>
+							</div>
+							</div>
+							
+							<!-- Instruction Suggestions (outside blocks) -->
+							<div v-if="m.instruction_suggestions && m.instruction_suggestions.length > 0" class="mt-4 mb-4">
+								<InstructionSuggestions 
+									:tool-execution="{ 
+										id: `suggestions-${m.id}`, 
+										tool_name: 'suggest_instructions',
+										status: 'success',
+										result_json: { drafts: m.instruction_suggestions }
+									}"
+								/>
 							</div>
 							
 							<!-- Show status messages for stopped/error completions -->
@@ -270,7 +282,7 @@ import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
-import InstructionSuggestions from '~/components/InstructionSuggestions.vue'
+import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
@@ -334,6 +346,8 @@ interface ChatMessage {
 	error_message?: string
 	// Optional structured error
 	error?: any
+	// Instruction suggestions generated during this completion
+	instruction_suggestions?: Array<{ text: string; category: string }>
 }
 
 const route = useRoute()
@@ -680,7 +694,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 			break
 
 		case 'instructions.suggest.partial':
-			// Append each streamed draft to the synthetic block
+			// Append each streamed draft to the synthetic block (keep full object for actions)
 			{
 				const b = [...(sysMessage.completion_blocks || [])].reverse().find(x => x.tool_execution?.tool_name === 'suggest_instructions')
 				if (b && b.tool_execution) {
@@ -689,7 +703,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					rj.drafts = Array.isArray(rj.drafts) ? rj.drafts : []
 					const instr = payload?.instruction
 					if (instr && typeof instr.text === 'string') {
-						rj.drafts.push({ text: String(instr.text), category: instr.category || null })
+						// Push the full server-sent payload so it includes id/status/global_status
+						rj.drafts.push({ ...instr })
 						b.status = 'in_progress'
 					}
 				}
@@ -1054,7 +1069,8 @@ async function loadCompletions() {
 				})) || [],
 				created_at: c.created_at,
 				sigkill: c.sigkill,
-				feedback_score: c.feedback_score
+				feedback_score: c.feedback_score,
+				instruction_suggestions: c.instruction_suggestions
 			}
 		})
 		await nextTick()

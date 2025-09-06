@@ -10,7 +10,7 @@
 
             <!-- Conditional rendering based on the computed selectedInstructionType -->
             <InstructionGlobalCreateComponent 
-                v-if="selectedInstructionType === 'global'"
+                v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
                 :instruction="instruction"
                 :shared-form="sharedForm"
                 :selected-data-sources="selectedDataSources"
@@ -20,7 +20,7 @@
                 @update-data-sources="updateSelectedDataSources"
             />
             <InstructionPrivateCreateComponent 
-                v-else-if="selectedInstructionType === 'private'"
+                v-else
                 :instruction="instruction"
                 :shared-form="sharedForm"
                 :selected-data-sources="selectedDataSources"

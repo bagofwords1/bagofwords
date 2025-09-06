@@ -189,9 +189,13 @@ class InstructionService:
         
         # Get the instruction
         instruction = await self._get_instruction_by_id(db, instruction_id, organization)
+        # Determine membership/permissions; non-members cannot update regardless of ownership
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+        if not user_permissions:
+            raise HTTPException(status_code=403, detail="Permission denied: not an organization member")
         
         # Determine what type of update this is and check permissions
-        update_type = self._determine_update_type(instruction, instruction_data, current_user)
+        update_type = self._determine_update_type(instruction, instruction_data, current_user, user_permissions)
         
         # Handle the update based on type
         if update_type == "admin_review":
@@ -471,10 +475,11 @@ class InstructionService:
         
         return instruction
 
-    def _determine_update_type(self, instruction: Instruction, instruction_data: InstructionUpdate, current_user: User) -> str:
+    def _determine_update_type(self, instruction: Instruction, instruction_data: InstructionUpdate, current_user: User, user_permissions: set) -> str:
         """Determine what type of update this is based on permissions and changes"""
         
-        is_admin = self._is_admin(current_user)
+        # Admin if user has instruction management permission (must be org member)
+        is_admin = self._is_admin_permissions(user_permissions)
         is_owner = instruction.user_id == current_user.id
         is_suggested = instruction.global_status == "suggested"
         has_status_change = instruction_data.status and instruction_data.status != instruction.status
@@ -488,8 +493,8 @@ class InstructionService:
         elif is_admin:
             return "admin_edit"
         
-        # Owner editing their own private instruction
-        elif is_owner and instruction.is_editable_by_user:
+        # Owner editing their own instruction when not globally approved (suggested or private)
+        elif is_owner and (instruction.global_status != "approved") and user_permissions:
             return "owner_edit"
         
         # No permission
@@ -538,23 +543,17 @@ class InstructionService:
     async def _handle_owner_edit(self, instruction: Instruction, instruction_data: InstructionUpdate):
         """Handle owner editing their own private instruction"""
         
-        # Owner can only edit text, category, and archive (not publish)
+        # Owner can only edit text/category/toggles. Ignore any status changes silently.
         allowed_fields = ['text', 'category', 'is_seen', 'can_user_toggle']
         
-        # Allow archiving but not publishing
-        if instruction_data.status == "archived":
-            allowed_fields.append('status')
-        elif instruction_data.status == "published":
-            raise HTTPException(status_code=403, detail="Only admins can publish instructions")
-        
-        # Apply allowed changes only
+        # Apply allowed changes only (ignore status/private/global fields if present)
         for field in allowed_fields:
             if hasattr(instruction_data, field) and getattr(instruction_data, field) is not None:
                 setattr(instruction, field, getattr(instruction_data, field))
 
-    def _is_admin(self, user: User) -> bool:
-        """Check if user has admin permissions"""
-        return True
+    def _is_admin_permissions(self, user_permissions: set) -> bool:
+        """Check if permissions set corresponds to an admin in org"""
+        return 'update_instructions' in user_permissions or 'create_instructions' in user_permissions or 'delete_instructions' in user_permissions
 
     async def _get_instruction_by_id(self, db: AsyncSession, instruction_id: str, organization: Organization) -> Instruction:
         """Get instruction by ID with proper error handling"""
@@ -589,7 +588,8 @@ class InstructionService:
     ):
         """Get condition for viewing others' instructions based on permissions"""
         
-        base = [Instruction.user_id != user_id]
+        # Treat instructions with NULL user_id as "others" so system/AI-created drafts are visible
+        base = [or_(Instruction.user_id != user_id, Instruction.user_id == None)]
         
         if 'create_instructions' in permissions:
             # Admin: see everything with optional filters

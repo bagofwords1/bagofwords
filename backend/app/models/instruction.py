@@ -26,7 +26,7 @@ class Instruction(BaseSchema):
     category = Column(String(50), nullable=False, default="general")
     
     # User who created the instruction (always the original creator)
-    user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
+    user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     
     # Dual-status lifecycle management
     private_status = Column(String(50), nullable=True)  # draft, published, archived (null for global-only)
@@ -41,6 +41,12 @@ class Instruction(BaseSchema):
     
     # Legacy field - keeping for potential future use
     source_instruction_id = Column(String(36), ForeignKey('instructions.id'), nullable=True)
+
+    # if ai generated:
+    agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True)
+    trigger_reason = Column(String(255), nullable=True)
+    # provenance label for AI-created instructions (e.g., 'completion', 'batch_job')
+    ai_source = Column(String(50), nullable=True)
     
     # Organization ownership
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False)
@@ -56,6 +62,7 @@ class Instruction(BaseSchema):
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id], lazy="selectin")
     organization = relationship("Organization")
     references = relationship("InstructionReference", back_populates="instruction", lazy="selectin", cascade="all, delete-orphan")
+    agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="selectin")
     
     def __repr__(self):
         return f"<Instruction {self.category}:{self.text[:50]}...>"

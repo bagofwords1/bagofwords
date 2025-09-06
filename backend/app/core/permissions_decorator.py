@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from functools import wraps
 from inspect import signature
 from app.models.membership import Membership, ROLES_PERMISSIONS
+from app.models.instruction import Instruction
 from app.settings.config import settings
 
 
@@ -61,11 +62,8 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             if not membership:
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
-            # Check role-based permission
-            if permission not in ROLES_PERMISSIONS.get(membership.role, set()):
-                raise HTTPException(status_code=403, detail="Permission denied")
-
             # If model is provided and object_id exists and is not None and is a valid UUID-like string, verify object belongs to organization
+            obj = None
             if model and object_id is not None:
                 stmt = select(model).where(
                     model.id == object_id,
@@ -90,6 +88,19 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                             raise HTTPException(status_code=403, detail="Only the owner can perform this action")
                     else:
                         raise HTTPException(status_code=500, detail="Object does not support ownership checks")
+
+            # Check role-based permission, with special-case for Instruction owner updates on unpublished
+            has_role_permission = permission in ROLES_PERMISSIONS.get(membership.role, set())
+            if not has_role_permission:
+                # Special owner allowance: Instruction owner may modify/delete when not published
+                if isinstance(obj, Instruction):
+                    is_owner = obj and getattr(obj, 'user_id', None) == user.id
+                    not_approved = obj and getattr(obj, 'global_status', None) != 'approved'
+                    is_ai_orphan = (getattr(obj, 'user_id', None) is None) and (getattr(obj, 'ai_source', None) is not None)
+                    if not_approved and (is_owner or is_ai_orphan):
+                        # allow without role permission
+                        return await func(*args, **kwargs)
+                raise HTTPException(status_code=403, detail="Permission denied")
 
             return await func(*args, **kwargs)
         return wrapper

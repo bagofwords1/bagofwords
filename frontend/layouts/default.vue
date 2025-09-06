@@ -54,7 +54,7 @@
           </NuxtLink>
         </li>
 
-        <li class="" v-if="isAdmin">
+        <li class="" v-if="currentUser?.organizations[0]?.role === 'admin'">
           <a href="/console" class="flex items-center p-2 text-gray-700 rounded-lg group hover:text-blue-500">
             <UTooltip text="Console" :popper="{ placement: 'right' }">
               <span class="font-medium text-lg ">
@@ -145,16 +145,9 @@
   const { organization } = useOrganization()
   const { isExcel } = useExcel()
   const router = useRouter()
-  const selectedDataSources = ref<any[]>([])
+  const selectedDataSources = ref([])
   const { $intercom } = useNuxtApp()
   const { version, environment, app_url, intercom } = useRuntimeConfig().public
-  
-  const isAdmin = computed(() => {
-    const orgs = (currentUser.value as any)?.organizations || []
-    return orgs?.[0]?.role === 'admin'
-  })
-
-  const currentUserName = computed(() => (currentUser.value as any)?.name || 'User')
  
   if (environment === 'production' && intercom) {
     $intercom.boot()

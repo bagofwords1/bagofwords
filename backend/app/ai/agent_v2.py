@@ -618,7 +618,37 @@ class AgentV2:
                                     if self.suggest_instructions is not None:
                                         drafts = []
                                         async for draft in self.suggest_instructions.stream_suggestions(context_view=view_for_suggest, context_hub=self.context_hub, hint=hint):
-                                            drafts.append(draft)
+                                            # Persist immediately and stream back full instruction object
+                                            inst = await self.project_manager.create_instruction_from_draft(
+                                                self.db,
+                                                self.organization,
+                                                text=draft.get("text", ""),
+                                                category=draft.get("category", "general"),
+                                                agent_execution_id=str(self.current_execution.id),
+                                                trigger_reason=hint,
+                                                ai_source="completion",
+                                                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+                                            )
+                                            # Append a minimal client payload too
+                                            draft_payload = {
+                                                "id": str(inst.id),
+                                                "text": inst.text,
+                                                "category": inst.category,
+                                                "status": inst.status,
+                                                "private_status": inst.private_status,
+                                                "global_status": inst.global_status,
+                                                "is_seen": inst.is_seen,
+                                                "can_user_toggle": inst.can_user_toggle,
+                                                "user_id": inst.user_id,
+                                                "organization_id": str(inst.organization_id),
+                                                "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
+                                                "trigger_reason": inst.trigger_reason,
+                                                "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
+                                                "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
+                                                "ai_source": getattr(inst, 'ai_source', None),
+                                            }
+                                            drafts.append(draft_payload)
+
                                             try:
                                                 seq_si_p = await self.project_manager.next_seq(self.db, self.current_execution)
                                                 await self._emit_sse_event(SSEEvent(
@@ -626,7 +656,7 @@ class AgentV2:
                                                     completion_id=str(self.system_completion.id),
                                                     agent_execution_id=str(self.current_execution.id),
                                                     seq=seq_si_p,
-                                                    data={"instruction": draft}
+                                                    data={"instruction": draft_payload}
                                                 ))
                                             except Exception:
                                                 pass

@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.193
+- Introduced automatic instruction suggestion system to enhance AI decision-making and performance. The system generates suggestions triggered by:
+  - User clarifications regarding terms, facts, or metrics
+  - AI successfully resolving data generation code after encountering multiple failures
+- All generated suggestions are stored globally and require administrative review and approval before implementation
+- Bug fixes and enhancements
+
 ## Version 0.0.192
 - Fixed file upload functionality within Docker container environment
 - Resolved issues with report rerunning capabilities

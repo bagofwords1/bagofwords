@@ -104,7 +104,12 @@
                             </td>
                             <td class="px-6 py-4">
                                 <div class="text-sm text-gray-900">
-                                    {{ instruction.user?.name || 'AI Generated' }}
+                                    <template v-if="(instruction as any).ai_source">
+                                        AI Generated<span v-if="instruction.user?.name"> — {{ instruction.user.name }}</span>
+                                    </template>
+                                    <template v-else>
+                                        {{ instruction.user?.name || 'Unknown' }}
+                                    </template>
                                 </div>
                             </td>
                             <td class="px-6 py-4">

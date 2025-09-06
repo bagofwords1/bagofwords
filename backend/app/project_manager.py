@@ -3,6 +3,10 @@ from app.models.text_widget import TextWidget
 from sqlalchemy.orm import Session
 import datetime
 from app.schemas.completion_schema import PromptSchema
+from typing import List, Optional
+from app.services.instruction_service import InstructionService
+from app.schemas.instruction_schema import InstructionCreate, InstructionSchema
+from app.models.instruction import Instruction
 from app.models.widget import Widget
 from app.models.step import Step
 from app.models.plan import Plan
@@ -298,6 +302,46 @@ class ProjectManager:
         await db.commit()
         await db.refresh(completion)
         return completion
+
+    async def create_instruction_from_draft(
+        self,
+        db,
+        organization,
+        text: str,
+        category: str = "general",
+        agent_execution_id: str = None,
+        trigger_reason: str = None,
+        ai_source: str | None = None,
+        user_id: str | None = None,
+    ) -> Instruction:
+        """
+        Create a single draft instruction owned by the system (user_id=None).
+        """
+        try:
+            clean_text = (text or "").strip()
+            if not clean_text:
+                raise ValueError("Instruction text cannot be empty")
+            
+            instruction = Instruction(
+                text=clean_text,
+                status="draft",
+                category=category or "general",
+                user_id=user_id,
+                global_status="suggested",
+                is_seen=True,
+                agent_execution_id=agent_execution_id,
+                trigger_reason=trigger_reason,
+                ai_source=ai_source,
+                organization_id=str(organization.id),
+            )
+            db.add(instruction)
+            await db.commit()
+            await db.refresh(instruction)
+
+            return instruction
+        except Exception as e:
+            self.logger.warning(f"create_instruction_from_draft failed: {e}")
+            raise
 
     # ==============================
     # Agent Execution Tracking Methods

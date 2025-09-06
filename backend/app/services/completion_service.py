@@ -49,6 +49,57 @@ from app.models.completion_block import CompletionBlock
 from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
+from app.models.instruction import Instruction
+
+
+async def _get_instruction_suggestions_for_completion(
+    db: AsyncSession, 
+    completion: Completion, 
+    agent_execution: AgentExecution | None
+) -> list[dict] | None:
+    """Get instruction suggestions for a specific completion if it generated them."""
+    if not agent_execution or completion.role != 'system' or completion.status not in ['success', 'completed']:
+        return None
+        
+    # Check if this agent execution created any instructions - get full instruction objects
+    instr_stmt = (
+        select(Instruction)
+        .where(Instruction.agent_execution_id == agent_execution.id)
+        .where(Instruction.deleted_at == None)
+        .order_by(Instruction.created_at.asc())
+    )
+    instr_res = await db.execute(instr_stmt)
+    instructions = instr_res.scalars().all()
+    
+    if not instructions:
+        return None
+    
+    # Convert to dict format with all relevant fields
+    instructions_data = []
+    for instr in instructions:
+        if not (instr.text or "").strip():
+            continue
+            
+        instruction_data = {
+            "id": str(instr.id),
+            "text": instr.text,
+            "category": instr.category,
+            "status": instr.status,
+            "private_status": instr.private_status,
+            "global_status": instr.global_status,
+            "is_seen": instr.is_seen,
+            "can_user_toggle": instr.can_user_toggle,
+            "user_id": instr.user_id,
+            "organization_id": str(instr.organization_id),
+            "agent_execution_id": str(instr.agent_execution_id) if instr.agent_execution_id else None,
+            "trigger_reason": instr.trigger_reason,
+            "created_at": instr.created_at.isoformat() if instr.created_at else None,
+            "updated_at": instr.updated_at.isoformat() if instr.updated_at else None,
+            "ai_source": getattr(instr, 'ai_source', None),
+        }
+        instructions_data.append(instruction_data)
+    
+    return instructions_data if instructions_data else None
 
 
 import re
@@ -470,7 +521,7 @@ class CompletionService:
             completion_id_to_blocks[b.completion_id].append(block_schema)
             total_blocks += 1
 
-        # 6) Assemble completion objects
+        # 6) Assemble completion objects (attach simple per-AE suggestions list outside blocks)
         v2_completions: list[CompletionV2Schema] = []
         for c in all_completions:
             exec_obj = completion_id_to_exec.get(c.id)
@@ -494,6 +545,9 @@ class CompletionService:
                     except (json.JSONDecodeError, TypeError):
                         completion_data = {"content": completion_data}
 
+            # Get instruction suggestions for this completion if it generated them
+            suggestions_list = await _get_instruction_suggestions_for_completion(db, c, exec_obj)
+
             v2 = CompletionV2Schema(
                 id=c.id,
                 role=c.role,
@@ -511,6 +565,7 @@ class CompletionService:
                 sigkill=c.sigkill,
                 created_at=c.created_at,
                 updated_at=c.updated_at,
+                instruction_suggestions=suggestions_list,
             )
             v2_completions.append(v2)
 
@@ -602,6 +657,9 @@ class CompletionService:
                     except (json.JSONDecodeError, TypeError):
                         completion_data = {"content": completion_data}
 
+            # Get instruction suggestions for this completion if it generated them
+            suggestions_list = await _get_instruction_suggestions_for_completion(db, c, exec_obj)
+
             v2 = CompletionV2Schema(
                 id=c.id,
                 role=c.role,
@@ -620,6 +678,7 @@ class CompletionService:
                 sigkill=c.sigkill,
                 created_at=c.created_at,
                 updated_at=c.updated_at,
+                instruction_suggestions=suggestions_list,
             )
             v2_list.append(v2)
 

@@ -104,6 +104,9 @@ class CompletionV2Schema(BaseModel):
     # Small summary for UI
     summary: Dict[str, Any] = {}
 
+    # Suggested instructions produced during this agent execution (optional, outside blocks)
+    instruction_suggestions: Optional[List[Dict[str, Any]]] = None
+
     # Control & timing
     sigkill: Optional[datetime] = None
     created_at: datetime
