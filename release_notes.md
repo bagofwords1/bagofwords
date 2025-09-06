@@ -5,6 +5,7 @@
   - User clarifications regarding terms, facts, or metrics
   - AI successfully resolving data generation code after encountering multiple failures
 - All generated suggestions are stored globally and require administrative review and approval before implementation
+- Improved main AI agent planner prompt
 - Bug fixes and enhancements
 
 ## Version 0.0.192
