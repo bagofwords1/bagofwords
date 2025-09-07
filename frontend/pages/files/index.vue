@@ -4,9 +4,9 @@
             <div>
                 <h1 class="text-lg font-semibold">
                     <GoBackChevron v-if="isExcel" />
-                    Library
+                    Files
                 </h1>
-                <p class="mt-2 text-gray-500">Manage your organization library</p>
+                <p class="mt-2 text-gray-500">Manage your organization files</p>
 
             </div>
 

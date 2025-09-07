@@ -21,8 +21,58 @@
                 @click="addInstruction"
                 class="ml-4"
             >
-                Add Instruction
+                {{ addButtonLabel }}
             </UButton>
+        </div>
+
+        <!-- Main tabs -->
+        <div class="border-b border-gray-200 mb-3">
+            <nav class="-mb-px flex space-x-6">
+                <button
+                    class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
+                    :class="activeTab === 'published' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
+                    @click="activeTab = 'published'"
+                >
+                    <span>Published</span>
+                    <span class="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-700">{{ publishedCount }}</span>
+                </button>
+                <button
+                    class="whitespace-nowrap border-b-2 py-2 px-1 text-sm flex items-center"
+                    :class="activeTab === 'suggested' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'"
+                    @click="activeTab = 'suggested'"
+                >
+                    <span>Suggested</span>
+                    <span class="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-700">{{ suggestedCount }}</span>
+                </button>
+            </nav>
+        </div>
+
+        <!-- Sub-filters -->
+        <div class="flex flex-wrap items-center gap-3 mb-5 text-xs">
+            <!-- Creator filter -->
+            <div class="flex items-center space-x-2">
+                <span class="text-gray-500">Creator</span>
+                <div class="flex items-center space-x-1">
+                    <UButton size="xs" :variant="creatorFilter === 'all' ? 'soft' : 'ghost'" :color="creatorFilter === 'all' ? 'gray' : 'gray'" @click="creatorFilter = 'all'">All</UButton>
+                    <UButton size="xs" :variant="creatorFilter === 'user' ? 'soft' : 'ghost'" :color="creatorFilter === 'user' ? 'gray' : 'gray'" @click="creatorFilter = 'user'">User</UButton>
+                    <UButton size="xs" :variant="creatorFilter === 'ai' ? 'soft' : 'ghost'" :color="creatorFilter === 'ai' ? 'gray' : 'gray'" @click="creatorFilter = 'ai'">AI Generated</UButton>
+                </div>
+            </div>
+
+            <!-- Category filter -->
+            <div class="flex items-center space-x-2">
+                <span class="text-gray-500">Category</span>
+                <USelectMenu
+                    v-model="categoryFilter"
+                    :options="categoryOptions"
+                    value-attribute="value"
+                    option-attribute="label"
+                    size="xs"
+                    class="w-40"
+                />
+            </div>
+
+            <!-- Data sources filter removed as requested -->
         </div>
 
         <!-- Loading state -->
@@ -204,6 +254,7 @@
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
+import { useCan, usePermissionsLoaded } from '~/composables/usePermissions'
 
 // Define interfaces based on the backend schema
 interface DataSource {
@@ -273,22 +324,74 @@ const searchQuery = ref('')
 const currentPage = ref(1)
 const pageSize = ref(10)
 
+// Permissions
+const permissionsLoaded = usePermissionsLoaded()
+const canCreate = computed(() => permissionsLoaded.value && useCan('create_instructions'))
+const addButtonLabel = computed(() => canCreate.value ? 'Add Instruction' : 'Suggest Instruction')
+
+// Tabs and filters
+const activeTab = ref<'published' | 'suggested'>('published')
+const creatorFilter = ref<'all' | 'user' | 'ai'>('all')
+const categoryFilter = ref<string>('all')
+// Data sources filter removed
+
 // Modal state
 const showInstructionModal = ref(false)
 const editingInstruction = ref<Instruction | null>(null)
 
+// Derived collections
+const publishedCount = computed(() => instructions.value.filter(i => i.status === 'published').length)
+// Suggested are draft-mode suggestions. Include items that are draft and suggested globally
+const suggestedCount = computed(() => instructions.value.filter(i => i.status === 'draft' && (i.global_status === 'suggested' || i.private_status === 'draft')).length)
+
+const mainFiltered = computed(() => {
+    if (activeTab.value === 'published') {
+        return instructions.value.filter(i => i.status === 'published')
+    } else {
+        // Suggested tab: show drafts that are suggested or otherwise in draft state
+        return instructions.value.filter(i => i.status === 'draft' && (i.global_status === 'suggested' || i.private_status === 'draft' || !i.global_status))
+    }
+})
+
+// Data sources: no computed options needed (filter removed)
+
+const categoryOptions = [
+    { label: 'All', value: 'all' },
+    { label: 'General', value: 'general' },
+    { label: 'Code Generation', value: 'code_gen' },
+    { label: 'Data Modeling', value: 'data_modeling' }
+]
+
 // Computed properties
 const filteredInstructions = computed(() => {
-    if (!searchQuery.value) return instructions.value
-    
-    const query = searchQuery.value.toLowerCase()
-    return instructions.value.filter(instruction => 
-        instruction.text.toLowerCase().includes(query) ||
-        instruction.user?.name?.toLowerCase().includes(query) ||
-        instruction.status.toLowerCase().includes(query) ||
-        instruction.category.toLowerCase().includes(query) ||
-        instruction.data_sources.some(ds => ds.name.toLowerCase().includes(query))
-    )
+    let list = mainFiltered.value
+
+    // Creator filter
+    if (creatorFilter.value !== 'all') {
+        list = list.filter(i => {
+            const isAi = (i as any).ai_source ? true : false
+            return creatorFilter.value === 'ai' ? isAi : !isAi
+        })
+    }
+
+    // Category filter
+    if (categoryFilter.value !== 'all') {
+        list = list.filter(i => i.category === categoryFilter.value)
+    }
+
+    // Search
+    if (searchQuery.value) {
+        const q = searchQuery.value.toLowerCase()
+        list = list.filter(instruction => 
+            instruction.text.toLowerCase().includes(q) ||
+            instruction.user?.name?.toLowerCase().includes(q) ||
+            instruction.status.toLowerCase().includes(q) ||
+            instruction.category.toLowerCase().includes(q) ||
+            instruction.data_sources.some(ds => ds.name.toLowerCase().includes(q))
+        )
+    }
+
+    return list
 })
 
 const paginatedInstructions = computed(() => {
@@ -458,6 +561,10 @@ const formatDate = (dateString: string) => {
 
 // Watch for search query changes and reset pagination
 watch(searchQuery, () => {
+    currentPage.value = 1
+})
+
+watch([activeTab, creatorFilter, categoryFilter], () => {
     currentPage.value = 1
 })
 

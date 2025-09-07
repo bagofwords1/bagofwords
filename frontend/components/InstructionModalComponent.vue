@@ -24,7 +24,7 @@
                 :instruction="instruction"
                 :shared-form="sharedForm"
                 :selected-data-sources="selectedDataSources"
-                :is-suggestion="props.isSuggestion"
+                :is-suggestion="effectiveIsSuggestion"
                 @instruction-saved="handleInstructionSaved"
                 @cancel="closeModal"
                 @update-form="updateSharedForm"
@@ -37,7 +37,7 @@
 <script setup lang="ts">
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCreateComponent.vue'
-import { usePermissionsLoaded } from '~/composables/usePermissions'
+import { usePermissionsLoaded, useCan } from '~/composables/usePermissions'
 
 // Define interfaces
 interface DataSource {
@@ -103,6 +103,12 @@ const selectedInstructionType = computed(() => {
         return 'private' 
     }
     return useCan('create_instructions') ? 'global' : 'private'
+})
+
+// Non-admins default to suggestions when creating
+const effectiveIsSuggestion = computed(() => {
+    if (props.isSuggestion !== undefined) return props.isSuggestion
+    return !useCan('create_instructions')
 })
 
 // Event handlers

@@ -7,7 +7,7 @@
 <script setup lang="ts">
 // Redirect to overview tab
 definePageMeta({
-    layout: 'console'
+    layout: 'monitoring'
 })
 </script>
 

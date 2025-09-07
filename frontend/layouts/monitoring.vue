@@ -1,10 +1,10 @@
 <template>
     <NuxtLayout name="default">
-        <div class="flex pl-2 md:pl-4 text-sm">
-            <div class="w-full md:w-3/4 px-4 pl-0 py-2">
+        <div class="flex justify-center pl-2 md:pl-4 text-sm">
+            <div class="w-full max-w-7xl px-4 pl-0 py-2">
                 <div>
                     <h1 class="text-lg font-semibold">
-                        Console
+                        Monitoring
                     </h1>
                     
                     <!-- Tabs navigation -->
@@ -13,7 +13,7 @@
                             <NuxtLink
                                 v-for="tab in visibleTabs"
                                 :key="tab.name"
-                                :to="`/console/${tab.name}`"
+                                :to="`/monitoring/${tab.name}`"
                                 :class="[
                                     isTabActive(tab.name)
                                         ? 'border-blue-500 text-blue-600'
@@ -44,8 +44,7 @@ const currentPath = computed(() => route.path)
 // All available tabs with their required permissions
 const allTabs = [
     { name: '', label: 'Explore', icon: 'i-heroicons-chart-bar', requiredPermission: "view_console" },
-    { name: 'diagnosis', label: 'Diagnosis', icon: 'i-heroicons-wrench', requiredPermission: "view_console" },
-    { name: 'instructions', label: 'Instructions', icon: 'i-heroicons-cube', requiredPermission: "view_console" }
+    { name: 'diagnosis', label: 'Diagnosis', icon: 'i-heroicons-wrench', requiredPermission: "view_console" }
 ]
 
 // Filter tabs based on user permissions
@@ -59,9 +58,9 @@ const visibleTabs = computed(() => {
 const isTabActive = (tabName: string) => {
     const path = currentPath.value
     if (tabName === '') {
-        // For the first tab (Explore), it's active when on /console or /console/
-        return path === '/console' || path === '/console/'
+        // For the first tab (Explore), it's active when on /monitoring or /monitoring/
+        return path === '/monitoring' || path === '/monitoring/'
     }
-    return path === `/console/${tabName}`
+    return path === `/monitoring/${tabName}`
 }
 </script> 

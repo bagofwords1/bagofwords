@@ -250,7 +250,7 @@ import DateRangePicker from '~/components/console/DateRangePicker.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 
 definePageMeta({
-    layout: 'console'
+    layout: 'monitoring'
 })
 
 // Types for compact issues

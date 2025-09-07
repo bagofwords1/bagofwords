@@ -2,7 +2,7 @@
     <div>
         <form @submit.prevent="submitForm" class="space-y-4">
             <!-- Show suggestion notice -->
-            <div v-if="isSuggestion" class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+            <div v-if="isSuggestionEffective" class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
                 <div class="flex items-center">
                     <Icon name="heroicons:light-bulb" class="w-5 h-5 text-yellow-600 mr-2" />
                     <span class="text-sm font-medium text-yellow-800">Suggestion for Global Instruction</span>
@@ -177,7 +177,7 @@
             </div>
 
             <!-- Review Section for Suggestions -->
-            <div v-if="isSuggestion" class="border border-gray-200 rounded-lg p-4 hidden">
+            <div v-if="isSuggestionEffective" class="border border-gray-200 rounded-lg p-4 hidden">
                 <h3 class="text-sm font-medium text-gray-700 mb-3">Review Settings</h3>
                 
                 <div class="flex items-center justify-between">
@@ -212,7 +212,7 @@
                     />
                     <UButton 
                         type="submit" 
-                        :label="isEditing ? 'Update Instruction' : (isSuggestion ? 'Submit Suggestion' : 'Create Instruction')"  
+                        :label="isEditing ? 'Update Instruction' : (isSuggestionEffective ? 'Submit Suggestion' : 'Create Instruction')"  
                         color="blue"
                         class="!text-white"
                         :loading="isSubmitting"
@@ -225,6 +225,7 @@
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useCan } from '~/composables/usePermissions'
 
 // Define interfaces
 interface DataSource {
@@ -271,8 +272,11 @@ const availableDataSources = ref<DataSource[]>([])
 const mentionableOptions = ref<MentionableItem[]>([])
 const selectedReferences = ref<MentionableItem[]>([])
 
+// Determine if this should be treated as a suggestion (non-admins can only suggest)
+const isSuggestionEffective = computed(() => props.isSuggestion || !useCan('create_instructions'))
+
 // Review toggle for suggestions - defaults to true for suggestions
-const needsReview = ref(props.isSuggestion || false)
+const needsReview = ref(isSuggestionEffective.value || false)
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
@@ -460,12 +464,12 @@ const submitForm = async () => {
         
         const payload = {
             text: props.sharedForm.text,
-            status: 'published', // Always published for private instructions
+            status: isSuggestionEffective.value ? 'draft' : 'published',
             category: props.sharedForm.category,
             
             // Dual-status approach
-            private_status: 'published',
-            global_status: props.isSuggestion ? 'suggested' : null,
+            private_status: isSuggestionEffective.value ? 'draft' : 'published',
+            global_status: isSuggestionEffective.value ? 'suggested' : null,
             
             is_seen: true,
             can_user_toggle: true,
@@ -498,7 +502,7 @@ const submitForm = async () => {
         if (response.status.value === 'success') {
             toast.add({
                 title: 'Success',
-                description: `${props.isSuggestion ? 'Suggestion' : 'Instruction'} ${isEditing.value ? 'updated' : 'submitted'} successfully`,
+                description: `${isSuggestionEffective.value ? 'Suggestion' : 'Instruction'} ${isEditing.value ? 'updated' : 'submitted'} successfully`,
                 color: 'green'
             })
             
@@ -557,8 +561,8 @@ const confirmDelete = async () => {
     }
 }
 
-// Watch for suggestion prop changes
-watch(() => props.isSuggestion, (newValue) => {
+// Watch for suggestion status changes
+watch(isSuggestionEffective, (newValue) => {
     if (newValue) {
         needsReview.value = true
     }
