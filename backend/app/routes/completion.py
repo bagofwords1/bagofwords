@@ -77,7 +77,10 @@ async def get_completions(report_id: str, current_user: User = Depends(current_u
 
 @router.websocket("/ws/api/reports/{report_id}")
 async def websocket_endpoint(websocket: WebSocket, report_id: str):
-    print(f"=== websocket_endpoint for report {report_id} ===")
+    from app.settings.logging_config import get_logger
+    logger = get_logger(__name__)
+    
+    logger.info(f"WebSocket connection initiated for report {report_id}")
     try:
         await websocket_manager.connect(websocket, report_id)
         
@@ -89,12 +92,13 @@ async def websocket_endpoint(websocket: WebSocket, report_id: str):
                 data = await websocket.receive_text()
                 if data == "pong":  # Handle ping-pong
                     continue
-                print(f"Received data: {data}")
+                logger.debug(f"Received WebSocket data for report {report_id}: {data}")
                 # Handle incoming data if necessary
             except WebSocketDisconnect:
+                logger.info(f"WebSocket disconnected for report {report_id}")
                 break
     except Exception as e:
-        print(f"Error in WebSocket connection: {e}")
+        logger.error(f"Error in WebSocket connection for report {report_id}: {e}")
     finally:
         websocket_manager.disconnect(websocket, report_id)
         if 'keep_alive_task' in locals():

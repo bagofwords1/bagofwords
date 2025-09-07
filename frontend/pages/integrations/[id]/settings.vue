@@ -7,14 +7,14 @@
                     <DataSourceIcon :type="integration.type" class="w-5 inline" />
                     {{ integration.name }}
                 </h1>
-                <p class="text-sm text-gray-500">
+                <div class="text-sm text-gray-500">
                     <div class="mt-4 text-center">
                         <span class="text-green-500 font-semibold" v-if="testConnectionStatus?.success">
                             <UIcon name="heroicons-check-circle"/>
                         </span>
                         {{ testConnectionStatus.success ? 'Connected' : 'Failed to connect' }}
                     </div>
-                </p>
+                </div>
 
                 <div class="flex border-b border-gray-200 mt-7">
                     <button 
@@ -103,7 +103,7 @@
                             <h1 class="text-sm font-semibold">
                                 What is AI Rules?
                             </h1>
-                            <p class="text-sm text-gray-500 leading-6 mt-4">
+                            <div class="text-sm text-gray-500 leading-6 mt-4">
                                 The AI rules for this data source is a place to add any information that you want to share with the AI agents that are using this data source.
                                 
                                 <br />
@@ -124,7 +124,7 @@
                                     </li>
                                     <li class="mb-3">Any other information that you want to share with the AI agents</li>
                                 </ul>
-                            </p>
+                            </div>
                         </div>
                     </div>
                 </div>

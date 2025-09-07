@@ -1,34 +1,75 @@
-# Node.js (Frontend)
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.dmypy.json
+dmypy.json
 
+# Backend specific
 backend/uploads/
 backend/db/
 backend/backend_venv/
 backend/branding_uploads/
+backend/logs/
+backend/venv/
 test_data_sources/
+
+# Node.js (Frontend)
 excel-add-in/hi/node_modules/
-
-frontend/.nuxt/cache/
-# Nuxt dev/build outputs
-frontend/.output
-frontend/.data
-frontend/.nuxt
-frontend/.nitro
-frontend/.cache
-frontend/dist
 frontend/node_modules/
+frontend/.nuxt/
 frontend/.output/
+frontend/.data/
+frontend/.nitro/
+frontend/.cache/
+frontend/dist/
 frontend/test-results/
-# Logs
-backend/logs
-*.log
 
-# Misc
+# Logs
+*.log
+logs/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
 
 # Local env files
 .env
 .env.*
 !.env.example
 
-
-*.pyc
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

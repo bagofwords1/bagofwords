@@ -165,7 +165,9 @@ class CompletionService:
         external_platform: str = None,
     ):
         try:
-            print("CompletionService: Starting create_completion (v2, non-stream)")
+            from app.settings.logging_config import get_logger
+            logger = get_logger(__name__)
+            logger.info("CompletionService: Starting create_completion (v2, non-stream)")
 
             # Validate report exists
             result = await db.execute(select(Report).filter(Report.id == report_id))
@@ -252,7 +254,7 @@ class CompletionService:
             org_settings = await organization.get_settings(db)
 
             if background:
-                logging.info("CompletionService: Scheduling background agent (non-stream API)")
+                logger.info("CompletionService: Scheduling background agent (non-stream API)")
 
                 async def run_agent_task():
                     async_session = create_async_session_factory()

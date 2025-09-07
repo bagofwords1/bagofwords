@@ -43,10 +43,14 @@ def after_update_widget(mapper, connection, target):
             "height": target.height
         }
 
-        print(f"Broadcasting widget update: {data}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.debug(f"Broadcasting widget update: {data}")
         asyncio.create_task(broadcast_widget_update(data))
     except Exception as e:
-        print(f"Error in after_update_widget: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error in after_update_widget: {e}")
 
 async def broadcast_widget_update(data):
     try:
@@ -60,8 +64,12 @@ async def broadcast_widget_update(data):
             str(data["report_id"]),
             json.dumps(data)
         )
-        print(f"Broadcasted widget update: {data}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.debug(f"Broadcasted widget update: {data}")
     except Exception as e:
-        print(f"Error broadcasting widget update: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error broadcasting widget update: {e}")
 
 event.listen(Widget, 'after_update', after_update_widget)

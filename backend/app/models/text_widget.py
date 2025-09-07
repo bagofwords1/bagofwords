@@ -41,11 +41,15 @@ def after_insert_text_widget(mapper, connection, target):
             "report_id": str(target.report_id)
         }
         
-        print(f"Triggered after_insert_text_widget with data: {data}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.debug(f"Triggered after_insert_text_widget with data: {data}")
         asyncio.create_task(broadcast_event(data))
 
     except Exception as e:
-        print(f"Error in after_insert_text_widget: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error in after_insert_text_widget: {e}")
 
 # Register the event listener
 event.listen(TextWidget, 'after_insert', after_insert_text_widget)

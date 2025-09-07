@@ -5,10 +5,16 @@ import sentry_sdk
 import argparse
 import uuid
 import time
+import warnings
+from contextlib import asynccontextmanager
 
 from tenacity import retry, stop_after_attempt, wait_exponential
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
+
+# Suppress Pydantic warnings from external dependencies
+warnings.filterwarnings("ignore", message="Valid config keys have changed in V2")
+warnings.filterwarnings("ignore", message="Field name .* shadows an attribute in parent")
 
 # Add this before app initialization
 parser = argparse.ArgumentParser()
@@ -32,6 +38,10 @@ from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler
 from app.models.user import User
+from app.middleware.error_handler import add_error_handler
+from app.middleware.performance_monitor import add_performance_monitor
+from app.middleware.security import add_security_middleware
+from app.middleware.validation import add_validation_middleware
 
 from app.routes import (
     report,
@@ -56,7 +66,8 @@ from app.routes import (
     step,
     instruction,
     console,
-    agent_execution
+    agent_execution,
+    health
 )
 
 # Initialize logging
@@ -74,10 +85,79 @@ enable_google_oauth = settings.bow_config.google_oauth.enabled
 google_client_id = settings.bow_config.google_oauth.client_id
 google_client_secret = settings.bow_config.google_oauth.client_secret
 
+# Database connection check function
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    reraise=True
+)
+async def check_db_connection():
+    """Verify database connection with retries"""
+    try:
+        async with async_session_maker() as session:
+            # Try a simple query to verify the connection
+            await session.execute(text("SELECT 1"))
+            await session.commit()
+            logger.info("✅ Database connection successful")
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {str(e)}")
+        raise
+
+# Lifespan context manager
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        # Check database connection first with retries
+        await check_db_connection()
+    except Exception as e:
+        logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
+        exit(1)
+    
+    logger.info(
+        "Application starting",
+        extra={
+            "environment": settings.ENVIRONMENT,
+            "debug_mode": settings.DEBUG,
+            "google_oauth": enable_google_oauth,
+            "email_verification": settings.bow_config.features.verify_emails,
+            "deployment_type": settings.bow_config.deployment.type,
+            "version": settings.PROJECT_VERSION
+        }
+    )
+    
+    scheduler.start()
+    logger.info(f"""
+   ____                       __                         _     
+ |  _ \\                     / _|                       | |    
+ | |_) | __ _  __ _    ___ | |_  __      _____  _ __ __| |___ 
+ |  _ < / _` |/ _` |  / _ \\|  _| \\ \\ /\\ / / _ \\| '__/ _` / __|
+ | |_) | (_| | (_| | | (_) | |    \\ V  V / (_) | | | (_| \\__ \\
+ |____/ \\__,_|\\__, |  \\___/|_|     \\_/\\_/ \\___/|_|  \\__,_|___/
+               __/ |                                          
+              |___/                                                                       
+
+🚀 Starting server with configuration:
+    - Environment: {settings.ENVIRONMENT}
+    - Debug Mode: {settings.DEBUG}
+    - Google OAuth: {'Enabled' if enable_google_oauth else 'Disabled'}
+    - Email Verification: {'Enabled' if settings.bow_config.features.verify_emails else 'Disabled'}
+    - Deployment Type: {settings.bow_config.deployment.type}
+    - Version: {settings.PROJECT_VERSION}
+    
+    Backend API available at http://0.0.0.0:8000
+    """)
+    
+    yield
+    
+    # Shutdown
+    scheduler.shutdown()
+
 # Initialize FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME, 
     debug=settings.DEBUG,
+    lifespan=lifespan,
     openapi_tags=[
         {"name": "auth", "description": "Authentication operations"},
         {"name": "reports", "description": "Report management"},
@@ -96,6 +176,10 @@ app = FastAPI(
 )
 
 init_cors(app)
+add_error_handler(app)
+add_performance_monitor(app, slow_request_threshold=2.0)
+add_security_middleware(app, enable_rate_limiting=not settings.DEBUG)
+add_validation_middleware(app)
 
 oauth_providers = []
 if enable_google_oauth and google_client_id and google_client_secret:
@@ -182,6 +266,7 @@ app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
 app.include_router(console.router, prefix="/api")
 app.include_router(agent_execution.router, prefix="/api")
+app.include_router(health.router)
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
@@ -237,70 +322,6 @@ def custom_openapi():
 
 # Assign the custom function to app.openapi
 app.openapi = custom_openapi
-
-# Add this function before the startup_event
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=4, max=10),
-    reraise=True
-)
-async def check_db_connection():
-    """Verify database connection with retries"""
-    try:
-        async with async_session_maker() as session:
-            # Try a simple query to verify the connection
-            await session.execute(text("SELECT 1"))
-            await session.commit()
-            logger.info("✅ Database connection successful")
-    except Exception as e:
-        logger.error(f"❌ Database connection failed: {str(e)}")
-        raise
-
-@app.on_event("startup")
-async def startup_event():
-    try:
-        # Check database connection first with retries
-        await check_db_connection()
-    except Exception as e:
-        logger.error(f"Failed to connect to database after 3 retries: {str(e)}")
-        exit(1)
-    logger.info(
-        "Application starting",
-        extra={
-            "environment": settings.ENVIRONMENT,
-            "debug_mode": settings.DEBUG,
-            "google_oauth": enable_google_oauth,
-            "email_verification": settings.bow_config.features.verify_emails,
-            "deployment_type": settings.bow_config.deployment.type,
-            "version": settings.PROJECT_VERSION
-        }
-    )
-    
-    scheduler.start()
-    print(f"""
-   ____                       __                         _     
- |  _ \\                     / _|                       | |    
- | |_) | __ _  __ _    ___ | |_  __      _____  _ __ __| |___ 
- |  _ < / _` |/ _` |  / _ \\|  _| \\ \\ /\\ / / _ \\| '__/ _` / __|
- | |_) | (_| | (_| | | (_) | |    \\ V  V / (_) | | | (_| \\__ \\
- |____/ \\__,_|\\__, |  \\___/|_|     \\_/\\_/ \\___/|_|  \\__,_|___/
-               __/ |                                          
-              |___/                                                                       
-
-🚀 Starting server with configuration:
-    - Environment: {settings.ENVIRONMENT}
-    - Debug Mode: {settings.DEBUG}
-    - Google OAuth: {'Enabled' if enable_google_oauth else 'Disabled'}
-    - Email Verification: {'Enabled' if settings.bow_config.features.verify_emails else 'Disabled'}
-    - Deployment Type: {settings.bow_config.deployment.type}
-    - Version: {settings.PROJECT_VERSION}
-    
-    You can now start using the app at {settings.bow_config.base_url}
-    """)
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    scheduler.shutdown()
 
 if __name__ == "__main__":
     uvicorn.run(

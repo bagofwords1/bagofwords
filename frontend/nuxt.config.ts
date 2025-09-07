@@ -75,13 +75,13 @@ export default defineNuxtConfig({
   },
 
   proxy: {
-    debug: true,
+    debug: process.env.NODE_ENV === 'development',
     experimental: {
         listener: true
     },
     proxies: {
         '/ws/api': {
-            target: 'ws://127.0.0.1:8000',
+            target: process.env.NUXT_BACKEND_WS_URL || 'ws://localhost:8000',
             ws: true,
             changeOrigin: true,
             secure: false,
@@ -92,7 +92,7 @@ export default defineNuxtConfig({
             }
         },
         '/api': {
-            target: 'http://127.0.0.1:8000',
+            target: process.env.NUXT_BACKEND_URL || 'http://localhost:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => path
