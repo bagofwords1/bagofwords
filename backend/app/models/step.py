@@ -48,16 +48,20 @@ def after_update_step(mapper, connection, target):
             "type": target.type,
             "data_model": target.data_model
         }
-        print(f"Broadcasting step update: {data}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.debug(f"Broadcasting step update: {data}")
         asyncio.create_task(broadcast_step_update(data))
 
         if target.status == "success":
             from app.services.slack_notification_service import send_step_result_to_slack
-            print(f"STEP_UPDATE: Triggering Slack DM for successful step {target.id}")
+            logger.info(f"STEP_UPDATE: Triggering Slack DM for successful step {target.id}")
             asyncio.create_task(send_step_result_to_slack(str(target.id)))
 
     except Exception as e:
-        print(f"Error in after_update_step: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error in after_update_step: {e}")
 
 async def broadcast_step_update(data):
     try:
@@ -65,9 +69,13 @@ async def broadcast_step_update(data):
             str(data["report_id"]),
             json.dumps(data)
         )
-        print(f"Broadcasted step update: {data}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.debug(f"Broadcasted step update: {data}")
     except Exception as e:
-        print(f"Error broadcasting step update: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error broadcasting step update: {e}")
 
 async def broadcast_step_insert(data):
     try:
@@ -76,7 +84,9 @@ async def broadcast_step_insert(data):
             json.dumps(data)
         )
     except Exception as e:
-        print(f"Error broadcasting step insert: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error broadcasting step insert: {e}")
 
 def after_insert_step(mapper, connection, target):
     try:
@@ -109,7 +119,9 @@ def after_insert_step(mapper, connection, target):
         }
         asyncio.create_task(broadcast_step_insert(data))
     except Exception as e:
-        print(f"Error in after_insert_step: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error in after_insert_step: {e}")
 
 # Register the event listener
 event.listen(Step, 'after_update', after_update_step)

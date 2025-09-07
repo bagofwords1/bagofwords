@@ -237,7 +237,9 @@ class ProjectManager:
         await db.execute(stmt)
         await db.commit()
         # No object to refresh after deletion
-        print(f"Deleted existing text widgets for report {report_id}") # Optional logging
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.info(f"Deleted existing text widgets for report {report_id}")
     
     async def update_report_title(self, db, report, title):
         # Instead of merging, let's fetch a fresh instance

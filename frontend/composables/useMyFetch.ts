@@ -18,23 +18,34 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
   // Use the returned organization from ensureOrganization to avoid timing issues
   if (orgResult?.id) {
     opts.headers['X-Organization-Id'] = orgResult.id
-  } else {
-    // Still make the request but without org header - let backend handle the error
-    console.warn('No organization ID available for API request:', request)
   }
+
+  // Add request timeout
+  opts.timeout = opts.timeout || 30000 // 30 seconds default
+
+  // Add retry logic for failed requests
+  opts.retry = opts.retry !== undefined ? opts.retry : 1
 
   if (opts.stream) {
     return new Promise((resolve, reject) => {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), opts.timeout || 30000)
+
       fetch(`${config.public.baseURL}${request}`, {
         ...opts,
         headers: opts.headers,
+        signal: controller.signal,
       }).then(response => {
+        clearTimeout(timeoutId)
         if (!response.ok) {
           reject(new Error(`HTTP error! status: ${response.status}`))
         } else {
           resolve({ data: response })
         }
-      }).catch(reject)
+      }).catch(error => {
+        clearTimeout(timeoutId)
+        reject(error)
+      })
     })
   }
 
@@ -67,11 +78,14 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
     }
   }
 
-  return useFetch(request, { baseURL: config.public.baseURL, ...opts })
-    .then(response => {
-      return response
-    })
-    .catch(error => {
-      throw error
-    });
+  return useFetch(request, { 
+    baseURL: config.public.baseURL, 
+    ...opts,
+    // Add default error handling
+    onResponseError({ response }) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error(`API Error ${response.status}:`, response._data)
+      }
+    }
+  })
 };

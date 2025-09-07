@@ -161,11 +161,15 @@ def after_insert_completion(mapper, connection, target):
         if target.step_id:
             data["step_id"] = str(target.step_id)
         
-        print(f"Triggered after_insert_completion with data: {data}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.debug(f"Triggered after_insert_completion with data: {data}")
         asyncio.create_task(broadcast_event(data))
 
     except Exception as e:
-        print(f"Error in after_insert_completion: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error in after_insert_completion: {e}")
 
 def after_update_completion(mapper, connection, target):
     try:
@@ -206,7 +210,9 @@ def after_update_completion(mapper, connection, target):
         asyncio.create_task(broadcast_event(data))
 
     except Exception as e:
-        print(f"Error in after_update_completion: {e}")
+        from app.settings.logging_config import get_logger
+        logger = get_logger(__name__)
+        logger.error(f"Error in after_update_completion: {e}")
 
 # Register the event listeners
 event.listen(Completion, 'after_insert', after_insert_completion)
