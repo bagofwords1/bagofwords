@@ -6,6 +6,7 @@
   - AI successfully resolving data generation code after encountering multiple failures
 - All generated suggestions are stored globally and require administrative review and approval before implementation
 - Improved main AI agent planner prompt
+- Redesigned and expanded the navigation menu, elevating monitoring and instructions to prominent first-class menu items
 - Bug fixes and enhancements
 
 ## Version 0.0.192
