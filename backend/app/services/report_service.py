@@ -99,7 +99,9 @@ class ReportService:
             updated_at=report.updated_at,
             app_version=app_version,
             data_sources=report.data_sources,
-            external_platform=report.external_platform
+            external_platform=report.external_platform,
+            theme_name=report.theme_name,
+            theme_overrides=report.theme_overrides
         )
         return report_schema
 
@@ -114,6 +116,9 @@ class ReportService:
 
         # Create and persist the report
         report = Report(**report_data.dict())
+        # Ensure a default theme is set for new reports
+        if getattr(report, 'theme_name', None) in (None, ''):
+            report.theme_name = 'default'
         report.user_id = current_user.id
         report.organization_id = organization.id
         await self._set_slug_for_report(db, report)
@@ -136,10 +141,17 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         
-        report.title = report_data.title
+        if report_data.title:
+            report.title = report_data.title
         if report_data.status:
             report.status = report_data.status 
-        await self._set_slug_for_report(db, report)
+        # Persist theme updates if present in payload
+        if hasattr(report_data, 'theme_name') and report_data.theme_name is not None:
+            report.theme_name = report_data.theme_name
+        if hasattr(report_data, 'theme_overrides') and report_data.theme_overrides is not None:
+            report.theme_overrides = report_data.theme_overrides
+        
+        #await self._set_slug_for_report(db, report)
 
         await db.commit()
         await db.refresh(report)

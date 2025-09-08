@@ -1,5 +1,5 @@
 <template>
-    <div  class="bg-white p-1 pb-10 pl-3 border border-gray-200 h-full min-h-[140px] w-full rounded-lg relative">
+    <div  class="p-1 pb-10 pl-3 border h-full min-h-[140px] w-full rounded-lg relative" :style="wrapperStyle">
       <div v-if="editor" class="flex items-center gap-1 border-b border-gray-200 mb-2 text-xs">
         <button
           @click="editor.chain().focus().toggleBold().run()"
@@ -58,6 +58,10 @@
   </template>
   
   <script setup lang="ts">
+  import { computed, unref } from 'vue'
+  import { useEditor, EditorContent as TiptapEditorContent } from '@tiptap/vue-3'
+  import StarterKit from '@tiptap/starter-kit'
+  import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
   const props = defineProps({
     textWidget: {
@@ -68,8 +72,15 @@
 
   const editor = useEditor({
     content: props.textWidget?.content || "<p>Insert text here...</p>",
-    extensions: [TiptapStarterKit],
+    extensions: [StarterKit],
   });
+
+  const { tokens } = useDashboardTheme(null, null, null)
+  const wrapperStyle = computed(() => ({
+    backgroundColor: tokens.value?.cardBackground || tokens.value?.background || '#ffffff',
+    color: tokens.value?.textColor || '#232323',
+    borderColor: tokens.value?.cardBorder || '#e5e7eb'
+  }))
   
   onBeforeUnmount(() => {
     unref(editor).destroy();

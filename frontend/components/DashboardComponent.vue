@@ -1,7 +1,7 @@
 <template>
     <div class="container mx-auto">
         <!-- Header: Kept -->
-        <div v-if="props.edit" class="w-full p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2">
+        <div v-if="props.edit" class="w-full p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2 bg-white">
             <div class="flex items-center gap-2">
                 <div class="space-x-0">
                     <UTooltip text="Collapse">
@@ -15,18 +15,39 @@
                 </div>
             </div>
             <div class="space-x-2 flex items-center">
-                <UTooltip text="Add text element">
-                    <button v-if="props.edit" @click="addNewTextWidgetToGrid" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
-                        <Icon name="heroicons:italic" />
+                <USelectMenu
+                    id="dash-theme"
+                    v-model="themeOverride"
+                    :options="themeOptions"
+                    option-attribute="label"
+                    value-attribute="value"
+                    size="xs"
+                    icon="i-heroicons-paint-brush-20-solid"
+                    class="min-w-[140px]"
+                    :placeholder="currentThemeDisplay"
+                >
+                    <template #label>
+                        {{ currentThemeDisplay }}
+                    </template>
+                    <template #option="{ option }">
+                        <div class="flex items-center justify-between w-full">
+                            <span>{{ option.label }}</span>
+                            <Icon v-if="option.selected" name="heroicons:check" class="w-4 h-4 text-green-500" />
+                        </div>
+                    </template>
+                </USelectMenu>
+                <UPopover v-if="props.edit" v-model="showAddMenu" :popper="{ placement: 'bottom-start' }">
+                    <button class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
+                        <Icon name="heroicons:plus" />
                     </button>
-                </UTooltip>
-                <div class="flex items-center text-xs">
-                    <label for="dash-theme" class="mr-1 hidden sm:inline">Theme</label>
-                    <select id="dash-theme" v-model="themeOverride" class="border rounded px-1 py-0.5 text-xs" >
-                        <option :value="''">(report)</option>
-                        <option v-for="name in themeNames" :key="name" :value="name">{{ name }}</option>
-                    </select>
-                </div>
+                    <template #panel>
+                        <div class="p-1 min-w-[160px]">
+                            <UButton size="xs" color="gray" variant="ghost" icon="i-heroicons-plus-circle" class="w-full justify-start" @click="handleAddMenuSelect('text')">
+                                Add Text
+                            </UButton>
+                        </div>
+                    </template>
+                </UPopover>
                 <UTooltip text="Rerun report">
                     <button @click="rerunReport" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
                         <Icon name="heroicons:play" />
@@ -71,7 +92,7 @@
                      @mouseenter.stop
                      @mouseleave.stop>
     
-                    <div class="grid-stack-item-content border rounded overflow-hidden flex flex-col relative p-0 shadow-sm" :style="itemStyle">
+                    <div :class="['grid-stack-item-content','rounded','overflow-hidden','flex','flex-col','relative','p-0','shadow-sm', { 'border': widget.type !== 'text', 'text-hover': widget.type === 'text' && props.edit }]" :style="[itemStyle, (widget.type==='text' && props.edit) ? { border: '1px solid transparent', '--tw-card-border': tokens.value?.cardBorder || '#e5e7eb' } : {}]">
                         <!-- Controls Overlay -->
                         <div v-if="props.edit" class="absolute right-1 top-1 z-20 flex gap-1 p-1 rounded ">
                             <!-- Regular Widget Remove -->
@@ -98,7 +119,17 @@
                                     class="flex-grow min-h-0"
                                  />
                             </div>
-                            <div v-else class="p-2 flex-grow overflow-auto rendered-html" v-html="widget.content"></div>
+                            <div v-else class="p-2 flex-grow overflow-auto">
+                                <component
+                                  :is="getCompForType('text_widget')"
+                                  :key="`${widget.id}:${themeOverride || report?.report_theme_name || report?.theme_name}`"
+                                  :widget="widget"
+                                  :step="widget"
+                                  :view="widget.view"
+                                  :reportThemeName="themeOverride || report?.report_theme_name || report?.theme_name"
+                                  :reportOverrides="report?.theme_overrides"
+                                />
+                            </div>
                         </template>
     
                         <!-- Regular Widget Display -->
@@ -154,7 +185,7 @@
                     </div>
     
                     <!-- Modal Content Area -->
-                    <div class="flex-1 overflow-auto p-4">
+                    <div class="flex-1 overflow-auto p-4" :style="wrapperStyle">
                         <!-- Modal Gridstack Container -->
                         <div ref="modalGridstackContainer"
                              class="grid-stack grid-stack-modal"
@@ -168,9 +199,19 @@
                                  :gs-y="widget.y"
                                  :gs-w="widget.width"
                                  :gs-h="widget.height">
-                                 <div class="grid-stack-item-content border rounded overflow-hidden flex flex-col relative p-0 shadow-sm" :style="itemStyle">
+                                 <div :class="['grid-stack-item-content','rounded','overflow-hidden','flex','flex-col','relative','p-0','shadow-sm', { 'border': widget.type !== 'text' }]" :style="itemStyle">
                                     <template v-if="widget.type === 'text'">
-                                        <div class="p-2 flex-grow overflow-auto rendered-html" v-html="widget.content"></div>
+                                        <div class="p-2 flex-grow overflow-auto">
+                                            <component
+                                              :is="getCompForType('text_widget')"
+                                              :key="`modal-${widget.id}:${themeOverride || report?.report_theme_name || report?.theme_name}`"
+                                              :widget="widget"
+                                              :step="widget"
+                                              :view="widget.view"
+                                              :reportThemeName="themeOverride || report?.report_theme_name || report?.theme_name"
+                                              :reportOverrides="report?.theme_overrides"
+                                            />
+                                        </div>
                                     </template>
                                     <template v-else>
                                         <div class="flex hidden items-center text-sm py-1 px-2 flex-shrink-0 border-b h-[30px] bg-gray-50 rounded-t">
@@ -266,7 +307,43 @@
     // --- Theme tokens for container ---
     const themeOverride = ref<string>('');
     const themeNames = Object.keys(themes || {});
+    
+    // Current effective theme name (what's actually being used)
     const themeNameRef = computed(() => themeOverride.value || props.report?.report_theme_name || props.report?.theme_name || 'default')
+    
+    // Current displayed theme in dropdown (what user sees selected)
+    const currentThemeDisplay = computed(() => {
+        if (themeOverride.value) {
+            return themeOverride.value;
+        }
+        const reportTheme = props.report?.report_theme_name || props.report?.theme_name;
+        return reportTheme || 'default';
+    });
+    
+    // Options for the theme dropdown
+    const themeOptions = computed(() => {
+        const currentTheme = currentThemeDisplay.value;
+        const options = [];
+        
+        // Add report's default theme option
+        const reportTheme = props.report?.report_theme_name || props.report?.theme_name || 'default';
+        options.push({ 
+            label: `${reportTheme} (report)`, 
+            value: '',
+            selected: !themeOverride.value
+        });
+        
+        // Add other theme options
+        themeNames.forEach(themeName => {
+            options.push({
+                label: themeName,
+                value: themeName,
+                selected: themeOverride.value === themeName
+            });
+        });
+        
+        return options;
+    })
     const reportOverridesRef = computed(() => props.report?.theme_overrides || {})
     const { tokens } = useDashboardTheme(themeNameRef, reportOverridesRef, null)
     const wrapperStyle = computed(() => ({ backgroundColor: tokens.value?.background || '', color: tokens.value?.textColor || '' }))
@@ -482,6 +559,41 @@
         await loadWidgetsIntoGrid(grid.value, allWidgets.value);
     }, { deep: true, immediate: true });
 
+    // Watch for immediate theme application 
+    watch(tokens, (newTokens) => {
+        if (newTokens && gridstackContainer.value) {
+            // Force immediate style application to grid container
+            nextTick(() => {
+                if (gridstackContainer.value) {
+                    const style = `background-color: ${newTokens.background || '#ffffff'}; color: ${newTokens.textColor || '#0f172a'};`;
+                    gridstackContainer.value.parentElement!.setAttribute('style', style);
+                }
+            });
+        }
+    }, { immediate: true });
+
+    watch(themeOverride, async (val, oldVal) => {
+        if (val === oldVal) return;
+        if (!props.report?.id) return;
+        // If empty value is chosen, skip persisting for now
+        if (val === undefined || val === null || val === '') return;
+        try {
+            const { error } = await useMyFetch(`/api/reports/${props.report.id}`, {
+                method: 'PUT',
+                body: { theme_name: val }
+            });
+            if (error.value) throw error.value;
+            // Update local report object so UI is in sync
+            if (props.report) {
+                (props.report as any).theme_name = val;
+                (props.report as any).report_theme_name = val;
+            }
+        } catch (e: any) {
+            console.error('Failed to update report theme', e);
+            toast.add({ title: 'Failed to save theme', description: e?.message || String(e), color: 'red' });
+        }
+    });
+ 
     watch(allWidgets, async (currentWidgets, oldWidgets) => {
         // Simplified condition: Reload if length changes or if it's a deep change (heuristically)
         if (currentWidgets.length !== oldWidgets?.length || JSON.stringify(currentWidgets) !== JSON.stringify(oldWidgets)) {
@@ -862,6 +974,20 @@
         refreshTextWidgets
     });
 
+    // --- Add widget menu ---
+    const showAddMenu = ref(false)
+    const addMenuOptions = [
+        { label: 'Add Text', value: 'text' },
+    ]
+    const addMenuValue = ref<string | null>(null)
+    function handleAddMenuSelect(val: string) {
+        if (val === 'text') {
+            addNewTextWidgetToGrid()
+        }
+        showAddMenu.value = false
+        addMenuValue.value = null
+    }
+
     </script>
     
     <style> /* Use non-scoped style for gridstack overrides if necessary */
@@ -899,27 +1025,7 @@
         outline: 2px dashed #42b983;
     }
     
-    /* Rendered HTML styles inside widgets - Using standard descendant selectors */
-    .rendered-html { font-size: 14px; line-height: 1.5; color: #333; }
-    .rendered-html h1 { font-size: 1.25rem !important; font-weight: 600 !important; margin: 0.8rem 0 0.5rem 0 !important; padding-bottom: 0.2rem !important; border-bottom: 1px solid #eee !important; }
-    .rendered-html h2 { font-size: 1.1rem !important; font-weight: 600 !important; margin: 0.7rem 0 0.4rem 0 !important; }
-    .rendered-html p { margin: 0.5rem 0 !important; }
-    .rendered-html a { color: #3b82f6 !important; text-decoration: underline !important; }
-    .rendered-html strong { font-weight: 600 !important; }
-    .rendered-html em { font-style: italic !important; }
-    .rendered-html ul, .rendered-html ol {
-        margin: 0.5rem 0 0.5rem 1.5rem !important;
-        list-style: revert !important;
-        padding-left: revert !important;
-    }
-     .rendered-html li {
-        margin-bottom: 0.2rem !important;
-        display: list-item !important;
-     }
-    .rendered-html blockquote { border-left: 3px solid #ccc !important; padding-left: 1rem !important; margin: 0.5rem 0 !important; color: #666 !important; }
-    .rendered-html code { background-color: #f0f0f0 !important; padding: 2px 4px !important; border-radius: 3px !important; font-size: 0.9em !important; font-family: monospace !important; }
-    .rendered-html pre { background-color: #f5f5f5 !important; padding: 0.5rem !important; border-radius: 4px !important; overflow-x: auto !important; font-family: monospace !important; white-space: pre-wrap !important; }
-    
+
     /* Modal Specific Grid */
     .grid-stack-modal {
         /* background: #f0f0f0; */ /* REMOVED: Let parent control background */
@@ -951,6 +1057,10 @@
     /* Main Grid - apply zoom */
     .main-grid {
          transition: transform 0.2s ease-out;
+    }
+    /* Hover outline for text widgets in edit mode */
+    .text-hover:hover {
+        border-color: var(--tw-card-border);
     }
     
     </style>

@@ -82,7 +82,17 @@ function getBaseOptions(): EChartsOption {
     // Do not rely on global palette for gradients; we apply per-series colors later
     color: undefined,
     backgroundColor: tokens.value?.background || undefined,
-    title: { text: props.widget?.title || 'Chart', left: 'center', top: 5, textStyle: { color: tokens.value?.textColor } },
+    title: {
+      text: props.widget?.title || 'Chart',
+      left: 'center',
+      top: 5,
+      textStyle: {
+        color: props.view?.style?.titleColor || tokens.value?.textColor,
+        fontFamily: tokens.value?.headingFontFamily || tokens.value?.fontFamily,
+        fontWeight: props.view?.style?.titleWeight || 700,
+        fontSize: props.view?.style?.titleSize || 18
+      }
+    },
     grid: { containLabel: true, left: '3%', right: '4%', bottom: '10%', top: '15%' },
     legend: { show: props.view?.legendVisible ?? false, left: 'center', bottom: 0, textStyle: { color: tokens.value?.legend?.textColor } },
     tooltip: { trigger: 'item', confine: true, ...(tokens.value?.tooltip || {}) },

@@ -7,7 +7,8 @@ type Loader = () => Promise<any>;
 export type ComponentKey =
   | 'echarts.visual'
   | 'table.aggrid'
-  | 'count.tile';
+  | 'count.tile'
+  | 'text.widget';
 
 export type RegistryEntry = {
   componentKey: ComponentKey;
@@ -78,10 +79,19 @@ const countTile: RegistryEntry = {
   }),
 };
 
+// Text widget entry
+const textWidgetEntry: RegistryEntry = {
+  componentKey: 'text.widget',
+  load: () => import('../text/TextWidget.vue'),
+  supports: (type: string) => normalizeType(type) === 'text_widget',
+  buildProps: ({ widget, step }) => ({ widget, step }),
+};
+
 export const registry: RegistryEntry[] = [
   echartsVisual,
   tableAgGrid,
   countTile,
+  textWidgetEntry,
 ];
 
 export function resolveEntryByType(type?: string | null): RegistryEntry | null {

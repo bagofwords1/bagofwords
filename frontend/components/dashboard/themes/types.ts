@@ -5,6 +5,9 @@ export type ThemeTokens = {
   // Card/container surfaces
   cardBackground?: string;
   cardBorder?: string;
+  // Typography
+  fontFamily?: string;
+  headingFontFamily?: string;
   axis?: {
     xLabelColor?: string;
     xLineColor?: string;

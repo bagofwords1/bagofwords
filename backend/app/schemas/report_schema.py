@@ -8,7 +8,7 @@ from app.schemas.external_platform_schema import ExternalPlatformSchema
 from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
 
 class ReportBase(BaseModel):
-    title: str
+    title: Optional[str] = None
 
 class ReportCreate(ReportBase):
     widget: Optional[WidgetCreate] = None
@@ -18,6 +18,8 @@ class ReportCreate(ReportBase):
 
 class ReportUpdate(ReportBase):
     status: Optional[Literal["draft", "published", "archived"]] = None
+    theme_name: Optional[str] = None
+    theme_overrides: Optional[dict] = None
     cron_schedule: Optional[str] = None
 
 class ReportSchema(ReportBase):

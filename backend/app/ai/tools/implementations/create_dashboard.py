@@ -1,4 +1,5 @@
 import asyncio
+from tracemalloc import is_tracing
 from typing import AsyncIterator, Dict, Any, Type, List
 
 from pydantic import BaseModel
@@ -21,7 +22,7 @@ class CreateDashboardTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="create_dashboard",
-            description="Design a narrative dashboard/report layout from available widgets and context. Should always be the last tool called in the chain (after all data analysis is complete).",
+            description="Create the dashboard/report layout from available widgets and context. Should always be the last tool called.",
             category="action",
             version="1.0.0",
             input_schema=CreateDashboardInput.model_json_schema(),
@@ -30,6 +31,7 @@ class CreateDashboardTool(Tool):
             timeout_seconds=60,
             idempotent=True,
             required_permissions=[],
+            is_active=True,
             tags=["dashboard", "report", "layout"],
         )
 
