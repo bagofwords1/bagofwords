@@ -22,7 +22,7 @@ class AnswerQuestionTool(Tool):
             output_schema=AnswerQuestionOutput.model_json_schema(),
             max_retries=0,
             timeout_seconds=90,
-            is_active=True,
+            is_active=False,
             idempotent=False,
             tags=["question", "context", "answer", "streaming"],
             examples=[

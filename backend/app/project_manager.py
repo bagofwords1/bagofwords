@@ -193,6 +193,27 @@ class ProjectManager:
         await db.commit()
         await db.refresh(step)
         return step
+
+    async def ensure_step_default_view(self, db, step, theme_name: str | None = None, theme_overrides: dict | None = None):
+        """Persist a minimal default view if none exists. Keep backend generic; frontend registry handles specifics."""
+        try:
+            existing_view = getattr(step, "view", None)
+        except Exception:
+            existing_view = None
+
+        if existing_view and isinstance(existing_view, dict) and len(existing_view.keys()) > 0:
+            return step
+
+        # Minimal default; component-specific defaults live in the frontend
+        default_view = { "theme": theme_name or "default" }
+        if theme_overrides and isinstance(theme_overrides, dict) and theme_overrides:
+            default_view["style"] = theme_overrides
+
+        step.view = default_view
+        db.add(step)
+        await db.commit()
+        await db.refresh(step)
+        return step
     
     async def update_step_status(self, db, step, status, status_reason=None):
         step.status = status

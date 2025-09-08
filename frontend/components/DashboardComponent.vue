@@ -1,7 +1,7 @@
 <template>
     <div class="container mx-auto">
         <!-- Header: Kept -->
-        <div v-if="props.edit" class="w-full bg-[#fff] p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2 border-gray-200">
+        <div v-if="props.edit" class="w-full p-2 flex justify-between text-sm sticky top-0 z-50 border-b-2">
             <div class="flex items-center gap-2">
                 <div class="space-x-0">
                     <UTooltip text="Collapse">
@@ -20,6 +20,13 @@
                         <Icon name="heroicons:italic" />
                     </button>
                 </UTooltip>
+                <div class="flex items-center text-xs">
+                    <label for="dash-theme" class="mr-1 hidden sm:inline">Theme</label>
+                    <select id="dash-theme" v-model="themeOverride" class="border rounded px-1 py-0.5 text-xs" >
+                        <option :value="''">(report)</option>
+                        <option v-for="name in themeNames" :key="name" :value="name">{{ name }}</option>
+                    </select>
+                </div>
                 <UTooltip text="Rerun report">
                     <button @click="rerunReport" class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded">
                         <Icon name="heroicons:play" />
@@ -41,7 +48,7 @@
         </div>
     
         <!-- Main container for grid and floating editor -->
-        <div class="relative w-full h-full dashboard-area bg-white">
+        <div class="relative w-full h-full dashboard-area bg-white" :style="wrapperStyle">
             <!-- Gridstack Container -->
             <div ref="gridstackContainer"
                  class="grid-stack main-grid"
@@ -64,19 +71,19 @@
                      @mouseenter.stop
                      @mouseleave.stop>
     
-                    <div class="grid-stack-item-content bg-white rounded overflow-hidden flex flex-col relative p-0 shadow-sm" :class="{ 'border': props.edit }">
+                    <div class="grid-stack-item-content border rounded overflow-hidden flex flex-col relative p-0 shadow-sm" :style="itemStyle">
                         <!-- Controls Overlay -->
-                        <div v-if="props.edit" class="absolute right-1 top-1 z-20 flex gap-1 bg-white bg-opacity-80 p-1 rounded shadow">
+                        <div v-if="props.edit" class="absolute right-1 top-1 z-20 flex gap-1 p-1 rounded ">
                             <!-- Regular Widget Remove -->
-                            <button v-if="widget.type !== 'text'" title="Remove Widget" class="text-xs items-center flex gap-0.5 hover:bg-red-100 text-red-600 px-1 py-0.5 rounded border border-gray-300" @click="removeWidget(widget)">
+                            <button v-if="widget.type !== 'text'" title="Remove Widget" class="text-xs items-center flex gap-0.5 hover:bg-red-100 text-red-400 px-1 py-0.5 rounded " @click="removeWidget(widget)">
                                 <Icon name="heroicons:trash" class="w-3 h-3"/>
                             </button>
                             <!-- Text Widget Remove (only for EXISTING widgets) -->
-                            <button v-if="widget.type === 'text' && !widget.isNew" title="Remove Text" class="text-xs items-center flex gap-0.5 hover:bg-red-100 text-red-600 px-1 py-0.5 rounded border border-gray-300" @click="removeTextWidget(widget)">
+                            <button v-if="widget.type === 'text' && !widget.isNew" title="Remove Text" class="text-xs items-center flex gap-0.5 hover:bg-red-100 text-red-400 px-1 py-0.5 rounded " @click="removeTextWidget(widget)">
                                  <Icon name="heroicons:trash" class="w-3 h-3"/>
                             </button>
                             <!-- Toggle Edit / Cancel New -->
-                            <button v-if="widget.type === 'text'" :title="widget.isNew ? 'Cancel Adding Text' : 'Edit Text'" class="text-xs items-center flex gap-0.5 hover:bg-blue-100 text-blue-600 px-1 py-0.5 rounded border border-gray-300" @click="toggleTextEdit(widget)">
+                            <button v-if="widget.type === 'text'" :title="widget.isNew ? 'Cancel Adding Text' : 'Edit Text'" class="text-xs items-center flex gap-0.5 hover:bg-blue-100 text-blue-400 px-1 py-0.5 rounded " @click="toggleTextEdit(widget)">
                                 <Icon name="heroicons:pencil" v-if="!widget.isEditing && !widget.isNew" class="w-3 h-3"/>
                                 <Icon name="heroicons:x-mark" v-if="widget.isEditing || widget.isNew" class="w-3 h-3"/> <!-- Show X for editing or new -->
                             </button>
@@ -96,27 +103,26 @@
     
                         <!-- Regular Widget Display -->
                         <template v-else>
-                            <div class="flex items-center text-sm py-1 px-2 flex-shrink-0 border-b h-[30px] bg-gray-50 rounded-t">
+                            <div class="flex hidden items-center text-sm py-1 px-2 flex-shrink-0 border-b h-[30px] bg-gray-50 rounded-t">
                                 <span class="font-medium truncate text-gray-700">{{ widget.title || 'Widget' }}</span>
                                 <span v-if="widget.last_step?.data?.loadingColumn" class="text-gray-400 ml-2 text-xs italic">Loading...</span>
                             </div>
                             <div class="flex-grow overflow-auto p-2 min-h-0">
-                                <div v-if="widget.last_step?.data_model?.type == 'count'" class="mt-1">
-                                    <RenderCount :show_title="false" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
-                                </div>
-                                <div v-else-if="widget.last_step?.data_model?.type == 'table'" class="mt-1 h-full">
-                                    <AgGridComponent v-show="!widget.show_data_model && !widget.show_data" :columnDefs="widget.last_step?.data?.columns" :rowData="widget.last_step?.data?.rows" class="h-full" />
+                                <div v-if="resolvedComp(widget)" class="mt-1 h-full">
+                                    <component
+                                        :key="`${widget.id}:${themeOverride || report?.report_theme_name || report?.theme_name}`"
+                                        v-show="!widget.show_data_model && !widget.show_data"
+                                        :is="resolvedComp(widget)"
+                                        :widget="widget"
+                                        :data="widget.last_step?.data"
+                                        :data_model="widget.last_step?.data_model"
+                                        :step="widget.last_step"
+                                        :view="widget.last_step?.view"
+                                        :reportThemeName="themeOverride || report?.report_theme_name || report?.theme_name"
+                                        :reportOverrides="report?.theme_overrides"
+                                    />
                                     <div v-if="widget.show_data_model" class="text-xs p-1 bg-gray-50 rounded overflow-auto h-full border">
                                         <pre class="text-[10px] whitespace-pre-wrap">{{ widget.last_step?.data_model }}</pre>
-                                    </div>
-                                    <div v-if="widget.show_data" class="text-xs p-1 bg-gray-50 rounded overflow-auto h-full border">
-                                         <pre class="text-[10px] whitespace-pre-wrap">{{ widget.last_step?.data }}</pre>
-                                    </div>
-                                </div>
-                                <div v-else-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
-                                    <RenderVisual v-show="!widget.show_data_model && !widget.show_data" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
-                                    <div v-if="widget.show_data_model" class="text-xs p-1 bg-gray-50 rounded overflow-auto h-full border">
-                                         <pre class="text-[10px] whitespace-pre-wrap">{{ widget.last_step?.data_model }}</pre>
                                     </div>
                                     <div v-if="widget.show_data" class="text-xs p-1 bg-gray-50 rounded overflow-auto h-full border">
                                         <pre class="text-[10px] whitespace-pre-wrap">{{ widget.last_step?.data }}</pre>
@@ -139,7 +145,7 @@
     
         <!-- Fullscreen Modal -->
         <Teleport to="body">
-            <UModal v-model="isModalOpen" :ui="{ width: 'sm:max-w-[95vw]', height: 'h-[95vh]' }">
+            <UModal v-model="isModalOpen" :ui="{ width: 'sm:max-w-[98vw]', height: 'h-[100vh]' }">
                 <div class="h-full flex flex-col">
                     <!-- Modal Header -->
                      <div class="p-2 flex justify-between items-center border-b ">
@@ -162,24 +168,28 @@
                                  :gs-y="widget.y"
                                  :gs-w="widget.width"
                                  :gs-h="widget.height">
-                                 <div class="grid-stack-item-content bg-white rounded overflow-hidden flex flex-col relative p-0 shadow-sm">
+                                 <div class="grid-stack-item-content border rounded overflow-hidden flex flex-col relative p-0 shadow-sm" :style="itemStyle">
                                     <template v-if="widget.type === 'text'">
                                         <div class="p-2 flex-grow overflow-auto rendered-html" v-html="widget.content"></div>
                                     </template>
                                     <template v-else>
-                                        <div class="flex items-center text-sm py-1 px-2 flex-shrink-0 border-b h-[30px] bg-gray-50 rounded-t">
+                                        <div class="flex hidden items-center text-sm py-1 px-2 flex-shrink-0 border-b h-[30px] bg-gray-50 rounded-t">
                                              <span class="font-medium truncate text-gray-700">{{ widget.title || 'Widget' }}</span>
                                              <span v-if="widget.last_step?.data?.loadingColumn" class="text-gray-400 ml-2 text-xs italic">Loading...</span>
                                         </div>
                                         <div class="flex-grow overflow-auto p-2 min-h-0">
-                                            <div v-if="widget.last_step?.data_model?.type == 'count'" class="mt-1">
-                                                <RenderCount :show_title="false" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
-                                            </div>
-                                            <div v-else-if="widget.last_step?.data_model?.type == 'table'" class="mt-1 h-full">
-                                                <AgGridComponent :columnDefs="widget.last_step?.data?.columns" :rowData="widget.last_step?.data?.rows" class="h-full" />
-                                            </div>
-                                            <div v-else-if="chartVisualTypes.has(widget.last_step?.data_model?.type)" class="z-10 h-full">
-                                                 <RenderVisual :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
+                                            <div v-if="resolvedComp(widget)" class="mt-1 h-full">
+                                                <component
+                                                    :key="`modal-${widget.id}:${themeOverride || report?.report_theme_name || report?.theme_name}`"
+                                                    :is="resolvedComp(widget)"
+                                                    :widget="widget"
+                                                    :data="widget.last_step?.data"
+                                                    :data_model="widget.last_step?.data_model"
+                                                    :step="widget.last_step"
+                                                    :view="widget.last_step?.view"
+                                                    :reportThemeName="themeOverride || report?.report_theme_name || report?.theme_name"
+                                                    :reportOverrides="report?.theme_overrides"
+                                                />
                                             </div>
                                             <div v-else-if="widget.last_step?.type == 'init'" class="text-center items-center flex flex-col justify-center h-full text-gray-500">
                                                  <SpinnerComponent /><span class="mt-2 text-sm">Loading...</span>
@@ -205,7 +215,7 @@
     // Import Gridstack CSS FIRST
     import 'gridstack/dist/gridstack.min.css';
     import { GridStack } from 'gridstack';
-    import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue';
+    import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue';
     import { useMyFetch } from '~/composables/useMyFetch';
     import RenderVisual from './RenderVisual.vue';
     import TextWidgetEditor from './TextWidgetEditor.vue';
@@ -214,6 +224,9 @@
     import CronModal from './CronModal.vue';
     import ShareModal from './ShareModal.vue';
     import AgGridComponent from './AgGridComponent.vue';
+    import { resolveEntryByType } from '@/components/dashboard/registry'
+    import { themes } from '@/components/dashboard/themes'
+    import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
     const toast = useToast();
     const emit = defineEmits(['removeWidget', 'toggleSplitScreen']);
@@ -224,6 +237,8 @@
         widgets: any[]
         textWidgetsIds?: string[]
     }>();
+
+    const reportThemeName = ref(props.report?.report_theme_name || 'default');
 
     // --- Refs ---
     const gridstackContainer = ref<HTMLElement | null>(null);
@@ -247,6 +262,24 @@
     const GRID_CELL_HEIGHT = 40;
     const GRID_MARGIN = 10;
     const GRID_COLS = 12;
+
+    // --- Theme tokens for container ---
+    const themeOverride = ref<string>('');
+    const themeNames = Object.keys(themes || {});
+    const themeNameRef = computed(() => themeOverride.value || props.report?.report_theme_name || props.report?.theme_name || 'default')
+    const reportOverridesRef = computed(() => props.report?.theme_overrides || {})
+    const { tokens } = useDashboardTheme(themeNameRef, reportOverridesRef, null)
+    const wrapperStyle = computed(() => ({ backgroundColor: tokens.value?.background || '', color: tokens.value?.textColor || '' }))
+    const itemStyle = computed(() => ({
+        backgroundColor: tokens.value?.cardBackground || tokens.value?.background || '',
+        color: tokens.value?.textColor || '',
+        borderColor: tokens.value?.cardBorder || ''
+    }))
+    const headerStyle = computed(() => ({
+        backgroundColor: tokens.value?.cardBackground || tokens.value?.background || '',
+        color: tokens.value?.textColor || '',
+        borderColor: tokens.value?.cardBorder || '#e5e7eb'
+    }))
 
     // --- Computed ---
     const allWidgets = computed(() => {
@@ -310,7 +343,18 @@
                 float: true,
                 staticGrid: true,
             }, modalGridstackContainer.value);
-            loadWidgetsIntoGrid(modalGrid.value, allWidgets.value, true);
+            // Clear any nodes carried over by GridStack DOM (safety)
+            const nodes = [...(modalGrid.value.engine.nodes || [])];
+            nodes.forEach(n => n?.el && modalGrid.value?.removeWidget(n.el as HTMLElement, false, false));
+            // Add widgets with absolute positions (no autoPosition)
+            await nextTick();
+            for (const widget of allWidgets.value) {
+                const id = `modal-${widget.id}`;
+                const el = document.querySelector(`[gs-id="${id}"]`);
+                if (el) {
+                    modalGrid.value.addWidget(el as HTMLElement, { id, x: widget.x, y: widget.y, w: widget.width, h: widget.height, autoPosition: false });
+                }
+            }
         } else if (modalGrid.value) {
              loadWidgetsIntoGrid(modalGrid.value, allWidgets.value, true);
         }
@@ -399,7 +443,7 @@
                     w: widget.width,
                     h: widget.height,
                     id: gridItemId,
-                    autoPosition: widget.x === undefined || widget.y === undefined
+                    autoPosition: false
                 };
 
                 if (existingNode) {
@@ -407,11 +451,7 @@
                         targetGrid.update(element as HTMLElement, gsOptions);
                     }
                 } else {
-                    targetGrid.makeWidget(element as HTMLElement);
-                    const newNode = targetGrid.engine.nodes.find(n => n.el === element);
-                     if (newNode && (newNode.x !== gsOptions.x || newNode.y !== gsOptions.y || newNode.w !== gsOptions.w || newNode.h !== gsOptions.h)) {
-                        targetGrid.update(element as HTMLElement, gsOptions);
-                    }
+                    targetGrid.addWidget(element as HTMLElement, gsOptions as any);
                 }
             } else {
                 // Element might not be rendered yet if just added, `addWidget` handles this case later
@@ -788,6 +828,24 @@
         'pie_chart', 'line_chart', 'bar_chart', 'area_chart', 'scatter_plot',
         'heatmap', 'map', 'candlestick', 'treemap', 'radar_chart'
     ]);
+
+    // Frontend-only theme override
+
+    // --- Dashboard component resolution via registry ---
+    const compCache = new Map<string, any>();
+    function getCompForType(type?: string | null) {
+        const t = (type || '').toLowerCase();
+        if (!t) return null;
+        if (compCache.has(t)) return compCache.get(t);
+        const entry = resolveEntryByType(t);
+        if (!entry) return null;
+        const comp = defineAsyncComponent(entry.load);
+        compCache.set(t, comp);
+        return comp;
+    }
+    function resolvedComp(widget: any) {
+        return getCompForType(widget?.last_step?.data_model?.type);
+    }
 
     // --- Exposed Methods ---
     async function refreshTextWidgets() {

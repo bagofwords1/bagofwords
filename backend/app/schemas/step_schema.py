@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
+from app.schemas.view_schema import ViewSchema
 
 class StepBase(BaseModel):
     title: str
@@ -18,6 +19,7 @@ class StepSchema(StepBase):
     type: str
     data: dict = Field(default_factory=dict)
     data_model: dict = Field(default_factory=dict)
+    view: ViewSchema = Field(default_factory=ViewSchema)
 
     class Config:
         from_attributes = True
@@ -26,6 +28,7 @@ class StepCreate(StepBase):
     widget_id: str
     data: dict = Field(default_factory=dict)
     data_model: dict = Field(default_factory=dict)
+    view: ViewSchema = Field(default_factory=ViewSchema)
 
 class StepUpdate(StepBase):
     pass

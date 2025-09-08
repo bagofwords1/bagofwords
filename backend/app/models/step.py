@@ -23,6 +23,7 @@ class Step(BaseSchema):
     description = Column(Text, nullable=False, default="")
     type = Column(String, nullable=False, default="table")
     data_model = Column(JSON, nullable=True, default=dict)
+    view = Column(JSON, nullable=True, default=dict)
 
     widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=False)
     widget = relationship("Widget", back_populates="steps")

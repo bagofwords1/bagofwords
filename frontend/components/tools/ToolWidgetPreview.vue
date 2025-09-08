@@ -59,7 +59,17 @@
           <!-- Chart Content -->
           <Transition name="fade" mode="out-in">
             <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)" class="bg-gray-50 rounded-sm p-2">
-              <div v-if="chartVisualTypes.has(step?.data_model?.type)" class="h-[340px]">
+              <div v-if="resolvedCompEl" class="h-[340px]">
+                <component
+                  :is="resolvedCompEl"
+                  :widget="widget"
+                  :data="step?.data"
+                  :data_model="step?.data_model"
+                  :step="step"
+                  :view="step?.view"
+                />
+              </div>
+              <div v-else-if="chartVisualTypes.has(step?.data_model?.type)" class="h-[340px]">
                 <RenderVisual :widget="widget" :data="step?.data" :data_model="step?.data_model" />
               </div>
               <div v-else-if="step?.data_model?.type === 'count'">
@@ -103,10 +113,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, defineAsyncComponent } from 'vue'
 import RenderVisual from '../RenderVisual.vue'
 import RenderCount from '../RenderCount.vue'
 import RenderTable from '../RenderTable.vue'
+import { resolveEntryByType } from '@/components/dashboard/registry'
 
 interface ToolExecution {
   id: string
@@ -164,9 +175,30 @@ const chartVisualTypes = new Set<string>([
 
 const showVisual = computed(() => {
   const t = step.value?.data_model?.type
-  return !!t && (chartVisualTypes.has(t) || t === 'count')
+  if (!t) return false
+  const entry = resolveEntryByType(String(t).toLowerCase())
+  if (entry) {
+    // treat table as data-only; everything else is a visual
+    return entry.componentKey !== 'table.aggrid'
+  }
+  return chartVisualTypes.has(String(t)) || String(t) === 'count'
 })
 
+// Dashboard registry-driven dynamic component
+const compCache = new Map<string, any>()
+function getCompForType(type?: string | null) {
+  const t = (type || '').toLowerCase()
+  if (!t) return null
+  if (compCache.has(t)) return compCache.get(t)
+  const entry = resolveEntryByType(t)
+  if (!entry) return null
+  const comp = defineAsyncComponent(entry.load)
+  compCache.set(t, comp)
+  return comp
+}
+const resolvedCompEl = computed(() => getCompForType(step.value?.data_model?.type))
+
+// Determine if table/data is present
 const hasData = computed(() => {
   const rows = step.value?.data?.rows
   if (Array.isArray(rows)) return rows.length >= 0

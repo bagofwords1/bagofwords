@@ -1366,6 +1366,15 @@ class AgentV2:
                         await self.project_manager.update_step_with_data_model(
                             self.db, self.current_step, data_model
                         )
+                        # Ensure a minimal default view exists based on current report theme (if any)
+                        try:
+                            report_theme_name = getattr(self.report, "theme_name", None)
+                            report_theme_overrides = getattr(self.report, "theme_overrides", None)
+                            await self.project_manager.ensure_step_default_view(
+                                self.db, self.current_step, theme_name=report_theme_name, theme_overrides=report_theme_overrides
+                            )
+                        except Exception:
+                            pass
                         # Do not auto-publish; publishing will be done explicitly by user or create_dashboard
                         
                         # Emit data model completion event to UI

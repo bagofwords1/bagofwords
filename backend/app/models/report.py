@@ -1,10 +1,11 @@
-from sqlalchemy import Column, String, ForeignKey, Boolean
+from sqlalchemy import Column, String, ForeignKey, Boolean, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
 
 from app.models.report_data_source_association import report_data_source_association
+from app.models.dashboard_layout_version import DashboardLayoutVersion  # noqa: F401
 
 class Report(BaseSchema):
     __tablename__ = 'reports'
@@ -12,6 +13,8 @@ class Report(BaseSchema):
     title = Column(String, index=True, nullable=False, unique=False, default="")
     slug = Column(String, index=True, nullable=False, unique=True)
     status = Column(String, nullable=False, default='draft')
+    theme_name = Column(String, nullable=True, default=None)
+    theme_overrides = Column(JSON, nullable=True, default=dict)
     
     #privacy = Column(String, nullable=False, default='private') # private, internal, public
     cron_schedule = Column(String, nullable=True)
@@ -28,6 +31,7 @@ class Report(BaseSchema):
     widgets = relationship("Widget", back_populates="report", lazy="selectin")
     text_widgets = relationship("TextWidget", back_populates="report", lazy="selectin")
     completions = relationship("Completion", back_populates="report", lazy="selectin")
+    dashboard_layout_versions = relationship("DashboardLayoutVersion", back_populates="report", lazy="selectin")
     files = relationship("File", secondary="report_file_association", back_populates="reports", lazy="selectin")
     data_sources = relationship(
         "DataSource", 

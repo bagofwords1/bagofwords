@@ -5,6 +5,7 @@ from app.schemas.user_schema import UserSchema
 from datetime import datetime
 from app.schemas.data_source_schema import DataSourceReportSchema
 from app.schemas.external_platform_schema import ExternalPlatformSchema
+from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
 
 class ReportBase(BaseModel):
     title: str
@@ -29,6 +30,7 @@ class ReportSchema(ReportBase):
     status: Literal["draft", "published", "archived"]
     slug: str
     widgets: List[WidgetSchema] = []
+    dashboard_layout_versions: List[DashboardLayoutVersionSchema] = []
     data_sources: List[DataSourceReportSchema] = []
     external_platform: Optional[ExternalPlatformSchema] = None
     user: UserSchema
@@ -37,6 +39,8 @@ class ReportSchema(ReportBase):
     cron_schedule: Optional[str] = None
     app_version: Optional[str] = None  # Version for routing decisions
     general: Optional[PublicGeneralSettings] = None
+    theme_name: Optional[str] = None
+    theme_overrides: Optional[dict] = None
 
     class Config:
         from_attributes = True
