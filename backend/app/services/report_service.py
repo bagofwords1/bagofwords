@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.models.report import Report
-from app.schemas.report_schema import ReportCreate, ReportSchema
+from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.services.widget_service import WidgetService
 from app.schemas.widget_schema import WidgetSchema
 from app.schemas.step_schema import StepSchema
@@ -25,6 +25,7 @@ from logging import getLogger
 import asyncio
 
 from app.core.scheduler import scheduler
+from app.models.dashboard_layout_version import DashboardLayoutVersion
 
 logger = getLogger(__name__)
 
@@ -126,6 +127,24 @@ class ReportService:
         await db.commit()
         await db.refresh(report)
 
+        # Create an empty dashboard layout version for this report
+        try:
+            empty_layout = DashboardLayoutVersion(
+                report_id=report.id,
+                name="",
+                version=1,
+                is_active=True,
+                theme_name=report.theme_name,
+                theme_overrides=report.theme_overrides or {},
+                blocks=[],
+            )
+            db.add(empty_layout)
+            await db.commit()
+        except Exception as e:
+            logger.exception("Failed to create initial DashboardLayoutVersion: %s", e)
+            # Do not fail report creation on layout init issues
+            await db.rollback()
+
         # Associate files with the report
         await self._associate_files_with_report(db, report, file_uuids)
         await self._associate_data_sources_with_report(db, report, data_sources)
@@ -135,7 +154,7 @@ class ReportService:
 
         return ReportSchema.from_orm(report).copy(update={"user": UserSchema.from_orm(current_user)})
 
-    async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportCreate, current_user: User, organization: Organization) -> Report:
+    async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportUpdate, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
         if not report:
@@ -221,6 +240,23 @@ class ReportService:
             pass
 
         return schema
+
+    async def get_public_layouts(self, db: AsyncSession, report_id: str):
+        # Ensure report exists and is published
+        result = await db.execute(select(Report).where(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        if not report or report.status != 'published':
+            raise HTTPException(status_code=404, detail="Report not found")
+
+        rows = await db.execute(
+            select(DashboardLayoutVersion).where(DashboardLayoutVersion.report_id == report_id).order_by(
+                DashboardLayoutVersion.created_at.asc()
+            )
+        )
+        layouts = rows.scalars().all()
+
+        from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
+        return [DashboardLayoutVersionSchema.from_orm(l) for l in layouts]
 
     async def get_reports(self, db: AsyncSession, current_user: User, organization: Organization, page: int = 1, limit: int = 10, filter: str = "my"):
         # Calculate offset

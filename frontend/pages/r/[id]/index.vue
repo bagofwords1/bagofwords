@@ -52,7 +52,7 @@ const report = ref({
 });
 
 // computed for widgets
-const displayedWidgets = computed(() => widgets.value.filter(widget => widget.status === 'published'));
+const displayedWidgets = computed(() => widgets.value) ;
 
 
 const widgets = ref([]);

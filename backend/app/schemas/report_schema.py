@@ -16,7 +16,8 @@ class ReportCreate(ReportBase):
     data_sources: Optional[List[str]] = []
     external_platform_id: Optional[str] = None
 
-class ReportUpdate(ReportBase):
+class ReportUpdate(BaseModel):
+    title: Optional[str] = None
     status: Optional[Literal["draft", "published", "archived"]] = None
     theme_name: Optional[str] = None
     theme_overrides: Optional[dict] = None

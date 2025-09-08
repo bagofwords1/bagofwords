@@ -259,10 +259,11 @@
 		<template #right>
 			<div>
 				<DashboardComponent 
+					ref="dashboardRef"
 					v-if="reportLoaded && widgets"
 					:report="report" 
 					:edit="true" 
-					:widgets="widgets.filter(widget => widget.status === 'published')" 
+					:widgets="widgets" 
 					:textWidgetsIds="textWidgetsIds"
 					@toggleSplitScreen="toggleSplitScreen"
 				/>
@@ -365,6 +366,7 @@ const scrollAnchor = ref<HTMLElement | null>(null)
 const reportLoaded = ref(false)
 const report = ref<any | null>(null)
 const widgets = ref<any[]>([])
+const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])
 
 // Split screen state
@@ -1105,6 +1107,17 @@ async function loadWidgets() {
 	}
 }
 
+async function loadActiveLayoutHasBlocks(): Promise<boolean> {
+    try {
+        const { data } = await useMyFetch(`/api/reports/${report_id}/layouts`)
+        const layouts = Array.isArray(data.value) ? (data.value as any[]) : []
+        const active = layouts.find((l: any) => l.is_active)
+        return !!(active && Array.isArray(active.blocks) && active.blocks.length > 0)
+    } catch (e) {
+        return false
+    }
+}
+
 function toggleSplitScreen() {
 	nextTick(() => {
 		isSplitScreen.value = !isSplitScreen.value
@@ -1162,11 +1175,8 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any })
     try {
         const widget = payload?.widget
         if (!widget?.id) return
-        await useMyFetch(`/api/reports/${report_id}/widgets/${widget.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'published', id: widget.id })
-        })
+        const defaultBlock = { type: 'widget', widget_id: widget.id, x: 0, y: 0, width: 6, height: 7 }
+        await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [defaultBlock] } })
         
         // Update the local widget status immediately to reflect the change in UI
         // Find the tool execution that contains this widget and update its status
@@ -1182,6 +1192,11 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any })
         
         		if (!isSplitScreen.value) toggleSplitScreen()
 		await loadWidgets()
+        // Ask dashboard to refresh layout immediately so item appears
+        try {
+            const dash = dashboardRef.value
+            if (dash && typeof dash.refreshLayout === 'function') await dash.refreshLayout()
+        } catch {}
 		// Scroll to bottom when dashboard opens after adding widget
 		await nextTick()
 		scrollToBottom()
@@ -1448,7 +1463,14 @@ onMounted(async () => {
 	await Promise.all([
 		loadReport(),
 		loadWidgets(),
-		loadCompletions()
+		loadCompletions(),
+		
+		loadActiveLayoutHasBlocks().then(hasBlocks => {
+			if (hasBlocks) {
+				isSplitScreen.value = true
+			}
+		})
+
 	])
 	
 	// Handle new_message query parameter after everything is loaded

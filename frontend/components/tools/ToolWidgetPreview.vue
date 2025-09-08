@@ -113,7 +113,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, defineAsyncComponent } from 'vue'
+import { computed, ref, watch, defineAsyncComponent, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
+import { useMyFetch } from '~/composables/useMyFetch'
 import RenderVisual from '../RenderVisual.vue'
 import RenderCount from '../RenderCount.vue'
 import RenderTable from '../RenderTable.vue'
@@ -136,6 +138,9 @@ const emit = defineEmits(['addWidget'])
 // Reactive state for collapsible behavior
 const isCollapsed = ref(false) // Start expanded
 const isAdding = ref(false)
+const layoutBlocks = ref<any[]>([])
+const route = useRoute()
+const reportId = computed(() => String(route.params.id || ''))
 
 // Tab state - default to chart if available, otherwise table
 const activeTab = ref<'chart' | 'table'>('chart')
@@ -266,7 +271,11 @@ function downloadCSV() {
 }
 
 // Add-to-dashboard gating and action
-const isPublished = computed(() => widget.value?.status === 'published')
+const isPublished = computed(() => {
+  const id = widget.value?.id
+  if (!id) return false
+  return layoutBlocks.value.some(b => b?.type === 'widget' && b?.widget_id === id)
+})
 const canAdd = computed(() => !!(widget.value?.id && step.value?.status === 'success'))
 
 async function onAddClick() {
@@ -274,11 +283,30 @@ async function onAddClick() {
   isAdding.value = true
   try {
     emit('addWidget', { widget: widget.value, step: step.value })
+    // Best-effort: refresh membership shortly after parent patches layout
+    setTimeout(refreshMembership, 600)
   } finally {
     // Let parent control final state; keep short throttle to avoid double clicks
     setTimeout(() => { isAdding.value = false }, 800)
   }
 }
+
+async function refreshMembership() {
+  try {
+    if (!reportId.value) return
+    const { data, error } = await useMyFetch(`/api/reports/${reportId.value}/layouts`, { method: 'GET' })
+    if (error.value) throw error.value
+    const layouts = Array.isArray(data.value) ? data.value : []
+    const active = layouts.find((l: any) => l.is_active)
+    layoutBlocks.value = active?.blocks || []
+  } catch (e) {
+    // noop
+  }
+}
+
+onMounted(() => {
+  refreshMembership()
+})
 </script>
 
 <style scoped>
