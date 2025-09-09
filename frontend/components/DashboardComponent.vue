@@ -146,8 +146,9 @@
     const grid = ref<GridStack | null>(null);
     const textWidgets = ref<any[]>([]);
     const displayedWidgets = ref<any[]>([]);
+    const allTextWidgets = ref<any[]>([]);
     const activeLayout = ref<any | null>(null);
-    const layoutBlocks = ref<any[]>([]);
+    const layoutBlocks = ref<any[] | null>(null);
 
     // Zoom state
     const zoom = ref(1);
@@ -306,15 +307,31 @@
 
     // --- Data Fetching & Loading ---
     async function fetchAllWidgets() {
-        // Rely only on layout blocks; do not fetch text widgets separately
+        // If layout blocks are hydrated with embedded payloads, skip extra fetch
         textWidgets.value = [];
+        const hasEmbeddedText = Array.isArray(layoutBlocks.value) && layoutBlocks.value.some((b: any) => b?.type === 'text_widget' && b?.text_widget);
+        if (!hasEmbeddedText) {
+            await loadTextWidgetsForReport();
+        }
         applyLayoutToLocalState();
+    }
+
+    async function loadTextWidgetsForReport() {
+        try {
+            const base = props.edit ? '/api/reports' : '/api/r'
+            const { data, error } = await useMyFetch(`${base}/${props.report.id}/text_widgets`, { method: 'GET' });
+            if (error.value) throw error.value;
+            allTextWidgets.value = Array.isArray(data.value) ? data.value : [];
+        } catch (e: any) {
+            console.error('Failed to fetch text widgets:', e);
+            allTextWidgets.value = [];
+        }
     }
 
     async function fetchActiveLayout() {
         try {
             const base = props.edit ? '/api/reports' : '/api/r'
-            const { data, error } = await useMyFetch(`${base}/${props.report.id}/layouts`, { method: 'GET' });
+            const { data, error } = await useMyFetch(`${base}/${props.report.id}/layouts?hydrate=true`, { method: 'GET' });
             if (error.value) throw error.value;
             const layouts = Array.isArray(data.value) ? data.value : [];
             const found = layouts.find((l: any) => l.is_active);
@@ -328,10 +345,15 @@
     }
 
     function applyLayoutToLocalState() {
+        // Wait until layout is fetched to avoid showing all widgets prematurely
+        if (layoutBlocks.value === null) {
+            return;
+        }
         // If we have blocks, strictly use them to decide what to render and where
-        if (layoutBlocks.value && layoutBlocks.value.length > 0) {
+        if (Array.isArray(layoutBlocks.value) && layoutBlocks.value.length > 0) {
             const blocks = layoutBlocks.value;
             const widgetMap = new Map((props.widgets || []).map((w: any) => [w.id, w]));
+            const textMap = new Map((allTextWidgets.value || []).map((tw: any) => [tw.id, tw]));
             const nextDisplayed: any[] = [];
             const nextText: any[] = [];
 
@@ -348,14 +370,15 @@
                         show_data_model: src.show_data_model ?? false,
                     });
                 } else if (b.type === 'text_widget' && b.text_widget_id) {
-                    const src = { id: b.text_widget_id, content: '', isEditing: false, isNew: false, showControls: false };
+                    const embedded = (b as any).text_widget || null;
+                    const baseSrc = embedded || textMap.get(b.text_widget_id) || { id: b.text_widget_id, content: '', isEditing: false, isNew: false, showControls: false };
                     nextText.push({
-                        ...src,
+                        ...baseSrc,
                         x: b.x, y: b.y, width: b.width, height: b.height,
                         type: 'text',
-                        isEditing: src.isEditing,
-                        isNew: src.isNew,
-                        showControls: src.showControls,
+                        isEditing: baseSrc.isEditing ?? false,
+                        isNew: baseSrc.isNew ?? false,
+                        showControls: baseSrc.showControls ?? false,
                     });
                 }
             }
@@ -365,9 +388,6 @@
             return;
         }
 
-        // Fallback: no layout yet, show all incoming widgets/text
-        updateDisplayedWidgets(props.widgets || []);
-        // textWidgets already populated by getTextWidgetsInternal
     }
 
     async function refreshLayout() {
@@ -380,8 +400,8 @@
     }
 
     async function getTextWidgetsInternal() {
-        // No-op: text widgets are driven from layout blocks
-        textWidgets.value = [];
+        await loadTextWidgetsForReport();
+        applyLayoutToLocalState();
     }
 
     function updateDisplayedWidgets(newWidgets: any[]) {
@@ -777,6 +797,27 @@
             await updateWidgetBackend(existingWidget);
         }
     };
+
+    async function updateWidgetBackend(widget: any) {
+        try {
+            const { error } = await useMyFetch(`/api/reports/${props.report.id}/text_widgets/${widget.id}`, {
+                method: 'PUT',
+                body: { content: widget.content, x: widget.x, y: widget.y, width: widget.width, height: widget.height }
+            });
+            if (error.value) throw error.value;
+            // Keep layout in sync with latest position
+            try {
+                await useMyFetch(`/api/reports/${props.report.id}/layouts/active/blocks`, {
+                    method: 'PATCH',
+                    body: { blocks: [{ type: 'text_widget', text_widget_id: widget.id, x: widget.x, y: widget.y, width: widget.width, height: widget.height }] }
+                });
+            } catch {}
+            toast.add({ title: 'Text Widget Saved' });
+        } catch (e: any) {
+            console.error('Failed to update text widget', e);
+            toast.add({ title: 'Error', description: `Failed to update text widget. ${e?.message || ''}`, color: 'red' });
+        }
+    }
 
     const toggleTextEdit = (widget: any) => {
         if (widget.isNew) {

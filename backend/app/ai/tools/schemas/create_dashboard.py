@@ -19,16 +19,17 @@ class CreateDashboardInput(BaseModel):
     use_all_widgets: bool = True
     steps_context: Optional[str] = None
     previous_messages: Optional[str] = None
+    create_text_widgets: bool = True
 
 
 class CreateDashboardOutput(BaseModel):
     """Final structured dashboard layout returned by the tool.
 
-    The layout follows the structure produced by DashboardDesigner:
-    {"prefix": str, "blocks": list[dict], "end_message": str}
+    The layout contains only blocks:
+    {"blocks": list[dict]}
     """
 
-    layout: Dict[str, Any] = Field(..., description="Layout with keys: prefix, blocks, end_message")
+    layout: Dict[str, Any] = Field(..., description="Layout with a single key: blocks")
     report_title: Optional[str] = None
 
 

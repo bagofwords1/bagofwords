@@ -51,6 +51,8 @@ class BaseBlock(BaseModel):
 class WidgetBlock(BaseBlock):
     type: Literal["widget"] = "widget"
     widget_id: str
+    # Optional embedded widget payload when layouts are hydrated
+    widget: Optional["WidgetSchema"] = None
     view_overrides: Optional[ViewOverrides] = None
     container: Optional[ContainerChrome] = None
 
@@ -58,6 +60,8 @@ class WidgetBlock(BaseBlock):
 class TextWidgetBlock(BaseBlock):
     type: Literal["text_widget"] = "text_widget"
     text_widget_id: str
+    # Optional embedded text widget payload when layouts are hydrated
+    text_widget: Optional["TextWidgetSchema"] = None
     view_overrides: Optional[ViewOverrides] = None
     container: Optional[ContainerChrome] = None
 
@@ -125,5 +129,9 @@ class DashboardLayoutVersionSchema(DashboardLayoutVersionBase):
 
     class Config:
         from_attributes = True
+
+# Late imports to avoid circular dependencies
+from app.schemas.widget_schema import WidgetSchema  # noqa: E402
+from app.schemas.text_widget_schema import TextWidgetSchema  # noqa: E402
 
 

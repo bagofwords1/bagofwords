@@ -75,6 +75,10 @@ class AgentV2:
         self.current_step_id = None
         self.current_widget_title = None  # Store widget title for progressive creation
 
+        # create_dashboard streaming state (in-memory, no layout persistence)
+        self._dashboard_blocks: list[dict] = []
+        self._dashboard_block_sigs: set[str] = set()
+
         # Streaming text state per block_id
         self._block_text_cache: dict[str, dict[str, str]] = {}
 
@@ -807,6 +811,7 @@ class AgentV2:
                                         "payload": ev.get("payload", {}),
                                     }
                                 ))
+                                # create_dashboard streaming is handled in _handle_streaming_event; avoid layout writes here
 
                         tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
                         
@@ -1253,7 +1258,7 @@ class AgentV2:
                             ))
                         except Exception:
                             pass
-                        
+                
                 elif stage == "column_added":
                     # Update current step's data model with new column
                     column = payload.get("column", {})
@@ -1375,7 +1380,6 @@ class AgentV2:
                             )
                         except Exception:
                             pass
-                        # Do not auto-publish; publishing will be done explicitly by user or create_dashboard
                         
                         # Emit data model completion event to UI
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -1409,7 +1413,22 @@ class AgentV2:
                             ))
                         except Exception:
                             pass
-                    
+            
+            elif tool_name == "create_dashboard":
+                # Stream-only handling: append blocks into active layout via ProjectManager
+                if stage == "init":
+                    # No-op here; layout service ensures active layout on first write
+                    pass
+                elif stage == "block.completed":
+                    block = payload.get("block") or {}
+                    if isinstance(block, dict) and self.report:
+                        try:
+                            await self.project_manager.append_block_to_active_dashboard_layout(
+                                self.db, str(self.report.id), block
+                            )
+                        except Exception:
+                            pass
+                # No persistence outside layout service; finalization happens on tool end
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
@@ -1430,7 +1449,7 @@ class AgentV2:
                     observation["widget_id"] = str(self.current_widget.id)
                     observation["step_id"] = str(self.current_step.id)
                     observation["data_model"] = getattr(self.current_step, "data_model", {})
-                    
+            
             elif tool_name == "modify_data_model":
                 # Update current step's data_model using tool_output
                 if tool_output:
@@ -1445,7 +1464,7 @@ class AgentV2:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return
-                    
+                
                 code = tool_output.get("code", "")
                 widget_data = tool_output.get("widget_data", {})
                 success = tool_output.get("success", False)
@@ -1486,9 +1505,20 @@ class AgentV2:
                     if self.current_widget:
                         observation["widget_id"] = str(self.current_widget.id)
                     observation["step_id"] = self.current_step_id
-                    
+            
             elif tool_name == "create_dashboard":
-                # Publish widgets per tool input: publish selected widget_ids or all widgets in report
+                # Finalize: ensure observation has the latest active layout blocks
+                try:
+                    if self.report:
+                        blocks = await self.project_manager.get_active_dashboard_layout_blocks(
+                            self.db, str(self.report.id)
+                        )
+                        observation.setdefault("layout", {})
+                        observation["layout"]["blocks"] = blocks
+                except Exception:
+                    pass
+
+                # Optional: publish widgets per input (kept from previous behavior)
                 try:
                     widget_ids = []
                     use_all_widgets = True
@@ -1497,14 +1527,12 @@ class AgentV2:
                         use_all_widgets = tool_input.get("use_all_widgets", True)
 
                     if widget_ids:
-                        # Publish only specified widgets
                         for wid in widget_ids:
                             w = await self.db.get(Widget, str(wid))
                             if w and str(getattr(w, "report_id", "")) == str(getattr(self.report, "id", "")):
                                 w.status = "published"
                                 self.db.add(w)
                     elif use_all_widgets and self.report:
-                        # Publish all widgets belonging to the current report
                         res = await self.db.execute(select(Widget).where(Widget.report_id == str(self.report.id)))
                         for w in res.scalars().all():
                             if w.status != "published":
@@ -1512,9 +1540,7 @@ class AgentV2:
                                 self.db.add(w)
                     await self.db.commit()
                 except Exception:
-                    # Publishing failure should not break the tool flow
                     pass
-
         except Exception as e:
             # Import logging if not already available
             import logging

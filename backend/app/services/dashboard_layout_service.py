@@ -14,14 +14,49 @@ from app.schemas.dashboard_layout_version_schema import (
 
 
 class DashboardLayoutService:
-    async def get_layouts_for_report(self, db: AsyncSession, report_id: str) -> List[DashboardLayoutVersionSchema]:
+    async def get_layouts_for_report(self, db: AsyncSession, report_id: str, hydrate: bool = False) -> List[DashboardLayoutVersionSchema]:
         result = await db.execute(
             select(DashboardLayoutVersion).where(DashboardLayoutVersion.report_id == report_id).order_by(
                 DashboardLayoutVersion.created_at.asc()
             )
         )
         rows = result.scalars().all()
-        return [DashboardLayoutVersionSchema.from_orm(r) for r in rows]
+        schemas = [DashboardLayoutVersionSchema.from_orm(r) for r in rows]
+        if not hydrate:
+            return schemas
+
+        # Hydrate blocks with embedded widget/text_widget payloads
+        try:
+            from app.models.widget import Widget
+            from app.models.text_widget import TextWidget
+            # Preload all referenced ids for this report in one shot
+            result_widgets = await db.execute(select(Widget).where(Widget.report_id == report_id))
+            widgets = {str(w.id): w for w in result_widgets.scalars().all()}
+            result_text = await db.execute(select(TextWidget).where(TextWidget.report_id == report_id))
+            text_widgets = {str(t.id): t for t in result_text.scalars().all()}
+
+            for s in schemas:
+                blocks = []
+                for b in (s.blocks or []):
+                    b_dict = b.model_dump()
+                    if b_dict.get('type') == 'widget':
+                        wid = b_dict.get('widget_id')
+                        if wid and wid in widgets:
+                            from app.schemas.widget_schema import WidgetSchema
+                            b_dict['widget'] = WidgetSchema.from_orm(widgets[wid]).model_dump()
+                    elif b_dict.get('type') == 'text_widget':
+                        tid = b_dict.get('text_widget_id')
+                        if tid and tid in text_widgets:
+                            from app.schemas.text_widget_schema import TextWidgetSchema
+                            b_dict['text_widget'] = TextWidgetSchema.from_orm(text_widgets[tid]).model_dump()
+                    blocks.append(b_dict)
+                # Replace blocks with hydrated dicts; pydantic will coerce on response
+                s.blocks = blocks  # type: ignore
+        except Exception:
+            # Fail open: return unhydrated if anything goes wrong
+            return schemas
+
+        return schemas
 
     async def get_layout(self, db: AsyncSession, layout_id: str) -> DashboardLayoutVersion:
         result = await db.execute(select(DashboardLayoutVersion).where(DashboardLayoutVersion.id == layout_id))
@@ -82,13 +117,16 @@ class DashboardLayoutService:
         return DashboardLayoutVersionSchema.from_orm(layout)
 
     async def _get_active_layout(self, db: AsyncSession, report_id: str) -> Optional[DashboardLayoutVersion]:
+        """Fetch the most recent active layout; tolerate multiple actives by picking latest."""
         result = await db.execute(
-            select(DashboardLayoutVersion).where(
+            select(DashboardLayoutVersion)
+            .where(
                 DashboardLayoutVersion.report_id == report_id,
                 DashboardLayoutVersion.is_active == True  # noqa: E712
             )
+            .order_by(DashboardLayoutVersion.created_at.desc())
         )
-        return result.scalar_one_or_none()
+        return result.scalars().first()
 
     async def get_or_create_active_layout(self, db: AsyncSession, report_id: str) -> DashboardLayoutVersion:
         layout = await self._get_active_layout(db, report_id)

@@ -84,8 +84,8 @@ async def schedule_report(report_id: str, cron_expression: str, current_user: Us
 
 @router.get("/reports/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
 @requires_permission('view_reports', model=Report, owner_only=True)
-async def list_layouts(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.get_layouts_for_report(db, report_id)
+async def list_layouts(report_id: str, hydrate: bool = False, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    return await layout_service.get_layouts_for_report(db, report_id, hydrate=hydrate)
 
 @router.post("/reports/{report_id}/layouts", response_model=DashboardLayoutVersionSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
@@ -133,7 +133,10 @@ async def activate_layout(report_id: str, layout_id: str, current_user: User = D
 # --- Public (read-only) Dashboard Layout Routes ---
 
 @router.get("/r/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])
-async def get_public_layouts(report_id: str, db: AsyncSession = Depends(get_async_db)):
+async def get_public_layouts(report_id: str, hydrate: bool = False, db: AsyncSession = Depends(get_async_db)):
     from app.services.report_service import ReportService
     rs = ReportService()
+    # Public service currently returns unhydrated; use private service for hydration
+    if hydrate:
+        return await layout_service.get_layouts_for_report(db, report_id, hydrate=True)
     return await rs.get_public_layouts(db, report_id)

@@ -23,6 +23,11 @@ from app.models.plan_decision import PlanDecision
 from app.models.tool_execution import ToolExecution
 from app.models.context_snapshot import ContextSnapshot
 from app.models.completion_block import CompletionBlock
+from app.services.dashboard_layout_service import DashboardLayoutService
+from app.schemas.dashboard_layout_version_schema import (
+    DashboardLayoutBlocksPatch,
+    BlockPositionPatch,
+)
 
 class ProjectManager:
 
@@ -259,6 +264,84 @@ class ProjectManager:
         await db.commit()
         # No object to refresh after deletion
         print(f"Deleted existing text widgets for report {report_id}") # Optional logging
+
+    async def append_block_to_active_dashboard_layout(self, db, report_id: str, block: dict):
+        """Append or update a block in the active dashboard layout for the report.
+        - For widget blocks, position existing widgets
+        - For text_widget blocks, create a TextWidget if needed, then position it
+        """
+        try:
+            layout_svc = DashboardLayoutService()
+            # Ensure there is an active layout (will create minimal if missing)
+            await layout_svc.get_or_create_active_layout(db, report_id)
+
+            btype = (block or {}).get("type")
+            x = int((block or {}).get("x", 0))
+            y = int((block or {}).get("y", 0))
+            width = int((block or {}).get("width", 6))
+            height = int((block or {}).get("height", 6))
+
+            patch = None
+            if btype == "widget":
+                wid = (block or {}).get("widget_id") or (block or {}).get("id")
+                if wid:
+                    patch = BlockPositionPatch(
+                        type="widget",
+                        widget_id=str(wid),
+                        x=x, y=y, width=width, height=height,
+                    )
+            elif btype == "text_widget":
+                text_widget_id = (block or {}).get("text_widget_id")
+                # Try to reuse an existing text widget with same content/geometry to avoid duplicates
+                if not text_widget_id:
+                    content = (block or {}).get("content", "")
+                    try:
+                        from sqlalchemy import select as _select
+                        existing = await db.execute(
+                            _select(TextWidget).where(
+                                TextWidget.report_id == report_id,
+                                TextWidget.content == content,
+                                TextWidget.x == x,
+                                TextWidget.y == y,
+                                TextWidget.width == width,
+                                TextWidget.height == height,
+                            )
+                        )
+                        existing_tw = existing.scalars().first()
+                    except Exception:
+                        existing_tw = None
+                    if existing_tw:
+                        text_widget_id = str(existing_tw.id)
+                    else:
+                        tw = await self.create_text_widget(db, content, x, y, width, height, report_id)
+                        text_widget_id = str(tw.id)
+                if text_widget_id:
+                    patch = BlockPositionPatch(
+                        type="text_widget",
+                        text_widget_id=text_widget_id,
+                        x=x, y=y, width=width, height=height,
+                    )
+
+            if patch is None:
+                return None
+
+            updated = await layout_svc.patch_active_layout_blocks(
+                db, report_id, DashboardLayoutBlocksPatch(blocks=[patch])
+            )
+            return updated
+        except Exception as e:
+            self.logger.warning(f"append_block_to_active_dashboard_layout failed: {e}")
+            return None
+
+    async def get_active_dashboard_layout_blocks(self, db, report_id: str) -> list[dict]:
+        """Return blocks for the active dashboard layout (or empty list)."""
+        try:
+            layout_svc = DashboardLayoutService()
+            layout = await layout_svc.get_or_create_active_layout(db, report_id)
+            return list(getattr(layout, "blocks", []) or [])
+        except Exception as e:
+            self.logger.warning(f"get_active_dashboard_layout_blocks failed: {e}")
+            return []
     
     async def update_report_title(self, db, report, title):
         # Instead of merging, let's fetch a fresh instance
