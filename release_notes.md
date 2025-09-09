@@ -5,6 +5,8 @@
   - Improved dashboard creation, allowing more control on styles and the new dashboards look amazing!
   - User can now select themes (default, retro, hacker, or research)
 - Added the answer question tool, allowing agent to search across schema, resources, and other pieces context to come up with the answer
+- Improvements to Slack bot integration
+- Enhancements around: cron visibility, excel files, and sharing
 
 ## Version 0.0.193 (September 6, 2025)
 - Introduced automatic instruction suggestion system to enhance AI decision-making and performance. The system generates suggestions triggered by:
