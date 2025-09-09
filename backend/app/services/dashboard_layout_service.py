@@ -158,10 +158,15 @@ class DashboardLayoutService:
             for b in blocks:
                 if b.get('type') == 'widget' and patch.type == 'widget' and patch.widget_id and b.get('widget_id') == patch.widget_id:
                     b['x'] = patch.x; b['y'] = patch.y; b['width'] = patch.width; b['height'] = patch.height
+                    # Apply optional view_overrides if provided (dashboard layout wins)
+                    if getattr(patch, 'view_overrides', None) is not None:
+                        b['view_overrides'] = (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides) or None
                     updated = True
                     break
                 if b.get('type') == 'text_widget' and patch.type == 'text_widget' and patch.text_widget_id and b.get('text_widget_id') == patch.text_widget_id:
                     b['x'] = patch.x; b['y'] = patch.y; b['width'] = patch.width; b['height'] = patch.height
+                    if getattr(patch, 'view_overrides', None) is not None:
+                        b['view_overrides'] = (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides) or None
                     updated = True
                     break
                 # Skipping filter identification until stable id
@@ -173,6 +178,7 @@ class DashboardLayoutService:
                         'widget_id': patch.widget_id,
                         'x': patch.x, 'y': patch.y,
                         'width': patch.width, 'height': patch.height,
+                        **({'view_overrides': (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
                     })
                 elif patch.type == 'text_widget' and patch.text_widget_id:
                     blocks.append({
@@ -180,6 +186,7 @@ class DashboardLayoutService:
                         'text_widget_id': patch.text_widget_id,
                         'x': patch.x, 'y': patch.y,
                         'width': patch.width, 'height': patch.height,
+                        **({'view_overrides': (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
                     })
         # Persist using explicit UPDATE to avoid JSON change detection edge cases
         await db.execute(

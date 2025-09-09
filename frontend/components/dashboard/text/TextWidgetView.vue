@@ -13,7 +13,7 @@
       :key="`${widget.id}:${themeName}`"
       :widget="widget"
       :step="widget"
-      :view="widget.view"
+      :view="resolvedView"
       :reportThemeName="themeName"
       :reportOverrides="reportOverrides"
     />
@@ -21,7 +21,7 @@
 </template>
 
 <script setup lang="ts">
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent, computed } from 'vue'
 import TextWidgetEditor from '@/components/TextWidgetEditor.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 
@@ -47,6 +47,27 @@ function getCompForType(type?: string | null) {
   compCache.set(t, comp)
   return comp
 }
+
+function deepMerge(target: any, source: any) {
+  const out: any = Array.isArray(target) ? [...target] : { ...target }
+  if (!source || typeof source !== 'object') return out
+  Object.keys(source).forEach((key) => {
+    const sv: any = (source as any)[key]
+    if (sv && typeof sv === 'object' && !Array.isArray(sv)) {
+      out[key] = deepMerge(out[key] || {}, sv)
+    } else {
+      out[key] = sv
+    }
+  })
+  return out
+}
+
+const resolvedView = computed(() => {
+  const stepView = (props.widget as any)?.view || null
+  const layoutOverrides = (props.widget as any)?.layout_view_overrides || null
+  if (!layoutOverrides && !stepView) return null
+  return deepMerge(stepView || {}, layoutOverrides || {})
+})
 </script>
 
 

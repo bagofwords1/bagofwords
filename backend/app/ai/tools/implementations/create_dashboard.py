@@ -173,7 +173,10 @@ GUIDELINES
 - Use text widgets to guide the reader: titles, subtitles, section intros, insights, summaries.
 - Place text near related visuals; flow overview → drill-down; group related items side-by-side.
 - Text widgets must be semantic HTML (h1, h2, h3, p, ul, li, a, table, etc.). No Markdown.
-- For text semantics, set view_overrides.variant to one of: "title" | "subtitle" | "paragraph" | "summary" when appropriate.
+- Styling and view details must be included:
+  - For text blocks, set view_overrides.variant to one of: "title" | "subtitle" | "paragraph" | "summary" when appropriate.
+  - For data widgets, set view_overrides with any of: variant (e.g., "area" or "smooth"), legendVisible, xAxisVisible, yAxisVisible, and style (colors, axis styles, title styles). Use integers/booleans/strings appropriately.
+  - Prefer minimal, meaningful overrides that improve readability and visual balance.
 
 EXPECTED JSON OUTPUT (strict):
 {{
@@ -190,11 +193,23 @@ Block types (exact fields):
   "widget_id": "UUID",
   "x": int, "y": int, "width": int, "height": int,
   "view_overrides": {{
-        "component": null,
-        "variant": null,
-        "theme": null,
-        "style": null,
-        "options": null
+        "variant": string | null,
+        "legendVisible": boolean | null,
+        "xAxisVisible": boolean | null,
+        "yAxisVisible": boolean | null,
+        "style": {{
+            "titleColor": string | null,
+            "titleSize": int | null,
+            "titleWeight": int | null,
+            "axis": {{
+                "xLabelColor": string | null,
+                "xLineColor": string | null,
+                "yLabelColor": string | null,
+                "yLineColor": string | null,
+                "gridLineColor": string | null
+            }} | null
+        }} | null,
+        "options": object | null
     }} | null,
   "is_completed": True
 }}
@@ -205,7 +220,8 @@ Block types (exact fields):
   "content": "<HTML>",
   "x": int, "y": int, "width": int, "height": int,
   "view_overrides": {{
-    "variant": "title" | "subtitle" | "paragraph" | "summary"
+    "variant": "title" | "subtitle" | "paragraph" | "summary",
+    "style": object | null
   }} | null,
   "is_completed": True
 }}

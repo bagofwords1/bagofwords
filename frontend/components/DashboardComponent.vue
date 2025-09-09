@@ -365,6 +365,8 @@
                     nextDisplayed.push({
                         ...src,
                         x: b.x, y: b.y, width: b.width, height: b.height,
+                        // carry per-block view overrides so layout styling can win over step.view
+                        layout_view_overrides: (b as any).view_overrides || null,
                         type: 'regular',
                         showControls: src.showControls ?? false,
                         show_data: src.show_data ?? false,
@@ -376,6 +378,8 @@
                     nextText.push({
                         ...baseSrc,
                         x: b.x, y: b.y, width: b.width, height: b.height,
+                        // carry per-block view overrides for text widgets as well
+                        layout_view_overrides: (b as any).view_overrides || null,
                         type: 'text',
                         isEditing: baseSrc.isEditing ?? false,
                         isNew: baseSrc.isNew ?? false,

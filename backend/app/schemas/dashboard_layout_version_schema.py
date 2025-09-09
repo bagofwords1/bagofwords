@@ -103,6 +103,8 @@ class BlockPositionPatch(BaseModel):
     y: int
     width: int
     height: int
+    # Optional per-block view overrides to style at layout level
+    view_overrides: Optional[ViewOverrides] = None
 
 
 class DashboardLayoutBlocksPatch(BaseModel):

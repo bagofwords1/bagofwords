@@ -285,10 +285,13 @@ class ProjectManager:
             if btype == "widget":
                 wid = (block or {}).get("widget_id") or (block or {}).get("id")
                 if wid:
+                    # Pass through view_overrides if any
+                    vov = (block or {}).get("view_overrides")
                     patch = BlockPositionPatch(
                         type="widget",
                         widget_id=str(wid),
                         x=x, y=y, width=width, height=height,
+                        view_overrides=vov,
                     )
             elif btype == "text_widget":
                 text_widget_id = (block or {}).get("text_widget_id")
@@ -316,10 +319,12 @@ class ProjectManager:
                         tw = await self.create_text_widget(db, content, x, y, width, height, report_id)
                         text_widget_id = str(tw.id)
                 if text_widget_id:
+                    vov = (block or {}).get("view_overrides")
                     patch = BlockPositionPatch(
                         type="text_widget",
                         text_widget_id=text_widget_id,
                         x=x, y=y, width=width, height=height,
+                        view_overrides=vov,
                     )
 
             if patch is None:

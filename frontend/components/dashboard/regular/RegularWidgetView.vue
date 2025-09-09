@@ -8,7 +8,7 @@
         :data="widget.last_step?.data"
         :data_model="widget.last_step?.data_model"
         :step="widget.last_step"
-        :view="widget.last_step?.view"
+        :view="resolvedView"
         :reportThemeName="themeName"
         :reportOverrides="reportOverrides"
       />
@@ -47,6 +47,27 @@ function getCompForType(type?: string | null) {
 }
 
 const resolvedComp = computed(() => getCompForType(props.widget?.last_step?.data_model?.type))
+
+function deepMerge(target: any, source: any) {
+  const out: any = Array.isArray(target) ? [...target] : { ...target }
+  if (!source || typeof source !== 'object') return out
+  Object.keys(source).forEach((key) => {
+    const sv: any = (source as any)[key]
+    if (sv && typeof sv === 'object' && !Array.isArray(sv)) {
+      out[key] = deepMerge(out[key] || {}, sv)
+    } else {
+      out[key] = sv
+    }
+  })
+  return out
+}
+
+const resolvedView = computed(() => {
+  const stepView = props.widget?.last_step?.view || null
+  const layoutOverrides = props.widget?.layout_view_overrides || null
+  if (!layoutOverrides && !stepView) return null
+  return deepMerge(stepView || {}, layoutOverrides || {})
+})
 </script>
 
 

@@ -79,9 +79,9 @@ function normalizeRows(rows: any[] | undefined): any[] {
 
 function getBaseOptions(): EChartsOption {
   return {
-    // Do not rely on global palette for gradients; we apply per-series colors later
+    // Prefer view-provided background first, then theme tokens
     color: undefined,
-    backgroundColor: tokens.value?.background || undefined,
+    backgroundColor: (props.view?.options as any)?.backgroundColor || props.view?.style?.backgroundColor || tokens.value?.background || undefined,
     title: {
       text: props.widget?.title || 'Chart',
       left: 'center',
@@ -286,8 +286,12 @@ function resolveColorInput(input: any): any {
 }
 
 function paletteArray(): any[] {
+  // 1) Layout-level explicit colors
+  const viewColors = (props.view?.options as any)?.colors
+  if (Array.isArray(viewColors) && viewColors.length) return viewColors
+  // 2) Theme palette fallback
   const p = tokens.value?.palette as any
-  if (Array.isArray(p)) return p
+  if (Array.isArray(p) && p.length) return p
   return []
 }
 
