@@ -9,6 +9,8 @@ from app.ai.tools.schemas.events import ToolEvent, ToolStartEvent, ToolProgressE
 from app.ai.llm import LLM
 import json
 
+from partialjson.json_parser import JSONParser
+
 
 class AnswerQuestionTool(Tool):
     @property
@@ -22,7 +24,7 @@ class AnswerQuestionTool(Tool):
             output_schema=AnswerQuestionOutput.model_json_schema(),
             max_retries=0,
             timeout_seconds=90,
-            is_active=False,
+            is_active=True,
             idempotent=False,
             tags=["question", "context", "answer", "streaming"],
             examples=[
@@ -92,7 +94,7 @@ class AnswerQuestionTool(Tool):
         # Build answer prompt (grounded; no fabrication)
         header = f"""
 You are a helpful data analyst. Answer the user's question concisely using ONLY the provided context.
-If the context is insufficient, ask for a brief, targeted clarification.
+If the context is insufficient, ask for a brief, targeted clarification in the answer.
 
 Context:
   <platform>{platform}</platform>
@@ -101,48 +103,73 @@ Context:
   {resources_context if resources_context else 'No metadata resources available'}
   {history_summary}
   {messages_context if messages_context else 'No detailed conversation history available'}
-  <past_observations>{json.dumps(past_observations) if past_observations else '[]'}</past_observations>
-  <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
+  <past_observations>{past_observations if past_observations else '[]'}</past_observations>
+  <last_observation>{last_observation if last_observation else 'None'}</last_observation>
 
 Question:
 {data.question}
 
-Guidance:
-- Be kind, brief, and direct. Do not repeat the question.
-- Use simple markdown for formatting. No JSON in your output.
-- Do not expose schemas/messages explicitly; just answer.
-- If you reference a table relationship or schema, keep it human-readable.
+Rules:
+- Respond with a single JSON object only. No prose, no code fences.
+- The object must have exactly one key "answer" whose value is a Markdown text.
+- Make sure the markdown text and format is readable, understandable and follows the best practices. Use spacing and paragraphs to make the text readable.
+- Keep the answer brief and factual based on the context.
+
+Examples:
+answer: "## Customer table\n\nCustomer table has the following columns: id, name, email, phone, address."
+answer: "The `order_id` column is a foreign key to the `order` table."
+answer: "The best way to get to payments, based on the schema and guided by the instruction is to query the `payment` table."
+
+Output (strict JSON):
+{{
+    "answer": "## Markdown text..."
+}}
 """
+        prompt = header
+
+        parser = JSONParser()
 
         # Stream from LLM and forward partials
         llm = LLM(runtime_ctx.get("model"))
         buffer = ""
         chunk_count = 0
         full_answer = ""
-
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_call_start"})
 
-        async for chunk in llm.inference_stream(header):
+        async for chunk in llm.inference_stream(prompt):
+            
             # Guard against empty SSE heartbeats
             if not chunk:
                 continue
             buffer += chunk
-            full_answer += chunk
+            try:
+                result = parser.parse(buffer)
+                if isinstance(result, dict):
+                    full_answer = result.get("answer", full_answer)
+            except Exception:
+                # Incomplete/partial JSON; keep accumulating
+                pass
             chunk_count += 1
 
             # Periodically emit partials for smoother UX
-            if chunk_count >= 5:
-                yield ToolPartialEvent(type="tool.partial", payload={"delta": buffer})
-                buffer = ""
+            if chunk_count >= 3 and full_answer:
+                yield ToolPartialEvent(type="tool.partial", payload={"answer": full_answer})
                 chunk_count = 0
 
-        # Flush remaining buffer
+        # Flush remaining buffer with a final parse attempt
         if buffer:
-            yield ToolPartialEvent(type="tool.partial", payload={"delta": buffer})
+            try:
+                final_result = parser.parse(buffer)
+                if isinstance(final_result, dict):
+                    full_answer = final_result.get("answer", full_answer)
+            except Exception:
+                pass
+            if full_answer:
+                yield ToolPartialEvent(type="tool.partial", payload={"answer": full_answer})
 
         # End event with structured output and observation to signal completion
         observation = {
-            "summary": "Answered user question from available context.",
+            "summary": full_answer.strip(),
             "analysis_complete": True,
             "final_answer": full_answer.strip()
         }

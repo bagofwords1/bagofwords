@@ -917,10 +917,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							status: 'running'
 						}
 					}
-					const delta = (payload.payload && typeof payload.payload.delta === 'string') ? payload.payload.delta : ''
-					if (delta) {
-						lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
-						const rj: any = lastBlock.tool_execution.result_json
+					const fullAnswer = (payload.payload && typeof payload.payload.answer === 'string') ? payload.payload.answer : null
+					const delta = (payload.payload && typeof payload.payload.delta === 'string') ? payload.payload.delta : null
+					lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
+					const rj: any = lastBlock.tool_execution.result_json
+					if (fullAnswer !== null) {
+						// Replace with accumulated answer (preferred)
+						rj.answer = fullAnswer
+						lastBlock.status = 'in_progress'
+					} else if (delta) {
+						// Backward-compatibility: append streaming delta
 						rj.answer = (rj.answer || '') + delta
 						lastBlock.status = 'in_progress'
 					}

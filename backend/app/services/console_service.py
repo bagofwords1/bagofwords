@@ -1578,12 +1578,15 @@ class ConsoleService:
                 prompt_text = head_prompts.get(str(r.report_id), '')
             report_link = f"/reports/{r.report_id}" if r.report_id else None
 
+            # Derive status: if any tool failed in this AE, mark as error
+            derived_status = 'error' if (counts.get('failed', 0) or 0) > 0 else (r.ae_status or 'success')
+
             items.append(AgentExecutionSummaryItem(
                 agent_execution_id=str(r.ae_id),
                 created_at=r.created_at,
                 completion_id=str(r.completion_id) if r.completion_id else None,
                 prompt=(prompt_text or '')[:200],
-                agent_execution_status=r.ae_status,
+                agent_execution_status=derived_status,
                 error_json=r.error_json,
                 total_tools=counts['total'],
                 total_failed_tools=counts['failed'],
