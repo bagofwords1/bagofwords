@@ -168,9 +168,13 @@ async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step'):
             os.remove(file_path)
     return success
 
-async def send_step_result_to_slack(step_id: str):
+async def send_step_result_to_slack(step_id: str, external_user_id: str | None = None, organization_id: str | None = None):
     """
-    Sends a step's data as a DM on Slack if it was initiated from a Slack command.
+    Sends a step's data as a DM on Slack. Prefer caller-provided routing
+    details (external_user_id and organization_id). If not provided, falls
+    back to discovering them from the latest completion associated with the
+    step. This makes the function resilient when the Completion "step_id"
+    linkage is not populated by the agent runtime.
     """
     session_maker = create_async_session_factory()
     async with session_maker() as db:
@@ -184,16 +188,18 @@ async def send_step_result_to_slack(step_id: str):
                 print(f"SLACK_NOTIFIER: Could not find step with id {step_id}")
                 return
 
-            comp_stmt = select(Completion).where(Completion.step_id == step_id).order_by(Completion.created_at.desc()).limit(1)
-            comp_result = await db.execute(comp_stmt)
-            completion = comp_result.scalar_one_or_none()
+            # Discover routing details only if not explicitly provided
+            if external_user_id is None or organization_id is None:
+                comp_stmt = select(Completion).where(Completion.step_id == step_id).order_by(Completion.created_at.desc()).limit(1)
+                comp_result = await db.execute(comp_stmt)
+                completion = comp_result.scalar_one_or_none()
 
-            if not (completion and completion.external_platform == "slack" and completion.external_user_id):
-                print(f"SLACK_NOTIFIER: Step {step_id} not from Slack or no completion found. Ignoring.")
-                return
+                if not (completion and completion.external_platform == "slack" and completion.external_user_id):
+                    print(f"SLACK_NOTIFIER: No Slack-linked completion found for step {step_id}. Caller should supply routing details.")
+                    return
 
-            external_user_id = completion.external_user_id
-            organization_id = step.widget.report.organization_id
+                external_user_id = external_user_id or completion.external_user_id
+                organization_id = organization_id or step.widget.report.organization_id
             platform_stmt = select(ExternalPlatform).where(
                 ExternalPlatform.organization_id == organization_id, ExternalPlatform.platform_type == "slack")
             platform_result = await db.execute(platform_stmt)
