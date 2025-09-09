@@ -56,6 +56,9 @@ class CreateWidgetTool(Tool):
         # Resources
         _resources_section_obj = getattr(context_view.static, "resources", None) if context_view else None
         resources_context = _resources_section_obj.render() if _resources_section_obj else ""
+        # Files
+        _files_section_obj = getattr(context_view.static, "files", None) if context_view else None
+        files_context = _files_section_obj.render() if _files_section_obj else ""
         # Instructions
         _instructions_section_obj = getattr(context_view.static, "instructions", None) if context_view else None
         instructions_context = _instructions_section_obj.render() if _instructions_section_obj else ""
@@ -97,6 +100,7 @@ INPUT ENVELOPE
   <platform>{platform}</platform>
   {instructions_context}
   {schemas_excerpt}
+  {files_context}
   {resources_context if resources_context else 'No metadata resources available'}
   {history_summary}
   {messages_context if messages_context else 'No detailed conversation history available'}
@@ -240,7 +244,8 @@ CRITICAL:
 
         context_view = runtime_ctx.get("context_view")
         schemas_section = getattr(context_view.static, "schemas", None) if context_view else None
-        schemas = schemas_section.render() if schemas_section else ""
+        files_section = getattr(context_view.static, "files", None) if context_view else None
+        schemas = (schemas_section.render() if schemas_section else "") + ("\n\n" + files_section.render() if files_section else "")
         messages_section = getattr(context_view.warm, "messages", None) if context_view else None
         messages_context = messages_section.render() if messages_section else ""
 
@@ -255,7 +260,6 @@ CRITICAL:
         async def _validator_fn(code, data_model):
             validator_coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, context_hub=context_hub)
             return await validator_coder.validate_code(code, data_model)
-
         async for e in streamer.generate_and_execute_stream(
             data_model=final_data_model,
             prompt=data.interpreted_prompt or data.user_prompt,

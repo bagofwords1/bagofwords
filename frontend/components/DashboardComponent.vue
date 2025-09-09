@@ -79,7 +79,8 @@
             <!-- Minimal empty state when there are no components -->
             <div v-if="allWidgets.length === 0" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <Icon name="heroicons-chart-bar" class="w-6 h-6 text-gray-400 block mb-2" />
-                <div class="text-gray-400 text-sm">Write a prompt to create a dashboard</div>
+                <div v-if="props.edit" class="text-gray-400 text-sm">Write a prompt to create a dashboard</div>
+                <div v-else class="text-gray-400 text-sm">No dashboard items yet</div>
             </div>
 
         </div>

@@ -58,10 +58,11 @@
                                         <NuxtLink :to="`/reports/${report.id}`" class="text-blue-500 hover:underline">
                                             {{ report.title }}
                                         </NuxtLink>
+
                                         <div v-if="report.external_platform && report.external_platform.platform_type == 'slack'" class="ml-2 h-3 inline mr-2">
                                             <img src="/icons/slack.png" class="h-3 inline mr-2" />
                                         </div>
-                                        <div v-if="report.cron_schedule !== 'None'" class="ml-2 h-3 inline mr-2">
+                                        <div v-if="report.cron_schedule" class="ml-2 h-3 inline mr-2">
                                             <UTooltip text="Running on a schedule">
                                                 <Icon name="heroicons:clock" />
                                             </UTooltip>

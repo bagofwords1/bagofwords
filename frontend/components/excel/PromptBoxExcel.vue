@@ -2,7 +2,7 @@
     <div class="flex-shrink-0 p-2 bg-white">
       <div 
       v-if="props.selectedWidgetId?.widgetTitle"
-      class="text-xs bg-cyan-50 text-cyan-500 rounded-t-lg px-3 border border-cyan-200 py-2 pb-3.5 -mb-2 w-fit">
+      class="text-xs bg-cyan-50 text-cyan-500 rounded-t-xl px-3 border border-cyan-200 py-2 pb-3.5 -mb-2 w-fit">
       <span>
         <Icon name="heroicons-arrow-turn-down-right" />
       </span>
@@ -11,7 +11,7 @@
           &times;
         </span>
       </div>
-        <div class="flex flex-col border bg-[#fafafa] border-gray-200 rounded-xl p-2 mb-4 shadow-sm transition-shadow duration-200 hover:shadow-md hover:border-gray-300">
+        <div class="flex flex-col border bg-[#fafafa] border-gray-200 rounded-xl p-2 mb-4 shadow-sm transition-shadow duration-200 hover:shadow-sm hover:border-gray-300">
             <div class="flex flex-col">
                 <div class="flex items-center space-x-0.2 mb-2">
 
@@ -20,7 +20,7 @@
                     <div>
                       <button
                                     v-if="canViewInstructions" 
-                                    class="text-gray-500 hover:text-gray-400 hover:bg-gray-100 border border-gray-200 ml-2 text-[11px] px-2 py-1 rounded-md"
+                                    class="text-gray-500 hover:text-gray-400 hover:bg-gray-100 border border-gray-200 text-[11px] px-2 py-1 rounded-md"
                                     @click="openInstructionsListModal"
                                 >
                                     <Icon name="heroicons-document-text" /> Instructions
@@ -34,7 +34,7 @@
                     <Icon name="heroicons-light-bulb" /> Prompt Guidelines
                 </button>
                     </div>
-                    <div class="flex ml-2  text-[11px] text-gray-500 border border-gray-200 rounded px-1.5 py-1 mt-0.5"
+                    <div class="flex ml-2 text-[11px] text-gray-500 border border-gray-200 rounded px-1.5 py-1 mt-0.5"
                     v-if="excelData.address && excelData.address.includes(':')">
                         ={{ excelData.address || 'No cell selected' }}
                     </div>

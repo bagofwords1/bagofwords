@@ -122,6 +122,7 @@ INPUT ENVELOPE
   <platform>{planner_input.external_platform}</platform>
   {planner_input.instructions}
   {planner_input.schemas_excerpt}
+  {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.resources_context if planner_input.resources_context else 'No metadata resources available'}
   {planner_input.history_summary}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}</messages>

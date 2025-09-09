@@ -377,7 +377,10 @@ class ReportService:
         return "\n".join(context)
 
     def _parse_cron_expression(self, cron_expression: str) -> dict:
-        if 'None' in cron_expression:
+        # Gracefully handle unschedule values
+        if not cron_expression:
+            return None
+        if isinstance(cron_expression, str) and cron_expression.strip().lower() in {"none", "null", "false"}:
             return None
 
         parts = cron_expression.split()
@@ -427,10 +430,10 @@ class ReportService:
             # Job doesn't exist yet, that's fine
             pass
         
-        # Continue with scheduling the new job
+        # Continue with scheduling the new job (only if a valid cron is provided)
         cron_expression_parsed = self._parse_cron_expression(cron_expression)
 
-        if cron_expression is not None:
+        if cron_expression_parsed is not None:
             job = scheduler.add_job(
                 func=self.scheduled_rerun_report_steps,
                 trigger='cron',
@@ -443,8 +446,8 @@ class ReportService:
             next_run = job.trigger.get_next_fire_time(None, datetime.now(timezone.utc))
             logger.info(f"Next run time: {next_run}")
         
-        # Update the cron expression in the report
-        report.cron_schedule = cron_expression
+        # Update the cron expression in the report (normalize unschedule values to None)
+        report.cron_schedule = None if cron_expression in (None, '', 'None') else cron_expression
         
         await db.commit()
         await db.refresh(report)

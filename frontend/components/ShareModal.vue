@@ -35,6 +35,11 @@
                         </span>
                     </button>
                 </div>
+                <div v-if="isPublished"class="mt-4 font-normal">
+                    <a :href="reportUrl" target="_blank" class="text-blue-500 hover:underline">
+                        <Icon name="heroicons:arrow-top-right-on-square" />
+                        View report</a>
+                </div>
             </div>
             <div class="border-t border-gray-200 pt-4 mt-8">
                 <button @click="shareModalOpen = false"

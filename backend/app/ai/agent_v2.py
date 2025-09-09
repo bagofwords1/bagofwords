@@ -307,12 +307,16 @@ class AgentV2:
                     # Get resources context from metadata resources
                     resources_section = await self.context_hub.resource_builder.build()
                     resources_context = resources_section.render()
+                    # Files context (uploaded files schemas/metadata)
+                    files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
+
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
                         instructions=instructions,
                         user_message=self.head_completion.prompt["content"],
                         schemas_excerpt=schemas_excerpt,
+                        files_context=files_context,
                         history_summary=history_summary,
                         messages_context=messages_context,
                         resources_context=resources_context,
