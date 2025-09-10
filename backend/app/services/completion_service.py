@@ -900,6 +900,7 @@ class CompletionService:
                             organization=organization,
                             organization_settings=org_settings,
                             model=model,
+                            mode=completion_data.prompt.mode,
                             report=report_obj,
                             messages=[],
                             head_completion=completion_obj,

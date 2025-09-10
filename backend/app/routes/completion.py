@@ -49,7 +49,6 @@ async def create_completion(
         or ("text/event-stream" in accept_header.lower())
         or query_stream_flag
     )
-
     if wants_stream:
         return await completion_service.create_completion_stream(
             db,

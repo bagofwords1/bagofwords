@@ -40,8 +40,8 @@
       <p class="text-lg mt-5 text-gray-500">
           Create reports, dashboards, and simply get the data you need
       </p>
-      <div class="w-full md:w-2/3 mx-auto mt-10 rounded-lg border border-gray-200 relative z-10">
-          <PromptBox 
+      <div class="w-full md:w-4/5 mx-auto mt-10 rounded-lg relative z-10">
+          <PromptBoxV2 
               :textareaContent="textareaContent"
               @update:modelValue="handlePromptUpdate"
           />
@@ -121,7 +121,7 @@
 import { useRouter } from 'vue-router';
 import { useExcel } from '~/composables/useExcel';
 import { onMounted, nextTick } from 'vue';
-import PromptBox from '~/components/PromptBox.vue';
+import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
 
 import { useCan } from '~/composables/usePermissions'
 const router = useRouter()

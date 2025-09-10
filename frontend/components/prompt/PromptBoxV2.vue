@@ -3,7 +3,7 @@
         <!-- Instructions button (minimal) -->
         <div class="mb-2">
             <button
-                class="text-gray-500 hover:text-gray-700 text-xs flex items-center"
+                class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-1 text-xs flex items-center"
                 @click="openInstructions"
             >
                 <Icon name="heroicons-cube" class="w-4 h-4 mr-1" />
@@ -35,10 +35,10 @@
 
                     <!-- Mode selector -->
                     <UPopover :key="'mode-' + (props.popoverOffset || 0)" :popper="popperLegacy">
-                        <UTooltip :text="isCompactPrompt ? (mode === 'chat' ? 'Chat' : 'Deep Research') : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
-                            <button class="text-gray-500 text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-2 hover:text-gray-700 text-xs px-2 py-1 rounded flex items-center">
+                        <UTooltip :text="isCompactPrompt ? (mode === 'chat' ? 'Chat' : 'Deep Analytics') : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
+                            <button class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center">
                                 <Icon :name="mode === 'chat' ? 'heroicons-chat-bubble-left-right' : 'heroicons-light-bulb'" class="w-4 h-4" />
-                                <span v-if="!isCompactPrompt" class="ml-1">{{ mode === 'chat' ? 'Chat' : 'Deep Research' }}</span>
+                                <span v-if="!isCompactPrompt" class="ml-1">{{ mode === 'chat' ? 'Chat' : 'Deep Analytics' }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
@@ -50,7 +50,7 @@
                                     </div>
                                     <Icon v-if="mode === 'chat'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
-                                    <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('research'); close(); }">
+                                    <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('deep'); close(); }">
                                     <div class="flex items-center">
                                         <Icon name="heroicons-light-bulb" class="w-4 h-4 mr-2" />
                                         Deep Analytics
@@ -69,24 +69,22 @@
                     <!-- Model selector -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
                         <UTooltip :text="isCompactPrompt ? selectedModelLabel : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
-                            <button class="text-gray-500 text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-2 hover:text-gray-700 text-xs px-2 py-1 rounded flex items-center">
+                            <button class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center">
                                 <Icon name="heroicons-cpu-chip" class="w-4 h-4" />
                                 <span v-if="!isCompactPrompt" class="ml-1">{{ selectedModelLabel }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
                             <div class="p-2 text-xs max-h-64 overflow-y-auto w-[200px]">
-                                <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectModel(m.id); close(); }">
-                                    <div class="flex items-start">
-                                        <div class="mr-2 mt-0.5">
-                                            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
-                                        </div>
-                                        <div class="flex flex-col">
-                                            <span class="font-medium">{{ m.name }}</span>
-                                            <span class="text-gray-500 text-[10px]">{{ m.provider?.name }}</span>
-                                        </div>
+                                <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center" @click="() => { selectModel(m.id); close(); }">
+                                    <div class="mr-2">
+                                        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
                                     </div>
-                                    <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ml-2" />
+                                    <div class="flex flex-col flex-1 text-left min-w-0">
+                                        <span class="font-medium truncate">{{ m.name }}</span>
+                                        <span class="text-gray-500 text-[10px] truncate">{{ m.provider?.name }}</span>
+                                    </div>
+                                    <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ml-2 flex-shrink-0" />
                                 </div>
                             </div>
                         </template>
@@ -119,7 +117,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
@@ -131,15 +130,18 @@ const props = defineProps({
     latestInProgressCompletion: Object,
     isStopping: Boolean,
     // Allow fine-tuning alignment if needed later
-    popoverOffset: { type: Number, default: 16 }
+    popoverOffset: { type: Number, default: 16 },
+    // Landing page prefill support
+    textareaContent: { type: String, default: '' }
 })
 
-const emit = defineEmits(['submitCompletion','stopGeneration'])
+const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue'])
 
 const text = ref('')
-const placeholder = 'Ask for data, dashboard or a deep research'
+const placeholder = 'Ask for data, dashboard or a deep analysis'
 const mode = ref<'chat' | 'deep'>('chat')
 const selectedDataSources = ref<any[]>([])
+const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
 
 // Popover state
@@ -165,9 +167,16 @@ async function loadModels() {
         const { data } = await useMyFetch('/api/llm/models?is_enabled=true')
         if (data.value && Array.isArray(data.value)) {
             models.value = data.value
-            // Set first enabled model as default if none selected
+            // Set the default model as selected, or fall back to first enabled model
             if (!selectedModel.value && models.value.length > 0) {
-                selectedModel.value = models.value[0].id
+                // First try to find the model marked as default
+                const defaultModel = models.value.find(m => m.is_default)
+                if (defaultModel) {
+                    selectedModel.value = defaultModel.id
+                } else {
+                    // Fall back to first enabled model if no default is set
+                    selectedModel.value = models.value[0].id
+                }
             }
         }
     } catch (error) {
@@ -204,6 +213,11 @@ function autoGrow() {
     ta.style.height = Math.min(200, ta.scrollHeight) + 'px'
 }
 
+function onInput() {
+    emit('update:modelValue', text.value)
+    autoGrow()
+}
+
 const canSubmit = computed(() => text.value.trim().length > 0 && !props.latestInProgressCompletion)
 
 function handleEnter() {
@@ -219,19 +233,25 @@ function submit() {
         mode: mode.value,                 // 'chat' | 'deep'
         model_id: selectedModel.value     // backend model id from selector
     }
-    emit('submitCompletion', payload)
-    text.value = ''
-    nextTick(autoGrow)
+    if (props.report_id) {
+        // In-report behavior: emit to parent stream
+        emit('submitCompletion', payload)
+        text.value = ''
+        nextTick(autoGrow)
+    } else {
+        // Landing page behavior: create a new report
+        createReport()
+    }
 }
 
 function onFilesUploaded(files: any[]) {
-    // Hook for future: could display attachments or include in mentions
+    uploadedFiles.value = files || []
 }
 
 const instructionsListModalRef = ref<any | null>(null)
 function openInstructions() { instructionsListModalRef.value?.openModal?.() }
 
-const helperText = computed(() => mode.value === 'deep' ? 'Deep Research may take longer' : 'Enter to send • Shift+Enter for new line')
+const helperText = computed(() => mode.value === 'deep' ? 'Deep Analysis may take longer' : 'Enter to send • Shift+Enter for new line')
 
 onMounted(async () => {
     await loadModels()
@@ -244,6 +264,51 @@ onMounted(async () => {
     })
     if (root) ro.observe(root)
 })
+
+// Keep local text in sync with parent-provided content (landing page)
+watch(() => props.textareaContent, (newVal) => {
+    if (typeof newVal === 'string' && newVal !== text.value) {
+        text.value = newVal
+        nextTick(autoGrow)
+    }
+}, { immediate: true })
+
+const router = useRouter()
+
+async function createReport() {
+    try {
+        if (!text.value.trim()) return
+        const response = await useMyFetch('/reports', {
+            method: 'POST',
+            body: JSON.stringify({
+                title: 'untitled report',
+                files: uploadedFiles.value?.map((file: any) => file.id) || [],
+                new_message: text.value,
+                data_sources: selectedDataSources.value?.map((ds: any) => ds.id) || []
+            })
+        })
+        if ((response as any)?.error?.value) {
+            throw new Error('Report creation failed')
+        }
+        const data = (response as any)?.data?.value as any
+        if (data?.id) {
+            const mentions = [ { name: 'DATA SOURCES', items: selectedDataSources.value || [] } ]
+            router.push({ 
+                path: `/reports/${data.id}`, 
+                query: { 
+                    new_message: text.value,
+                    mode: mode.value,
+                    model_id: selectedModel.value || '',
+                    mentions: encodeURIComponent(JSON.stringify(mentions))
+                }
+            })
+        }
+        text.value = ''
+        nextTick(autoGrow)
+    } catch (error) {
+        console.error('Failed to create report:', error)
+    }
+}
 </script>
 
 <style scoped>

@@ -202,9 +202,20 @@
 							
 							<!-- Show status messages for stopped/error completions -->
 							<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
-								<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" />
+								<div class="flex items-center space-x-2">
+									<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" />
+									
+									<!-- Debug button -->
+									<button
+										v-if="canViewConsole"
+										@click="openTraceModal(m.system_completion_id || m.id)"
+										class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 rounded-md transition-colors group"
+										:title="'View Agent Trace'"
+									>
+										<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
+									</button>
+								</div>
 							</div>
-
 							<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 								<Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
 								Generation stopped
@@ -272,10 +283,17 @@
 		</template>
 	</SplitScreenLayout>
 
+	<!-- Trace Modal -->
+	<TraceModal
+		v-model="showTraceModal"
+		:report-id="report_id"
+		:completion-id="selectedCompletionForTrace || ''"
+	/>
+
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch, computed } from 'vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
@@ -289,6 +307,8 @@ import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
+import TraceModal from '~/components/console/TraceModal.vue'
+import { useCan } from '~/composables/usePermissions'
 
 // Types
 type ChatRole = 'user' | 'system'
@@ -352,6 +372,9 @@ interface ChatMessage {
 const route = useRoute()
 const report_id = (route.params.id as string) || ''
 
+// Permissions
+const canViewConsole = computed(() => useCan('view_console'))
+
 const messages = ref<ChatMessage[]>([])
 const promptText = ref<string>('')
 const isStreaming = ref<boolean>(false)
@@ -359,6 +382,10 @@ let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
 const scrollAnchor = ref<HTMLElement | null>(null)
 // No absolute prompt box; no padding ref needed
+
+// Trace modal state
+const showTraceModal = ref(false)
+const selectedCompletionForTrace = ref<string | null>(null)
 
 // Report and Dashboard state
 const reportLoaded = ref(false)
@@ -1250,6 +1277,11 @@ function abortStream() {
 	isStreaming.value = false
 }
 
+function openTraceModal(completionId: string) {
+	selectedCompletionForTrace.value = completionId
+	showTraceModal.value = true
+}
+
 function handleExampleClick(starter: string) {
 	if (starter) {
 		onSubmitCompletion({ text: starter, mentions: [] });
@@ -1481,7 +1513,14 @@ onMounted(async () => {
 	
 	// Handle new_message query parameter after everything is loaded
 	if (route.query.new_message && messages.value.length == 0) {
-		onSubmitCompletion({ text: route.query.new_message as string, mentions: [] })
+		let mentions: any[] = []
+		try {
+			const raw = typeof route.query.mentions === 'string' ? decodeURIComponent(route.query.mentions) : ''
+			if (raw) mentions = JSON.parse(raw)
+		} catch {}
+		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
+		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
+		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined })
 	}
 
 	// If a system message is still in progress (after refresh), begin polling until it finishes

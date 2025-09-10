@@ -33,10 +33,11 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None):
+                 model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None):
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
+        self.mode = mode
 
 
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
@@ -324,6 +325,7 @@ class AgentV2:
                         past_observations=self.context_hub.observation_builder.tool_observations,
                         external_platform=getattr(self.head_completion, "external_platform", None),
                         tool_catalog=self.planner.tool_catalog,
+                        mode=self.mode
                     )
                     # Kick off early scoring in background without blocking the loop (isolated DB session)
                     asyncio.create_task(self._run_early_scoring_background(planner_input))

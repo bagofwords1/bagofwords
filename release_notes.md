@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.195 (September 10, 2025)
+- Introducing Deep Analysis: Users can now change from Chat mode to Deep Analytics for doing a more comprehensive open ended analytics research to identify root cause, anomalies, opportunities, and more!
+- New Prompt box for both home/report page, including customizing LLM per prompt
+- Roles with console/monitoring access can now view the full agent loop trace inside the report chat
+
 ## Version 0.0.194 (September 9, 2025)
 - **Enhanced Dashboards**
   - Improved dashboard creation, allowing more control on styles and the new dashboards look amazing!

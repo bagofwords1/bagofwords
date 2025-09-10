@@ -11,6 +11,7 @@ class PromptBuilder:
     def build_prompt(planner_input: PlannerInput) -> str:
         """Build the full prompt from PlannerInput and org instructions."""
         
+        deep_analytics = False
         # Separate tools by category for better decision making
         research_tools = []
         action_tools = []
@@ -33,6 +34,19 @@ class PromptBuilder:
         
         # Calculate research step count for context
         research_step_count = PromptBuilder._extract_research_step_count(planner_input.history_summary)
+
+        if planner_input.mode == "deep":
+            deep_analytics = True
+            deep_analytics_text = """
+The user selected Deep Analytics mode. It means you should the user expects you to do a heavy planning, run multiple iterations of widgets/observations and eventually come up with a report/dashboard that provides a comprehensive analysis. 
+Start with a long reasoning to think about the problem and the expected outcome.
+Then, before kicking of the actual research, ask for clarification if needed, to be a bit more focused in the analysis.
+Start by laying out the plan in assistant_message.
+Run create_widget in the agent loop (below), observe the results, see if new actions to collect more data are needed to have the best result.
+In this deep analytics mode, you ALWAYS have to end with the create_dashboard tool to showcase your findings.
+
+Acknowledge the user's request for Deep Analytics research in both reasoning_message and assistant_message.
+"""
         return f"""
 SYSTEM
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
@@ -44,6 +58,8 @@ You are an expert in business, product and data analysis. You are familiar with 
 - Constraints: EXACTLY one (or none) tool call per turn; never hallucinate schema/table/column names; follow tool schemas exactly; output JSON only (strict schema below).
 - Safety: never invent data or credentials; if required info is missing, trigger the clarify tool.
 - Startup: when the loop starts (no observations), do step-by-step deep thinking and explain your approach in reasoning_message (length scales with task complexity). In assistant_message, describe the high level plan.
+
+{deep_analytics_text if deep_analytics else ""}
 
 AGENT LOOP (single-cycle planning; one tool per iteration)
 1) Analyze events: understand the goal and inputs (organization_instructions, schemas, messages, past_observations, last_observation).
