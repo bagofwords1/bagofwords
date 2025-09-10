@@ -23,6 +23,7 @@ from app.schemas.completion_v2_schema import (
     ToolExecutionUISchema,
     CompletionsV2Response,
 )
+from app.services.llm_service import LLMService
 from app.serializers.completion_v2 import serialize_block_v2
 from app.schemas.agent_execution_schema import PlanDecisionSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
@@ -112,6 +113,7 @@ class CompletionService:
         self.report_service = ReportService()
         self.memory_service = MemoryService()
         self.mention_service = MentionService()
+        self.llm_service = LLMService()
 
     async def _serialize_completion(self, db: AsyncSession, completion: Completion, current_user: User = None, organization: Organization = None) -> CompletionSchema:
         """Serialize a completion model to a schema following get_completions format"""
@@ -192,8 +194,13 @@ class CompletionService:
                 step = None
 
             # Get default model - this is critical
-            default_model = await organization.get_default_llm_model(db)
-            if not default_model:
+
+            if completion_data.prompt and completion_data.prompt.model_id:
+                model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
+            else:
+                model = await organization.get_default_llm_model(db)
+            
+            if not model:
                 raise HTTPException(
                     status_code=400,
                     detail="No default LLM model configured. Please configure a default model in organization settings."
@@ -205,7 +212,7 @@ class CompletionService:
             last_completion = await self.get_last_completion(db, report.id)
             head_completion = Completion(
                 prompt=prompt_dict or None,
-                model=default_model.model_id,
+                model=model.model_id,
                 widget_id=str(widget.id) if widget else None,
                 report_id=report.id,
                 turn_index=last_completion.turn_index + 1 if last_completion else 0,
@@ -229,7 +236,7 @@ class CompletionService:
             system_completion = Completion(
                 prompt=None,
                 completion={"content": ""},
-                model=default_model.model_id,
+                model=model.model_id,
                 widget_id=prompt_dict.get('widget_id'),
                 report_id=report.id,
                 parent_id=head_completion.id,
@@ -272,7 +279,7 @@ class CompletionService:
                                 db=session,
                                 organization=organization,
                                 organization_settings=org_settings,
-                                model=default_model,
+                                model=model,
                                 report=report_obj,
                                 messages=[],
                                 head_completion=head_obj,
@@ -313,7 +320,7 @@ class CompletionService:
                         db=db,
                         organization=organization,
                         organization_settings=org_settings,
-                        model=default_model,
+                        model=model,
                         report=report,
                         messages=[],
                         head_completion=head_completion,
@@ -793,8 +800,12 @@ class CompletionService:
                 step = None
 
             # Get default model
-            default_model = await organization.get_default_llm_model(db)
-            if not default_model:
+            if completion_data.prompt and completion_data.prompt.model_id:
+                model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
+            else:
+                model = await organization.get_default_llm_model(db)
+
+            if not model:
                 raise HTTPException(
                     status_code=400, 
                     detail="No default LLM model configured. Please configure a default model in organization settings."
@@ -806,7 +817,7 @@ class CompletionService:
             last_completion = await self.get_last_completion(db, report.id)
             completion = Completion(
                 prompt=prompt_dict,
-                model=default_model.model_id,
+                model=model.model_id,
                 widget_id=str(widget.id) if widget else None,
                 report_id=report.id,
                 turn_index=last_completion.turn_index + 1 if last_completion else 0,
@@ -833,7 +844,7 @@ class CompletionService:
             system_completion = Completion(
                 prompt=None,
                 completion={"content": ""},
-                model=default_model.model_id,
+                model=model.model_id,
                 widget_id=prompt_dict['widget_id'],
                 report_id=report.id,
                 parent_id=completion.id,
@@ -888,7 +899,7 @@ class CompletionService:
                             db=session,
                             organization=organization,
                             organization_settings=org_settings,
-                            model=default_model,
+                            model=model,
                             report=report_obj,
                             messages=[],
                             head_completion=completion_obj,

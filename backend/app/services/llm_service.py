@@ -115,6 +115,20 @@ class LLMService:
         await db.refresh(provider)
 
         return provider
+    
+    async def get_model_by_id(
+        self, 
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str
+    ):
+        """Get a model by id"""
+        model = await db.execute(
+            select(LLMModel).filter(LLMModel.id == model_id).filter(LLMModel.organization_id == organization.id)
+        )
+        model = model.scalar_one_or_none()
+        return model
 
     async def delete_provider(
         self, 

@@ -1,10 +1,12 @@
 <template>
     <div class="inline">
       <button @click="isFilesOpen = true"
-       class="text-blue-500 hover:bg-gray-50 rounded-md p-2 flex items-center">
+       class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-1 flex items-center">
         <UIcon name="i-heroicons-paper-clip" />
         <span v-if="allFiles.length > 0" class="truncate max-w-[200px] text-xs ml-1 text-gray-500">
-          {{ allFiles.map(file => file.filename).join(', ') }}
+          <UTooltip :text="allFiles.map(file => file.filename).join(', ')">
+          {{ allFiles.length }}
+        </UTooltip>
         </span>
       </button>
       <UModal v-model="isFilesOpen">

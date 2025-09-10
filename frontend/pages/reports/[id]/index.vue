@@ -243,10 +243,8 @@
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
 			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
-				<PromptBoxExcel 
+				<PromptBoxV2 
 					:report_id="report_id"
-					:excelData="{}"
-					:selectedWidgetId="{ widgetId: null, stepId: null, widgetTitle: null }"
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
 					@submitCompletion="onSubmitCompletion"
@@ -278,7 +276,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, watch } from 'vue'
-import PromptBoxExcel from '~/components/excel/PromptBoxExcel.vue'
+import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
@@ -1258,7 +1256,7 @@ function handleExampleClick(starter: string) {
 	}
 }
 
-function onSubmitCompletion(data: { text: string, mentions: any[] }) {
+function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
 	const text = data.text.trim()
 	if (!text) return
 
@@ -1292,7 +1290,9 @@ function onSubmitCompletion(data: { text: string, mentions: any[] }) {
 	const requestBody = {
 		prompt: {
 			content: text,
-			mentions: data.mentions || []
+			mentions: data.mentions || [],
+			mode: data.mode || 'chat',
+			model_id: data.model_id || null
 		},
 		stream: true
 	}

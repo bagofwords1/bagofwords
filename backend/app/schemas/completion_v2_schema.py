@@ -38,6 +38,8 @@ class PromptSchema(BaseModel):
     widget_id: Optional[str] = None
     step_id: Optional[str] = None
     mentions: Optional[List[dict]] = None
+    mode: Optional[str] = 'chat'
+    model_id: Optional[str] = None
 
     class Config:
         from_attributes = True
