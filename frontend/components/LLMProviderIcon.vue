@@ -22,6 +22,7 @@ const props = defineProps<{
     provider: string;
     class?: string;
     showAddProvider?: boolean;
+    icon?: boolean;
 }>();
 
 defineEmits<{
@@ -30,6 +31,9 @@ defineEmits<{
 
 // Computed property to generate the icon path
 const iconPath = computed(() => {
+    if (props.icon) {
+        return `/llm_providers_icons/${props.provider.toLowerCase()}-icon.png`;
+    }
     return `/llm_providers_icons/${props.provider.toLowerCase()}.png`;
 });
 

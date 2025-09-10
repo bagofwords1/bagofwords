@@ -6,7 +6,7 @@
                 class="text-gray-500 hover:text-gray-700 text-xs flex items-center"
                 @click="openInstructions"
             >
-                <Icon name="heroicons-document-text" class="w-4 h-4 mr-1" />
+                <Icon name="heroicons-cube" class="w-4 h-4 mr-1" />
                 Instructions
             </button>
         </div>
@@ -50,7 +50,7 @@
                                     </div>
                                     <Icon v-if="mode === 'chat'" name="heroicons-check" class="w-4 h-4 text-blue-500" />
                                 </div>
-                                <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('research'); close(); }">
+                                    <div class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectMode('research'); close(); }">
                                     <div class="flex items-center">
                                         <Icon name="heroicons-light-bulb" class="w-4 h-4 mr-2" />
                                         Deep Analytics
@@ -79,7 +79,7 @@
                                 <div v-for="m in models" :key="m.id" class="px-2 py-1 rounded hover:bg-gray-100 cursor-pointer flex items-center justify-between" @click="() => { selectModel(m.id); close(); }">
                                     <div class="flex items-start">
                                         <div class="mr-2 mt-0.5">
-                                            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" class="w-4 h-4" />
+                                            <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
                                         </div>
                                         <div class="flex flex-col">
                                             <span class="font-medium">{{ m.name }}</span>
