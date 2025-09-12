@@ -41,6 +41,7 @@ class ContextMetadata(BaseModel):
     schemas_count: int = 0
     messages_count: int = 0
     widgets_count: int = 0
+    queries_count: int = 0
     memories_count: int = 0
     metadata_resources_count: int = 0
     
@@ -61,6 +62,7 @@ class ContextSnapshot(BaseModel):
     messages_context: str = ""
     memories_context: str = ""
     widgets_context: str = ""
+    queries_context: str = ""
     instructions_context: str = ""
     code_context: str = ""
     resource_context: str = ""
@@ -85,6 +87,7 @@ class ContextObjectsSnapshot(BaseModel):
     messages: Any | None = None
     memories: Any | None = None
     widgets: Any | None = None
+    queries: Any | None = None
     instructions: Any | None = None
     code: Any | None = None
     resources: Any | None = None

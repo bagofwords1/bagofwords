@@ -6,19 +6,22 @@ from .widget_schema import WidgetSchema
 from .step_schema import StepSchema
 from .tool_execution_schema import ToolExecutionSchema
 from .agent_execution_schema import PlanDecisionReducedSchema
+from .visualization_schema import VisualizationSchema
 
 
 class ToolExecutionUISchema(ToolExecutionSchema):
     """UI-focused tool execution with embedded created artifacts when available."""
     created_widget: Optional[WidgetSchema] = None
     created_step: Optional[StepSchema] = None
+    created_visualizations: Optional[list[VisualizationSchema]] = None
 
 
 class ArtifactChangeSchema(BaseModel):
     """Delta describing incremental updates to a step/widget during this block (optional)."""
-    type: Literal["step", "widget"]
+    type: Literal["step", "widget", "visualization"]
     step_id: Optional[str] = None
     widget_id: Optional[str] = None
+    visualization_id: Optional[str] = None
     revision: Optional[int] = None
     partial: Optional[bool] = True
     changed_fields: List[str] = []
@@ -102,6 +105,7 @@ class CompletionV2Schema(BaseModel):
     # Final artifacts for quick render
     created_widgets: List[WidgetSchema] = []
     created_steps: List[StepSchema] = []
+    created_visualizations: List[VisualizationSchema] = []
 
     # Small summary for UI
     summary: Dict[str, Any] = {}

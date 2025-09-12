@@ -23,6 +23,12 @@ class StepUpdateItem(BaseModel):
     data: Dict[str, Any]
 
 
+class VisualizationUpdateItem(BaseModel):
+    visualization_id: str
+    timestamp: str
+    data: Dict[str, Any]
+
+
 class ObservationsSection(ContextSection):
     tag_name: ClassVar[str] = "recent_tool_executions"
 
@@ -30,6 +36,7 @@ class ObservationsSection(ContextSection):
     tool_observations: List[ToolExecutionItem] = []
     widget_updates: List[WidgetUpdateItem] = []
     step_updates: List[StepUpdateItem] = []
+    visualization_updates: List[VisualizationUpdateItem] = []
     artifacts: Dict[str, Any] = {}
 
     def render(self) -> str:
@@ -51,6 +58,9 @@ class ObservationsSection(ContextSection):
         # Widgets summary (optional)
         if self.widget_updates:
             lines.append(xml_tag("widgets_created_or_updated", str(len(self.widget_updates))))
+        # Visualizations summary (optional)
+        if self.visualization_updates:
+            lines.append(xml_tag("visualizations_created_or_updated", str(len(self.visualization_updates))))
 
         return xml_tag(self.tag_name, "\n".join(lines))
 

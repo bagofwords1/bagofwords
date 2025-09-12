@@ -1202,19 +1202,31 @@ function rerunReport() {
 }
 
 // Handle Add to dashboard from ToolWidgetPreview
-async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any }) {
+async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, visualization?: any }) {
     try {
+        const viz = payload?.visualization
         const widget = payload?.widget
-        if (!widget?.id) return
-        const defaultBlock = { type: 'widget', widget_id: widget.id, x: 0, y: 0, width: 6, height: 7 }
-        await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [defaultBlock] } })
+        if (viz?.id) {
+            const block = { type: 'visualization', visualization_id: viz.id, x: 0, y: 0, width: 6, height: 7 }
+            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
+        } else if (widget?.id) {
+            const block = { type: 'widget', widget_id: widget.id, x: 0, y: 0, width: 6, height: 7 }
+            await useMyFetch(`/api/reports/${report_id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [block] } })
+        } else {
+            return
+        }
         
         // Update the local widget status immediately to reflect the change in UI
         // Find the tool execution that contains this widget and update its status
         messages.value.forEach(message => {
             if (message.completion_blocks) {
                 message.completion_blocks.forEach(block => {
-                    if (block.tool_execution?.created_widget?.id === widget.id && block.tool_execution) {
+                    if (viz?.id && (block.tool_execution as any)?.created_visualizations) {
+                        const list = (block.tool_execution as any).created_visualizations as any[]
+                        const found = list.find(v => v?.id === viz.id)
+                        if (found) found.status = 'published'
+                    }
+                    if (widget?.id && block.tool_execution?.created_widget?.id === widget.id && block.tool_execution) {
                         block.tool_execution.created_widget.status = 'published'
                     }
                 })

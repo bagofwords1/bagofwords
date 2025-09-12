@@ -8,6 +8,7 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 import io
 import logging
+from app.schemas.step_schema import StepSchema
 
 router = APIRouter(tags=["steps"])
 step_service = StepService()
@@ -40,3 +41,17 @@ async def export_step(
     except Exception as e:
         logging.error(f"Error in export_step route for step {step_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error during export: {str(e)}") 
+
+
+@router.get("/steps/{step_id}", response_model=StepSchema)
+@requires_permission('view_reports')
+async def get_step(
+    step_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    step = await step_service.get_step_by_id(db, step_id)
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    return StepSchema.from_orm(step)

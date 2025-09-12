@@ -106,6 +106,15 @@
                 <div class="bg-gray-50 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto">
                   <pre class="text-gray-800 whitespace-pre-wrap">{{ codeContent }}</pre>
                 </div>
+                <div class="mt-2">
+                  <button
+                    class="px-3 py-1.5 text-xs rounded bg-gray-800 text-white hover:bg-gray-700"
+                    :disabled="!canOpenEditor"
+                    @click.stop="openEditor"
+                  >
+                    Edit code
+                  </button>
+                </div>
 
               </div>
               <div v-else class="text-xs text-gray-400 mt-1 hidden">Preparing…</div>
@@ -131,11 +140,22 @@
       </div>
     </Transition>
   </div>
+  <QueryCodeEditorModal
+    :visible="showEditor"
+    :query-id="createdQueryId"
+    :initial-code="codeContent || ''"
+    :title="widgetTitle"
+    :step-id="initialStepId"
+    :tool-execution-id="props.toolExecution?.id || null"
+    @close="showEditor = false"
+    @stepCreated="onModalSaved"
+  />
   </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 
 interface Props {
   toolExecution: {
@@ -208,7 +228,7 @@ const progressStageLabel = computed(() => {
 const dataModelType = computed(() => props.toolExecution.result_json?.data_model?.type || null)
 const dataModelColumns = computed(() => props.toolExecution.result_json?.data_model?.columns || [])
 
-const codeContent = computed(() => props.toolExecution.result_json?.code || '')
+const codeContent = computed(() => props.toolExecution?.created_step?.code || props.toolExecution.result_json?.code || '')
 const successDetails = computed(() => {
   if (status.value !== 'success') return null
   const totalRows = props.toolExecution.result_json?.stats?.total_rows || props.toolExecution.result_json?.widget_data?.info?.total_rows
@@ -241,7 +261,7 @@ const validationSucceeded = computed(() => {
   return stage === 'validated_code' && valid === true
 })
 
-const hasPreview = computed(() => status.value === 'success' && !!(props.toolExecution?.created_widget || props.toolExecution?.created_step))
+const hasPreview = computed(() => !!(props.toolExecution?.created_widget || props.toolExecution?.created_step))
 
 // Running/done flags based on progress stage and status
 const isDMRunning = computed(() => progressStage.value && [
@@ -289,6 +309,39 @@ function toggleResults() { resultsCollapsed.value = !resultsCollapsed.value }
 
 function onAddWidget(payload: { widget?: any, step?: any }) {
   emit('addWidget', payload)
+}
+
+const createdWidgetId = computed(() => props.toolExecution?.created_widget_id || props.toolExecution?.created_widget?.id || null)
+const initialStepId = computed(() => props.toolExecution?.created_step_id || props.toolExecution?.created_step?.id || null)
+
+// Prefer query from created_step if available; otherwise, from created_widget
+const createdQueryId = computed(() => {
+  const visList = (props.toolExecution as any)?.created_visualizations
+  if (Array.isArray(visList) && visList.length && visList[0]?.query_id) {
+    return visList[0].query_id
+  }
+  const stepQ = (props.toolExecution?.created_step as any)?.query_id
+  if (stepQ) return stepQ
+  const widgetQ = (props.toolExecution?.created_widget as any)?.query_id
+  if (widgetQ) return widgetQ
+  const resultQ = (props.toolExecution as any)?.result_json?.query_id
+  return resultQ || null
+})
+
+const canOpenEditor = computed(() => !!(initialStepId.value || createdQueryId.value))
+
+async function openEditor() {
+  if (!initialStepId.value) return
+  showEditor.value = true
+}
+
+const showEditor = ref(false)
+
+function onModalSaved(step: any) {
+  // update toolExecution with the new step id so next open shows latest
+  (props.toolExecution as any).created_step_id = step?.id
+  ;(props.toolExecution as any).created_step = step
+  emit('addWidget', { step })
 }
 </script>
 

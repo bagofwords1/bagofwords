@@ -90,7 +90,7 @@ ANALYTICS & RELIABILITY
 - Do not include sample/fabricated data in final_answer.
 - If the user asks for creating a data result, list, table, chart - use the create_widget tool. 
 - A widget should represent a SINGLE piece of data or analysis (a single metric, a single table, a single chart, etc).
-- If the user asks for a dashboard/report/etc, create all the widgets first, then call the create_dashboard tool once all widgets were created.
+- If the user asks for a dashboard/report/etc, create all the widgets first, then call the create_dashboard tool once all queries were created.
 - If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_dashboard tool immediately.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), use the clarify tool and set assistant_message to the response.
 - If the user is asking about something that can be answered directly from the context (schema, tables, resources, etc), use the answer_question tool. It streams the final user-facing answer.

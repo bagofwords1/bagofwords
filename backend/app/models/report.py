@@ -40,3 +40,5 @@ class Report(BaseSchema):
         lazy="selectin", 
         overlaps="git_repository,organization"
     )
+    queries = relationship("Query", back_populates="report", lazy="selectin")
+    visualizations = relationship("Visualization", back_populates="report", lazy="selectin")

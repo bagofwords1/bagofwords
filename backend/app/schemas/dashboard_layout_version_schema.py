@@ -57,6 +57,15 @@ class WidgetBlock(BaseBlock):
     container: Optional[ContainerChrome] = None
 
 
+class VisualizationBlock(BaseBlock):
+    type: Literal["visualization"] = "visualization"
+    visualization_id: str
+    # Optional embedded visualization payload when layouts are hydrated
+    visualization: Optional["VisualizationSchema"] = None
+    view_overrides: Optional[ViewOverrides] = None
+    container: Optional[ContainerChrome] = None
+
+
 class TextWidgetBlock(BaseBlock):
     type: Literal["text_widget"] = "text_widget"
     text_widget_id: str
@@ -82,7 +91,7 @@ class ContainerBlock(BaseBlock):
     container: Optional[ContainerChrome] = None
 
 
-DashboardBlock = WidgetBlock | TextWidgetBlock | FilterBlock | ContainerBlock
+DashboardBlock = WidgetBlock | VisualizationBlock | TextWidgetBlock | FilterBlock | ContainerBlock
 
 
 class DashboardLayoutVersionBase(BaseModel):
@@ -95,8 +104,9 @@ class DashboardLayoutVersionBase(BaseModel):
 
 
 class BlockPositionPatch(BaseModel):
-    type: Literal["widget", "text_widget", "filter"]
+    type: Literal["widget", "visualization", "text_widget", "filter"]
     widget_id: Optional[str] = None
+    visualization_id: Optional[str] = None
     text_widget_id: Optional[str] = None
     # filter identification could be extended later
     x: int
@@ -135,5 +145,6 @@ class DashboardLayoutVersionSchema(DashboardLayoutVersionBase):
 # Late imports to avoid circular dependencies
 from app.schemas.widget_schema import WidgetSchema  # noqa: E402
 from app.schemas.text_widget_schema import TextWidgetSchema  # noqa: E402
+from app.schemas.visualization_schema import VisualizationSchema  # noqa: E402
 
 

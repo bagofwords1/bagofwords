@@ -27,6 +27,9 @@ class Step(BaseSchema):
 
     widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=False)
     widget = relationship("Widget", back_populates="steps")
+    # Optional linkage to Query for grouping/versioning
+    query_id = Column(String(36), ForeignKey('queries.id'), nullable=True)
+    query = relationship("Query", back_populates="steps", foreign_keys=[query_id], lazy="selectin")
     completions = relationship("Completion", back_populates="step")
 
     memories = relationship("Memory", back_populates="step")

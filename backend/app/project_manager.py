@@ -28,12 +28,18 @@ from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutBlocksPatch,
     BlockPositionPatch,
 )
+from app.services.visualization_service import VisualizationService
+from app.services.query_service import QueryService
+from app.schemas.visualization_schema import VisualizationCreate
+from app.schemas.view_schema import ViewSchema, EncodingSchema, SeriesEncodingSchema
 
 class ProjectManager:
 
     def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
         self.table_usage_service = TableUsageService()
+        self.visualization_service = VisualizationService()
+        self.query_service = QueryService()
 
     async def emit_table_usage(self, db, report: Report, step: Step, data_model: dict, user_id: str | None = None, user_role: str | None = None, source_type: str | None = None):
         try:
@@ -143,6 +149,7 @@ class ProjectManager:
         return completion
     
     async def create_widget(self, db, report, title):
+        # LEGACY (widget-based): deprecated in favor of Query + Visualization
         widget = Widget(
             title=title,
             report_id=report.id,
@@ -159,6 +166,93 @@ class ProjectManager:
         await db.refresh(widget)
 
         return widget
+
+    # ==============================
+    # Query / Visualization helpers (new)
+    # ==============================
+
+    async def create_query_v2(self, db, report, title: str):
+        try:
+            from app.schemas.query_schema import QueryCreate
+            payload = QueryCreate(title=title, report_id=str(report.id))
+            # Note: current QueryService will create a widget under the hood (transitional)
+            q = await self.query_service.create_query(db, payload, organization_id=str(report.organization_id), user_id=str(getattr(report, 'user_id', None)) if hasattr(report, 'user_id') else None)
+            return q
+        except Exception as e:
+            self.logger.warning(f"create_query_v2 failed: {e}")
+            raise
+
+    async def create_visualization_v2(self, db, report_id: str, query_id: str, title: str, view: dict | ViewSchema | None = None, status: str = "draft"):
+        try:
+            payload = VisualizationCreate(
+                title=title or "",
+                status=status or "draft",
+                report_id=str(report_id),
+                query_id=str(query_id),
+                view=(view if isinstance(view, ViewSchema) else ViewSchema(**(view or {})))
+            )
+            v = await self.visualization_service.create(db, payload)
+            return v
+        except Exception as e:
+            self.logger.warning(f"create_visualization_v2 failed: {e}")
+            raise
+
+    async def set_visualization_status(self, db, visualization, status: str):
+        try:
+            from app.schemas.visualization_schema import VisualizationUpdate
+            patch = VisualizationUpdate(status=status)
+            v = await self.visualization_service.update(db, str(visualization.id), patch)
+            return v
+        except Exception as e:
+            self.logger.warning(f"set_visualization_status failed: {e}")
+            return visualization
+
+    async def set_query_default_step_if_empty(self, db, query, step_id: str):
+        try:
+            # Direct update to avoid service cross-deps
+            from sqlalchemy import update as _update
+            if not getattr(query, 'default_step_id', None):
+                await db.execute(
+                    _update(type(query)).where(type(query).id == str(query.id)).values(default_step_id=str(step_id))
+                )
+                await db.commit()
+        except Exception:
+            pass
+
+    def derive_encoding_from_data_model(self, data_model: dict | None) -> dict | None:
+        try:
+            if not isinstance(data_model, dict):
+                return None
+            series = data_model.get("series") or []
+            if isinstance(series, list) and len(series) > 0 and isinstance(series[0], dict):
+                first = series[0]
+                category = first.get("key")
+                if not category:
+                    return None
+                if len(series) == 1:
+                    enc = {"category": str(category)}
+                    if first.get("value"):
+                        enc["value"] = str(first.get("value"))
+                    if first.get("name"):
+                        enc["name"] = str(first.get("name"))
+                    return enc
+                multi = {"category": str(category), "series": []}
+                for s in series:
+                    if not isinstance(s, dict):
+                        continue
+                    name = s.get("name")
+                    val = s.get("value")
+                    item = {}
+                    if name is not None:
+                        item["name"] = str(name)
+                    if val is not None:
+                        item["value"] = str(val)
+                    if item:
+                        multi["series"].append(item)
+                return multi
+            return None
+        except Exception:
+            return None
     
     async def create_step(self, db, title, widget, step_type):
         step = Step(
@@ -193,6 +287,7 @@ class ProjectManager:
         return step
     
     async def update_step_with_data_model(self, db, step, data_model):
+        # LEGACY path still used to persist Step.data_model; preferred flow sets Query+Visualization
         step.data_model = data_model
         db.add(step)
         await db.commit()
@@ -227,8 +322,28 @@ class ProjectManager:
         await db.commit()
         await db.refresh(step)
         return step
+
+    async def create_step_for_query(self, db, query, title: str, step_type: str, initial_data_model: dict | None = None):
+        from app.models.step import Step
+        import uuid as _uuid
+        step = Step(
+            title=title,
+            slug=f"step-{_uuid.uuid4().hex[:8]}",
+            type=step_type,
+            widget_id=getattr(query, 'widget_id', None),
+            query_id=str(query.id),
+            code="",
+            data={},
+            data_model=initial_data_model or {},
+            status="draft",
+        )
+        db.add(step)
+        await db.commit()
+        await db.refresh(step)
+        return step
     
     async def update_widget_position_and_size(self, db, widget_id, x, y, width, height):
+        # LEGACY (widget-based): deprecated in favor of visualization blocks in layout
         widget = await db.get(Widget, widget_id)
         widget.x = x
         widget.y = y
@@ -327,6 +442,18 @@ class ProjectManager:
                         view_overrides=vov,
                     )
 
+            # Visualization blocks (new, preferred)
+            if patch is None and btype == "visualization":
+                viz_id = (block or {}).get("visualization_id") or (block or {}).get("id")
+                if viz_id:
+                    vov = (block or {}).get("view_overrides")
+                    patch = BlockPositionPatch(
+                        type="visualization",
+                        visualization_id=str(viz_id),
+                        x=x, y=y, width=width, height=height,
+                        view_overrides=vov,
+                    )
+
             if patch is None:
                 return None
 
@@ -347,6 +474,18 @@ class ProjectManager:
         except Exception as e:
             self.logger.warning(f"get_active_dashboard_layout_blocks failed: {e}")
             return []
+
+    async def update_visualization_view(self, db, visualization, view: dict | ViewSchema):
+        try:
+            from app.schemas.visualization_schema import VisualizationUpdate
+            patch = VisualizationUpdate(view=(view if isinstance(view, ViewSchema) else ViewSchema(**(view or {}))))
+            from app.services.visualization_service import VisualizationService as _VS
+            vs = _VS()
+            updated = await vs.update(db, str(visualization.id), patch)
+            return updated
+        except Exception as e:
+            self.logger.warning(f"update_visualization_view failed: {e}")
+            return visualization
     
     async def update_report_title(self, db, report, title):
         # Instead of merging, let's fetch a fresh instance
@@ -541,7 +680,7 @@ class ProjectManager:
         return tool_exec
 
     async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
-                                   result_json=None, created_widget_id=None, created_step_id=None,
+                                   result_json=None, created_widget_id=None, created_step_id=None, created_visualization_ids: list[str] | None = None,
                                    error_message=None, token_usage_json=None, context_snapshot_id=None):
         """Finish tracking a tool execution."""
         tool_execution.status = status
@@ -553,6 +692,18 @@ class ProjectManager:
         tool_execution.result_json = result_json
         tool_execution.created_widget_id = created_widget_id
         tool_execution.created_step_id = created_step_id
+        # Merge created visualization ids into artifact_refs_json (list-based)
+        try:
+            if created_visualization_ids:
+                refs = tool_execution.artifact_refs_json or {}
+                vis_list = list(refs.get('visualizations') or [])
+                for vid in created_visualization_ids:
+                    if vid and vid not in vis_list:
+                        vis_list.append(vid)
+                refs['visualizations'] = vis_list
+                tool_execution.artifact_refs_json = refs
+        except Exception:
+            pass
         tool_execution.error_message = error_message
         tool_execution.token_usage_json = token_usage_json
         tool_execution.context_snapshot_id = context_snapshot_id
@@ -603,6 +754,7 @@ class ProjectManager:
                                                summary: str | None = None,
                                                created_widget_id: str | None = None,
                                                created_step_id: str | None = None,
+                                               created_visualization_ids: list[str] | None = None,
                                                error_message: str | None = None,
                                                context_snapshot_id: str | None = None,
                                                success: bool = True):
@@ -637,6 +789,7 @@ class ProjectManager:
             result_json=result_json,
             created_widget_id=created_widget_id,
             created_step_id=created_step_id,
+            created_visualization_ids=created_visualization_ids,
             error_message=error_message,
             context_snapshot_id=context_snapshot_id,
         )

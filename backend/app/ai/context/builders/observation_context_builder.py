@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 
-from app.ai.context.sections.observations_section import ObservationsSection, ToolExecutionItem, WidgetUpdateItem, StepUpdateItem
+from app.ai.context.sections.observations_section import ObservationsSection, ToolExecutionItem, WidgetUpdateItem, StepUpdateItem, VisualizationUpdateItem
 
 
 class ObservationContextBuilder:
@@ -25,6 +25,7 @@ class ObservationContextBuilder:
         # Widget and step updates
         self.widget_updates: List[Dict[str, Any]] = []
         self.step_updates: List[Dict[str, Any]] = []
+        self.visualization_updates: List[Dict[str, Any]] = []
         
         # Other useful outputs (files created, data processed, etc.)
         self.artifacts: Dict[str, Any] = {}
@@ -82,6 +83,16 @@ class ObservationContextBuilder:
             "step_id": step_id,
             "timestamp": datetime.utcnow().isoformat(),
             "data": step_data
+        })
+
+    def add_visualization_update(self, visualization_id: str, viz_data: Dict[str, Any]):
+        """
+        Track visualization creation or updates.
+        """
+        self.visualization_updates.append({
+            "visualization_id": visualization_id,
+            "timestamp": datetime.utcnow().isoformat(),
+            "data": viz_data
         })
     
     def get_execution_count(self) -> int:
@@ -141,11 +152,20 @@ class ObservationContextBuilder:
             )
             for su in self.step_updates
         ]
+        viz_items = [
+            VisualizationUpdateItem(
+                visualization_id=vu.get("visualization_id"),
+                timestamp=vu.get("timestamp"),
+                data=vu.get("data", {}),
+            )
+            for vu in self.visualization_updates
+        ]
         return ObservationsSection(
             execution_count=self.execution_count,
             tool_observations=obs_items,
             widget_updates=widget_items,
             step_updates=step_items,
+            visualization_updates=viz_items,
             artifacts=self.artifacts,
         )
     
@@ -195,6 +215,7 @@ class ObservationContextBuilder:
             "tool_observations": self.tool_observations,
             "widget_updates": self.widget_updates,
             "step_updates": self.step_updates,
+            "visualization_updates": self.visualization_updates,
             "artifacts": self.artifacts
         }
         return json.dumps(context, indent=2)
@@ -211,6 +232,7 @@ class ObservationContextBuilder:
             "tool_observations": self.tool_observations,
             "widget_updates": self.widget_updates,
             "step_updates": self.step_updates,
+            "visualization_updates": self.visualization_updates,
             "artifacts": self.artifacts
         }
     
@@ -219,5 +241,6 @@ class ObservationContextBuilder:
         self.tool_observations.clear()
         self.widget_updates.clear()
         self.step_updates.clear()
+        self.visualization_updates.clear()
         self.artifacts.clear()
         self.execution_count = 0

@@ -36,6 +36,7 @@ from app.models.user import User
 from app.routes import (
     report,
     widget,
+    query,
     completion,
     completion_feedback,
     file,
@@ -163,6 +164,7 @@ if google_oauth_client:
 app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(widget.router, prefix="/api")
+app.include_router(query.router, prefix="/api")
 app.include_router(completion.router)
 app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")

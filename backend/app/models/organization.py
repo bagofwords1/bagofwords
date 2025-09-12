@@ -34,6 +34,7 @@ class Organization(BaseSchema):
     external_user_mappings = relationship("ExternalUserMapping", back_populates="organization", cascade="all, delete-orphan")
 
     instructions = relationship("Instruction", back_populates="organization")
+    queries = relationship("Query", back_populates="organization")
 
     async def get_default_llm_model(self, db):
         """Get the default LLM model for the organization.

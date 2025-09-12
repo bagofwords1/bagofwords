@@ -25,13 +25,16 @@ class DashboardLayoutService:
         if not hydrate:
             return schemas
 
-        # Hydrate blocks with embedded widget/text_widget payloads
+        # Hydrate blocks with embedded widget/visualization/text_widget payloads
         try:
             from app.models.widget import Widget
+            from app.models.visualization import Visualization
             from app.models.text_widget import TextWidget
             # Preload all referenced ids for this report in one shot
             result_widgets = await db.execute(select(Widget).where(Widget.report_id == report_id))
             widgets = {str(w.id): w for w in result_widgets.scalars().all()}
+            result_visualizations = await db.execute(select(Visualization))
+            visualizations = {str(v.id): v for v in result_visualizations.scalars().all()}
             result_text = await db.execute(select(TextWidget).where(TextWidget.report_id == report_id))
             text_widgets = {str(t.id): t for t in result_text.scalars().all()}
 
@@ -44,6 +47,11 @@ class DashboardLayoutService:
                         if wid and wid in widgets:
                             from app.schemas.widget_schema import WidgetSchema
                             b_dict['widget'] = WidgetSchema.from_orm(widgets[wid]).model_dump()
+                    elif b_dict.get('type') == 'visualization':
+                        vid = b_dict.get('visualization_id')
+                        if vid and vid in visualizations:
+                            from app.schemas.visualization_schema import VisualizationSchema
+                            b_dict['visualization'] = VisualizationSchema.from_orm(visualizations[vid]).model_dump()
                     elif b_dict.get('type') == 'text_widget':
                         tid = b_dict.get('text_widget_id')
                         if tid and tid in text_widgets:
@@ -163,6 +171,12 @@ class DashboardLayoutService:
                         b['view_overrides'] = (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides) or None
                     updated = True
                     break
+                if b.get('type') == 'visualization' and patch.type == 'visualization' and patch.visualization_id and b.get('visualization_id') == patch.visualization_id:
+                    b['x'] = patch.x; b['y'] = patch.y; b['width'] = patch.width; b['height'] = patch.height
+                    if getattr(patch, 'view_overrides', None) is not None:
+                        b['view_overrides'] = (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides) or None
+                    updated = True
+                    break
                 if b.get('type') == 'text_widget' and patch.type == 'text_widget' and patch.text_widget_id and b.get('text_widget_id') == patch.text_widget_id:
                     b['x'] = patch.x; b['y'] = patch.y; b['width'] = patch.width; b['height'] = patch.height
                     if getattr(patch, 'view_overrides', None) is not None:
@@ -176,6 +190,14 @@ class DashboardLayoutService:
                     blocks.append({
                         'type': 'widget',
                         'widget_id': patch.widget_id,
+                        'x': patch.x, 'y': patch.y,
+                        'width': patch.width, 'height': patch.height,
+                        **({'view_overrides': (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
+                    })
+                elif patch.type == 'visualization' and patch.visualization_id:
+                    blocks.append({
+                        'type': 'visualization',
+                        'visualization_id': patch.visualization_id,
                         'x': patch.x, 'y': patch.y,
                         'width': patch.width, 'height': patch.height,
                         **({'view_overrides': (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})

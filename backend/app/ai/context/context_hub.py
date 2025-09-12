@@ -18,6 +18,7 @@ from .builders.files_context_builder import FilesContextBuilder
 from .builders.message_context_builder import MessageContextBuilder
 from .builders.memory_context_builder import MemoryContextBuilder
 from .builders.widget_context_builder import WidgetContextBuilder
+from .builders.query_context_builder import QueryContextBuilder
 from .builders.instruction_context_builder import InstructionContextBuilder
 from .builders.code_context_builder import CodeContextBuilder
 from .builders.resource_context_builder import ResourceContextBuilder
@@ -89,6 +90,7 @@ class ContextHub:
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
         self.memory_builder = MemoryContextBuilder(self.db, self.organization, self.user, self.head_completion)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
+        self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)
         
         # Observation context builder (tracks tool execution results)
         self.observation_builder = ObservationContextBuilder()
@@ -260,14 +262,18 @@ class ContextHub:
         self._static_cache["files"] = await self.files_builder.build()
 
     async def refresh_warm(self) -> None:
-        """Rebuild warm sections each loop (messages, widgets, observations)."""
-        # Messages and widgets are rebuilt every time for now (object-based)
+        """Rebuild warm sections each loop (messages, queries, observations)."""
         messages = await self.message_builder.build(max_messages=20)
-        widgets = await self.widget_builder.build(max_widgets=5)
+        # Deprecate widgets from warm context: keep for backward compatibility but do not rebuild aggressively
+        widgets = None
+
+        queries = await self.query_builder.build(max_queries=5)
+
         observations = self.observation_builder.build()
         self._warm_cache.update({
             "messages": messages,
             "widgets": widgets,
+            "queries": queries,
             "observations": observations,
         })
 
@@ -284,6 +290,7 @@ class ContextHub:
             messages=self._warm_cache.get("messages", None),
             observations=self._warm_cache.get("observations", None),
             widgets=self._warm_cache.get("widgets", None),
+            queries=self._warm_cache.get("queries", None),
         )
         meta = self.metadata.model_dump()
         return ContextView(static=static, warm=warm, meta=meta)

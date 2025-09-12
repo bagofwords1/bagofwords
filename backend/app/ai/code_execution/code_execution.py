@@ -7,7 +7,9 @@ import uuid
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
-from app.ai.context.builders.code_context_builder import CodeContextBuilder
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.ai.context.builders.code_context_builder import CodeContextBuilder
 
 class CodeExecutionManager:
     """
@@ -152,7 +154,7 @@ class StreamingCodeExecutor:
         schemas: str,
         ds_clients: Dict,
         excel_files: List,
-        code_context_builder: CodeContextBuilder,
+        code_context_builder: 'CodeContextBuilder',
         code_generator_fn: Callable,
         validator_fn: Optional[Callable] = None,
         max_retries: int = 2,

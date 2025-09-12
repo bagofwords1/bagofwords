@@ -17,6 +17,7 @@ class StepSchema(StepBase):
     id: str
     created_at: datetime
     type: str
+    query_id: str
     data: dict = Field(default_factory=dict)
     data_model: dict = Field(default_factory=dict)
     view: ViewSchema = Field(default_factory=ViewSchema)

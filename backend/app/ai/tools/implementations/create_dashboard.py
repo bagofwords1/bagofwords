@@ -62,56 +62,120 @@ class CreateDashboardTool(Tool):
         previous_messages = runtime_ctx.get("previous_messages") or ""
         observation_context = runtime_ctx.get("observation_context") or {}
         context_hub = runtime_ctx.get("context_hub")
-        # Prefer ContextHub widgets section (all report widgets + latest steps)
-        widgets: List[dict] = []
-        if context_hub is not None:
-            await context_hub.refresh_warm()
-            view = context_hub.get_view()
-            widgets_section = getattr(getattr(view, 'warm', None), 'widgets', None)
-            items = getattr(widgets_section, 'items', []) if widgets_section else []
-            for it in (items or []):
-                dm = it.data_model or {}
-                widgets.append({
-                    "id": it.widget_id,
-                    "title": it.widget_title,
-                    "type": (dm or {}).get("type"),
-                    "data_model": dm,
-                    "row_count": it.row_count,
-                    "column_names": it.column_names,
-                    "stats": it.stats,
-                })
-        # Fallback to observation_context if ContextHub widgets unavailable
-        if not widgets and isinstance(observation_context, dict):
+        # Collect available queries (+ embedded visualizations) from ContextHub warm view
+        queries: List[dict] = []
+        visualizations: List[dict] = []
+
+        # Helpers to compact noisy dicts
+        def _trim_none(obj):
             try:
-                seen: set[str] = set()
-                for obs in (observation_context.get("tool_observations") or []):
-                    if not isinstance(obs, dict):
-                        continue
-                    tool_name = str(obs.get("tool_name") or "").lower()
-                    if tool_name not in ["create_widget", "create_and_execute_code", "execute_code", "execute_sql"]:
-                        continue
-                    obs_obj = obs.get("observation") or {}
-                    tool_input = obs.get("tool_input") or {}
-                    wid = str(obs_obj.get("widget_id") or obs.get("created_widget_id") or "")
-                    data_model = (obs_obj.get("data_model") or {}) if isinstance(obs_obj, dict) else {}
-                    entry = {
-                        "id": wid or None,
-                        "title": tool_input.get("widget_title"),
-                        "type": (data_model or {}).get("type"),
-                        "data_model": data_model if isinstance(data_model, dict) else {},
-                        "summary": obs_obj.get("summary"),
-                        "user_prompt": tool_input.get("user_prompt"),
-                        "interpreted_prompt": tool_input.get("interpreted_prompt"),
-                        "tool_name": tool_name,
-                        "timestamp": obs.get("timestamp"),
-                    }
-                    key = entry["id"] or f"{tool_name}:{len(widgets)}"
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    widgets.append(entry)
+                if isinstance(obj, dict):
+                    out = {}
+                    for k, v in obj.items():
+                        tv = _trim_none(v)
+                        if tv is None:
+                            continue
+                        if isinstance(tv, (dict, list)) and len(tv) == 0:
+                            continue
+                        out[k] = tv
+                    return out
+                if isinstance(obj, list):
+                    items = [_trim_none(v) for v in obj]
+                    return [v for v in items if not (v is None or (isinstance(v, (dict, list)) and len(v) == 0))]
+                return obj
             except Exception:
-                widgets = []
+                return obj
+
+        def _compact_view(view_dict):
+            if not isinstance(view_dict, dict):
+                return view_dict
+            keep = {}
+            if 'type' in view_dict:
+                keep['type'] = view_dict.get('type')
+            if 'encoding' in view_dict and view_dict.get('encoding') is not None:
+                keep['encoding'] = view_dict.get('encoding')
+            if 'variant' in view_dict and view_dict.get('variant'):
+                keep['variant'] = view_dict.get('variant')
+            if 'legendVisible' in view_dict:
+                keep['legendVisible'] = view_dict.get('legendVisible')
+            if 'xAxisVisible' in view_dict:
+                keep['xAxisVisible'] = view_dict.get('xAxisVisible')
+            if 'yAxisVisible' in view_dict:
+                keep['yAxisVisible'] = view_dict.get('yAxisVisible')
+            if 'style' in view_dict and isinstance(view_dict.get('style'), dict):
+                keep['style'] = view_dict.get('style')
+            if 'options' in view_dict and isinstance(view_dict.get('options'), dict):
+                keep['options'] = view_dict.get('options')
+            return _trim_none(keep)
+        try:
+            if context_hub is not None:
+                # Use current warm cache (Agent maintains it); do not hit DB here
+                view = context_hub.get_view()
+                qsec = getattr(getattr(view, 'warm', None), 'queries', None)
+                items = getattr(qsec, 'items', []) if qsec else []
+                for it in (items or []):
+                    qdict = {
+                        "id": getattr(it, 'query_id', None),
+                        "title": getattr(it, 'query_title', None),
+                        "default_step_id": getattr(it, 'default_step_id', None),
+                        "default_step_title": getattr(it, 'default_step_title', None),
+                        "row_count": getattr(it, 'row_count', 0),
+                        "columns": list(getattr(it, 'column_names', []) or []),
+                        "data_model": getattr(it, 'data_model', None),
+                        "visualizations": [],
+                    }
+                    vlist = []
+                    for v in (getattr(it, 'visualizations', []) or []):
+                        ventry = {
+                            "id": getattr(v, 'id', None),
+                            "title": getattr(v, 'title', None),
+                            "status": getattr(v, 'status', None),
+                            "view": _compact_view(getattr(v, 'view', None)),
+                        }
+                        vlist.append(ventry)
+                        # also flatten for convenience in prompt
+                        visualizations.append(ventry)
+                    qdict["visualizations"] = vlist
+                    queries.append(qdict)
+        except Exception:
+            queries = []
+            visualizations = []
+        # Also enrich from observation_context (created_visualization_ids) without DB lookups
+        try:
+            seen: set[str] = set([str(v.get("id")) for v in visualizations if v.get("id")])
+            # Prefer explicit visualization_updates captured during agent streaming
+            if isinstance(observation_context, dict):
+                for vu in (observation_context.get("visualization_updates") or []):
+                    if not isinstance(vu, dict):
+                        continue
+                    vid = str(vu.get("visualization_id") or "")
+                    if not vid or vid in seen:
+                        continue
+                    vdata = vu.get("data") or {}
+                    view = _compact_view(vdata.get("view") or {})
+                    visualizations.append({
+                        "id": vid,
+                        "title": vdata.get("title"),
+                        "status": vdata.get("status"),
+                        "query_id": vdata.get("query_id"),
+                        "type": (view or {}).get("type"),
+                        "encoding": (view or {}).get("encoding"),
+                        "view": view,
+                    })
+                    seen.add(vid)
+                # Also scan tool_observations for created_visualization_ids as a catch-all
+                for obs in (observation_context.get("tool_observations") or []):
+                    try:
+                        created = ((obs or {}).get("observation") or {}).get("created_visualization_ids") or []
+                        for vid in created:
+                            svid = str(vid)
+                            if svid and svid not in seen:
+                                visualizations.append({"id": svid})
+                                seen.add(svid)
+                    except Exception:
+                        continue
+        except Exception:
+            visualizations = []
         instructions_context = ""
         try:
             if instruction_context_builder is not None:
@@ -138,10 +202,9 @@ class CreateDashboardTool(Tool):
                 last_obs_json = "None"
             
             prev_blocks = previous_layout.blocks if previous_layout else []
-
             return f"""
 SYSTEM
-You are a world-class dashboard and research report designer. Create a STUNNING, narrative-driven presentation tailored to the user's goal and available widgets. Output JSON ONLY that strictly matches the schema below.
+You are a world-class dashboard and research report designer. Create a STUNNING, narrative-driven presentation tailored to the user's goal and available visualizations. Output JSON ONLY that strictly matches the schema below.
 
 GENERAL ORGANIZATION INSTRUCTIONS (MUST FOLLOW):
 {instructions_context}
@@ -151,8 +214,10 @@ CONTEXT
 - User prompt: {data.prompt}
 - Previous messages:
 {previous_messages}
-- Available widgets:
-{widgets}
+- Available queries:
+{queries}
+- Available visualizations:
+{visualizations}
 
 - Previous layout:
 {prev_blocks}
@@ -175,7 +240,7 @@ GUIDELINES
 - Text widgets must be semantic HTML (h1, h2, h3, p, ul, li, a, table, etc.). No Markdown.
 - Styling and view details must be included:
   - For text blocks, set view_overrides.variant to one of: "title" | "subtitle" | "paragraph" | "summary" when appropriate.
-  - For data widgets, set view_overrides with any of: variant (e.g., "area" or "smooth"), legendVisible, xAxisVisible, yAxisVisible, and style (colors, axis styles, title styles). Use integers/booleans/strings appropriately.
+  - For data visualizations, set view_overrides with any of: variant (e.g., "area" or "smooth"), legendVisible, xAxisVisible, yAxisVisible, and style (colors, axis styles, title styles). Use integers/booleans/strings appropriately.
   - Prefer minimal, meaningful overrides that improve readability and visual balance.
 
 EXPECTED JSON OUTPUT (strict):
@@ -187,10 +252,10 @@ EXPECTED JSON OUTPUT (strict):
 
 Block types (exact fields):
 
-// Data widget block
+// Visualization block
 {{
-  "type": "widget",
-  "widget_id": "UUID",
+  "type": "visualization",
+  "visualization_id": "UUID",
   "x": int, "y": int, "width": int, "height": int,
   "view_overrides": {{
         "variant": string | null,
@@ -212,7 +277,7 @@ Block types (exact fields):
         "options": object | null
     }} | null,
   "is_completed": True
-}}
+  }}
 
 // Text widget block
 {{
@@ -246,8 +311,8 @@ RULES
                 y = int(blk.get("y", 0))
                 w = int(blk.get("width", 0))
                 h = int(blk.get("height", 0))
-                if btype == "widget":
-                    return f"widget:{blk.get('widget_id')}:{x}:{y}:{w}:{h}"
+                if btype == "visualization":
+                    return f"visualization:{blk.get('visualization_id')}:{x}:{y}:{w}:{h}"
                 if btype == "text_widget":
                     content = blk.get("content", "")
                     ch = hash(content)
@@ -268,12 +333,11 @@ RULES
                 continue
             if not isinstance(result, dict):
                 continue
-            # Blocks: emit only finalized new ones
+            # Blocks: emit finalized new ones (require is_completed=True for all types)
             if isinstance(result.get("blocks"), list):
                 for idx, blk in enumerate(result["blocks"]):
                     if not isinstance(blk, dict):
                         continue
-                    # Only emit when LLM marks it completed
                     if blk.get("is_completed") is not True:
                         continue
                     normalized = dict(blk)
@@ -288,7 +352,22 @@ RULES
 
             # Ignore any other keys; schema expects only blocks
 
-        # Final result (agent will have patched blocks during streaming)
+        # Final parse: include any blocks present in final buffer not yet emitted (require is_completed=True)
+        try:
+            result = parser.parse(buffer)
+            if isinstance(result, dict) and isinstance(result.get("blocks"), list):
+                for blk in result["blocks"]:
+                    if not isinstance(blk, dict):
+                        continue
+                    if blk.get("is_completed") is not True:
+                        continue
+                    sig = _block_signature(blk)
+                    if sig not in emitted_signatures:
+                        final_layout["blocks"].append(blk)
+                        emitted_signatures.add(sig)
+        except Exception:
+            pass
+
         output = CreateDashboardOutput(layout=final_layout, report_title=data.report_title)
         yield ToolEndEvent(type="tool.end", payload={"output": output.model_dump(), "observation": {"summary": "Dashboard designed", "layout": final_layout}})
 

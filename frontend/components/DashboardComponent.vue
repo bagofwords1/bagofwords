@@ -149,6 +149,10 @@
     const textWidgets = ref<any[]>([]);
     const displayedWidgets = ref<any[]>([]);
     const allTextWidgets = ref<any[]>([]);
+    const allQueries = ref<any[]>([]);
+    const vizById = ref<Record<string, any>>({});
+    const queryById = ref<Record<string, any>>({});
+    const stepCache = ref<Record<string, any>>({});
     const activeLayout = ref<any | null>(null);
     const layoutBlocks = ref<any[] | null>(null);
 
@@ -248,6 +252,7 @@
     onMounted(async () => {
         initializeMainGrid();
         await fetchActiveLayout();
+        await loadQueriesForReport();
         await fetchAllWidgets();
         loadWidgetsIntoGrid(grid.value, allWidgets.value);
         document.addEventListener('keydown', handleEscKey);
@@ -346,7 +351,58 @@
         }
     }
 
-    function applyLayoutToLocalState() {
+    async function loadQueriesForReport() {
+        try {
+            const base = props.edit ? '/api/queries' : '/api/queries'
+            const { data, error } = await useMyFetch(`${base}?report_id=${props.report.id}`, { method: 'GET' });
+            if (error.value) throw error.value;
+            const items = Array.isArray(data.value) ? data.value : [];
+            allQueries.value = items;
+            const qMap: Record<string, any> = {};
+            const vMap: Record<string, any> = {};
+            for (const q of items) {
+                if (q?.id) qMap[q.id] = q;
+                for (const v of (q?.visualizations || [])) {
+                    if (v?.id) vMap[v.id] = v;
+                }
+            }
+            queryById.value = qMap;
+            vizById.value = vMap;
+        } catch (e: any) {
+            console.error('Failed to load queries:', e);
+            allQueries.value = [];
+            queryById.value = {};
+            vizById.value = {};
+        }
+    }
+
+    async function ensureDefaultStepForQuery(queryId: string) {
+        try {
+            const q = queryById.value[queryId];
+            if (!q) return null;
+            const stepId = q.default_step_id;
+            if (stepId && stepCache.value[stepId]) return stepCache.value[stepId];
+            const { data, error } = await useMyFetch(`/api/queries/${queryId}/default_step`, { method: 'GET' });
+            if (error.value) throw error.value;
+            const step = (data.value || {}).step || null;
+            if (step && step.id) {
+                // Cache by step id
+                stepCache.value[step.id] = step;
+                // Also update the query's default_step_id so subsequent layout passes resolve correctly
+                const existing = queryById.value[queryId];
+                if (existing && existing.default_step_id !== step.id) {
+                    queryById.value = { ...queryById.value, [queryId]: { ...existing, default_step_id: step.id } } as any
+                }
+                return step;
+            }
+            return null;
+        } catch (e: any) {
+            console.error('Failed to load default step for query', queryId, e);
+            return null;
+        }
+    }
+
+    async function applyLayoutToLocalState() {
         // Wait until layout is fetched to avoid showing all widgets prematurely
         if (layoutBlocks.value === null) {
             return;
@@ -358,6 +414,7 @@
             const textMap = new Map((allTextWidgets.value || []).map((tw: any) => [tw.id, tw]));
             const nextDisplayed: any[] = [];
             const nextText: any[] = [];
+            const stepPromises: Promise<any>[] = [];
 
             for (const b of blocks) {
                 if (b.type === 'widget' && b.widget_id) {
@@ -386,11 +443,55 @@
                         isNew: baseSrc.isNew ?? false,
                         showControls: baseSrc.showControls ?? false,
                     });
+                } else if (b.type === 'visualization' && (b as any).visualization_id) {
+                    const vid = (b as any).visualization_id as string;
+                    const embedded = (b as any).visualization || null;
+                    const viz = embedded || vizById.value[vid] || null;
+                    if (!viz) {
+                        // No viz found yet; skip for now
+                        continue;
+                    }
+                    const qid = viz.query_id;
+                    const q = queryById.value[qid] || null;
+                    let step: any = null;
+                    const defaultStepId = q?.default_step_id;
+                    if (defaultStepId && stepCache.value[defaultStepId]) {
+                        step = stepCache.value[defaultStepId];
+                    } else if (qid) {
+                        // fetch asynchronously and re-apply later
+                        stepPromises.push(ensureDefaultStepForQuery(qid));
+                    }
+                    // Merge view overrides (layout should be able to override viz.view)
+                    const mergedView = (() => {
+                        const v = viz.view || {};
+                        const o = (b as any).view_overrides || null;
+                        return o ? { ...v, ...o } : v;
+                    })();
+                    nextDisplayed.push({
+                        id: vid,
+                        x: b.x, y: b.y, width: b.width, height: b.height,
+                        type: 'regular',
+                        title: viz.title || '',
+                        last_step: step || (defaultStepId ? stepCache.value[defaultStepId] : null),
+                        view: mergedView,
+                        showControls: false,
+                        show_data: false,
+                        show_data_model: false,
+                    });
                 }
             }
 
             displayedWidgets.value = nextDisplayed;
             textWidgets.value = nextText;
+            if (stepPromises.length > 0) {
+                // After steps load, re-apply to inject last_step
+                try { await Promise.allSettled(stepPromises); } catch {}
+                // Re-run quickly without refetching layout
+                const prev = layoutBlocks.value; layoutBlocks.value = prev; // trigger
+                // Recompute
+                await nextTick();
+                await applyLayoutToLocalState();
+            }
             return;
         }
 
@@ -581,7 +682,7 @@
 
         const patch = w.type === 'text'
             ? { type: 'text_widget', text_widget_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h }
-            : { type: 'widget', widget_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h };
+            : { type: 'visualization', visualization_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h };
         if (saveTimer) window.clearTimeout(saveTimer)
         saveTimer = window.setTimeout(async () => {
             try {

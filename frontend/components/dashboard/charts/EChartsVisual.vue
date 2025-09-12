@@ -43,6 +43,7 @@ use([
 
 const props = defineProps<{
   widget?: any
+  step?: any
   data?: any
   data_model?: any
   view?: Record<string, any> | null
@@ -83,7 +84,7 @@ function getBaseOptions(): EChartsOption {
     color: undefined,
     backgroundColor: (props.view?.options as any)?.backgroundColor || props.view?.style?.backgroundColor || tokens.value?.background || undefined,
     title: {
-      text: props.widget?.title || 'Chart',
+      text: (props.step?.title || props.widget?.title || 'Chart'),
       left: 'center',
       top: 5,
       textStyle: {
@@ -332,14 +333,46 @@ function applyThemeColors(option: EChartsOption, type: string, dm: any) {
 function buildOptions() {
   isLoading.value = true
   chartOptions.value = {}
-  const dm = props.data_model
+  // Merge view.encoding into data_model (do not mutate props)
+  const dm = (() => {
+    const base = props.data_model || {}
+    const enc: any = (props.view as any)?.encoding || null
+    if (!enc) return base
+    const out: any = { ...base }
+    // If series provided explicitly, prefer it
+    if (Array.isArray(enc.series) && enc.series.length > 0) {
+      out.series = enc.series.map((s: any) => ({ ...s }))
+      return out
+    }
+    // Common single-series mapping: category + value (+name)
+    if (enc.category && enc.value) {
+      out.series = [{ name: enc.name, key: enc.category, value: enc.value }]
+      return out
+    }
+    // Scatter: x/y (fallback to key/value)
+    if ((enc.x || enc.key) && (enc.y || enc.value)) {
+      out.series = [{ name: enc.name, x: enc.x || enc.key, y: enc.y || enc.value }]
+      return out
+    }
+    // Candlestick: open/close/low/high + key
+    if (enc.open && enc.close && enc.low && enc.high) {
+      out.series = [{ name: enc.name, key: enc.category || enc.key, open: enc.open, close: enc.close, low: enc.low, high: enc.high }]
+      return out
+    }
+    // Radar: dimensions + name
+    if (Array.isArray(enc.dimensions) && enc.dimensions.length) {
+      out.series = [{ name: enc.name || 'Series', key: enc.category || enc.key || 'name', dimensions: enc.dimensions }]
+      return out
+    }
+    return out
+  })()
   const rows = normalizeRows(props.data?.rows)
   if (!dm || !rows.length) {
     isLoading.value = false
     chartKey.value++
     return
   }
-  const t = normalizeType(dm.type)
+  const t = normalizeType((props.view as any)?.type || dm.type)
   const base = getBaseOptions()
   let specific: EChartsOption = {}
   try {

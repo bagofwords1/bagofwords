@@ -66,7 +66,7 @@
                   :data="step?.data"
                   :data_model="step?.data_model"
                   :step="step"
-                  :view="step?.view"
+                  :view="visualization?.view || step?.view"
                 />
               </div>
               <div v-else-if="chartVisualTypes.has(step?.data_model?.type)" class="h-[340px]">
@@ -130,6 +130,7 @@ interface ToolExecution {
   created_step_id?: string
   created_widget?: any
   created_step?: any
+  created_visualizations?: Array<{ id: string; title?: string; status?: string; report_id?: string; query_id?: string; view?: Record<string, any> }>
 }
 
 const props = defineProps<{ toolExecution: ToolExecution }>()
@@ -147,6 +148,36 @@ const activeTab = ref<'chart' | 'table'>('chart')
 
 const widget = computed(() => props.toolExecution?.created_widget || null)
 const step = computed(() => props.toolExecution?.created_step || null)
+const hydratedVisualization = ref<any | null>(null)
+const visualization = computed(() => {
+  if (hydratedVisualization.value) return hydratedVisualization.value
+  const list = (props.toolExecution as any)?.created_visualizations
+  if (Array.isArray(list) && list.length) return list[0]
+  return null
+})
+
+// Derive query id from available sources
+const queryId = computed(() => {
+  const v = visualization.value as any
+  const s = step.value as any
+  return v?.query_id || s?.query_id || (props.toolExecution as any)?.result_json?.query_id || null
+})
+
+async function hydrateVisualizationIfNeeded() {
+  try {
+    const v = visualization.value as any
+    if (v?.id && v?.status) return
+    if (!queryId.value) return
+    const { data, error } = await useMyFetch(`/api/queries/${queryId.value}`, { method: 'GET' })
+    if (error.value) return
+    const q = data.value as any
+    const vList = (q && Array.isArray(q.visualizations)) ? q.visualizations : []
+    const ok = vList.find((it: any) => it?.status === 'success') || vList[0]
+    if (ok) hydratedVisualization.value = ok
+  } catch (_) {
+    // noop
+  }
+}
 
 // Widget title from various sources
 const widgetTitle = computed(() => {
@@ -201,7 +232,12 @@ function getCompForType(type?: string | null) {
   compCache.set(t, comp)
   return comp
 }
-const resolvedCompEl = computed(() => getCompForType(step.value?.data_model?.type))
+// Prefer the visualization.view.type if available; fall back to data_model.type
+const resolvedCompEl = computed(() => {
+  const vType = (visualization.value?.view as any)?.type
+  const dmType = step.value?.data_model?.type
+  return getCompForType(String(vType || dmType || ''))
+})
 
 // Determine if table/data is present
 const hasData = computed(() => {
@@ -272,17 +308,24 @@ function downloadCSV() {
 
 // Add-to-dashboard gating and action
 const isPublished = computed(() => {
-  const id = widget.value?.id
-  if (!id) return false
-  return layoutBlocks.value.some(b => b?.type === 'widget' && b?.widget_id === id)
+  const vizId = visualization.value?.id
+  if (!vizId) return false
+  return layoutBlocks.value.some(b => b?.type === 'visualization' && b?.visualization_id === vizId)
 })
-const canAdd = computed(() => !!(widget.value?.id && step.value?.status === 'success'))
+const canAdd = computed(() => {
+  const viz = visualization.value
+  const st = step.value
+  const stepOk = st?.status === 'success'
+  const vizOk = viz?.status === 'success'
+  return !!(viz?.id && stepOk && vizOk)
+})
 
 async function onAddClick() {
   if (!canAdd.value || isAdding.value) return
   isAdding.value = true
   try {
-    emit('addWidget', { widget: widget.value, step: step.value })
+    // Parent will patch layout; pass viz id and step so it can position
+    emit('addWidget', { visualization: visualization.value, step: step.value })
     // Best-effort: refresh membership shortly after parent patches layout
     setTimeout(refreshMembership, 600)
   } finally {
@@ -294,7 +337,7 @@ async function onAddClick() {
 async function refreshMembership() {
   try {
     if (!reportId.value) return
-    const { data, error } = await useMyFetch(`/api/reports/${reportId.value}/layouts`, { method: 'GET' })
+    const { data, error } = await useMyFetch(`/api/reports/${reportId.value}/layouts?hydrate=true`, { method: 'GET' })
     if (error.value) throw error.value
     const layouts = Array.isArray(data.value) ? data.value : []
     const active = layouts.find((l: any) => l.is_active)
@@ -306,6 +349,7 @@ async function refreshMembership() {
 
 onMounted(() => {
   refreshMembership()
+  hydrateVisualizationIfNeeded()
 })
 </script>
 

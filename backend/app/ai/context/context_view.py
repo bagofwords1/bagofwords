@@ -11,6 +11,7 @@ from app.ai.context.sections.files_schema_section import FilesSchemaContext
 from app.ai.context.sections.instructions_section import InstructionsSection
 from app.ai.context.sections.messages_section import MessagesSection
 from app.ai.context.sections.widgets_section import WidgetsSection
+from app.ai.context.sections.queries_section import QueriesSection
 from app.ai.context.sections.observations_section import ObservationsSection
 from app.ai.context.sections.resources_section import ResourcesSection
 from app.ai.context.sections.code_section import CodeSection
@@ -28,6 +29,7 @@ class WarmSections(BaseModel):
     messages: Optional[MessagesSection] = None
     observations: Optional[ObservationsSection] = None
     widgets: Optional[WidgetsSection] = None
+    queries: Optional[QueriesSection] = None
 
 
 class ContextView(BaseModel):
