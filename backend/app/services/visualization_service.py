@@ -12,12 +12,13 @@ from app.schemas.visualization_schema import (
 class VisualizationService:
 
     async def create(self, db: AsyncSession, payload: VisualizationCreate) -> Visualization:
+        # Use exclude_none to avoid persisting irrelevant fields dropped by schema sanitization
         v = Visualization(
             title=payload.title,
             status=payload.status,
             report_id=str(payload.report_id),
             query_id=str(payload.query_id),
-            view=(payload.view.model_dump() if hasattr(payload.view, 'model_dump') else payload.view) or {},
+            view=(payload.view.model_dump(exclude_none=True) if hasattr(payload.view, 'model_dump') else payload.view) or {},
         )
         db.add(v)
         await db.commit()
@@ -48,7 +49,7 @@ class VisualizationService:
         if patch.status is not None:
             v.status = patch.status
         if patch.view is not None:
-            v.view = patch.view.model_dump() if hasattr(patch.view, 'model_dump') else patch.view
+            v.view = patch.view.model_dump(exclude_none=True) if hasattr(patch.view, 'model_dump') else patch.view
         db.add(v)
         await db.commit()
         await db.refresh(v)

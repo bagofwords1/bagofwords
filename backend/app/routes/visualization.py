@@ -9,12 +9,21 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.visualization import Visualization as VisualizationModel
 from app.schemas.visualization_schema import VisualizationSchema, VisualizationUpdate
+from app.schemas.view_schema import visualization_metadata
 from app.services.visualization_service import VisualizationService
 
 
 router = APIRouter(prefix="/visualizations", tags=["visualizations"])
 service = VisualizationService()
 
+
+@router.get("/meta", response_model=dict)
+async def get_visualization_meta():
+    """Public metadata describing capabilities per visualization type.
+
+    Frontend uses this to render relevant controls only.
+    """
+    return visualization_metadata()
 
 @router.get("/{visualization_id}", response_model=VisualizationSchema)
 @requires_permission('view_reports', model=VisualizationModel, owner_only=True, allow_public=True)
@@ -43,5 +52,4 @@ async def patch_visualization(
     if not v:
         raise HTTPException(status_code=404, detail="Visualization not found")
     return VisualizationSchema.model_validate(v)
-
 

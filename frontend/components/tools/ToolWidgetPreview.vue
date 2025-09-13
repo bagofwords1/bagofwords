@@ -6,11 +6,21 @@
         <div class="flex items-center">
           <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 mr-1.5 text-gray-500" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
+          <button
+            v-if="queryId"
+            @click="onEditClick"
+            class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
+            title="Edit query code"
+          >
+            <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 mr-1" />
+            Edit
+          </button>
         </div>
         <div class="flex items-center gap-2">
           <div v-if="rowCount" class="text-[11px] text-gray-400">
             {{ rowCount }} rows
           </div>
+
           <button 
             v-if="hasDataForDownload"
             @click.stop="downloadCSV"
@@ -112,15 +122,6 @@
               Added to dashboard</span>
           </div>
           
-          <button
-            v-if="queryId"
-            @click="onEditClick"
-            class="text-xs px-2 py-0.5 rounded transition-colors hover:bg-gray-50 text-gray-600 hover:text-gray-800 flex items-center"
-            title="Edit query code"
-          >
-            <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 mr-1" />
-            Edit
-          </button>
         </div>
 
       </div>

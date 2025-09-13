@@ -4,7 +4,7 @@
     <div>
       <div class="font-medium text-gray-800 mb-1">Type</div>
       <select v-model="local.type" class="w-full border rounded px-2 py-1.5 bg-white">
-        <option v-for="opt in typeOptions" :key="opt" :value="opt">{{ opt }}</option>
+        <option v-for="opt in typeOptionsFromMeta" :key="opt" :value="opt">{{ opt }}</option>
       </select>
     </div>
 
@@ -382,7 +382,7 @@
           </div>
 
           <!-- Axis label controls -->
-          <div class="grid grid-cols-2 gap-2" v-if="isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])">
+          <div class="grid grid-cols-2 gap-2" v-if="capsForType.axes && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])">
             <div>
               <div class="text-gray-600 mb-1">Label rotation</div>
               <select v-model.number="local.xAxisLabelRotate" class="w-full border rounded px-2 py-1 bg-white">
@@ -411,19 +411,19 @@
               <input type="checkbox" v-model="local.titleVisible" />
               <span>Title</span>
             </label>
-            <label class="flex items-center space-x-1">
+            <label class="flex items-center space-x-1" v-if="capsForType.legend">
               <input type="checkbox" v-model="local.legendVisible" />
               <span>Legend</span>
             </label>
-            <label class="flex items-center space-x-1">
+            <label class="flex items-center space-x-1" v-if="capsForType.axes">
               <input type="checkbox" v-model="local.xAxisVisible" />
               <span>X Axis</span>
             </label>
-            <label class="flex items-center space-x-1">
+            <label class="flex items-center space-x-1" v-if="capsForType.axes">
               <input type="checkbox" v-model="local.yAxisVisible" />
               <span>Y Axis</span>
             </label>
-            <label class="flex items-center space-x-1">
+            <label class="flex items-center space-x-1" v-if="capsForType.grid">
               <input type="checkbox" v-model="local.showGridLines" />
               <span>Grid lines</span>
             </label>
@@ -470,6 +470,17 @@ const typeOptions = [
   'radar_chart',
   'count'
 ]
+
+// Backend-provided capabilities per visualization type
+const meta = ref<Record<string, any>>({})
+const typeOptionsFromMeta = computed<string[]>(() => {
+  const keys = Object.keys(meta.value || {})
+  return keys.length ? keys : typeOptions
+})
+const capsForType = computed<Record<string, any>>(() => {
+  const t = String(local.type || '').toLowerCase()
+  return (meta.value && (meta.value as any)[t]) || { axes: false, legend: false, grid: false, labels: true, encodings: [] }
+})
 
 const saving = ref(false)
 const error = ref('')
@@ -566,6 +577,16 @@ function toViewPayload() {
     xAxisLabelInterval: local.xAxisLabelInterval,
     showGridLines: local.showGridLines,
   }
+  // Drop unsupported fields per capabilities before sending to backend
+  const caps = capsForType.value || {}
+  if (!caps.legend) delete view.legendVisible
+  if (!caps.axes) {
+    delete view.xAxisVisible
+    delete view.yAxisVisible
+    delete view.xAxisLabelRotate
+    delete view.xAxisLabelInterval
+  }
+  if (!caps.grid) delete view.showGridLines
   if (showEncoding.value) {
     const enc = deepClone(encoding)
     // Normalize bar/line/area to ensure series[].key strictly matches category
@@ -691,6 +712,13 @@ watch(() => props.viz?.view, (v) => {
 
 // Initial auto-detect on mount if encoding incomplete
 onMounted(() => {
+  // Fetch backend visualization meta to drive capabilities and type list
+  useMyFetch('/api/visualizations/meta').then((resp: any) => {
+    try {
+      const m = resp?.data?.value
+      if (m && typeof m === 'object') meta.value = m
+    } catch {}
+  })
   try {
     const t = local.type
     const e: any = encoding

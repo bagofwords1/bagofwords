@@ -1,5 +1,84 @@
-from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field, model_validator
+from typing import Optional, Dict, Any, List, Literal
+
+
+# Central capabilities registry for visualization types
+# This serves both validation/sanitization and a lightweight metadata contract for the UI
+VISUALIZATION_CAPABILITIES: Dict[str, Dict[str, Any]] = {
+    # Table is rendered elsewhere; treat as data-only
+    "table": {
+        "axes": False,
+        "legend": False,
+        "grid": False,
+        "labels": False,
+        "encodings": [],
+    },
+    # KPI/Count card
+    "count": {
+        "axes": False,
+        "legend": False,
+        "grid": False,
+        "labels": True,  # allow title visibility toggle
+        "encodings": ["value"],
+    },
+    # Cartesian families share the same capabilities
+    "bar_chart": {
+        "axes": True,
+        "legend": True,
+        "grid": True,
+        "labels": True,
+        "encodings": ["category", "value", "series"],
+    },
+    "line_chart": {
+        "axes": True,
+        "legend": True,
+        "grid": True,
+        "labels": True,
+        "encodings": ["category", "value", "series"],
+    },
+    "area_chart": {
+        "axes": True,
+        "legend": True,
+        "grid": True,
+        "labels": True,
+        "encodings": ["category", "value", "series"],
+    },
+    "scatter_plot": {
+        "axes": True,
+        "legend": False,
+        "grid": False,
+        "labels": True,
+        "encodings": ["x", "y", "color", "size"],
+    },
+    "heatmap": {
+        "axes": True,
+        "legend": False,
+        "grid": False,
+        "labels": True,
+        "encodings": ["x", "y", "value"],
+    },
+    "candlestick": {
+        "axes": True,
+        "legend": False,
+        "grid": False,
+        "labels": True,
+        "encodings": ["time", "open", "high", "low", "close", "key"],
+    },
+    "treemap": {
+        "axes": False,
+        "legend": False,
+        "grid": False,
+        "labels": True,
+        "encodings": ["id", "parentId", "name", "value", "path"],
+    },
+    "radar_chart": {
+        "axes": False,
+        "legend": True,
+        "grid": False,
+        "labels": True,
+        "encodings": ["dimensions", "key", "name", "value"],
+    },
+}
 
 
 class ViewSchema(BaseModel):
@@ -28,6 +107,48 @@ class ViewSchema(BaseModel):
 
     class Config:
         extra = "allow"
+
+    @property
+    def capabilities(self) -> Dict[str, Any]:
+        t = (self.type or "").lower()
+        return VISUALIZATION_CAPABILITIES.get(t, {
+            "axes": False,
+            "legend": False,
+            "grid": False,
+            "labels": True,
+            "encodings": [],
+        })
+
+    @model_validator(mode="after")
+    def _sanitize_by_capabilities(self) -> "ViewSchema":
+        """Drop or normalize fields that are not applicable for the given type.
+
+        This keeps persisted views clean and prevents UI from reading irrelevant flags.
+        """
+        caps = self.capabilities
+
+        # Hide axes/grid flags if unsupported
+        if not caps.get("axes"):
+            self.xAxisVisible = None
+            self.yAxisVisible = None
+            # Also remove label controls if present
+            self.xAxisLabelInterval = None
+            self.xAxisLabelRotate = None
+        if not caps.get("grid"):
+            self.showGridLines = None
+        if not caps.get("legend") and self.legendVisible is not None:
+            # Force None so model_dump(exclude_none=True) drops it
+            self.legendVisible = None
+
+        # Encoding pruning
+        if self.encoding is not None:
+            allowed = set(caps.get("encodings", []))
+            if not allowed:
+                # No encodings for this type
+                self.encoding = None
+            else:
+                self.encoding = self.encoding.pruned(allowed)
+        return self
 
 
 
@@ -75,4 +196,44 @@ class EncodingSchema(BaseModel):
 
     class Config:
         extra = "allow"
+
+    def pruned(self, allowed: set[str]) -> "EncodingSchema":
+        """Return a copy with only allowed keys retained in the top-level encoding
+        and with per-series keys preserved but pruned as appropriate.
+        """
+        data: Dict[str, Any] = self.model_dump()
+        out: Dict[str, Any] = {}
+        # Keep only allowed top-level fields
+        for k, v in data.items():
+            if k == "series" and isinstance(v, list):
+                # For series entries, keep name/value plus any allowed keys
+                pruned_series: List[Dict[str, Any]] = []
+                for s in v:
+                    if not isinstance(s, dict):
+                        continue
+                    keep: Dict[str, Any] = {}
+                    for sk, sv in s.items():
+                        if sk in allowed or sk in {"name", "value"}:
+                            keep[sk] = sv
+                    if keep:
+                        pruned_series.append(keep)
+                if pruned_series:
+                    out["series"] = pruned_series
+            elif k in allowed:
+                out[k] = v
+        # Reconstruct as EncodingSchema
+        try:
+            return EncodingSchema(**out)
+        except Exception:
+            # If reconstruction fails, drop encoding entirely to avoid bad state
+            return EncodingSchema()
+
+
+def visualization_metadata() -> Dict[str, Any]:
+    """Expose a minimal capabilities descriptor for the UI.
+
+    Returned shape:
+    { type: { axes, legend, grid, labels, encodings: [...] } }
+    """
+    return VISUALIZATION_CAPABILITIES
 
