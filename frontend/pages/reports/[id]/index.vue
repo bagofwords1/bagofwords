@@ -76,14 +76,17 @@
 														
 														<!-- Tool execution details in thinking -->
 														<div v-if="block.tool_execution" class="mb-4">
-															<!-- Use specialized tool component if available -->
-															<component 
-																v-if="shouldUseToolComponent(block.tool_execution)"
-																:is="getToolComponent(block.tool_execution.tool_name)"
-																:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
-																:tool-execution="block.tool_execution"
-																@addWidget="handleAddWidgetFromPreview"
-															/>
+														<!-- Use specialized tool component if available -->
+														<component 
+															v-if="shouldUseToolComponent(block.tool_execution)"
+															:is="getToolComponent(block.tool_execution.tool_name)"
+															:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
+															:tool-execution="block.tool_execution"
+															@addWidget="handleAddWidgetFromPreview"
+															@refreshDashboard="refreshDashboardFast"
+															@toggleSplitScreen="toggleSplitScreen"
+															@editQuery="handleEditQuery"
+														/>
 
 
 														<!-- Fallback to generic tool display -->
@@ -161,6 +164,8 @@
 											:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
 											:tool-execution="block.tool_execution"
 											@addWidget="handleAddWidgetFromPreview"
+											@toggleSplitScreen="toggleSplitScreen"
+											@editQuery="handleEditQuery"
 										/>
 										<!-- Fallback to generic expandable tool display -->
 										<div v-else>
@@ -178,7 +183,7 @@
 										</div>
 									</div>
 									<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
-										<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" />
+										<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 									</div>
 								</div>
 							
@@ -275,6 +280,7 @@
 					:widgets="widgets" 
 					:textWidgetsIds="textWidgetsIds"
 					@toggleSplitScreen="toggleSplitScreen"
+					@editVisualization="handleEditQuery"
 				/>
 				<div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500">
 					No dashboard items yet.
@@ -288,6 +294,17 @@
 		v-model="showTraceModal"
 		:report-id="report_id"
 		:completion-id="selectedCompletionForTrace || ''"
+	/>
+
+	<!-- Query Code Editor Modal -->
+	<QueryCodeEditorModal
+		:visible="showQueryEditor"
+		:query-id="queryEditorProps.queryId"
+		:step-id="queryEditorProps.stepId"
+		:initial-code="queryEditorProps.initialCode"
+		:title="queryEditorProps.title"
+		@close="closeQueryEditor"
+		@stepCreated="onStepCreated"
 	/>
 
 </template>
@@ -308,6 +325,7 @@ import ReportHeader from '~/components/report/ReportHeader.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
+import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import { useCan } from '~/composables/usePermissions'
 
 // Types
@@ -1138,6 +1156,32 @@ async function loadWidgets() {
 	}
 }
 
+// Fast dashboard refresh triggered by editor save
+async function refreshDashboardFast() {
+    try {
+        const dash = dashboardRef.value
+        if (dash && typeof dash.refreshLayout === 'function') {
+            await dash.refreshLayout()
+        }
+    } catch (e) {
+        // noop
+    }
+}
+
+// When a tool finishes saving a new step, broadcast the default step change if we have enough info
+watch(() => messages.value, () => {
+    try {
+        const last = [...messages.value].reverse().find(m => m.role === 'system')
+        const lastBlock = last?.completion_blocks?.slice(-1)[0]
+        const te: any = lastBlock?.tool_execution
+        if (te && te.created_step && te.created_step.query_id) {
+            try {
+                window.dispatchEvent(new CustomEvent('query:default_step_changed', { detail: { query_id: te.created_step.query_id, step: te.created_step } }))
+            } catch {}
+        }
+    } catch {}
+}, { deep: true })
+
 async function loadActiveLayoutHasBlocks(): Promise<boolean> {
     try {
         const { data } = await useMyFetch(`/api/reports/${report_id}/layouts`)
@@ -1298,6 +1342,40 @@ function handleExampleClick(starter: string) {
 	if (starter) {
 		onSubmitCompletion({ text: starter, mentions: [] });
 	}
+}
+
+// State for QueryCodeEditorModal
+const showQueryEditor = ref(false)
+const queryEditorProps = ref<{
+	queryId: string | null
+	stepId: string | null
+	initialCode: string
+	title: string
+}>({
+	queryId: null,
+	stepId: null,
+	initialCode: '',
+	title: ''
+})
+
+function handleEditQuery(payload: { queryId: string; stepId: string | null; initialCode: string; title: string }) {
+	queryEditorProps.value = {
+		queryId: payload.queryId,
+		stepId: payload.stepId,
+		initialCode: payload.initialCode,
+		title: payload.title
+	}
+	showQueryEditor.value = true
+}
+
+function closeQueryEditor() {
+	showQueryEditor.value = false
+}
+
+function onStepCreated(step: any) {
+	// Handle step creation - could refresh the current view or update state
+	console.log('Step created:', step)
+	// Optionally refresh the completion or update the UI
 }
 
 function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {

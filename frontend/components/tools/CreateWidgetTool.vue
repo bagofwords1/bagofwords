@@ -131,7 +131,7 @@
 
         <!-- Results (shown only on success) -->
         <div class="mt-1" v-if="hasPreview">
-          <ToolWidgetPreview :tool-execution="toolExecution" @addWidget="onAddWidget" />
+          <ToolWidgetPreview :tool-execution="toolExecution" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
         </div>
 
         <!-- Final status summary -->
@@ -194,8 +194,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const emit = defineEmits(['addWidget'])
-const isCollapsed = ref(true)
+const emit = defineEmits(['addWidget', 'refreshDashboard', 'toggleSplitScreen', 'editQuery'])
 // Per-section collapsed state
 const dmCollapsed = ref(false)
 const codeCollapsed = ref(false)
@@ -342,6 +341,15 @@ function onModalSaved(step: any) {
   (props.toolExecution as any).created_step_id = step?.id
   ;(props.toolExecution as any).created_step = step
   emit('addWidget', { step })
+  // Ask parent page to refresh dashboard queries/layout so the latest step is shown
+  emit('refreshDashboard')
+  // Broadcast default step change to dashboard listeners for real-time tile updates
+  try {
+    const qid = createdQueryId.value
+    if (qid) {
+      window.dispatchEvent(new CustomEvent('query:default_step_changed', { detail: { query_id: qid, step } }))
+    }
+  } catch {}
 }
 </script>
 

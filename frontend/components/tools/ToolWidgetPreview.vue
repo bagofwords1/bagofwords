@@ -86,27 +86,40 @@
           </Transition>
         </div>
 
-        <!-- Bottom Action Button -->
-        <div class="mt-2 pt-2 border-t border-gray-100 flex justify-start">
+        <!-- Bottom Action Buttons -->
+        <div class="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
+          <div class="flex items-center space-x-2">
+            <button
+              v-if="!isPublished"
+              :disabled="!canAdd || isAdding"
+              @click="onAddClick"
+              class="text-xs px-2 py-0.5 rounded transition-colors"
+              :class="[
+                canAdd && !isAdding ? 'hover:bg-gray-50' : 'text-gray-400 cursor-not-allowed'
+              ]"
+            >
+              <Icon v-if="isAdding" name="heroicons-arrow-path" class="w-3.5 h-3.5 inline-block mr-1 animate-spin" />
+              <span v-if="!canAdd">Generating…</span>
+              <span v-else class="flex items-center">
+                  <Icon name="heroicons-chart-pie" class="w-3.5 h-3.5 text-blue-500 inline-block mr-1" />
+                  Add to dashboard</span>
+            </button>
+            <span v-else class="text-xs flex items-center">
+              <Icon name="heroicons-check" class="w-3.5 h-3.5 mr-1 text-green-500" />
+              Added to dashboard</span>
+          </div>
+          
           <button
-            v-if="!isPublished"
-            :disabled="!canAdd || isAdding"
-            @click="onAddClick"
-            class="text-xs px-2 py-0.5 rounded transition-colors"
-            :class="[
-              canAdd && !isAdding ? 'hover:bg-gray-50' : 'text-gray-400 cursor-not-allowed'
-            ]"
+            v-if="queryId"
+            @click="onEditClick"
+            class="text-xs px-2 py-0.5 rounded transition-colors hover:bg-gray-50 text-gray-600 hover:text-gray-800 flex items-center"
+            title="Edit query code"
           >
-            <Icon v-if="isAdding" name="heroicons-arrow-path" class="w-3.5 h-3.5 inline-block mr-1 animate-spin" />
-            <span v-if="!canAdd">Generating…</span>
-            <span v-else class="flex items-center">
-                <Icon name="heroicons-chart-pie" class="w-3.5 h-3.5 text-blue-500 inline-block mr-1" />
-                Add to dashboard</span>
+            <Icon name="heroicons-pencil-square" class="w-3.5 h-3.5 mr-1" />
+            Edit
           </button>
-          <span v-else class="text-xs flex items-center">
-            <Icon name="heroicons-check" class="w-3.5 h-3.5 mr-1 text-green-500" />
-            Added to dashboard</span>
         </div>
+
       </div>
     </Transition>
   </div>
@@ -134,7 +147,7 @@ interface ToolExecution {
 }
 
 const props = defineProps<{ toolExecution: ToolExecution }>()
-const emit = defineEmits(['addWidget'])
+const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(false) // Start expanded
@@ -306,12 +319,25 @@ function downloadCSV() {
   document.body.removeChild(link)
 }
 
+// Helper for external broadcasts
+function broadcastDefaultStep(step: any) {
+  try {
+    if (step?.query_id) {
+      window.dispatchEvent(new CustomEvent('query:default_step_changed', { detail: { query_id: step.query_id, step } }))
+    }
+  } catch {}
+}
+
 // Add-to-dashboard gating and action
 const isPublished = computed(() => {
   const vizId = visualization.value?.id
   if (!vizId) return false
   return layoutBlocks.value.some(b => b?.type === 'visualization' && b?.visualization_id === vizId)
 })
+
+watch(layoutBlocks, () => {
+  // ensure computed re-evaluates when layout membership changes
+}, { deep: true })
 const canAdd = computed(() => {
   const viz = visualization.value
   const st = step.value
@@ -320,12 +346,52 @@ const canAdd = computed(() => {
   return !!(viz?.id && stepOk && vizOk)
 })
 
+// Keep membership state in sync when dashboard layout changes elsewhere
+onMounted(() => {
+  function handleLayoutChanged(ev: CustomEvent) {
+    try {
+      const detail: any = (ev as any)?.detail || {}
+      // Trigger recomputation by refreshing membership list
+      refreshMembership()
+    } catch {}
+  }
+  window.addEventListener('dashboard:layout_changed', handleLayoutChanged as any)
+})
+
 async function onAddClick() {
-  if (!canAdd.value || isAdding.value) return
+  if (isAdding.value) return
+  if (!visualization.value?.id) return
   isAdding.value = true
   try {
-    // Parent will patch layout; pass viz id and step so it can position
-    emit('addWidget', { visualization: visualization.value, step: step.value })
+    // Best-effort: patch layout directly
+    if (reportId.value) {
+      try {
+        const { error } = await useMyFetch(`/api/reports/${reportId.value}/layouts/active/blocks`, {
+          method: 'PATCH',
+          body: {
+            blocks: [{ type: 'visualization', visualization_id: visualization.value.id, x: 0, y: 0, width: 12, height: 8 }]
+          }
+        })
+        if (error.value) throw error.value
+        // Optimistically mark as published so the button flips immediately
+        // locallyPublished.value = true // This line was removed as per the new_code, as locallyPublished is not defined.
+        // Also update local membership list so the state is consistent
+        layoutBlocks.value = [...layoutBlocks.value, { type: 'visualization', visualization_id: visualization.value.id }]
+        // Broadcast to dashboard pane to refresh membership immediately
+        try {
+          window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: reportId.value, action: 'added', visualization_id: visualization.value.id } }))
+        } catch {}
+        // Emit toggleSplitScreen to ensure dashboard pane opens
+        emit('toggleSplitScreen')
+      } catch (e) {
+        // fallback to parent handler if exists
+        emit('addWidget', { visualization: visualization.value, step: step.value })
+        emit('toggleSplitScreen')
+      }
+    } else {
+      emit('addWidget', { visualization: visualization.value, step: step.value })
+      emit('toggleSplitScreen')
+    }
     // Best-effort: refresh membership shortly after parent patches layout
     setTimeout(refreshMembership, 600)
   } finally {
@@ -345,6 +411,18 @@ async function refreshMembership() {
   } catch (e) {
     // noop
   }
+}
+
+function onEditClick() {
+  if (!queryId.value) return
+  
+  // Emit event with query information for opening the editor
+  emit('editQuery', {
+    queryId: queryId.value,
+    stepId: step.value?.id || null,
+    initialCode: step.value?.code || '',
+    title: widgetTitle.value
+  })
 }
 
 onMounted(() => {

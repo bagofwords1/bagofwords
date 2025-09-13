@@ -49,11 +49,15 @@
                         <WidgetControls
                             :edit="props.edit"
                             :isText="widget.type === 'text'"
+                            :isVisualization="widget.isVisualization || false"
+                            :queryId="widget.query_id"
+                            :widget="widget"
                             :isEditing="widget.isEditing"
                             :isNew="widget.isNew"
                             @remove="removeWidget(widget)"
                             @removeText="removeTextWidget(widget)"
                             @toggleTextEdit="toggleTextEdit(widget)"
+                            @editVisualization="handleEditVisualization"
                         />
 
                         <template v-if="widget.type === 'text'">
@@ -132,7 +136,7 @@
     import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
     const toast = useToast();
-    const emit = defineEmits(['removeWidget', 'toggleSplitScreen']);
+    const emit = defineEmits(['removeWidget', 'toggleSplitScreen', 'editVisualization']);
 
     const props = defineProps<{
         report: any
@@ -152,6 +156,7 @@
     const allQueries = ref<any[]>([]);
     const vizById = ref<Record<string, any>>({});
     const queryById = ref<Record<string, any>>({});
+    const queryIdByWidgetId = ref<Record<string, string>>({});
     const stepCache = ref<Record<string, any>>({});
     const activeLayout = ref<any | null>(null);
     const layoutBlocks = ref<any[] | null>(null);
@@ -256,12 +261,17 @@
         await fetchAllWidgets();
         loadWidgetsIntoGrid(grid.value, allWidgets.value);
         document.addEventListener('keydown', handleEscKey);
+        // Cross-pane sync listeners
+        window.addEventListener('dashboard:layout_changed', handleExternalLayoutChanged as any)
+        window.addEventListener('query:default_step_changed', handleExternalDefaultStepChanged as any)
     });
 
     onBeforeUnmount(() => {
         grid.value?.destroy(false);
         modalGrid.value?.destroy(false);
         document.removeEventListener('keydown', handleEscKey);
+        window.removeEventListener('dashboard:layout_changed', handleExternalLayoutChanged as any)
+        window.removeEventListener('query:default_step_changed', handleExternalDefaultStepChanged as any)
     });
 
     // --- Grid Initialization ---
@@ -360,41 +370,56 @@
             allQueries.value = items;
             const qMap: Record<string, any> = {};
             const vMap: Record<string, any> = {};
+            const wMap: Record<string, string> = {};
             for (const q of items) {
                 if (q?.id) qMap[q.id] = q;
+                if (q?.widget_id) wMap[q.widget_id] = q.id;
                 for (const v of (q?.visualizations || [])) {
                     if (v?.id) vMap[v.id] = v;
                 }
             }
             queryById.value = qMap;
             vizById.value = vMap;
+            queryIdByWidgetId.value = wMap;
         } catch (e: any) {
             console.error('Failed to load queries:', e);
             allQueries.value = [];
             queryById.value = {};
             vizById.value = {};
+            queryIdByWidgetId.value = {};
         }
     }
 
     async function ensureDefaultStepForQuery(queryId: string) {
         try {
-            const q = queryById.value[queryId];
-            if (!q) return null;
-            const stepId = q.default_step_id;
-            if (stepId && stepCache.value[stepId]) return stepCache.value[stepId];
+            // If we already have a cached default step id and step, return it quickly
+            const existingQ = queryById.value[queryId];
+            const cachedDefaultId = existingQ?.default_step_id
+            if (cachedDefaultId && stepCache.value[cachedDefaultId]) return stepCache.value[cachedDefaultId]
+
+            // Always fetch current default step directly from backend to avoid stale local state
             const { data, error } = await useMyFetch(`/api/queries/${queryId}/default_step`, { method: 'GET' });
             if (error.value) throw error.value;
             const step = (data.value || {}).step || null;
             if (step && step.id) {
                 // Cache by step id
                 stepCache.value[step.id] = step;
-                // Also update the query's default_step_id so subsequent layout passes resolve correctly
-                const existing = queryById.value[queryId];
-                if (existing && existing.default_step_id !== step.id) {
-                    queryById.value = { ...queryById.value, [queryId]: { ...existing, default_step_id: step.id } } as any
+                // Seed or update query map with latest default_step_id
+                const prev = queryById.value[queryId] || { id: queryId } as any
+                if (prev.default_step_id !== step.id) {
+                    queryById.value = { ...queryById.value, [queryId]: { ...prev, default_step_id: step.id } } as any
                 }
                 return step;
             }
+
+            // As a fallback, hydrate query map so future calls can succeed
+            try {
+                const qRes = await useMyFetch(`/api/queries/${queryId}`, { method: 'GET' })
+                const qData: any = qRes?.data?.value
+                if (qData?.id) {
+                    queryById.value = { ...queryById.value, [queryId]: qData } as any
+                }
+            } catch {}
             return null;
         } catch (e: any) {
             console.error('Failed to load default step for query', queryId, e);
@@ -420,6 +445,18 @@
                 if (b.type === 'widget' && b.widget_id) {
                     const src = widgetMap.get(b.widget_id);
                     if (!src) continue;
+                    // Try to resolve the latest default step for the widget via its query
+                    const qidForWidget = queryIdByWidgetId.value[b.widget_id];
+                    let lastStepForWidget: any = null;
+                    if (qidForWidget) {
+                        const qExisting = queryById.value[qidForWidget];
+                        const defaultStepId = qExisting?.default_step_id;
+                        if (defaultStepId && stepCache.value[defaultStepId]) {
+                            lastStepForWidget = stepCache.value[defaultStepId];
+                        } else {
+                            stepPromises.push(ensureDefaultStepForQuery(qidForWidget));
+                        }
+                    }
                     nextDisplayed.push({
                         ...src,
                         x: b.x, y: b.y, width: b.width, height: b.height,
@@ -429,6 +466,7 @@
                         showControls: src.showControls ?? false,
                         show_data: src.show_data ?? false,
                         show_data_model: src.show_data_model ?? false,
+                        last_step: lastStepForWidget || src.last_step || null,
                     });
                 } else if (b.type === 'text_widget' && b.text_widget_id) {
                     const embedded = (b as any).text_widget || null;
@@ -471,6 +509,8 @@
                         id: vid,
                         x: b.x, y: b.y, width: b.width, height: b.height,
                         type: 'regular',
+                        isVisualization: true,
+                        query_id: qid,
                         title: viz.title || '',
                         last_step: step || (defaultStepId ? stepCache.value[defaultStepId] : null),
                         view: mergedView,
@@ -504,6 +544,37 @@
         if (isModalOpen.value && modalGrid.value) {
             await loadWidgetsIntoGrid(modalGrid.value, allWidgets.value, true);
         }
+    }
+
+    // External event handlers
+    async function handleExternalLayoutChanged(ev: CustomEvent) {
+        try {
+            const detail: any = (ev as any)?.detail || {}
+            if (detail && String(detail.report_id || props.report?.id) !== String(props.report?.id)) {
+                // Ignore events for other reports
+            }
+            await refreshLayout()
+        } catch {}
+    }
+
+    async function handleExternalDefaultStepChanged(ev: CustomEvent) {
+        try {
+            const detail: any = (ev as any)?.detail || {}
+            const qid = detail?.query_id
+            const step = detail?.step
+            if (!qid) return
+            if (step?.id) {
+                stepCache.value[step.id] = step
+            }
+            const prevQ = queryById.value[qid] || { id: qid }
+            if (prevQ.default_step_id !== step?.id) {
+                queryById.value = { ...queryById.value, [qid]: { ...prevQ, default_step_id: step?.id || prevQ.default_step_id } } as any
+            }
+            // Force tiles to re-bind last_step for any viz or widget bound to this query
+            const prev = layoutBlocks.value; layoutBlocks.value = prev
+            await nextTick()
+            await applyLayoutToLocalState()
+        } catch {}
     }
 
     async function getTextWidgetsInternal() {
@@ -727,22 +798,46 @@
     // --- Widget CRUD ---
     async function removeWidget(widget: any) {
         try {
-            const { error } = await useMyFetch(`/api/reports/${props.report.id}/widgets/${widget.id}`, { method: 'DELETE' });
+            // Remove the visualization block from the active layout
+            if (!activeLayout.value) {
+                await fetchActiveLayout();
+            }
+            const layoutId = activeLayout.value?.id;
+            if (!layoutId) throw new Error('Active layout not found');
+
+            const currentBlocks: any[] = Array.isArray(layoutBlocks.value) ? [...layoutBlocks.value] : (activeLayout.value?.blocks || []);
+            const filteredBlocks = currentBlocks.filter((b: any) => {
+                if (b?.type === 'visualization' && b?.visualization_id === widget.id) return false;
+                if (b?.type === 'widget' && b?.widget_id === widget.id) return false;
+                return true;
+            });
+
+            const { data, error } = await useMyFetch(`/api/reports/${props.report.id}/layouts/${layoutId}`, {
+                method: 'PATCH',
+                body: { blocks: filteredBlocks }
+            });
             if (error.value) throw error.value;
+
+            // Update local state
+            activeLayout.value = data.value as any;
+            layoutBlocks.value = (activeLayout.value as any)?.blocks || [];
 
             const el = grid.value?.engine.nodes.find(n => n.id === widget.id)?.el;
             if (el && grid.value) {
                  grid.value.removeWidget(el); // Triggers 'removed' event
             } else {
-                 console.warn(`Could not find element for widget ${widget.id} in grid to remove.`);
                 const index = displayedWidgets.value.findIndex(w => w.id === widget.id);
                 if (index !== -1) displayedWidgets.value.splice(index, 1);
                  emit('removeWidget', { id: widget.id });
             }
-            toast.add({ title: 'Widget Removed' });
+            toast.add({ title: 'Removed from dashboard' });
+            // Broadcast so previews update their membership buttons immediately
+            try {
+                window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: props.report.id, action: 'removed', widget_id: widget.id } }))
+            } catch {}
         } catch (error: any) {
-            console.error(`Failed to remove widget ${widget.id}`, error);
-            toast.add({ title: 'Error', description: `Failed to remove widget. ${error.message || ''}`, color: 'red' });
+            console.error(`Failed to remove from dashboard ${widget.id}`, error);
+            toast.add({ title: 'Error', description: `Failed to remove from dashboard. ${error.message || ''}`, color: 'red' });
         }
     }
     async function removeTextWidget(widget: any) {
@@ -1032,6 +1127,17 @@
     }
     function resolvedComp(widget: any) {
         return getCompForType(widget?.last_step?.data_model?.type);
+    }
+
+    // --- Edit Visualization Handler ---
+    function handleEditVisualization(payload: { queryId: string; widget: any }) {
+        // Emit event to parent component to open query editor
+        emit('editVisualization', {
+            queryId: payload.queryId,
+            stepId: payload.widget.last_step?.id || null,
+            initialCode: payload.widget.last_step?.code || '',
+            title: payload.widget.title || 'Edit Visualization'
+        })
     }
 
     // --- Exposed Methods ---

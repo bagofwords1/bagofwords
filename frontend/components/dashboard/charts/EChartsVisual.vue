@@ -395,7 +395,7 @@ function buildOptions() {
   }
 }
 
-watch(() => [props.data?.rows, props.data_model, props.view, tokens.value], () => {
+watch(() => [props.step?.id, props.data?.rows, props.data_model, props.view, tokens.value], () => {
   buildOptions()
 }, { deep: true, immediate: true })
 </script>
