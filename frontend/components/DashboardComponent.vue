@@ -16,6 +16,11 @@
     
         <!-- Main container for grid and floating editor -->
         <div class="relative w-full h-full dashboard-area bg-white" :style="wrapperStyle">
+            <!-- Loading overlay during initial fetch -->
+            <div v-if="isLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
+                <Spinner class="mr-2 w-4 h-4" />
+                <span class="text-sm text-gray-600">Loading dashboard…</span>
+            </div>
             <!-- Gridstack Container -->
             <div ref="gridstackContainer"
                  class="grid-stack main-grid"
@@ -81,7 +86,7 @@
             </div>
     
             <!-- Minimal empty state when there are no components -->
-            <div v-if="allWidgets.length === 0" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <div v-if="allWidgets.length === 0 && !isLoading" class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                 <Icon name="heroicons-chart-bar" class="w-6 h-6 text-gray-400 block mb-2" />
                 <div v-if="props.edit" class="text-gray-400 text-sm">Write a prompt to create a dashboard</div>
                 <div v-else class="text-gray-400 text-sm">No dashboard items yet</div>
@@ -131,6 +136,7 @@
     import TextWidgetView from '@/components/dashboard/text/TextWidgetView.vue';
     import RegularWidgetView from '@/components/dashboard/regular/RegularWidgetView.vue';
     import FullscreenGrid from '@/components/dashboard/FullscreenGrid.vue';
+    import Spinner from '@/components/Spinner.vue';
     import { resolveEntryByType } from '@/components/dashboard/registry'
     import { themes } from '@/components/dashboard/themes'
     import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
@@ -160,6 +166,7 @@
     const stepCache = ref<Record<string, any>>({});
     const activeLayout = ref<any | null>(null);
     const layoutBlocks = ref<any[] | null>(null);
+    const isLoading = ref<boolean>(true);
 
     // Zoom state
     const zoom = ref(1);
@@ -260,6 +267,7 @@
         await loadQueriesForReport();
         await fetchAllWidgets();
         loadWidgetsIntoGrid(grid.value, allWidgets.value);
+        isLoading.value = false;
         document.addEventListener('keydown', handleEscKey);
         // Cross-pane sync listeners
         window.addEventListener('dashboard:layout_changed', handleExternalLayoutChanged as any)
@@ -873,7 +881,11 @@
         try {
             if (!widget.isNew) {
                 const { error } = await useMyFetch(`/api/reports/${props.report.id}/text_widgets/${widget.id}`, { method: 'DELETE' });
-                if (error.value) throw error.value;
+                // Treat 404 as success: widget may already be deleted; backend also cleans layout
+                if (error.value) {
+                    const status = (error.value as any)?.status || (error.value as any)?.response?.status;
+                    if (status !== 404) throw error.value;
+                }
             }
 
             const el = grid.value?.engine.nodes.find(n => n.id === widget.id)?.el;

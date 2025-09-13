@@ -227,3 +227,34 @@ class DashboardLayoutService:
         return await self.patch_layout_blocks(db, report_id, active_layout.id, payload)
 
 
+    async def remove_blocks_for_text_widget(self, db: AsyncSession, report_id: str, text_widget_id: str) -> None:
+        """Remove any blocks referencing the given text_widget_id from ALL layouts for the report.
+
+        This is used to keep the dashboard layout JSON consistent when a text widget
+        is deleted (or was already deleted) so subsequent operations don't fail
+        due to dangling references.
+        """
+        # Load all layouts for report
+        result = await db.execute(
+            select(DashboardLayoutVersion).where(DashboardLayoutVersion.report_id == report_id)
+        )
+        layouts = list(result.scalars().all())
+
+        for layout in layouts:
+            original_blocks = list(layout.blocks or [])
+            filtered_blocks = [
+                b for b in original_blocks
+                if not (isinstance(b, dict) and b.get("type") == "text_widget" and b.get("text_widget_id") == text_widget_id)
+            ]
+
+            if filtered_blocks != original_blocks:
+                # Persist via explicit UPDATE to avoid JSON change detection edge cases
+                await db.execute(
+                    update(DashboardLayoutVersion)
+                    .where(DashboardLayoutVersion.id == layout.id)
+                    .values(blocks=filtered_blocks)
+                )
+
+        # Commit once for all updates
+        await db.commit()
+

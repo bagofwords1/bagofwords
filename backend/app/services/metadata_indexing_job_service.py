@@ -292,7 +292,7 @@ class MetadataIndexingJobService:
                 
                 if metadata_resource:
                     created_resources.append(metadata_resource)
-                    logger.debug(f"Created/updated markdown resource: {doc_item.get('name')}")
+                    #  logger.debug(f"Created/updated markdown resource: {doc_item.get('name')}")
 
             logger.info(f"Completed Markdown parsing for job {job_id}. Created/updated {len(created_resources)} resources")
             return created_resources
@@ -380,7 +380,7 @@ class MetadataIndexingJobService:
                 return existing_resource
             else:
                 # Create new resource
-                logger.debug(f"Creating new resource: {resource_type} {resource_data.name}")
+                #logger.debug(f"Creating new resource: {resource_type} {resource_data.name}")
                 new_resource = MetadataResource(**resource_data.dict())
                 new_resource.last_synced_at = current_time
                 # created_at and updated_at should be handled by BaseSchema default/onupdate if configured,

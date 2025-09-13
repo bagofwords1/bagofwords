@@ -21,7 +21,10 @@ export const themes: Record<string, ThemeDefinition> = {
       headingFontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
       axis: {
         xLabelColor: '#475569', xLineColor: '#e2e8f0',
-        yLabelColor: '#475569', yLineColor: '#e2e8f0'
+        yLabelColor: '#475569', yLineColor: '#e2e8f0',
+        xLabelShowAll: false, // Default to ECharts auto behavior
+        xLabelRotate: 0,
+        xLabelInterval: 'auto' as any
       },
       legend: { textColor: '#334155' },
       grid: { top: '10%', bottom: '12%', left: '6%', right: '4%' },
@@ -54,7 +57,10 @@ export const themes: Record<string, ThemeDefinition> = {
       axis: {
         xLabelColor: '#6b7280', xLineColor: '#e5d5b8',
         yLabelColor: '#6b7280', yLineColor: '#e5d5b8',
-        gridLineColor: 'rgba(125, 85, 44, 0.15)'
+        gridLineColor: 'rgba(125, 85, 44, 0.15)',
+        xLabelShowAll: false, // Keep retro classic with auto behavior
+        xLabelRotate: 0,
+        xLabelInterval: 'auto' as any
       },
       legend: { textColor: '#374151' },
       grid: { top: '10%', bottom: '12%', left: '6%', right: '4%' },
@@ -85,7 +91,10 @@ export const themes: Record<string, ThemeDefinition> = {
       axis: {
         xLabelColor: '#94a3b8', xLineColor: '#16212b',
         yLabelColor: '#94a3b8', yLineColor: '#16212b',
-        gridLineColor: 'rgba(148, 163, 184, 0.08)'
+        gridLineColor: 'rgba(148, 163, 184, 0.08)',
+        xLabelShowAll: false, // Hacker theme keeps it clean
+        xLabelRotate: 0,
+        xLabelInterval: 'auto' as any
       },
       legend: { textColor: '#cbd5e1' },
       grid: { top: '10%', bottom: '12%', left: '6%', right: '4%' },
@@ -112,7 +121,10 @@ export const themes: Record<string, ThemeDefinition> = {
       axis: {
         xLabelColor: '#475569', xLineColor: '#e5e7eb',
         yLabelColor: '#475569', yLineColor: '#e5e7eb',
-        gridLineColor: 'rgba(71, 85, 105, 0.15)'
+        gridLineColor: 'rgba(71, 85, 105, 0.15)',
+        xLabelShowAll: true, // Academic users often want to see all categories
+        xLabelRotate: 45,    // Diagonal labels for better readability
+        xLabelInterval: 0
       },
       legend: { textColor: '#334155' },
       grid: { top: '12%', bottom: '14%', left: '8%', right: '6%' },

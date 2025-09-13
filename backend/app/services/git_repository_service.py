@@ -10,7 +10,11 @@ from datetime import datetime
 
 from app.models.git_repository import GitRepository
 from app.models.data_source import DataSource
-from app.schemas.git_repository_schema import GitRepositoryCreate, GitRepositoryUpdate
+from app.schemas.git_repository_schema import (
+    GitRepositoryCreate,
+    GitRepositoryUpdate,
+    GitRepositorySchema,
+)
 from app.models.user import User
 from app.models.organization import Organization
 from app.services.metadata_indexing_job_service import MetadataIndexingJobService
@@ -154,7 +158,7 @@ class GitRepositoryService:
 
         await self.index_git_repository(db, git_repository.id, data_source_id, organization)
 
-        return git_repository
+        return GitRepositorySchema.from_orm(git_repository)
 
     async def update_git_repository(
         self,
@@ -182,7 +186,7 @@ class GitRepositoryService:
             await db.commit()
             await db.refresh(repository)
 
-        return repository
+        return GitRepositorySchema.from_orm(repository)
 
     async def delete_git_repository(
         self,

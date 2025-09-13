@@ -17,6 +17,11 @@ class ViewSchema(BaseModel):
     legendVisible: Optional[bool] = None
     xAxisVisible: Optional[bool] = None
     yAxisVisible: Optional[bool] = None
+    titleVisible: Optional[bool] = None       # Show/hide chart title
+    
+    # X-axis label display controls for categorical data
+    xAxisLabelInterval: Optional[int] = 0  # default: show all labels
+    xAxisLabelRotate: Optional[int] = 45   # default: rotate 45 degrees
 
     class Config:
         extra = "allow"

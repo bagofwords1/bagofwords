@@ -14,6 +14,10 @@ export type ThemeTokens = {
     yLabelColor?: string;
     yLineColor?: string;
     gridLineColor?: string;
+    // Default x-axis label behavior for categorical data
+    xLabelInterval?: number | 'auto';
+    xLabelRotate?: number;
+    xLabelShowAll?: boolean;
   };
   legend?: { textColor?: string };
   grid?: { top?: string; bottom?: string; left?: string; right?: string };

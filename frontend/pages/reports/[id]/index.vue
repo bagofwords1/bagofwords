@@ -1,6 +1,12 @@
 <template>
 
-	<SplitScreenLayout 
+	<!-- Loading until report is fetched -->
+	<div v-if="!reportLoaded" class="h-screen w-full flex items-center justify-center text-gray-500">
+		<Spinner class="w-5 h-5 mr-2" />
+		<span class="text-sm">Loading report…</span>
+	</div>
+
+	<SplitScreenLayout v-else
 		:isSplitScreen="isSplitScreen" 
 		:leftPanelWidth="leftPanelWidth"
 		:isResizing="isResizing"
@@ -251,7 +257,7 @@
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
 		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
 			<div class="text-xs text-gray-500 flex items-center">
-				<Icon name="eos-icons:loading" class="w-3 h-3 mr-2 animate-spin text-gray-400" />
+				<Spinner class="w-3 h-3 mr-2 text-gray-400" />
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
@@ -326,6 +332,7 @@ import DashboardComponent from '~/components/DashboardComponent.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
+import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 
 // Types

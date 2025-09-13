@@ -3,7 +3,7 @@
     <!-- Title section -->
     <div class="flex items-center text-xs text-gray-500 mb-3">
       <!-- Status icon -->
-      <Icon v-if="isLoading" name="eos-icons:loading" class="w-3 h-3 mr-1.5 animate-spin text-gray-400" />
+      <Spinner v-if="isLoading" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else-if="drafts.length > 0" name="heroicons-light-bulb" class="w-3 h-3 mr-1.5 text-green-500" />
       
       <!-- Title with shimmer for loading -->
@@ -51,10 +51,9 @@
               class="flex items-center text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
               :disabled="isPublishing"
             >
-              <Icon 
+              <Spinner 
                 v-if="isPublishing && publishingIndex === i"
-                name="eos-icons:loading" 
-                class="w-3 h-3 text-green-600 animate-spin mr-1" 
+                class="w-3 h-3 text-green-600 mr-1" 
               />
               <Icon 
                 v-else
@@ -77,10 +76,9 @@
               class="flex items-center text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
               :disabled="isRejecting"
             >
-              <Icon 
+              <Spinner 
                 v-if="isRejecting && rejectingIndex === i"
-                name="eos-icons:loading" 
-                class="w-3 h-3 text-red-600 animate-spin mr-1" 
+                class="w-3 h-3 text-red-600 mr-1" 
               />
               <Icon 
                 v-else
@@ -108,6 +106,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface ToolExecution {
   id: string

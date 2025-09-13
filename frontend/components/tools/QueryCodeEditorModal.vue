@@ -2,7 +2,7 @@
   <UModal v-model="open" :ui="{ width: 'sm:max-w-6xl', height: 'sm:h-[90vh]' }">
     <div class="h-full flex flex-col">
       <div class="px-4 py-3 border-b flex items-center justify-between flex-shrink-0">
-        <div class="text-sm font-medium text-gray-800">Edit code — {{ title }}</div>
+        <div class="text-sm font-medium text-gray-800">Edit query — {{ title }}</div>
         <div v-if="currentStepId" class="ml-4 text-[11px] text-gray-500">Query ID: {{ queryId }}</div>
         <button class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50" @click="open = false">Close</button>
       </div>
@@ -14,7 +14,7 @@
               class="w-full text-left px-2 py-1.5 rounded mb-1 transition-colors"
               :class="activeTab === 'code' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
               @click="activeTab = 'code'"
-            >Code</button>
+            >Query</button>
             <button
               class="w-full text-left px-2 py-1.5 rounded transition-colors"
               :class="activeTab === 'visuals' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
@@ -101,7 +101,7 @@
                   </div>
                   
                   <!-- Content: Visualization (2/3) + Config (1/3) -->
-                  <div class="flex h-80">
+                  <div class="flex h-[32rem]">
                     <!-- Left: Visualization Rendering (2/3) -->
                     <div class="w-2/3 border-r border-gray-100">
                       <div v-if="shouldShowVisual(viz)" class="h-full bg-gray-50 p-2">

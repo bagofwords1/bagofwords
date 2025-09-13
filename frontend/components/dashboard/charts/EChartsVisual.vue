@@ -80,11 +80,13 @@ function normalizeRows(rows: any[] | undefined): any[] {
 }
 
 function getBaseOptions(): EChartsOption {
+  const titleVisible = props.view?.titleVisible ?? true
+  
   return {
     // Base on theme tokens, allow view to override later via specific fields
     color: undefined,
     backgroundColor: tokens.value?.background || (props.view?.style as any)?.backgroundColor || (props.view?.options as any)?.backgroundColor,
-    title: {
+    title: titleVisible ? {
       text: (props.step?.title || props.widget?.title || 'Chart'),
       left: 'center',
       top: 5,
@@ -94,8 +96,8 @@ function getBaseOptions(): EChartsOption {
         fontWeight: (props.view?.style as any)?.titleWeight || 700,
         fontSize: (props.view?.style as any)?.titleSize || 18
       }
-    },
-    grid: { containLabel: true, left: '3%', right: '4%', bottom: '10%', top: '15%' },
+    } : { show: false },
+    grid: { containLabel: true, left: '3%', right: '4%', bottom: '10%', top: titleVisible ? '15%' : '10%' },
     legend: { show: props.view?.legendVisible ?? false, left: 'center', bottom: 0, textStyle: { color: tokens.value?.legend?.textColor } },
     tooltip: { trigger: 'item', confine: true, ...(tokens.value?.tooltip || {}) },
     series: []
@@ -142,12 +144,32 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
   const xVisible = props.view?.xAxisVisible ?? true
   const yVisible = props.view?.yAxisVisible ?? true
 
+  // Build x-axis label configuration
+  const xAxisLabel: any = { color: axisColors.xLabelColor }
+  
+  // Apply x-axis label controls from view, with theme defaults as fallback
+  const viewInterval = props.view?.xAxisLabelInterval
+  const themeInterval = tokens.value?.axis?.xLabelInterval
+  if (viewInterval !== null && viewInterval !== undefined) {
+    xAxisLabel.interval = viewInterval
+  } else if (themeInterval !== null && themeInterval !== undefined && themeInterval !== 'auto') {
+    xAxisLabel.interval = themeInterval
+  }
+  
+  const viewRotate = props.view?.xAxisLabelRotate
+  const themeRotate = tokens.value?.axis?.xLabelRotate
+  if (viewRotate !== null && viewRotate !== undefined) {
+    xAxisLabel.rotate = viewRotate
+  } else if (themeRotate !== null && themeRotate !== undefined) {
+    xAxisLabel.rotate = themeRotate
+  }
+
   return {
     tooltip: { trigger: 'axis' },
     xAxis: {
       type: 'category', data: categories, name: dm?.series?.[0]?.key || 'Categories',
       show: xVisible,
-      axisLabel: { color: axisColors.xLabelColor },
+      axisLabel: xAxisLabel,
       axisLine: { lineStyle: { color: axisColors.xLineColor } },
       splitLine: axisColors.gridLineColor ? { show: true, lineStyle: { color: axisColors.gridLineColor } } : { show: false }
     },
@@ -346,9 +368,9 @@ function buildOptions() {
     if (Array.isArray(enc.series) && enc.series.length > 0) {
       const t = normalizeType((props.view as any)?.type || base.type)
       let series = enc.series.map((s: any) => ({ ...s }))
-      // For cartesian charts, ensure key is present; derive from enc.category if missing
+      // For cartesian charts, always set series key from encoding.category so x-axis reflects current category
       if (t === 'bar_chart' || t === 'line_chart' || t === 'area_chart') {
-        if (enc.category) series = series.map((s: any) => ({ ...s, key: s.key || enc.category }))
+        if (enc.category) series = series.map((s: any) => ({ ...s, key: enc.category }))
       }
       // For pie, ensure key is present; derive from enc.category if missing
       if (t === 'pie_chart') {
@@ -365,6 +387,11 @@ function buildOptions() {
     // Scatter: x/y (fallback to key/value)
     if ((enc.x || enc.key) && (enc.y || enc.value)) {
       out.series = [{ name: enc.name, x: enc.x || enc.key, y: enc.y || enc.value }]
+      return out
+    }
+    // Heatmap: x/y/value
+    if (enc.x && enc.y && enc.value) {
+      out.series = [{ name: enc.name, x: enc.x, y: enc.y, value: enc.value }]
       return out
     }
     // Candlestick: open/close/low/high + key

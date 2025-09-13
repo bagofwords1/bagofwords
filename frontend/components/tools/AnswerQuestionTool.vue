@@ -3,7 +3,7 @@
     <!-- Status header -->
     <div class="mb-2 flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700">
       <span v-if="status === 'running'" class="tool-shimmer">
-        <Icon name="eos-icons:loading" class="w-3 h-3 mr-1.5 animate-spin text-gray-400" />
+        <Spinner class="w-3 h-3 mr-1.5 text-gray-400" />
         Searching...
       </span>
       <span v-else class="text-gray-700">Searched for answer</span>
@@ -17,6 +17,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface ToolExecution {
   id: string

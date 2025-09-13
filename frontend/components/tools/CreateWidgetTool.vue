@@ -25,7 +25,7 @@
         <!-- Section 1: Creating Data Model -->
         <div class="mb-4">
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleDm">
-            <Icon v-if="isDMRunning" name="eos-icons:loading" class="w-3 h-3 mr-1.5 animate-spin text-gray-400" />
+            <Spinner v-if="isDMRunning" class="w-3 h-3 mr-1.5 text-gray-400" />
             <Icon v-else-if="dmDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
             <span v-if="isDMRunning" class="tool-shimmer">Creating Data Model</span>
             <span v-else class="text-gray-700">Creating Data Model</span>
@@ -59,7 +59,7 @@
         <!-- Section 2: Generating Code (only show after data model is completed) -->
         <div class="mb-2" v-if="dmDone">
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCode">
-            <Icon v-if="isCodeRunning" name="eos-icons:loading" class="w-3 h-3 mr-1.5 animate-spin text-gray-400" />
+            <Spinner v-if="isCodeRunning" class="w-3 h-3 mr-1.5 text-gray-400" />
             <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
             <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">Validating Code</span>
@@ -157,6 +157,7 @@
 import { computed, ref, watch } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface Props {
   toolExecution: {
@@ -287,10 +288,6 @@ const formatDuration = computed(() => {
   const seconds = (props.toolExecution.duration_ms / 1000).toFixed(1)
   return `${seconds}s`
 })
-
-function toggleCollapsed() {
-  isCollapsed.value = !isCollapsed.value
-}
 
 // Collapse DM and Code by default if each is completed
 watch([dmDone, codeDone, status], ([dmNow, codeNow, st]) => {
