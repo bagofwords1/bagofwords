@@ -14,6 +14,7 @@ export type ThemeTokens = {
     yLabelColor?: string;
     yLineColor?: string;
     gridLineColor?: string;
+    gridShow?: boolean;
     // Default x-axis label behavior for categorical data
     xLabelInterval?: number | 'auto';
     xLabelRotate?: number;

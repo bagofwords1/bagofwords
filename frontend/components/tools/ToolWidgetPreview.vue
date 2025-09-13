@@ -59,10 +59,14 @@
           <!-- Chart Content -->
           <Transition name="fade" mode="out-in">
             <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)" class="bg-gray-50 rounded-sm p-2">
-              <div v-if="resolvedCompEl" class="h-[340px]">
+              <!-- Prefer explicit count renderer to avoid async component timing -->
+              <div v-if="effectiveStep?.data_model?.type === 'count'" class="h-[340px] flex items-start">
+                <RenderCount :show_title="true" :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
+              </div>
+              <div v-else-if="resolvedCompEl" class="h-[340px]">
                 <component
                   :is="resolvedCompEl"
-                  :widget="widget"
+                  :widget="effectiveWidget"
                   :data="effectiveStep?.data"
                   :data_model="effectiveStep?.data_model"
                   :step="effectiveStep"
@@ -72,10 +76,7 @@
                 />
               </div>
               <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
-                <RenderVisual :widget="widget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
-              </div>
-              <div v-else-if="effectiveStep?.data_model?.type === 'count'">
-                <RenderCount :show_title="true" :widget="widget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
+                <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
               </div>
             </div>
           </Transition>
@@ -173,6 +174,14 @@ const visualization = computed(() => {
   const list = (props.toolExecution as any)?.created_visualizations
   if (Array.isArray(list) && list.length) return list[0]
   return null
+})
+
+// Provide a stable widget object for children even if upstream is null
+const effectiveWidget = computed(() => {
+  const v = visualization.value as any
+  const w = widget.value as any
+  if (w && w.id) return w
+  return { id: v?.id || (props.toolExecution as any)?.created_step_id || 'preview', title: v?.title || widgetTitle.value } as any
 })
 
 // Derive query id from available sources
@@ -348,8 +357,11 @@ watch(layoutBlocks, () => {
 const canAdd = computed(() => {
   const viz = visualization.value
   const st = effectiveStep.value
-  const stepOk = st?.status === 'success'
-  const vizOk = viz?.status === 'success'
+  // Consider step OK if explicit status is success OR if rows are present
+  const rows = st?.data?.rows
+  const stepOk = st?.status ? st.status === 'success' : Array.isArray(rows)
+  // Consider viz OK if explicit status is success OR if it has an id
+  const vizOk = viz?.status ? viz.status === 'success' : !!viz?.id
   return !!(viz?.id && stepOk && vizOk)
 })
 
@@ -458,7 +470,7 @@ onMounted(() => {
         try {
           const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
           if (!error.value) {
-            const fetched = (data.value || {}).step || null
+            const fetched = ((data.value as any) || {}).step || null
             if (fetched) {
               stepOverride.value = JSON.parse(JSON.stringify(fetched))
             }

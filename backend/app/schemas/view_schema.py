@@ -23,6 +23,9 @@ class ViewSchema(BaseModel):
     xAxisLabelInterval: Optional[int] = 0  # default: show all labels
     xAxisLabelRotate: Optional[int] = 45   # default: rotate 45 degrees
 
+    # Grid / background guides
+    showGridLines: Optional[bool] = None
+
     class Config:
         extra = "allow"
 

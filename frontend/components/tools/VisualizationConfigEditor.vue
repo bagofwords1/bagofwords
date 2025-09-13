@@ -371,16 +371,18 @@
               <div class="text-gray-600 mb-1">Title size</div>
               <input v-model.number="local.style.titleSize" type="number" min="10" max="36" class="w-full border rounded px-2 py-1" />
             </div>
+            <div>
+              <div class="text-gray-600 mb-1">Card background</div>
+              <input v-model="local.style.cardBackground" placeholder="#ffffff or transparent" class="w-full border rounded px-2 py-1" />
+            </div>
+            <div>
+              <div class="text-gray-600 mb-1">Card border (color or 'none')</div>
+              <input v-model="local.style.cardBorder" placeholder="#e5e7eb or none" class="w-full border rounded px-2 py-1" />
+            </div>
           </div>
 
           <!-- Axis label controls -->
-          <div class="grid grid-cols-3 gap-2" v-if="isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])">
-            <div>
-              <label class="flex items-center space-x-1 mb-1">
-                <input type="checkbox" v-model="local.xAxisLabelShowAll" />
-                <span class="text-gray-700">Show all labels</span>
-              </label>
-            </div>
+          <div class="grid grid-cols-2 gap-2" v-if="isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])">
             <div>
               <div class="text-gray-600 mb-1">Label rotation</div>
               <select v-model.number="local.xAxisLabelRotate" class="w-full border rounded px-2 py-1 bg-white">
@@ -401,6 +403,30 @@
                 <option :value="3">Every 4th (3)</option>
               </select>
             </div>
+          </div>
+
+          <!-- Visibility toggles -->
+          <div class="flex items-center space-x-3 flex-wrap">
+            <label class="flex items-center space-x-1">
+              <input type="checkbox" v-model="local.titleVisible" />
+              <span>Title</span>
+            </label>
+            <label class="flex items-center space-x-1">
+              <input type="checkbox" v-model="local.legendVisible" />
+              <span>Legend</span>
+            </label>
+            <label class="flex items-center space-x-1">
+              <input type="checkbox" v-model="local.xAxisVisible" />
+              <span>X Axis</span>
+            </label>
+            <label class="flex items-center space-x-1">
+              <input type="checkbox" v-model="local.yAxisVisible" />
+              <span>Y Axis</span>
+            </label>
+            <label class="flex items-center space-x-1">
+              <input type="checkbox" v-model="local.showGridLines" />
+              <span>Grid lines</span>
+            </label>
           </div>
         </div>
       </Transition>
@@ -466,6 +492,7 @@ const local = reactive<any>({
   // X-axis label controls
   xAxisLabelRotate: props.viz?.view?.xAxisLabelRotate ?? null,
   xAxisLabelInterval: props.viz?.view?.xAxisLabelInterval ?? null,
+  showGridLines: props.viz?.view?.showGridLines ?? null,
 })
 
 // Convenience accessors bound to encoding structure
@@ -537,6 +564,7 @@ function toViewPayload() {
     // X-axis label controls
     xAxisLabelRotate: local.xAxisLabelRotate,
     xAxisLabelInterval: local.xAxisLabelInterval,
+    showGridLines: local.showGridLines,
   }
   if (showEncoding.value) {
     const enc = deepClone(encoding)

@@ -171,13 +171,21 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
       show: xVisible,
       axisLabel: xAxisLabel,
       axisLine: { lineStyle: { color: axisColors.xLineColor } },
-      splitLine: axisColors.gridLineColor ? { show: true, lineStyle: { color: axisColors.gridLineColor } } : { show: false }
+      splitLine: (() => {
+        const explicit = (props.view as any)?.showGridLines
+        const show = explicit !== undefined && explicit !== null ? explicit : (tokens.value?.axis as any)?.gridShow ?? Boolean(axisColors.gridLineColor)
+        return show ? { show: true, lineStyle: { color: axisColors.gridLineColor || '#e5e7eb' } } : { show: false }
+      })()
     },
     yAxis: {
       type: 'value', name: 'Values', show: yVisible,
       axisLabel: { color: axisColors.yLabelColor },
       axisLine: { lineStyle: { color: axisColors.yLineColor } },
-      splitLine: axisColors.gridLineColor ? { show: true, lineStyle: { color: axisColors.gridLineColor } } : { show: true }
+      splitLine: (() => {
+        const explicit = (props.view as any)?.showGridLines
+        const show = explicit !== undefined && explicit !== null ? explicit : (tokens.value?.axis as any)?.gridShow ?? true
+        return show ? { show: true, lineStyle: { color: axisColors.gridLineColor || '#e5e7eb' } } : { show: false }
+      })()
     },
     legend: { show: props.view?.legendVisible ?? false, textStyle: { color: tokens.value?.legend?.textColor } },
     series
