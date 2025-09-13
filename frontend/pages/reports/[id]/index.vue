@@ -1168,6 +1168,13 @@ async function refreshDashboardFast() {
     }
 }
 
+// Ensure dashboard pane opens only when currently closed
+onMounted(() => {
+    window.addEventListener('dashboard:ensure_open', () => {
+        if (!isSplitScreen.value) toggleSplitScreen()
+    })
+})
+
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
 watch(() => messages.value, () => {
     try {

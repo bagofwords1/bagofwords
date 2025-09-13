@@ -63,25 +63,27 @@
                 <component
                   :is="resolvedCompEl"
                   :widget="widget"
-                  :data="step?.data"
-                  :data_model="step?.data_model"
-                  :step="step"
+                  :data="effectiveStep?.data"
+                  :data_model="effectiveStep?.data_model"
+                  :step="effectiveStep"
                   :view="visualization?.view || step?.view"
+                  :reportThemeName="reportThemeName"
+                  :reportOverrides="reportOverrides"
                 />
               </div>
-              <div v-else-if="chartVisualTypes.has(step?.data_model?.type)" class="h-[340px]">
-                <RenderVisual :widget="widget" :data="step?.data" :data_model="step?.data_model" />
+              <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
+                <RenderVisual :widget="widget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
               </div>
-              <div v-else-if="step?.data_model?.type === 'count'">
-                <RenderCount :show_title="true" :widget="widget" :data="step?.data" :data_model="step?.data_model" />
+              <div v-else-if="effectiveStep?.data_model?.type === 'count'">
+                <RenderCount :show_title="true" :widget="widget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
               </div>
             </div>
           </Transition>
 
           <!-- Table Content -->
           <Transition name="fade" mode="out-in">
-            <div v-if="(showTabs && activeTab === 'table') || (!showTabs && hasData && !showVisual)" class="h-[400px]">
-              <RenderTable :widget="widget" :step="step" />
+            <div v-if="(showTabs && activeTab === 'table') || (!showTabs && (String((visualization?.view as any)?.type || effectiveStep?.data_model?.type || '').toLowerCase() === 'table'))" class="h-[400px]">
+              <RenderTable :widget="widget" :step="{ ...(effectiveStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
             </div>
           </Transition>
         </div>
@@ -126,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, defineAsyncComponent, onMounted } from 'vue'
+import { computed, ref, watch, defineAsyncComponent, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
 import RenderVisual from '../RenderVisual.vue'
@@ -155,12 +157,16 @@ const isAdding = ref(false)
 const layoutBlocks = ref<any[]>([])
 const route = useRoute()
 const reportId = computed(() => String(route.params.id || ''))
+const reportThemeName = ref<string | null>(null)
+const reportOverrides = ref<Record<string, any> | null>(null)
 
 // Tab state - default to chart if available, otherwise table
 const activeTab = ref<'chart' | 'table'>('chart')
 
 const widget = computed(() => props.toolExecution?.created_widget || null)
 const step = computed(() => props.toolExecution?.created_step || null)
+const stepOverride = ref<any | null>(null)
+const effectiveStep = computed(() => stepOverride.value || step.value)
 const hydratedVisualization = ref<any | null>(null)
 const visualization = computed(() => {
   if (hydratedVisualization.value) return hydratedVisualization.value
@@ -172,7 +178,7 @@ const visualization = computed(() => {
 // Derive query id from available sources
 const queryId = computed(() => {
   const v = visualization.value as any
-  const s = step.value as any
+  const s = effectiveStep.value as any
   return v?.query_id || s?.query_id || (props.toolExecution as any)?.result_json?.query_id || null
 })
 
@@ -195,14 +201,14 @@ async function hydrateVisualizationIfNeeded() {
 // Widget title from various sources
 const widgetTitle = computed(() => {
   return widget.value?.title || 
-         step.value?.title || 
+         effectiveStep.value?.title || 
          props.toolExecution?.result_json?.widget_title ||
          'Results'
 })
 
 // Row count for display
 const rowCount = computed(() => {
-  const rows = step.value?.data?.rows
+  const rows = effectiveStep.value?.data?.rows
   if (Array.isArray(rows)) {
     return `${rows.length.toLocaleString()}`
   }
@@ -223,7 +229,8 @@ const chartVisualTypes = new Set<string>([
 ])
 
 const showVisual = computed(() => {
-  const t = step.value?.data_model?.type
+  const vType = (visualization.value?.view as any)?.type
+  const t = vType || effectiveStep.value?.data_model?.type
   if (!t) return false
   const entry = resolveEntryByType(String(t).toLowerCase())
   if (entry) {
@@ -248,16 +255,16 @@ function getCompForType(type?: string | null) {
 // Prefer the visualization.view.type if available; fall back to data_model.type
 const resolvedCompEl = computed(() => {
   const vType = (visualization.value?.view as any)?.type
-  const dmType = step.value?.data_model?.type
+  const dmType = effectiveStep.value?.data_model?.type
   return getCompForType(String(vType || dmType || ''))
 })
 
 // Determine if table/data is present
 const hasData = computed(() => {
-  const rows = step.value?.data?.rows
+  const rows = effectiveStep.value?.data?.rows
   if (Array.isArray(rows)) return rows.length >= 0
   // If structure differs, still attempt to show table; RenderTable guards internal nulls
-  return !!step.value
+  return !!effectiveStep.value
 })
 
 // Show tabs only when both chart and table are available
@@ -278,13 +285,13 @@ function toggleCollapsed() {
 
 // CSV download functionality
 const hasDataForDownload = computed(() => {
-  const rows = step.value?.data?.rows
+  const rows = effectiveStep.value?.data?.rows
   return Array.isArray(rows) && rows.length > 0
 })
 
 function downloadCSV() {
-  const rows = step.value?.data?.rows
-  const columns = step.value?.data?.columns
+  const rows = effectiveStep.value?.data?.rows
+  const columns = effectiveStep.value?.data?.columns
   
   if (!Array.isArray(rows) || !Array.isArray(columns) || rows.length === 0) {
     return
@@ -299,7 +306,7 @@ function downloadCSV() {
       // Escape quotes and wrap in quotes if contains comma or quote
       const stringValue = String(value)
       if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
-        return `"${stringValue.replace(/"/g, '""')}"`
+        return `"${stringValue.replace(/\"/g, '""')}"`
       }
       return stringValue
     }).join(',')
@@ -340,7 +347,7 @@ watch(layoutBlocks, () => {
 }, { deep: true })
 const canAdd = computed(() => {
   const viz = visualization.value
-  const st = step.value
+  const st = effectiveStep.value
   const stepOk = st?.status === 'success'
   const vizOk = viz?.status === 'success'
   return !!(viz?.id && stepOk && vizOk)
@@ -356,6 +363,124 @@ onMounted(() => {
     } catch {}
   }
   window.addEventListener('dashboard:layout_changed', handleLayoutChanged as any)
+  function handleVizUpdated(ev: CustomEvent) {
+    try {
+      const detail: any = (ev as any)?.detail || {}
+      const id: string | undefined = detail?.id
+      const updated: any = detail?.visualization
+      const current = visualization.value as any
+      if (!id || !updated || !current?.id) return
+      if (String(current.id) !== String(id)) return
+      // Update local hydrated viz so preview re-renders with latest view/title
+      hydratedVisualization.value = JSON.parse(JSON.stringify({ ...(current || {}), ...(updated || {}) }))
+    } catch {}
+  }
+  window.addEventListener('visualization:updated', handleVizUpdated as any)
+  // Store removers on instance for cleanup
+  ;(window as any).__tw_preview_handlers__ = { handleLayoutChanged, handleVizUpdated }
+  // Load report theme so preview uses same styling as dashboard
+  ;(async () => {
+    try {
+      if (!reportId.value) return
+      const { data, error } = await useMyFetch(`/api/reports/${reportId.value}`, { method: 'GET' })
+      if (error.value) return
+      const r: any = data.value
+      reportThemeName.value = r?.report_theme_name || r?.theme_name || null
+      reportOverrides.value = r?.theme_overrides || null
+    } catch {}
+  })()
+  // Live theme updates from dashboard
+  function handleThemeChanged(ev: CustomEvent) {
+    try {
+      const detail: any = (ev as any)?.detail || {}
+      if (!detail) return
+      if (String(detail.report_id || '') !== String(reportId.value || '')) return
+      reportThemeName.value = detail.themeName || null
+      reportOverrides.value = detail.overrides ? JSON.parse(JSON.stringify(detail.overrides)) : null
+    } catch {}
+  }
+  window.addEventListener('dashboard:theme_changed', handleThemeChanged as any)
+  ;(window as any).__tw_preview_handlers__.handleThemeChanged = handleThemeChanged
+  // On initial mount, if we can resolve a query id, fetch the latest default step
+  ;(async () => {
+    try {
+      const qid = queryId.value
+      if (qid) {
+        const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
+        if (!error.value) {
+          const fetched = ((data.value as any) || {}).step || null
+          if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
+        }
+      }
+    } catch {}
+  })()
+  // Update local step when the editor broadcasts a new default step for this query
+  function handleDefaultStepChanged(ev: CustomEvent) {
+    try {
+      const detail: any = (ev as any)?.detail || {}
+      if (!detail?.query_id) return
+      if (String(detail.query_id) !== String(queryId.value || '')) return
+      // Always fetch the latest default step from backend to avoid stale payloads
+      ;(async () => {
+        try {
+          const { data, error } = await useMyFetch(`/api/queries/${detail.query_id}/default_step`, { method: 'GET' })
+          if (!error.value) {
+            const fetched = ((data.value as any) || {}).step || null
+            if (fetched) {
+              stepOverride.value = JSON.parse(JSON.stringify(fetched))
+            } else if (detail.step) {
+              stepOverride.value = JSON.parse(JSON.stringify(detail.step))
+            }
+          } else if (detail.step) {
+            stepOverride.value = JSON.parse(JSON.stringify(detail.step))
+          }
+        } catch {
+          if (detail.step) {
+            stepOverride.value = JSON.parse(JSON.stringify(detail.step))
+          }
+        }
+      })()
+    } catch {}
+  }
+  window.addEventListener('query:default_step_changed', handleDefaultStepChanged as any)
+  ;(window as any).__tw_preview_handlers__.handleDefaultStepChanged = handleDefaultStepChanged
+  // Allow editor to explicitly rebind this preview to a specific query id
+  function handleToolPreviewRebind(ev: CustomEvent) {
+    try {
+      const detail: any = (ev as any)?.detail || {}
+      const teid: string | undefined = detail?.tool_execution_id
+      const qid: string | undefined = detail?.query_id
+      if (!teid || String(teid) !== String((props.toolExecution as any)?.id || (props.toolExecution as any)?.created_step_id || '')) return
+      if (!qid) return
+      // Update visualization/query binding and fetch the latest default step immediately
+      hydratedVisualization.value = null
+      ;(async () => {
+        try {
+          const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
+          if (!error.value) {
+            const fetched = (data.value || {}).step || null
+            if (fetched) {
+              stepOverride.value = JSON.parse(JSON.stringify(fetched))
+            }
+          }
+        } catch {}
+      })()
+    } catch {}
+  }
+  window.addEventListener('tool_preview:rebind', handleToolPreviewRebind as any)
+  ;(window as any).__tw_preview_handlers__.handleToolPreviewRebind = handleToolPreviewRebind
+})
+
+onUnmounted(() => {
+  const handlers: any = (window as any).__tw_preview_handlers__
+  if (handlers) {
+    try { window.removeEventListener('dashboard:layout_changed', handlers.handleLayoutChanged as any) } catch {}
+    try { window.removeEventListener('visualization:updated', handlers.handleVizUpdated as any) } catch {}
+    try { window.removeEventListener('dashboard:theme_changed', handlers.handleThemeChanged as any) } catch {}
+    try { window.removeEventListener('query:default_step_changed', handlers.handleDefaultStepChanged as any) } catch {}
+    try { window.removeEventListener('tool_preview:rebind', handlers.handleToolPreviewRebind as any) } catch {}
+    ;(window as any).__tw_preview_handlers__ = undefined
+  }
 })
 
 async function onAddClick() {
@@ -381,16 +506,18 @@ async function onAddClick() {
         try {
           window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: reportId.value, action: 'added', visualization_id: visualization.value.id } }))
         } catch {}
-        // Emit toggleSplitScreen to ensure dashboard pane opens
-        emit('toggleSplitScreen')
+        // Ensure dashboard pane is open, but do not close if already open
+        try {
+          window.dispatchEvent(new CustomEvent('dashboard:ensure_open'))
+        } catch {}
       } catch (e) {
         // fallback to parent handler if exists
         emit('addWidget', { visualization: visualization.value, step: step.value })
-        emit('toggleSplitScreen')
+        try { window.dispatchEvent(new CustomEvent('dashboard:ensure_open')) } catch {}
       }
     } else {
       emit('addWidget', { visualization: visualization.value, step: step.value })
-      emit('toggleSplitScreen')
+      try { window.dispatchEvent(new CustomEvent('dashboard:ensure_open')) } catch {}
     }
     // Best-effort: refresh membership shortly after parent patches layout
     setTimeout(refreshMembership, 600)

@@ -26,6 +26,12 @@ class ViewSchema(BaseModel):
 class SeriesEncodingSchema(BaseModel):
     name: Optional[str] = None
     value: Optional[str] = None
+    # Common category/key field used for cartesian series
+    key: Optional[str] = None
+
+    class Config:
+        # Allow additional fields for specialized charts (x,y,open,close,low,high, etc.)
+        extra = "allow"
 
 
 class EncodingSchema(BaseModel):

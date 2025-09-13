@@ -28,11 +28,16 @@
           <div v-if="activeTab === 'code'" class="h-full flex flex-col">
             <!-- Editor section - exactly half height, fixed and non-scrollable -->
             <div class="h-1/2 p-4 flex flex-col border-b">
-              <textarea
-                v-model="editorCode"
-                class="block w-full flex-1 resize-none font-mono text-xs border rounded p-3 text-gray-800 focus:outline-none focus:ring-1 focus:ring-gray-300 min-h-0"
-                spellcheck="false"
-              />
+              <ClientOnly>
+                <div class="flex-1 min-h-0">
+                  <MonacoEditor
+                    v-model="editorCode"
+                    lang="python"
+                    :options="{ theme: 'vs-dark', automaticLayout: false, minimap: { enabled: false }, wordWrap: 'on' }"
+                    style="height: 100%"
+                  />
+                </div>
+              </ClientOnly>
               <div v-if="errorMsg" class="mt-2 text-xs text-red-600">{{ errorMsg }}</div>
               <div class="mt-3 flex items-center justify-end space-x-2">
                 <button class="px-3 py-1.5 text-xs rounded bg-gray-800 text-white hover:bg-gray-700" :disabled="running" @click="runNewStep">
@@ -88,12 +93,6 @@
                     <div class="flex items-center justify-between">
                       <div class="flex items-center space-x-2">
                         <h4 class="text-sm font-medium text-gray-800">{{ viz.title || 'Untitled' }}</h4>
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
-                              :class="viz.status === 'success' ? 'bg-green-100 text-green-800' : 
-                                     viz.status === 'draft' ? 'bg-gray-100 text-gray-800' :
-                                     'bg-red-100 text-red-800'">
-                          {{ viz.status }}
-                        </span>
                       </div>
                       <div class="text-xs text-gray-500">
                         ID: {{ viz.id }}
@@ -107,7 +106,7 @@
                     <div class="w-2/3 border-r border-gray-100">
                       <div v-if="shouldShowVisual(viz)" class="h-full bg-gray-50 p-2">
                         <!-- Dynamic component rendering -->
-                        <div v-if="getResolvedCompEl(viz)" class="h-full">
+                        <div v-if="getResolvedCompEl(viz) && shouldShowVisual(viz)" class="h-full">
                           <component
                             :is="getResolvedCompEl(viz)"
                             :widget="{ id: viz.id, title: viz.title } as any"
@@ -115,6 +114,8 @@
                             :data_model="viz.step?.data_model"
                             :step="viz.step"
                             :view="viz.view"
+                            :reportThemeName="reportThemeName"
+                            :reportOverrides="reportOverrides"
                           />
                         </div>
                         <!-- Fallback rendering -->
@@ -133,35 +134,27 @@
                             :data_model="viz.step?.data_model" 
                           />
                         </div>
-                        <div v-else class="h-full flex items-center justify-center text-gray-400 text-sm">
-                          No preview available
-                        </div>
+                        <div v-else class="h-full flex items-center justify-center text-gray-400 text-sm">No preview available</div>
                       </div>
-                      <div v-else class="h-full flex items-center justify-center text-gray-400 text-sm">
-                        No visual representation
+                      <div v-else class="h-full bg-gray-50 p-2">
+                        <div v-if="String(viz.view?.type || viz.step?.data_model?.type).toLowerCase() === 'table'" class="h-full">
+                          <RenderTable 
+                            :widget="{ id: viz.id, title: viz.title } as any" 
+                            :step="{ ...(viz.step || {}), data_model: { ...(viz.step?.data_model || {}), type: 'table' } } as any" 
+                          />
+                        </div>
+                        <div v-else class="h-full flex items-center justify-center text-gray-400 text-sm">No visual representation</div>
                       </div>
                     </div>
                     
                     <!-- Right: Configuration (1/3) -->
                     <div class="w-1/3 p-3 overflow-auto">
-                      <div v-if="viz.view" class="text-xs text-gray-600 space-y-3">
-                        <div v-if="viz.view.type">
-                          <div class="font-medium text-gray-800 mb-1">Type</div>
-                          <div class="text-gray-600">{{ viz.view.type }}</div>
-                        </div>
-                        <div v-if="viz.view.encoding">
-                          <div class="font-medium text-gray-800 mb-1">Encoding</div>
-                          <pre class="p-2 bg-gray-50 rounded text-xs overflow-auto max-h-48">{{ JSON.stringify(viz.view.encoding, null, 2) }}</pre>
-                        </div>
-                        <div v-if="Object.keys(viz.view).length > 2">
-                          <div class="font-medium text-gray-800 mb-1">Full Configuration</div>
-                          <pre class="p-2 bg-gray-50 rounded text-xs overflow-auto max-h-32">{{ JSON.stringify(viz.view, null, 2) }}</pre>
-                        </div>
-                      </div>
-                      
-                      <div v-else class="text-xs text-gray-400 italic">
-                        No view configuration
-                      </div>
+                      <VisualizationConfigEditor
+                        :viz="viz"
+                        :step="viz.step"
+                        @apply="onVizApply(viz, $event)"
+                        @saved="onVizSaved"
+                      />
                     </div>
                   </div>
                 </div>
@@ -188,6 +181,7 @@ import RenderVisual from '../RenderVisual.vue'
 import RenderCount from '../RenderCount.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
+import VisualizationConfigEditor from './VisualizationConfigEditor.vue'
 
 interface Props {
   visible: boolean
@@ -209,6 +203,8 @@ const queryId = ref<string | null>(null)
 const currentStepId = ref<string | null>(null)
 const queryData = ref<any | null>(null)
 const visualizations = ref<any[]>([])
+const reportThemeName = ref<string | null>(null)
+const reportOverrides = ref<Record<string, any> | null>(null)
 
 const open = computed({
   get: () => props.visible,
@@ -254,6 +250,18 @@ async function loadQueryData() {
     if (error.value) throw error.value
     
     queryData.value = data.value
+    // Load theme from owning report (queries themselves do not carry theme)
+    try {
+      const rid = (data.value as any)?.report_id
+      if (rid) {
+        const { data: rdata, error: rerr } = await useMyFetch(`/api/reports/${rid}`)
+        if (!rerr.value) {
+          const rpt: any = rdata.value
+          reportThemeName.value = rpt?.report_theme_name || rpt?.theme_name || null
+          reportOverrides.value = rpt?.theme_overrides || null
+        }
+      }
+    } catch {}
     const vizList = (data.value as any)?.visualizations || []
     const defaultStep = (data.value as any)?.default_step
     
@@ -280,6 +288,16 @@ watch(() => props.visible, async (v) => {
     await syncQueryIdOnOpen()
     await loadQueryData()
     await loadInitialStepOrDefault()
+    // Listen for theme changes to update editor visuals
+    try {
+      const handler = (ev: any) => {
+        const d = (ev && ev.detail) || {}
+        if (!d) return
+        reportThemeName.value = d.themeName || reportThemeName.value
+        reportOverrides.value = d.overrides || reportOverrides.value
+      }
+      window.addEventListener('dashboard:theme_changed', handler as any, { once: true })
+    } catch {}
   }
 })
 
@@ -367,6 +385,25 @@ function shouldShowVisual(viz: any) {
   return chartVisualTypes.has(String(t)) || String(t) === 'count'
 }
 
+function onVizApply(viz: any, nextView: any) {
+  // Non-destructive local update to trigger preview re-render
+  viz.view = { ...(viz.view || {}), ...(nextView || {}) }
+}
+
+function onVizSaved(updated: any) {
+  if (!updated?.id) return
+  const idx = visualizations.value.findIndex(v => v.id === updated.id)
+  if (idx >= 0) {
+    // Preserve attached step for preview while merging new view/title/status
+    const prev = visualizations.value[idx]
+    visualizations.value[idx] = { ...prev, ...updated, step: prev.step }
+  }
+  // Broadcast so dashboard can update the rendered tile immediately
+  try {
+    window.dispatchEvent(new CustomEvent('visualization:updated', { detail: { id: updated.id, visualization: updated } }))
+  } catch {}
+}
+
 async function previewRun() {
   running.value = true
   runMode.value = 'preview'
@@ -436,6 +473,10 @@ async function runNewStep() {
         const qid = step?.query_id || queryId.value
         if (qid) {
           window.dispatchEvent(new CustomEvent('query:default_step_changed', { detail: { query_id: qid, step } }))
+          // Also instruct the originating chat preview (if any) to rebind to this query id
+          if (props.toolExecutionId) {
+            window.dispatchEvent(new CustomEvent('tool_preview:rebind', { detail: { tool_execution_id: props.toolExecutionId, query_id: qid } }))
+          }
         }
       } catch {}
     }
@@ -458,5 +499,6 @@ async function runNewStep() {
   opacity: 0;
 }
 </style>
+
 
 

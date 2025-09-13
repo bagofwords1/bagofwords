@@ -11,7 +11,8 @@ export default defineNuxtConfig({
     '@nuxtjs/mdc',
     '@nuxt-alt/proxy',
     'nuxt-3-intercom',
-    'nuxt-echarts'
+    'nuxt-echarts',
+    'nuxt-monaco-editor'
   ],
 
   echarts: {

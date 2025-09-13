@@ -264,6 +264,7 @@
         // Cross-pane sync listeners
         window.addEventListener('dashboard:layout_changed', handleExternalLayoutChanged as any)
         window.addEventListener('query:default_step_changed', handleExternalDefaultStepChanged as any)
+        window.addEventListener('visualization:updated', handleVisualizationUpdated as any)
     });
 
     onBeforeUnmount(() => {
@@ -272,6 +273,7 @@
         document.removeEventListener('keydown', handleEscKey);
         window.removeEventListener('dashboard:layout_changed', handleExternalLayoutChanged as any)
         window.removeEventListener('query:default_step_changed', handleExternalDefaultStepChanged as any)
+        window.removeEventListener('visualization:updated', handleVisualizationUpdated as any)
     });
 
     // --- Grid Initialization ---
@@ -577,6 +579,29 @@
         } catch {}
     }
 
+    function handleVisualizationUpdated(ev: CustomEvent) {
+        try {
+            const detail: any = (ev as any)?.detail || {}
+            const id: string | undefined = detail?.id
+            const updated: any = detail?.visualization
+            if (!id || !updated) return
+            // Update local viz map and any displayed tile that matches
+            if (vizById.value[id]) {
+                vizById.value = { ...vizById.value, [id]: { ...vizById.value[id], ...updated } }
+            }
+            // Replace displayed widget view/title immediately
+            displayedWidgets.value = displayedWidgets.value.map(w => {
+                if (w.id === id && w.isVisualization) {
+                    // Ensure component resolver sees the new type immediately
+                    const next = { ...w, title: updated.title ?? w.title, view: updated.view ?? w.view }
+                    // Force change detection for nested consumers
+                    return JSON.parse(JSON.stringify(next))
+                }
+                return w
+            })
+        } catch {}
+    }
+
     async function getTextWidgetsInternal() {
         await loadTextWidgetsForReport();
         applyLayoutToLocalState();
@@ -699,6 +724,10 @@
                 (props.report as any).theme_name = val;
                 (props.report as any).report_theme_name = val;
             }
+            // Broadcast theme change so other panes (chat preview/editor) update live
+            try {
+                window.dispatchEvent(new CustomEvent('dashboard:theme_changed', { detail: { report_id: props.report?.id, themeName: val, overrides: reportOverridesRef.value || null } }))
+            } catch {}
         } catch (e: any) {
             console.error('Failed to update report theme', e);
             toast.add({ title: 'Failed to save theme', description: e?.message || String(e), color: 'red' });

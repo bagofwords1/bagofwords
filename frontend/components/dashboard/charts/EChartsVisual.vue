@@ -52,7 +52,8 @@ const props = defineProps<{
 }>()
 
 const { reportThemeName, reportOverrides } = toRefs(props)
-const { tokens } = useDashboardTheme(reportThemeName?.value, reportOverrides?.value, props.view || null)
+// Pass reactive refs so tokens update when props change (e.g., theme switch)
+const { tokens } = useDashboardTheme(reportThemeName, reportOverrides, props.view || null)
 
 type EChartsOption = Record<string, any>
 
@@ -80,18 +81,18 @@ function normalizeRows(rows: any[] | undefined): any[] {
 
 function getBaseOptions(): EChartsOption {
   return {
-    // Prefer view-provided background first, then theme tokens
+    // Base on theme tokens, allow view to override later via specific fields
     color: undefined,
-    backgroundColor: (props.view?.options as any)?.backgroundColor || props.view?.style?.backgroundColor || tokens.value?.background || undefined,
+    backgroundColor: tokens.value?.background || (props.view?.style as any)?.backgroundColor || (props.view?.options as any)?.backgroundColor,
     title: {
       text: (props.step?.title || props.widget?.title || 'Chart'),
       left: 'center',
       top: 5,
       textStyle: {
-        color: props.view?.style?.titleColor || tokens.value?.textColor,
+        color: tokens.value?.textColor || (props.view?.style as any)?.titleColor,
         fontFamily: tokens.value?.headingFontFamily || tokens.value?.fontFamily,
-        fontWeight: props.view?.style?.titleWeight || 700,
-        fontSize: props.view?.style?.titleSize || 18
+        fontWeight: (props.view?.style as any)?.titleWeight || 700,
+        fontSize: (props.view?.style as any)?.titleSize || 18
       }
     },
     grid: { containLabel: true, left: '3%', right: '4%', bottom: '10%', top: '15%' },
@@ -114,7 +115,8 @@ function buildPieOptions(rows: any[], dm: any): EChartsOption {
 }
 
 function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
-  const t = normalizeType(dm?.type)
+  // Prefer explicit view.type over data_model.type for determining cartesian variant
+  const t = normalizeType((props.view as any)?.type || dm?.type)
   const variant = props.view?.variant || (t === 'area_chart' ? 'area' : undefined)
   const chartType = t === 'line_chart' || variant === 'area' ? 'line' : 'bar'
   const categoryKey = dm?.series?.[0]?.key?.toLowerCase()
@@ -136,7 +138,7 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
     })
     .filter(Boolean)
 
-  const axisColors = props.view?.style?.axis || tokens.value?.axis || {}
+  const axisColors = { ...(tokens.value?.axis || {}), ...((props.view?.style as any)?.axis || {}) }
   const xVisible = props.view?.xAxisVisible ?? true
   const yVisible = props.view?.yAxisVisible ?? true
 
@@ -287,13 +289,10 @@ function resolveColorInput(input: any): any {
 }
 
 function paletteArray(): any[] {
-  // 1) Layout-level explicit colors
-  const viewColors = (props.view?.options as any)?.colors
-  if (Array.isArray(viewColors) && viewColors.length) return viewColors
-  // 2) Theme palette fallback
-  const p = tokens.value?.palette as any
-  if (Array.isArray(p) && p.length) return p
-  return []
+  // Theme palette as default
+  const themePalette = tokens.value?.palette as any
+  const theme = Array.isArray(themePalette) && themePalette.length ? themePalette : []
+  return theme
 }
 
 function firstColorString(c: any, fallback: string): string {
@@ -303,7 +302,11 @@ function firstColorString(c: any, fallback: string): string {
 }
 
 function applyThemeColors(option: EChartsOption, type: string, dm: any) {
-  const pal = paletteArray()
+  // Start from theme palette
+  let pal = paletteArray()
+  // If view provides explicit colors, let them override the palette entirely
+  const viewColors = (props.view?.options as any)?.colors
+  if (Array.isArray(viewColors) && viewColors.length) pal = viewColors
   if (!Array.isArray(option.series)) return
   if (type === 'pie_chart' && option.series[0] && Array.isArray(option.series[0].data)) {
     option.series[0].data = option.series[0].data.map((d: any, i: number) => ({
@@ -339,9 +342,19 @@ function buildOptions() {
     const enc: any = (props.view as any)?.encoding || null
     if (!enc) return base
     const out: any = { ...base }
-    // If series provided explicitly, prefer it
+    // If series provided explicitly, prefer it but normalize missing keys
     if (Array.isArray(enc.series) && enc.series.length > 0) {
-      out.series = enc.series.map((s: any) => ({ ...s }))
+      const t = normalizeType((props.view as any)?.type || base.type)
+      let series = enc.series.map((s: any) => ({ ...s }))
+      // For cartesian charts, ensure key is present; derive from enc.category if missing
+      if (t === 'bar_chart' || t === 'line_chart' || t === 'area_chart') {
+        if (enc.category) series = series.map((s: any) => ({ ...s, key: s.key || enc.category }))
+      }
+      // For pie, ensure key is present; derive from enc.category if missing
+      if (t === 'pie_chart') {
+        if (enc.category) series = series.map((s: any) => ({ ...s, key: s.key || enc.category }))
+      }
+      out.series = series
       return out
     }
     // Common single-series mapping: category + value (+name)
@@ -367,7 +380,8 @@ function buildOptions() {
     return out
   })()
   const rows = normalizeRows(props.data?.rows)
-  if (!dm || !rows.length) {
+  // For table type, allow empty or any rows; table is rendered outside of this component
+  if (!dm || (!rows.length && normalizeType((props.view as any)?.type || dm.type) !== 'table')) {
     isLoading.value = false
     chartKey.value++
     return

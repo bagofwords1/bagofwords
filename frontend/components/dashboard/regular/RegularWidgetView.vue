@@ -1,6 +1,13 @@
 <template>
   <div class="flex-grow overflow-auto p-2 min-h-0">
-    <div v-if="resolvedComp" class="mt-1 h-full">
+    <div v-if="isTable" class="mt-1 h-full">
+      <component
+        :is="tableComp"
+        :widget="widget"
+        :step="{ ...(widget.last_step || {}), data_model: { ...(widget.last_step?.data_model || {}), type: 'table' } }"
+      />
+    </div>
+    <div v-else-if="resolvedComp" class="mt-1 h-full">
       <component
         :key="`${widget.id}:${themeName}`"
         :is="resolvedComp"
@@ -27,6 +34,7 @@
 import { computed, defineAsyncComponent } from 'vue'
 import SpinnerComponent from '@/components/SpinnerComponent.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
+import TableAgGrid from '@/components/dashboard/table/TableAgGrid.vue'
 
 const props = defineProps<{
   widget: any
@@ -46,7 +54,13 @@ function getCompForType(type?: string | null) {
   return comp
 }
 
-const resolvedComp = computed(() => getCompForType(props.widget?.last_step?.data_model?.type))
+const resolvedComp = computed(() => {
+  const vType = props.widget?.view?.type
+  const dmType = props.widget?.last_step?.data_model?.type
+  return getCompForType(String(vType || dmType || ''))
+})
+const isTable = computed(() => String(props.widget?.view?.type || props.widget?.last_step?.data_model?.type || '').toLowerCase() === 'table')
+const tableComp = TableAgGrid
 
 function deepMerge(target: any, source: any) {
   const out: any = Array.isArray(target) ? [...target] : { ...target }
@@ -64,9 +78,12 @@ function deepMerge(target: any, source: any) {
 
 const resolvedView = computed(() => {
   const stepView = props.widget?.last_step?.view || null
+  const vizView = props.widget?.view || null
   const layoutOverrides = props.widget?.layout_view_overrides || null
-  if (!layoutOverrides && !stepView) return null
-  return deepMerge(stepView || {}, layoutOverrides || {})
+  if (!layoutOverrides && !vizView && !stepView) return null
+  // Merge order: step.view -> viz.view -> layout overrides (each overrides previous)
+  const mergedStepViz = deepMerge(stepView || {}, vizView || {})
+  return deepMerge(mergedStepViz, layoutOverrides || {})
 })
 </script>
 

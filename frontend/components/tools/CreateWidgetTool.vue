@@ -103,17 +103,18 @@
                     </div>
                   </div>
                 </div>
-                <div class="bg-gray-50 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto">
-                  <pre class="text-gray-800 whitespace-pre-wrap">{{ codeContent }}</pre>
-                </div>
-                <div class="mt-2">
+                <div class="bg-gray-50 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto relative">
                   <button
-                    class="px-3 py-1.5 text-xs rounded bg-gray-800 text-white hover:bg-gray-700"
+                    class="absolute top-2 right-2 px-2 py-1 text-xs rounded border border-gray-300 bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-800"
                     :disabled="!canOpenEditor"
                     @click.stop="openEditor"
                   >
                     Edit code
                   </button>
+                  <pre class="text-gray-800 whitespace-pre-wrap pr-20">{{ codeContent }}</pre>
+                </div>
+                <div class="mt-2">
+
                 </div>
 
               </div>

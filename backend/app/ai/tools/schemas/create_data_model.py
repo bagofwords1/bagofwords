@@ -104,10 +104,10 @@ class DataModel(BaseModel):
         "scatter_plot",
     ] = Field(..., description="Visualization/data type")
     columns: List[DataModelColumn] = Field(default_factory=list)
-    filters: Optional[List[Dict[str, Any]]] = Field(default=None, description="Filter predicates")
+    #filters: Optional[List[Dict[str, Any]]] = Field(default=None, description="Filter predicates")
     group_by: Optional[List[str]] = Field(default=None, description="Group-by fields")
-    sort: Optional[List[SortSpec]] = Field(default=None, description="Sorting specifications")
-    limit: Optional[int] = Field(default=100, description="Row limit")
+    #sort: Optional[List[SortSpec]] = Field(default=None, description="Sorting specifications")
+    #limit: Optional[int] = Field(default=100, description="Row limit")
     series: Optional[List[SeriesItem]] = Field(default=None, description="Chart series configuration if applicable")
 
 
