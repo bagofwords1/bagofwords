@@ -10,6 +10,11 @@ from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutVersionUpdate,
     DashboardLayoutVersionSchema,
     DashboardLayoutBlocksPatch,
+    WidgetBlock,
+    VisualizationBlock,
+    TextWidgetBlock,
+    FilterBlock,
+    ContainerBlock,
 )
 
 
@@ -78,27 +83,37 @@ class DashboardLayoutService:
             text_widgets = {str(t.id): t for t in result_text.scalars().all()}
 
             for s in schemas:
-                blocks = []
+                typed_blocks = []
                 for b in (s.blocks or []):
                     b_dict = b.model_dump()
-                    if b_dict.get('type') == 'widget':
+                    t = b_dict.get('type')
+                    if t == 'widget':
                         wid = b_dict.get('widget_id')
                         if wid and wid in widgets:
                             from app.schemas.widget_schema import WidgetSchema
-                            b_dict['widget'] = WidgetSchema.from_orm(widgets[wid]).model_dump()
-                    elif b_dict.get('type') == 'visualization':
+                            b_dict['widget'] = WidgetSchema.from_orm(widgets[wid])
+                        typed_blocks.append(WidgetBlock(**b_dict))
+                    elif t == 'visualization':
                         vid = b_dict.get('visualization_id')
                         if vid and vid in visualizations:
                             from app.schemas.visualization_schema import VisualizationSchema
-                            b_dict['visualization'] = VisualizationSchema.from_orm(visualizations[vid]).model_dump()
-                    elif b_dict.get('type') == 'text_widget':
+                            b_dict['visualization'] = VisualizationSchema.from_orm(visualizations[vid])
+                        typed_blocks.append(VisualizationBlock(**b_dict))
+                    elif t == 'text_widget':
                         tid = b_dict.get('text_widget_id')
                         if tid and tid in text_widgets:
                             from app.schemas.text_widget_schema import TextWidgetSchema
-                            b_dict['text_widget'] = TextWidgetSchema.from_orm(text_widgets[tid]).model_dump()
-                    blocks.append(b_dict)
-                # Replace blocks with hydrated dicts; pydantic will coerce on response
-                s.blocks = blocks  # type: ignore
+                            b_dict['text_widget'] = TextWidgetSchema.from_orm(text_widgets[tid])
+                        typed_blocks.append(TextWidgetBlock(**b_dict))
+                    elif t == 'filter':
+                        typed_blocks.append(FilterBlock(**b_dict))
+                    elif t == 'container':
+                        typed_blocks.append(ContainerBlock(**b_dict))
+                    else:
+                        # Unknown type: keep original pydantic block to avoid breaking
+                        typed_blocks.append(b)
+                # Replace blocks with hydrated typed models to avoid serialization warnings
+                s.blocks = typed_blocks  # type: ignore
         except Exception:
             # Fail open: return unhydrated if anything goes wrong
             return schemas
