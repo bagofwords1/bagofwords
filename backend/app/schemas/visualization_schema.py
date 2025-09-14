@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any, Literal
 
 from app.schemas.view_schema import ViewSchema
@@ -10,7 +10,13 @@ class VisualizationBase(BaseModel):
     report_id: str
     query_id: str
     # Keep spec for compatibility, but prefer view.type + view.encoding going forward
-    view: ViewSchema = Field(default_factory=ViewSchema)
+    view: Optional[ViewSchema] = Field(default_factory=ViewSchema)
+
+    @model_validator(mode="after")
+    def _ensure_view(self) -> "VisualizationBase":
+        if self.view is None:
+            self.view = ViewSchema()
+        return self
 
 
 class VisualizationCreate(VisualizationBase):
