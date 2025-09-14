@@ -71,11 +71,13 @@ def upgrade() -> None:
                 # Cannot place visualization without a report
                 continue
 
-            # Load data_model from the default step
-            dm_row = conn.execute(sa.text("SELECT data_model FROM steps WHERE id = :sid"), {"sid": step_id}).first()
+            # Load data_model and status from the default step
+            dm_row = conn.execute(sa.text("SELECT data_model, status FROM steps WHERE id = :sid"), {"sid": step_id}).first()
             if not dm_row:
                 continue
             dm_val = dm_row[0]
+            step_status = (dm_row[1] if len(dm_row) > 1 else None) or "draft"
+            viz_status = "success" if str(step_status).lower() == "success" else "draft"
             try:
                 data_model = json.loads(dm_val) if isinstance(dm_val, str) else dm_val
             except Exception:
@@ -124,7 +126,7 @@ def upgrade() -> None:
             ), {
                 "id": vis_id,
                 "title": title,
-                "status": "draft",
+                "status": viz_status,
                 "report_id": str(report_id),
                 "query_id": str(query_id),
                 "view": json.dumps(view_obj),
@@ -132,6 +134,203 @@ def upgrade() -> None:
         except Exception:
             # Best-effort backfill; skip on errors
             continue
+    
+    # Ensure any pre-inserted draft visualizations tied to successful default steps are marked success
+    try:
+        conn.execute(sa.text(
+            """
+            UPDATE visualizations AS v
+            SET status = 'success'
+            WHERE v.status != 'success' AND EXISTS (
+                SELECT 1
+                FROM queries q
+                JOIN steps s ON s.id = q.default_step_id
+                WHERE q.id = v.query_id AND LOWER(COALESCE(s.status, '')) = 'success'
+            )
+            """
+        ))
+    except Exception:
+        pass
+
+    # Rewrite dashboard layouts: convert widget blocks to visualization blocks (idempotent)
+    try:
+        layouts = conn.execute(sa.text(
+            """
+            SELECT dlv.id, dlv.report_id, dlv.blocks
+            FROM dashboard_layout_versions dlv
+            """
+        )).fetchall()
+
+        for row in layouts:
+            try:
+                dlv_id = row[0]
+                dlv_report_id = row[1]
+                blocks_val = row[2]
+                try:
+                    blocks = json.loads(blocks_val) if isinstance(blocks_val, str) else (blocks_val or [])
+                except Exception:
+                    blocks = []
+
+                if not isinstance(blocks, list):
+                    continue
+
+                changed = False
+                new_blocks = []
+
+                for b in blocks:
+                    try:
+                        if isinstance(b, dict) and b.get("type") == "widget":
+                            wid = b.get("widget_id")
+                            if not wid:
+                                new_blocks.append(b)
+                                continue
+
+                            qrow = conn.execute(sa.text(
+                                "SELECT id, report_id, default_step_id FROM queries WHERE widget_id = :wid LIMIT 1"
+                            ), {"wid": wid}).first()
+                            if not qrow:
+                                new_blocks.append(b)
+                                continue
+
+                            qid = qrow[0]
+                            q_report_id = qrow[1]
+                            q_def_step = qrow[2]
+
+                            vrow = conn.execute(sa.text(
+                                "SELECT id FROM visualizations WHERE query_id = :qid LIMIT 1"
+                            ), {"qid": qid}).first()
+
+                            vis_id = vrow[0] if vrow else None
+
+                            if not vis_id:
+                                # Need to create a visualization now (idempotent best-effort)
+                                # Derive report id
+                                v_report_id = q_report_id or dlv_report_id
+                                if v_report_id is None:
+                                    new_blocks.append(b)
+                                    continue
+
+                                # Load default step DM and status
+                                dm2 = None
+                                v_status = "draft"
+                                if q_def_step:
+                                    srow = conn.execute(sa.text(
+                                        "SELECT data_model, status FROM steps WHERE id = :sid"
+                                    ), {"sid": q_def_step}).first()
+                                    if srow:
+                                        dm2 = srow[0]
+                                        st2 = (srow[1] or "").lower()
+                                        v_status = "success" if st2 == "success" else "draft"
+
+                                try:
+                                    dm2_obj = json.loads(dm2) if isinstance(dm2, str) else dm2
+                                except Exception:
+                                    dm2_obj = None
+                                if not isinstance(dm2_obj, dict):
+                                    dm2_obj = {}
+
+                                v_type2 = dm2_obj.get("type")
+                                encoding2 = None
+                                try:
+                                    series2 = dm2_obj.get("series") or []
+                                    if isinstance(series2, list) and series2 and isinstance(series2[0], dict):
+                                        first2 = series2[0]
+                                        cat2 = first2.get("key")
+                                        val2 = first2.get("value")
+                                        if cat2 and val2:
+                                            if len(series2) == 1:
+                                                encoding2 = {"category": str(cat2), "value": str(val2)}
+                                                if first2.get("name"):
+                                                    encoding2["name"] = str(first2.get("name"))
+                                            else:
+                                                encoding2 = {
+                                                    "category": str(cat2),
+                                                    "series": [
+                                                        {k: str(v) for k, v in {"name": s.get("name"), "value": s.get("value")}.items() if v is not None}
+                                                        for s in series2 if isinstance(s, dict)
+                                                    ]
+                                                }
+                                except Exception:
+                                    encoding2 = None
+
+                                view2 = {"specVersion": 1}
+                                if v_type2 is not None:
+                                    view2["type"] = v_type2
+                                if encoding2 is not None:
+                                    view2["encoding"] = encoding2
+
+                                vis_id = str(uuid.uuid4())
+                                conn.execute(sa.text(
+                                    """
+                                    INSERT INTO visualizations (id, title, status, report_id, query_id, view, created_at, updated_at)
+                                    VALUES (:id, :title, :status, :report_id, :query_id, :view, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                    """
+                                ), {
+                                    "id": vis_id,
+                                    "title": (b.get("widget", {}) or {}).get("title") or "",
+                                    "status": v_status,
+                                    "report_id": str(v_report_id),
+                                    "query_id": str(qid),
+                                    "view": json.dumps(view2),
+                                })
+
+                            # Replace the block
+                            nb = {
+                                "x": b.get("x", 0),
+                                "y": b.get("y", 0),
+                                "width": b.get("width", 6),
+                                "height": b.get("height", 8),
+                                "type": "visualization",
+                                "visualization_id": str(vis_id),
+                                "view_overrides": b.get("view_overrides"),
+                                "container": b.get("container"),
+                            }
+                            new_blocks.append(nb)
+                            changed = True
+                        else:
+                            # Normalize/upgrade text_widget blocks to ensure shape matches schema
+                            if isinstance(b, dict) and b.get("type") == "text_widget":
+                                tw = b.get("text_widget") if isinstance(b.get("text_widget"), dict) else None
+                                tw_id = b.get("text_widget_id")
+                                # If nested object missing, try to synthesize from top-level
+                                if tw is None:
+                                    tw = {}
+                                # Fill id from either nested or top-level id
+                                if not tw.get("id") and tw_id:
+                                    tw["id"] = str(tw_id)
+                                elif tw.get("id") and not tw_id:
+                                    b["text_widget_id"] = str(tw.get("id"))
+                                # Move top-level content into nested if present
+                                if tw.get("content") is None and b.get("content") is not None:
+                                    tw["content"] = b.get("content")
+                                # Ensure view object exists if we have a nested object
+                                if tw.get("view") is None:
+                                    tw["view"] = {"component": None, "variant": None, "theme": None, "style": {}, "options": {}}
+                                # If after normalization we still lack id or content, drop nested to satisfy Optional
+                                if not tw.get("id") or tw.get("content") is None:
+                                    # Preserve top-level id if present for schema validation
+                                    if tw.get("id") and not b.get("text_widget_id"):
+                                        b["text_widget_id"] = str(tw.get("id"))
+                                    b["text_widget"] = None
+                                else:
+                                    b["text_widget"] = tw
+                                # Ensure top-level text_widget_id exists if possible
+                                if not b.get("text_widget_id") and tw.get("id"):
+                                    b["text_widget_id"] = str(tw.get("id"))
+                                changed = True
+                            new_blocks.append(b)
+                    except Exception:
+                        new_blocks.append(b)
+
+                if changed:
+                    conn.execute(sa.text(
+                        "UPDATE dashboard_layout_versions SET blocks = :blocks WHERE id = :id"
+                    ), {"blocks": json.dumps(new_blocks), "id": dlv_id})
+            except Exception:
+                continue
+    except Exception:
+        # Best-effort block rewrite; ignore errors to not break migration
+        pass
     # ### end Alembic commands ###
 
 

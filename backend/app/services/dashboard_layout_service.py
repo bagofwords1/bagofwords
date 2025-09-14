@@ -21,6 +21,45 @@ class DashboardLayoutService:
             )
         )
         rows = result.scalars().all()
+
+        # Pre-sanitize blocks to satisfy schema validation for legacy data
+        for r in rows:
+            try:
+                raw_blocks = list(r.blocks or [])
+                sanitized: list[dict] = []
+                for b in raw_blocks:
+                    if not isinstance(b, dict):
+                        sanitized.append(b)
+                        continue
+                    t = b.get('type')
+                    # Normalize text_widget blocks: ensure either a valid nested payload or remove it
+                    if t == 'text_widget':
+                        tw = b.get('text_widget') if isinstance(b.get('text_widget'), dict) else None
+                        tw_id = b.get('text_widget_id')
+                        # Backfill id from nested/top-level
+                        if not tw and (tw_id or b.get('content') is not None):
+                            tw = {}
+                        if tw is not None:
+                            if not tw.get('id') and tw_id:
+                                tw['id'] = str(tw_id)
+                            if tw.get('content') is None and b.get('content') is not None:
+                                tw['content'] = b.get('content')
+                            if tw.get('view') is None:
+                                tw['view'] = {"component": None, "variant": None, "theme": None, "style": {}, "options": {}}
+                            # If still missing required fields, drop nested to avoid Pydantic error
+                            if not tw.get('id') or tw.get('content') is None:
+                                b['text_widget'] = None
+                            else:
+                                b['text_widget'] = tw
+                                # Ensure top-level id present
+                                if not b.get('text_widget_id'):
+                                    b['text_widget_id'] = str(tw.get('id'))
+                    sanitized.append(b)
+                r.blocks = sanitized
+            except Exception:
+                # Tolerate any sanitation errors
+                pass
+
         schemas = [DashboardLayoutVersionSchema.from_orm(r) for r in rows]
         if not hydrate:
             return schemas
