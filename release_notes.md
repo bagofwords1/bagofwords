@@ -5,6 +5,7 @@
 - Added widget customization controls for labels, titles, and styling
 - Rebuilt query/visualization engine for improved scalability
 - Improved dashboard layout, reactivness and synchronization to other visualizations
+- Enhanced backend architecture and data modeling to support query versioning and multi-visualization relations
 
 ## Version 0.0.195 (September 10, 2025)
 - Introducing Deep Analysis: Users can now change from Chat mode to Deep Analytics for doing a more comprehensive open ended analytics research to identify root cause, anomalies, opportunities, and more!
