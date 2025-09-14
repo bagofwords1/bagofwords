@@ -99,8 +99,9 @@ class ViewSchema(BaseModel):
     titleVisible: Optional[bool] = None       # Show/hide chart title
     
     # X-axis label display controls for categorical data
-    xAxisLabelInterval: Optional[int] = 0  # default: show all labels
-    xAxisLabelRotate: Optional[int] = 45   # default: rotate 45 degrees
+    # Defaults are None so frontend/theme can decide; avoid injecting hard defaults on save
+    xAxisLabelInterval: Optional[int] = None
+    xAxisLabelRotate: Optional[int] = None
 
     # Grid / background guides
     showGridLines: Optional[bool] = None

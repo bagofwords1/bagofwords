@@ -147,7 +147,7 @@
     const props = defineProps<{
         report: any
         edit: boolean
-        widgets: any[]
+        visualizations?: any[]
         textWidgetsIds?: string[]
     }>();
 
@@ -162,7 +162,7 @@
     const allQueries = ref<any[]>([]);
     const vizById = ref<Record<string, any>>({});
     const queryById = ref<Record<string, any>>({});
-    const queryIdByWidgetId = ref<Record<string, string>>({});
+    // Legacy widget mapping removed
     const stepCache = ref<Record<string, any>>({});
     const activeLayout = ref<any | null>(null);
     const layoutBlocks = ref<any[] | null>(null);
@@ -380,25 +380,31 @@
             allQueries.value = items;
             const qMap: Record<string, any> = {};
             const vMap: Record<string, any> = {};
-            const wMap: Record<string, string> = {};
             for (const q of items) {
                 if (q?.id) qMap[q.id] = q;
-                if (q?.widget_id) wMap[q.widget_id] = q.id;
                 for (const v of (q?.visualizations || [])) {
                     if (v?.id) vMap[v.id] = v;
                 }
             }
             queryById.value = qMap;
             vizById.value = vMap;
-            queryIdByWidgetId.value = wMap;
         } catch (e: any) {
             console.error('Failed to load queries:', e);
             allQueries.value = [];
             queryById.value = {};
             vizById.value = {};
-            queryIdByWidgetId.value = {};
         }
     }
+
+    // Seed visualizations from props if provided (preferred path)
+    watch(() => props.visualizations, (list) => {
+        try {
+            if (!Array.isArray(list)) return
+            const map: Record<string, any> = {}
+            for (const v of list) if (v?.id) map[v.id] = v
+            if (Object.keys(map).length) vizById.value = { ...vizById.value, ...map }
+        } catch {}
+    }, { immediate: true, deep: true })
 
     async function ensureDefaultStepForQuery(queryId: string) {
         try {
@@ -445,40 +451,13 @@
         // If we have blocks, strictly use them to decide what to render and where
         if (Array.isArray(layoutBlocks.value) && layoutBlocks.value.length > 0) {
             const blocks = layoutBlocks.value;
-            const widgetMap = new Map((props.widgets || []).map((w: any) => [w.id, w]));
             const textMap = new Map((allTextWidgets.value || []).map((tw: any) => [tw.id, tw]));
             const nextDisplayed: any[] = [];
             const nextText: any[] = [];
             const stepPromises: Promise<any>[] = [];
 
             for (const b of blocks) {
-                if (b.type === 'widget' && b.widget_id) {
-                    const src = widgetMap.get(b.widget_id);
-                    if (!src) continue;
-                    // Try to resolve the latest default step for the widget via its query
-                    const qidForWidget = queryIdByWidgetId.value[b.widget_id];
-                    let lastStepForWidget: any = null;
-                    if (qidForWidget) {
-                        const qExisting = queryById.value[qidForWidget];
-                        const defaultStepId = qExisting?.default_step_id;
-                        if (defaultStepId && stepCache.value[defaultStepId]) {
-                            lastStepForWidget = stepCache.value[defaultStepId];
-                        } else {
-                            stepPromises.push(ensureDefaultStepForQuery(qidForWidget));
-                        }
-                    }
-                    nextDisplayed.push({
-                        ...src,
-                        x: b.x, y: b.y, width: b.width, height: b.height,
-                        // carry per-block view overrides so layout styling can win over step.view
-                        layout_view_overrides: (b as any).view_overrides || null,
-                        type: 'regular',
-                        showControls: src.showControls ?? false,
-                        show_data: src.show_data ?? false,
-                        show_data_model: src.show_data_model ?? false,
-                        last_step: lastStepForWidget || src.last_step || null,
-                    });
-                } else if (b.type === 'text_widget' && b.text_widget_id) {
+                if (b.type === 'text_widget' && b.text_widget_id) {
                     const embedded = (b as any).text_widget || null;
                     const baseSrc = embedded || textMap.get(b.text_widget_id) || { id: b.text_widget_id, content: '', isEditing: false, isNew: false, showControls: false };
                     nextText.push({
@@ -513,6 +492,7 @@
                     const mergedView = (() => {
                         const v = viz.view || {};
                         const o = (b as any).view_overrides || null;
+                        // final view: viz.view overlaid by layout overrides
                         return o ? { ...v, ...o } : v;
                     })();
                     nextDisplayed.push({
@@ -698,10 +678,7 @@
         }
     });
 
-    watch(() => props.widgets, async () => {
-        applyLayoutToLocalState();
-        await loadWidgetsIntoGrid(grid.value, allWidgets.value);
-    }, { deep: true, immediate: true });
+    // Remove legacy widgets watcher; tiles come from layout + visualizations
 
     // Watch for immediate theme application 
     watch(tokens, (newTokens) => {

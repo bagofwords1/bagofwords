@@ -280,15 +280,15 @@
 			<div>
 				<DashboardComponent 
 					ref="dashboardRef"
-					v-if="reportLoaded && widgets"
+					v-if="reportLoaded && (visualizations || []).length >= 0"
 					:report="report" 
 					:edit="true" 
-					:widgets="widgets" 
+					:visualizations="visualizations"
 					:textWidgetsIds="textWidgetsIds"
 					@toggleSplitScreen="toggleSplitScreen"
 					@editVisualization="handleEditQuery"
 				/>
-				<div v-else-if="reportLoaded && !widgets?.length" class="p-4 text-center text-gray-500">
+				<div v-else-if="reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500">
 					No dashboard items yet.
 				</div>
 			</div>
@@ -415,7 +415,7 @@ const selectedCompletionForTrace = ref<string | null>(null)
 // Report and Dashboard state
 const reportLoaded = ref(false)
 const report = ref<any | null>(null)
-const widgets = ref<any[]>([])
+const visualizations = ref<any[]>([])
 const dashboardRef = ref<any | null>(null)
 const textWidgetsIds = ref<string[]>([])
 
@@ -950,6 +950,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					}
 
+					// When create_dashboard streams a completed block, broadcast layout change so previews refresh membership
+					if (payload.tool_name === 'create_dashboard' && payload.payload && payload.payload.stage === 'block.completed') {
+						try {
+							window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: report_id, action: 'added' } }))
+						} catch {}
+					}
+
 					lastBlock.status = 'in_progress'
 				}
 			}
@@ -1018,7 +1025,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					// If the dashboard was created successfully, refresh widgets and open the dashboard pane
 					if (payload.tool_name === 'create_dashboard' && payload.status === 'success') {
-						try { await loadWidgets() } catch (e) { /* noop */ }
+						try { await loadVisualizations() } catch (e) { /* noop */ }
 						if (!isSplitScreen.value) toggleSplitScreen()
 					}
 				}
@@ -1150,16 +1157,20 @@ async function loadReport() {
 	}
 }
 
-async function loadWidgets() {
+async function loadVisualizations() {
 	try {
-		const { data } = await useMyFetch(`/api/reports/${report_id}/widgets`)
-		const arr = Array.isArray(data.value) ? (data.value as any[]) : []
-		widgets.value = arr.map((widget: any) => ({
-			...widget,
-			key: Date.now() + widget.id + String(Math.random())
-		}))
-	} catch (error) {
-		console.error('Error loading widgets:', error)
+		const { data, error } = await useMyFetch(`/api/queries?report_id=${report_id}`, { method: 'GET' })
+		if (error.value) throw error.value
+		const queries = Array.isArray(data.value) ? data.value : []
+		const list: any[] = []
+		for (const q of queries) {
+			for (const v of (q?.visualizations || [])) {
+				if (v && v.id) list.push(v)
+			}
+		}
+		visualizations.value = list
+	} catch (e) {
+		visualizations.value = []
 	}
 }
 
@@ -1255,7 +1266,7 @@ onUnmounted(() => {
 
 function rerunReport() {
 	useMyFetch(`/api/reports/${report_id}/rerun`, { method: 'POST' }).then(() => {
-		loadWidgets()
+		loadVisualizations()
 	})
 }
 
@@ -1292,7 +1303,7 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
         })
         
         		if (!isSplitScreen.value) toggleSplitScreen()
-		await loadWidgets()
+		await loadVisualizations()
         // Ask dashboard to refresh layout immediately so item appears
         try {
             const dash = dashboardRef.value
@@ -1604,7 +1615,7 @@ async function startPollingInProgressCompletion() {
 onMounted(async () => {
 	await Promise.all([
 		loadReport(),
-		loadWidgets(),
+		loadVisualizations(),
 		loadCompletions(),
 		
 		loadActiveLayoutHasBlocks().then(hasBlocks => {
@@ -1633,7 +1644,7 @@ onMounted(async () => {
 	}
 	
 	// Open dashboard pane if there are any published widgets
-	if (widgets.value.some(widget => widget.status === 'published')) {
+	if (visualizations.value.some(viz => viz.status === 'published')) {
 		isSplitScreen.value = true
 		// Scroll to bottom when automatically opening dashboard
 		nextTick(() => setTimeout(scrollToBottom, 100))

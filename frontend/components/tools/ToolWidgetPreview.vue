@@ -69,11 +69,7 @@
           <!-- Chart Content -->
           <Transition name="fade" mode="out-in">
             <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)" class="bg-gray-50 rounded-sm p-2">
-              <!-- Prefer explicit count renderer to avoid async component timing -->
-              <div v-if="effectiveStep?.data_model?.type === 'count'" class="h-[340px] flex items-start">
-                <RenderCount :show_title="true" :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
-              </div>
-              <div v-else-if="resolvedCompEl" class="h-[340px]">
+              <div v-if="resolvedCompEl" :class="chartHeightClass">
                 <component
                   :is="resolvedCompEl"
                   :widget="effectiveWidget"
@@ -134,7 +130,6 @@ import { computed, ref, watch, defineAsyncComponent, onMounted, onUnmounted } fr
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
 import RenderVisual from '../RenderVisual.vue'
-import RenderCount from '../RenderCount.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 
@@ -267,6 +262,12 @@ const resolvedCompEl = computed(() => {
   const vType = (visualization.value?.view as any)?.type
   const dmType = effectiveStep.value?.data_model?.type
   return getCompForType(String(vType || dmType || ''))
+})
+
+// Adjust height for compact count tiles
+const chartHeightClass = computed(() => {
+  const t = String(((visualization.value?.view as any)?.type || effectiveStep.value?.data_model?.type || '')).toLowerCase()
+  return t === 'count' ? 'h-[120px] flex items-start' : 'h-[340px]'
 })
 
 // Determine if table/data is present

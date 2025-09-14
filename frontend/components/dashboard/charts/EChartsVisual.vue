@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full w-full">
+  <div class="h-full w-full" :style="wrapperStyle">
     <div v-if="!isLoading && chartOptions && Object.keys(chartOptions).length > 0 && (data?.rows?.length || 0) > 0" class="h-full">
       <VChart :key="chartKey" class="chart" :option="chartOptions" autoresize :loading="isLoading" />
     </div>
@@ -10,7 +10,7 @@
 </template>
 
 <script setup lang="ts">
-import { toRefs, ref, watch } from 'vue'
+import { toRefs, ref, watch, computed } from 'vue'
 import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 import { use } from 'echarts/core'
 import { graphic as EGraphic } from 'echarts'
@@ -61,6 +61,18 @@ const isLoading = ref(false)
 const chartOptions = ref<EChartsOption>({})
 const chartKey = ref(0)
 
+// Card-level wrapper style (not the chart canvas)
+const wrapperStyle = computed(() => {
+  const style = (props.view?.style as any) || {}
+  const bg = style.cardBackground
+  const border = style.cardBorder
+  const out: Record<string, any> = {}
+  if (bg) out.backgroundColor = bg
+  if (border === 'none') out.border = 'none'
+  else if (typeof border === 'string' && border.trim().length) out.border = `1px solid ${border}`
+  return out
+})
+
 function normalizeType(t?: string | null): string {
   const v = String(t || '').toLowerCase()
   if (v === 'pie') return 'pie_chart'
@@ -85,13 +97,15 @@ function getBaseOptions(): EChartsOption {
   return {
     // Base on theme tokens, allow view to override later via specific fields
     color: undefined,
-    backgroundColor: tokens.value?.background || (props.view?.style as any)?.backgroundColor || (props.view?.options as any)?.backgroundColor,
+    // Prefer explicit view style over theme token so editor changes take effect
+    backgroundColor: (props.view?.style as any)?.backgroundColor || tokens.value?.background || (props.view?.options as any)?.backgroundColor,
     title: titleVisible ? {
       text: (props.step?.title || props.widget?.title || 'Chart'),
       left: 'center',
       top: 5,
       textStyle: {
-        color: tokens.value?.textColor || (props.view?.style as any)?.titleColor,
+        // Prefer explicit title color override, then theme
+        color: (props.view?.style as any)?.titleColor || tokens.value?.textColor,
         fontFamily: tokens.value?.headingFontFamily || tokens.value?.fontFamily,
         fontWeight: (props.view?.style as any)?.titleWeight || 700,
         fontSize: (props.view?.style as any)?.titleSize || 18
@@ -173,7 +187,7 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
       axisLine: { lineStyle: { color: axisColors.xLineColor } },
       splitLine: (() => {
         const explicit = (props.view as any)?.showGridLines
-        const show = explicit !== undefined && explicit !== null ? explicit : (tokens.value?.axis as any)?.gridShow ?? Boolean(axisColors.gridLineColor)
+        const show = explicit === true
         return show ? { show: true, lineStyle: { color: axisColors.gridLineColor || '#e5e7eb' } } : { show: false }
       })()
     },
@@ -183,7 +197,7 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
       axisLine: { lineStyle: { color: axisColors.yLineColor } },
       splitLine: (() => {
         const explicit = (props.view as any)?.showGridLines
-        const show = explicit !== undefined && explicit !== null ? explicit : (tokens.value?.axis as any)?.gridShow ?? true
+        const show = explicit === true
         return show ? { show: true, lineStyle: { color: axisColors.gridLineColor || '#e5e7eb' } } : { show: false }
       })()
     },

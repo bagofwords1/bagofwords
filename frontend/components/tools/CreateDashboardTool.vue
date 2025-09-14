@@ -7,7 +7,7 @@
       <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
       
       <!-- Action label with shimmer effect for running status -->
-      <span v-if="status === 'running'" class="tool-shimmer">
+      <span v-if="status === 'running'" class="tool-shimmer inline-flex items-center">
         <Spinner class="w-3 h-3 mr-1.5 text-gray-400" />
         Creating dashboard
       </span>
@@ -20,6 +20,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+interface ToolExecution { status: string }
 
 const props = defineProps<{
   toolExecution: ToolExecution

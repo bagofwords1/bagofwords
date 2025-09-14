@@ -15,7 +15,7 @@
         :data="widget.last_step?.data"
         :data_model="widget.last_step?.data_model"
         :step="widget.last_step"
-        :view="resolvedView"
+        :view="finalView"
         :reportThemeName="themeName"
         :reportOverrides="reportOverrides"
       />
@@ -84,6 +84,14 @@ const resolvedView = computed(() => {
   // Merge order: step.view -> viz.view -> layout overrides (each overrides previous)
   const mergedStepViz = deepMerge(stepView || {}, vizView || {})
   return deepMerge(mergedStepViz, layoutOverrides || {})
+})
+
+// Prefer explicit widget.view, but deep-merge it over resolvedView to avoid losing style fields
+const finalView = computed(() => {
+  const base = resolvedView.value || {}
+  const wv = (props.widget?.view && typeof props.widget.view === 'object') ? props.widget.view : {}
+  const merged = deepMerge(base, wv)
+  return Object.keys(merged || {}).length ? merged : null
 })
 </script>
 

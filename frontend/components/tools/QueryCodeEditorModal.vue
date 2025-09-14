@@ -94,9 +94,6 @@
                       <div class="flex items-center space-x-2">
                         <h4 class="text-sm font-medium text-gray-800">{{ viz.title || 'Untitled' }}</h4>
                       </div>
-                      <div class="text-xs text-gray-500">
-                        ID: {{ viz.id }}
-                      </div>
                     </div>
                   </div>
                   

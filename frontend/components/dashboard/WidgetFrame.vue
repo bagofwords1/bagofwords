@@ -15,6 +15,15 @@ const props = defineProps<{
   cardBorder?: string
 }>()
 
+const noBorder = computed(() => {
+  try {
+    const cb = (props as any)?.widget?.view?.style?.cardBorder
+    return typeof cb === 'string' && cb.trim().toLowerCase() === 'none'
+  } catch {
+    return false
+  }
+})
+
 const wrapperClasses = computed(() => [
   'grid-stack-item-content',
   'rounded',
@@ -23,8 +32,7 @@ const wrapperClasses = computed(() => [
   'flex-col',
   'relative',
   'p-0',
-  'shadow-sm',
-  { 'border': !props.isText, 'text-hover': props.isText && props.edit }
+  { 'shadow-sm': !noBorder.value, 'border': !props.isText && !noBorder.value, 'text-hover': props.isText && props.edit }
 ])
 
 const computedStyle = computed(() => {
@@ -34,6 +42,12 @@ const computedStyle = computed(() => {
       ...styles,
       border: '1px solid transparent',
       '--tw-card-border': props.cardBorder || '#e5e7eb'
+    }
+  }
+  if (noBorder.value) {
+    return {
+      ...styles,
+      border: 'none'
     }
   }
   return styles
