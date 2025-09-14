@@ -102,6 +102,10 @@ class ViewSchema(BaseModel):
     # Defaults are None so frontend/theme can decide; avoid injecting hard defaults on save
     xAxisLabelInterval: Optional[int] = None
     xAxisLabelRotate: Optional[int] = None
+    # Per-axis label visibility (hide tick labels while keeping axis/ticks/grid)
+    xAxisLabelVisible: Optional[bool] = None
+    yAxisLabelVisible: Optional[bool] = None
+
 
     # Grid / background guides
     showGridLines: Optional[bool] = None
@@ -135,6 +139,9 @@ class ViewSchema(BaseModel):
             # Also remove label controls if present
             self.xAxisLabelInterval = None
             self.xAxisLabelRotate = None
+            self.xAxisLabelVisible = None
+            self.yAxisLabelVisible = None
+
         if not caps.get("grid"):
             self.showGridLines = None
         if not caps.get("legend") and self.legendVisible is not None:

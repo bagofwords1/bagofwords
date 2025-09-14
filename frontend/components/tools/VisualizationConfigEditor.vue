@@ -77,15 +77,15 @@
             </optgroup>
           </select>
         </div>
-        <div class="flex items-center space-x-3 flex-wrap">
-          <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" />
-            <span>Title</span>
-          </label>
-          <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.legendVisible" />
-            <span>Legend</span>
-          </label>
+        <div class="flex items-center space-x-4">
+          <div class="flex items-center space-x-2">
+            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-xs text-gray-600">Title</span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <input type="checkbox" v-model="local.legendVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-xs text-gray-600">Legend</span>
+          </div>
         </div>
       </div>
 
@@ -119,8 +119,8 @@
         </div>
         <div class="flex items-center space-x-3">
           <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" />
-            <span>Title</span>
+            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-xs text-gray-600">Title</span>
           </label>
         </div>
       </div>
@@ -167,8 +167,8 @@
         </div>
         <div class="flex items-center space-x-3">
           <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" />
-            <span>Title</span>
+            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-xs text-gray-600">Title</span>
           </label>
         </div>
       </div>
@@ -239,8 +239,8 @@
         </div>
         <div class="flex items-center space-x-3">
           <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" />
-            <span>Title</span>
+            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-xs text-gray-600">Title</span>
           </label>
         </div>
       </div>
@@ -299,8 +299,8 @@
         </div>
         <div class="flex items-center space-x-3">
           <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" />
-            <span>Title</span>
+            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-xs text-gray-600">Title</span>
           </label>
         </div>
       </div>
@@ -339,12 +339,12 @@
         </div>
         <div class="flex items-center space-x-3">
           <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" />
-            <span>Title</span>
+            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-xs text-gray-600">Title</span>
           </label>
           <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.legendVisible" />
-            <span>Legend</span>
+            <input type="checkbox" v-model="local.legendVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-xs text-gray-600">Legend</span>
           </label>
         </div>
       </div>
@@ -381,51 +381,78 @@
             </div>
           </div>
 
-          <!-- Axis label controls -->
-          <div class="grid grid-cols-2 gap-2" v-if="capsForType.axes && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])">
-            <div>
-              <div class="text-gray-600 mb-1">Label rotation</div>
-              <select v-model.number="local.xAxisLabelRotate" class="w-full border rounded px-2 py-1 bg-white">
-                <option :value="null">Auto</option>
-                <option :value="0">0° (horizontal)</option>
-                <option :value="45">45° (diagonal)</option>
-                <option :value="90">90° (vertical)</option>
-                <option :value="-45">-45° (diagonal)</option>
-              </select>
+          <!-- Visibility toggles with checkboxes (consistent with form style) -->
+          <div class="space-y-2">
+            <label class="flex items-center space-x-2 text-xs">
+              <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <span class="text-gray-600">Show Title</span>
+            </label>
+            
+            <label v-if="capsForType.legend" class="flex items-center space-x-2 text-xs">
+              <input type="checkbox" v-model="local.legendVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <span class="text-gray-600">Show Legend</span>
+            </label>
+            
+            <div v-if="capsForType.axes" class="space-y-2">
+              <label class="flex items-center space-x-2 text-xs">
+                <input type="checkbox" v-model="local.xAxisVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <span class="text-gray-600">Show X Axis</span>
+              </label>
+              
+              <!-- X-Axis Labels section - auto-expanded when X-axis is visible -->
+              <div v-if="local.xAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ml-6 mt-2">
+                <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.xAxisLabels = !expanded.xAxisLabels">
+                  <Icon :name="expanded.xAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                  X-Axis Labels
+                </div>
+                <Transition name="fade">
+                  <div v-if="expanded.xAxisLabels" class="grid grid-cols-2 gap-2 pl-4">
+                    <div>
+                      <div class="text-gray-600 mb-1 text-[10px]">Label rotation</div>
+                      <select v-model.number="local.xAxisLabelRotate" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
+                        <option :value="null">Auto</option>
+                        <option :value="0">0° (horizontal)</option>
+                        <option :value="45">45° (diagonal)</option>
+                        <option :value="90">90° (vertical)</option>
+                        <option :value="-45">-45° (diagonal)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <div class="text-gray-600 mb-1 text-[10px]">Label interval</div>
+                      <select v-model.number="local.xAxisLabelInterval" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
+                        <option :value="null">Auto</option>
+                        <option :value="0">Show all (0)</option>
+                        <option :value="1">Every 2nd (1)</option>
+                        <option :value="2">Every 3rd (2)</option>
+                        <option :value="3">Every 4th (3)</option>
+                      </select>
+                    </div>
+                  </div>
+                </Transition>
+              </div>
+              
+              <label class="flex items-center space-x-2 text-xs">
+                <input type="checkbox" v-model="local.yAxisVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <span class="text-gray-600">Show Y Axis</span>
+              </label>
+              
+              <!-- Y-Axis section - placeholder for future controls -->
+              <div v-if="local.yAxisVisible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="ml-6 mt-2">
+                <div class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-500 mb-2" @click="expanded.yAxisLabels = !expanded.yAxisLabels">
+                  <Icon :name="expanded.yAxisLabels ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                  Y-Axis Labels
+                </div>
+                <Transition name="fade">
+                  <div v-if="expanded.yAxisLabels" class="text-[10px] text-gray-500 pl-4">
+                    Y-axis controls will be available here in future updates.
+                  </div>
+                </Transition>
+              </div>
             </div>
-            <div>
-              <div class="text-gray-600 mb-1">Label interval</div>
-              <select v-model.number="local.xAxisLabelInterval" class="w-full border rounded px-2 py-1 bg-white">
-                <option :value="null">Auto</option>
-                <option :value="0">Show all (0)</option>
-                <option :value="1">Every 2nd (1)</option>
-                <option :value="2">Every 3rd (2)</option>
-                <option :value="3">Every 4th (3)</option>
-              </select>
-            </div>
-          </div>
-
-          <!-- Visibility toggles -->
-          <div class="flex items-center space-x-3 flex-wrap">
-            <label class="flex items-center space-x-1">
-              <input type="checkbox" v-model="local.titleVisible" />
-              <span>Title</span>
-            </label>
-            <label class="flex items-center space-x-1" v-if="capsForType.legend">
-              <input type="checkbox" v-model="local.legendVisible" />
-              <span>Legend</span>
-            </label>
-            <label class="flex items-center space-x-1" v-if="capsForType.axes">
-              <input type="checkbox" v-model="local.xAxisVisible" />
-              <span>X Axis</span>
-            </label>
-            <label class="flex items-center space-x-1" v-if="capsForType.axes">
-              <input type="checkbox" v-model="local.yAxisVisible" />
-              <span>Y Axis</span>
-            </label>
-            <label class="flex items-center space-x-1" v-if="capsForType.grid">
-              <input type="checkbox" v-model="local.showGridLines" />
-              <span>Grid lines</span>
+            
+            <label v-if="capsForType.grid" class="flex items-center space-x-2 text-xs">
+              <input type="checkbox" v-model="local.showGridLines" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <span class="text-gray-600">Show Grid lines</span>
             </label>
           </div>
         </div>
@@ -486,7 +513,7 @@ const saving = ref(false)
 const error = ref('')
 
 // UI section expand/collapse state
-const expanded = reactive<{ typeData: boolean; style: boolean }>({ typeData: true, style: true })
+const expanded = reactive<{ typeData: boolean; style: boolean; xAxisLabels: boolean; yAxisLabels: boolean }>({ typeData: true, style: true, xAxisLabels: false, yAxisLabels: false })
 
 function deepClone<T>(v: T): T { return JSON.parse(JSON.stringify(v || {})) }
 
@@ -543,6 +570,33 @@ function isProbablyNumeric(name: string): boolean {
     const v = rows[0]?.[name]
     return typeof v === 'number' || (!!v && !Number.isNaN(Number(v)))
   } catch { return false }
+}
+
+function scoreValueColumn(name: string, category: string, indexInAll: number): number {
+  const n = String(name || '').toLowerCase()
+  const cat = String(category || '').toLowerCase()
+  // Hard penalties
+  if (!n) return -1_000_000
+  if (n === cat) return -100_000
+  if (/(^id$|_id$|id$)/i.test(n)) return -50_000
+  // Positive signals for measure-like fields
+  const positiveHints = ['revenue','amount','total','sum','count','price','value','sales','metric','measure','qty','quantity']
+  let score = 0
+  positiveHints.forEach((h, i) => { if (n.includes(h)) score += 100 - i })
+  // Mild preference for earlier columns
+  score += Math.max(0, 50 - indexInAll)
+  return score
+}
+
+function pickBestNumericValue(category: string, numericCols: string[], allCols: string[]): string | undefined {
+  if (!Array.isArray(numericCols) || !numericCols.length) return undefined
+  let best: { name: string; score: number } | null = null
+  numericCols.forEach((col) => {
+    const idx = Math.max(0, allCols.indexOf(col))
+    const s = scoreValueColumn(col, category, idx)
+    if (!best || s > best.score) best = { name: col, score: s }
+  })
+  return (best as { name: string; score: number } | null)?.name || numericCols[0]
 }
 
 function addSeries() {
@@ -741,7 +795,16 @@ function detectEncoding() {
   if (!cols.length) return
   if (['bar_chart','line_chart','area_chart'].includes(t)) {
     encoding.category = encoding.category || str[0] || cols[0]
-    if (!Array.isArray(encoding.series) || !encoding.series.length) encoding.series = [{ name: 'Series 1', value: num[0] || cols[1] }]
+    const best = pickBestNumericValue(encoding.category, num, cols) || num[0] || cols[1]
+    if (!Array.isArray(encoding.series) || !encoding.series.length) {
+      encoding.series = [{ name: 'Series 1', value: best }]
+    } else {
+      // If the existing value is clearly wrong (equals category or looks like an ID), replace with best
+      const v0 = String(encoding.series[0]?.value || '')
+      if (!v0 || v0.toLowerCase() === String(encoding.category || '').toLowerCase() || /(^id$|_id$|id$)/i.test(v0)) {
+        encoding.series[0] = { ...(encoding.series[0] || {}), value: best }
+      }
+    }
   } else if (t === 'pie_chart') {
     encoding.category = encoding.category || str[0] || cols[0]
     encoding.value = encoding.value || num[0] || cols[1]
@@ -785,6 +848,19 @@ watch(() => local.type, (next, prev) => {
     } else if (next === 'bar_chart') {
       local.variant = null
     }
+  }
+})
+
+// Auto-expand axis sections when toggles are enabled
+watch(() => local.xAxisVisible, (visible) => {
+  if (visible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])) {
+    expanded.xAxisLabels = true
+  }
+})
+
+watch(() => local.yAxisVisible, (visible) => {
+  if (visible && isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])) {
+    expanded.yAxisLabels = true
   }
 })
 </script>

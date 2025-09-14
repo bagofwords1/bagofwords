@@ -93,6 +93,16 @@ function normalizeRows(rows: any[] | undefined): any[] {
 
 function getBaseOptions(): EChartsOption {
   const titleVisible = props.view?.titleVisible ?? true
+  const xVisible = props.view?.xAxisVisible ?? true
+  const yVisible = props.view?.yAxisVisible ?? true
+  const legendVisible = props.view?.legendVisible ?? false
+  // When axes are hidden, avoid reserving space for labels
+  const containLabel = xVisible || yVisible
+  // Use minimal paddings; eliminate left/right to maximize width
+  const topPad: number | string = titleVisible ? 40 : 2
+  const bottomPad: number | string = legendVisible ? 24 : 2
+  const leftPad: number | string = 0
+  const rightPad: number | string = 0
   
   return {
     // Base on theme tokens, allow view to override later via specific fields
@@ -111,8 +121,8 @@ function getBaseOptions(): EChartsOption {
         fontSize: (props.view?.style as any)?.titleSize || 18
       }
     } : { show: false },
-    grid: { containLabel: true, left: '3%', right: '4%', bottom: '10%', top: titleVisible ? '15%' : '10%' },
-    legend: { show: props.view?.legendVisible ?? false, left: 'center', bottom: 0, textStyle: { color: tokens.value?.legend?.textColor } },
+    grid: { containLabel, left: leftPad, right: rightPad, bottom: bottomPad, top: topPad },
+    legend: { show: legendVisible, left: 'center', bottom: 0, textStyle: { color: tokens.value?.legend?.textColor } },
     tooltip: { trigger: 'item', confine: true, ...(tokens.value?.tooltip || {}) },
     series: []
   }

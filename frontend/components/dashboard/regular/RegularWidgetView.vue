@@ -5,6 +5,9 @@
         :is="tableComp"
         :widget="widget"
         :step="{ ...(widget.last_step || {}), data_model: { ...(widget.last_step?.data_model || {}), type: 'table' } }"
+        :view="finalView"
+        :reportThemeName="themeName"
+        :reportOverrides="reportOverrides"
       />
     </div>
     <div v-else-if="resolvedComp" class="mt-1 h-full">
@@ -86,12 +89,11 @@ const resolvedView = computed(() => {
   return deepMerge(mergedStepViz, layoutOverrides || {})
 })
 
-// Prefer explicit widget.view, but deep-merge it over resolvedView to avoid losing style fields
+// Prefer explicit widget.view (already merged in DashboardComponent) when available
 const finalView = computed(() => {
-  const base = resolvedView.value || {}
-  const wv = (props.widget?.view && typeof props.widget.view === 'object') ? props.widget.view : {}
-  const merged = deepMerge(base, wv)
-  return Object.keys(merged || {}).length ? merged : null
+  return (props.widget?.view && Object.keys(props.widget.view || {}).length > 0)
+    ? props.widget.view
+    : (resolvedView.value || null)
 })
 </script>
 
