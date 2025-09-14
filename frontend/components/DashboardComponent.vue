@@ -142,6 +142,7 @@
     import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
     const toast = useToast();
+    const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const emit = defineEmits(['removeWidget', 'toggleSplitScreen', 'editVisualization']);
 
     const props = defineProps<{
@@ -167,6 +168,8 @@
     const activeLayout = ref<any | null>(null);
     const layoutBlocks = ref<any[] | null>(null);
     const isLoading = ref<boolean>(true);
+    let suppressGridReload = false;
+    const editSnapshots = ref<Record<string, { x: number; y: number; width: number; height: number; content: string }>>({});
 
     // Zoom state
     const zoom = ref(1);
@@ -293,6 +296,7 @@
                 margin: GRID_MARGIN,
                 float: true,
                 sizeToContent: false,
+                minRow: 30,
                 disableDrag: !props.edit,
                 disableResize: !props.edit,
             }, gridstackContainer.value);
@@ -456,13 +460,25 @@
             const nextText: any[] = [];
             const stepPromises: Promise<any>[] = [];
 
+            // Helper to override block coords with current GridStack engine node if present
+            const resolveCoords = (id: string, fallback: { x: number; y: number; width: number; height: number }) => {
+                try {
+                    const node = grid.value?.engine.nodes.find(n => String(n.id) === id);
+                    if (node) {
+                        return { x: node.x, y: node.y, width: node.w, height: node.h };
+                    }
+                } catch {}
+                return fallback;
+            }
+
             for (const b of blocks) {
                 if (b.type === 'text_widget' && b.text_widget_id) {
                     const embedded = (b as any).text_widget || null;
                     const baseSrc = embedded || textMap.get(b.text_widget_id) || { id: b.text_widget_id, content: '', isEditing: false, isNew: false, showControls: false };
+                    const coords = resolveCoords(String(baseSrc.id), { x: b.x, y: b.y, width: b.width, height: b.height })
                     nextText.push({
                         ...baseSrc,
-                        x: b.x, y: b.y, width: b.width, height: b.height,
+                        x: coords.x, y: coords.y, width: coords.width, height: coords.height,
                         // carry per-block view overrides for text widgets as well
                         layout_view_overrides: (b as any).view_overrides || null,
                         type: 'text',
@@ -478,6 +494,7 @@
                         // No viz found yet; skip for now
                         continue;
                     }
+                    const coords = resolveCoords(String(vid), { x: b.x, y: b.y, width: b.width, height: b.height })
                     const qid = viz.query_id;
                     const q = queryById.value[qid] || null;
                     let step: any = null;
@@ -497,7 +514,7 @@
                     })();
                     nextDisplayed.push({
                         id: vid,
-                        x: b.x, y: b.y, width: b.width, height: b.height,
+                        x: coords.x, y: coords.y, width: coords.width, height: coords.height,
                         type: 'regular',
                         isVisualization: true,
                         query_id: qid,
@@ -542,6 +559,11 @@
             const detail: any = (ev as any)?.detail || {}
             if (detail && String(detail.report_id || props.report?.id) !== String(props.report?.id)) {
                 // Ignore events for other reports
+                return
+            }
+            if (detail?.source && detail.source === instanceId) {
+                // Ignore our own broadcast to prevent races with local persistence
+                return
             }
             await refreshLayout()
         } catch {}
@@ -577,16 +599,12 @@
             if (vizById.value[id]) {
                 vizById.value = { ...vizById.value, [id]: { ...vizById.value[id], ...updated } }
             }
-            // Replace displayed widget view/title immediately
-            displayedWidgets.value = displayedWidgets.value.map(w => {
-                if (w.id === id && w.isVisualization) {
-                    // Ensure component resolver sees the new type immediately
-                    const next = { ...w, title: updated.title ?? w.title, view: updated.view ?? w.view }
-                    // Force change detection for nested consumers
-                    return JSON.parse(JSON.stringify(next))
-                }
-                return w
-            })
+            // Mutate displayed widget view/title in place to avoid grid reload and preserve position
+            const target = displayedWidgets.value.find(w => w.id === id && w.isVisualization)
+            if (target) {
+                if (Object.prototype.hasOwnProperty.call(updated, 'title')) target.title = updated.title
+                if (Object.prototype.hasOwnProperty.call(updated, 'view')) target.view = updated.view
+            }
         } catch {}
     }
 
@@ -720,6 +738,7 @@
     });
  
     watch(allWidgets, async (currentWidgets, oldWidgets) => {
+        if (suppressGridReload) return;
         // Simplified condition: Reload if length changes or if it's a deep change (heuristically)
         if (currentWidgets.length !== oldWidgets?.length || JSON.stringify(currentWidgets) !== JSON.stringify(oldWidgets)) {
             await loadWidgetsIntoGrid(grid.value, currentWidgets);
@@ -735,49 +754,82 @@
         if (!props.edit) return;
         items.forEach(item => {
             const nodeId = typeof item.id === 'string' ? item.id : (item?.el?.getAttribute?.('gs-id') || String(item.id))
-            const widget = findWidgetById(nodeId);
-            if (!widget) {
-                 console.warn(`Widget with ID ${nodeId} not found in local data during grid change.`);
-                 return;
+            // Update both displayedWidgets/textWidgets directly to keep local state authoritative
+            const textIdx = textWidgets.value.findIndex(w => String(w.id) === String(nodeId))
+            if (textIdx !== -1) {
+                const tw = textWidgets.value[textIdx]
+                tw.x = item.x; tw.y = item.y; tw.width = item.w; tw.height = item.h
+                return
             }
-            const newX = item.x;
-            const newY = item.y;
-            const newWidth = item.w;
-            const newHeight = item.h;
-
-            if (widget.x !== newX || widget.y !== newY || widget.width !== newWidth || widget.height !== newHeight) {
-                widget.x = newX;
-                widget.y = newY;
-                widget.width = newWidth;
-                widget.height = newHeight;
+            const dispIdx = displayedWidgets.value.findIndex(w => String(w.id) === String(nodeId))
+            if (dispIdx !== -1) {
+                const dw = displayedWidgets.value[dispIdx]
+                dw.x = item.x; dw.y = item.y; dw.width = item.w; dw.height = item.h
+                return
             }
         });
     };
 
     // Ensure we also persist when the user stops dragging/resizing a single item
-    // Debounced saver to avoid duplicate/cancelled requests
-    let saveTimer: number | null = null
+    // Debounced full-layout saver to avoid races with subsequent operations (like deletions)
     const handleGridStop = async (event: Event, el: HTMLElement) => {
         if (!props.edit || !grid.value || !el) return;
+        // Mirror the latest node back to our local widget for consistency
         const node = grid.value.engine.nodes.find(n => n.el === el);
-        if (!node) return;
-        const id = typeof node.id === 'string' ? node.id : (el.getAttribute('gs-id') || String(node.id));
-        const w = findWidgetById(id);
-        if (!w || w.isNew) return;
-
-        const patch = w.type === 'text'
-            ? { type: 'text_widget', text_widget_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h }
-            : { type: 'visualization', visualization_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h };
-        if (saveTimer) window.clearTimeout(saveTimer)
-        saveTimer = window.setTimeout(async () => {
-            try {
-                const { error } = await useMyFetch(`/api/reports/${props.report.id}/layouts/active/blocks`, { method: 'PATCH', body: { blocks: [patch] } });
-                if (error.value) throw error.value;
-            } catch (e: any) {
-                console.error('Failed to save layout on stop', e);
+        if (node) {
+            const id = typeof node.id === 'string' ? node.id : (el.getAttribute('gs-id') || String(node.id));
+            const w = findWidgetById(id);
+            if (w) {
+                if (w.type === 'text' && w.isEditing) {
+                    w.x = node.x; w.y = node.y; w.width = node.w; w.height = node.h;
+                    return;
+                }
+                w.x = node.x; w.y = node.y; w.width = node.w; w.height = node.h;
             }
-        }, 120)
+        }
+        schedulePersistFullLayout()
     };
+
+    // Debounced full layout persistence (for removals and auto-reflow)
+    let fullSaveTimer: number | null = null
+    async function persistFullLayout() {
+        if (!props.edit || !grid.value) return;
+        try {
+            // Ensure we have the active layout id for full replacement
+            if (!activeLayout.value?.id) {
+                await fetchActiveLayout();
+            }
+            const layoutId = activeLayout.value?.id;
+            if (!layoutId) return;
+
+            const nodes = grid.value.engine.nodes || [];
+            const blocks: any[] = [];
+            for (const node of nodes) {
+                const id = typeof node.id === 'string' ? node.id : (node?.el?.getAttribute?.('gs-id') || String(node.id));
+                const w = findWidgetById(id);
+                if (!w) continue;
+                if (w.type === 'text') {
+                    if (w.isNew) continue; // skip unsaved text widgets
+                    blocks.push({ type: 'text_widget', text_widget_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h });
+                } else {
+                    blocks.push({ type: 'visualization', visualization_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h });
+                }
+            }
+            const { data, error } = await useMyFetch(`/api/reports/${props.report.id}/layouts/${layoutId}`, { method: 'PATCH', body: { blocks } });
+            if (error.value) throw error.value;
+            // Update local copies to reflect latest server state
+            if (data?.value) {
+                activeLayout.value = data.value as any;
+                layoutBlocks.value = (activeLayout.value as any)?.blocks || [];
+            }
+        } catch (e: any) {
+            console.error('Failed to persist full layout', e)
+        }
+    }
+    function schedulePersistFullLayout() {
+        if (fullSaveTimer) window.clearTimeout(fullSaveTimer)
+        fullSaveTimer = window.setTimeout(() => { persistFullLayout() }, 180)
+    }
 
     const handleGridAdded = (event: Event, items: any[]) => {
         // Usually triggered by makeWidget or addWidget. Log if needed for debugging.
@@ -786,6 +838,7 @@
 
     const handleGridRemoved = (event: Event, items: any[]) => {
         // Sync local data state AFTER gridstack removes the element
+        suppressGridReload = true;
         items.forEach(item => {
             const widgetId = item.id;
             const textIndex = textWidgets.value.findIndex(w => w.id === widgetId);
@@ -799,6 +852,19 @@
                 }
             }
         });
+        // After GridStack compacts, mirror engine nodes back into our data model
+        try {
+            const nodes = grid.value?.engine.nodes || [];
+            for (const node of nodes) {
+                const id = typeof node.id === 'string' ? node.id : (node?.el?.getAttribute?.('gs-id') || String(node.id));
+                const w = findWidgetById(id);
+                if (!w) continue;
+                w.x = node.x; w.y = node.y; w.width = node.w; w.height = node.h;
+            }
+        } catch {}
+        // Persist the new positions of remaining widgets after GridStack reflow
+        schedulePersistFullLayout()
+        suppressGridReload = false;
     };
 
     // --- Widget Find & Update ---
@@ -812,42 +878,34 @@
     // --- Widget CRUD ---
     async function removeWidget(widget: any) {
         try {
-            // Remove the visualization block from the active layout
-            if (!activeLayout.value) {
-                await fetchActiveLayout();
-            }
-            const layoutId = activeLayout.value?.id;
-            if (!layoutId) throw new Error('Active layout not found');
-
-            const currentBlocks: any[] = Array.isArray(layoutBlocks.value) ? [...layoutBlocks.value] : (activeLayout.value?.blocks || []);
-            const filteredBlocks = currentBlocks.filter((b: any) => {
-                if (b?.type === 'visualization' && b?.visualization_id === widget.id) return false;
-                if (b?.type === 'widget' && b?.widget_id === widget.id) return false;
-                return true;
-            });
-
-            const { data, error } = await useMyFetch(`/api/reports/${props.report.id}/layouts/${layoutId}`, {
-                method: 'PATCH',
-                body: { blocks: filteredBlocks }
-            });
-            if (error.value) throw error.value;
-
-            // Update local state
-            activeLayout.value = data.value as any;
-            layoutBlocks.value = (activeLayout.value as any)?.blocks || [];
-
             const el = grid.value?.engine.nodes.find(n => n.id === widget.id)?.el;
             if (el && grid.value) {
                  grid.value.removeWidget(el); // Triggers 'removed' event
+                await nextTick()
+                await persistFullLayout()
             } else {
                 const index = displayedWidgets.value.findIndex(w => w.id === widget.id);
                 if (index !== -1) displayedWidgets.value.splice(index, 1);
                  emit('removeWidget', { id: widget.id });
+                // If no grid event will fire, persist layout now
+                try {
+                    // Mirror engine nodes first to avoid watchers resetting positions
+                    suppressGridReload = true;
+                    const nodes = grid.value?.engine?.nodes || [];
+                    for (const node of nodes) {
+                        const id2 = typeof node.id === 'string' ? node.id : (node?.el?.getAttribute?.('gs-id') || String(node.id));
+                        const w2 = findWidgetById(id2);
+                        if (!w2) continue;
+                        w2.x = node.x; w2.y = node.y; w2.width = node.w; w2.height = node.h;
+                    }
+                } catch {}
+                await persistFullLayout()
+                suppressGridReload = false;
             }
             toast.add({ title: 'Removed from dashboard' });
             // Broadcast so previews update their membership buttons immediately
             try {
-                window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: props.report.id, action: 'removed', widget_id: widget.id } }))
+                window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: props.report.id, action: 'removed', widget_id: widget.id, source: instanceId } }))
             } catch {}
         } catch (error: any) {
             console.error(`Failed to remove from dashboard ${widget.id}`, error);
@@ -874,6 +932,8 @@
                 else {
                      console.warn(`Element/Data for text widget ${widget.id} not found for removal.`);
                 }
+                // If no grid event will fire, persist layout now
+                schedulePersistFullLayout()
             }
 
             if (!widget.isNew) {
@@ -896,26 +956,36 @@
         const newWidget = {
             id: tempId,
             content: '<p>Start typing...</p>',
-            x: 0, y: 0, width: 4, height: 5,
+            x: undefined as any, y: undefined as any, width: 6, height: 7,
             type: 'text', isEditing: true, isNew: true, showControls: true
         };
 
+        // Before adding, mirror current engine node positions back into local state
+        try {
+            const nodes = grid.value.engine?.nodes || [];
+            for (const node of nodes) {
+                const id = typeof node.id === 'string' ? node.id : (node?.el?.getAttribute?.('gs-id') || String(node.id));
+                const w = findWidgetById(id);
+                if (!w) continue;
+                w.x = node.x; w.y = node.y; w.width = node.w; w.height = node.h;
+            }
+        } catch {}
+        // Persist current layout so any future refresh uses the latest positions
+        schedulePersistFullLayout()
+
+        suppressGridReload = true;
         textWidgets.value.push(newWidget);
 
         await nextTick();
 
         const element = document.querySelector(`[gs-id="${tempId}"]`);
         if (element && grid.value) {
-            grid.value.makeWidget(element as HTMLElement);
-            // Check if Gridstack picked up the attributes correctly, update if not
-            const node = grid.value.engine.nodes.find(n => n.id === tempId);
-            if (node && (node.x !== newWidget.x || node.y !== newWidget.y || node.w !== newWidget.width || node.h !== newWidget.height)) {
-                 grid.value.update(element as HTMLElement, { x: newWidget.x, y: newWidget.y, w: newWidget.width, h: newWidget.height });
-            }
+            // Let GridStack choose the first available slot without moving others
+            grid.value.addWidget(element as HTMLElement, { id: tempId, w: newWidget.width, h: newWidget.height, autoPosition: true } as any);
         } else {
             console.warn(`Could not find DOM element for new widget ${tempId} immediately after adding.`);
-            // await loadWidgetsIntoGrid(grid.value, allWidgets.value); // Fallback - might be too slow
         }
+        suppressGridReload = false;
     };
 
     const saveTextWidget = async (content: string, widget: any) => {
@@ -976,12 +1046,8 @@
                     const newElement = document.querySelector(`[gs-id="${savedWidget.id}"]`);
 
                     if (newElement && grid.value) {
-                         grid.value.addWidget(newElement as HTMLElement, {
-                             id: savedWidget.id,
-                             x: savedWidget.x, y: savedWidget.y,
-                             w: savedWidget.width, h: savedWidget.height,
-                             autoPosition: false
-                         });
+                         // Ensure placement matches temporary computed position to avoid reflow
+                         grid.value.addWidget(newElement as HTMLElement, { id: savedWidget.id, x: savedWidget.x, y: savedWidget.y, w: savedWidget.width, h: savedWidget.height, autoPosition: false } as any);
                     } else {
                          console.warn(`Could not find new element ${savedWidget.id} in DOM to add to gridstack.`);
                          // Consider fallback: await loadWidgetsIntoGrid(grid.value, allWidgets.value);
@@ -1013,7 +1079,7 @@
             existingWidget.width = finalW;
             existingWidget.height = finalH;
             existingWidget.isEditing = false;
-
+            if (editSnapshots.value[existingWidget.id]) delete editSnapshots.value[existingWidget.id];
             await updateWidgetBackend(existingWidget);
         }
     };
@@ -1043,10 +1109,14 @@
         if (widget.isNew) {
             removeTextWidget(widget);
         } else {
-            const originalWidgetIndex = textWidgets.value.findIndex(w => w.id === widget.id);
-            if (originalWidgetIndex !== -1) {
-                const originalWidget = textWidgets.value[originalWidgetIndex];
-                originalWidget.isEditing = !originalWidget.isEditing;
+            const idx = textWidgets.value.findIndex(w => w.id === widget.id);
+            if (idx !== -1) {
+                const w = textWidgets.value[idx];
+                const nowEditing = !w.isEditing;
+                if (nowEditing && !editSnapshots.value[w.id]) {
+                    editSnapshots.value[w.id] = { x: w.x, y: w.y, width: w.width, height: w.height, content: w.content };
+                }
+                w.isEditing = nowEditing;
             } else {
                 console.warn(`Could not find original text widget with ID ${widget.id} to toggle edit state.`);
             }
@@ -1057,11 +1127,23 @@
         if (widget.isNew) {
              removeTextWidget(widget);
         } else {
-            // Find original and toggle editing off
-            const originalWidgetIndex = textWidgets.value.findIndex(w => w.id === widget.id);
-             if (originalWidgetIndex !== -1) {
-                textWidgets.value[originalWidgetIndex].isEditing = false;
-             }
+            const idx = textWidgets.value.findIndex(w => w.id === widget.id);
+            if (idx !== -1) {
+                const w = textWidgets.value[idx];
+                const snap = editSnapshots.value[w.id];
+                w.isEditing = false;
+                if (snap) {
+                    w.content = snap.content;
+                    w.x = snap.x; w.y = snap.y; w.width = snap.width; w.height = snap.height;
+                    try {
+                        const el = grid.value?.engine.nodes.find(n => n.id === w.id)?.el as HTMLElement | undefined;
+                        if (el && grid.value) {
+                            grid.value.update(el as HTMLElement, { id: w.id, x: snap.x, y: snap.y, w: snap.width, h: snap.height, autoPosition: false } as any);
+                        }
+                    } catch {}
+                    delete editSnapshots.value[w.id];
+                }
+            }
         }
     };
 
