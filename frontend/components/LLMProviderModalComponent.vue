@@ -253,14 +253,36 @@
                             </div>
                         </div>
 
-                <div class="flex justify-end space-x-2 pt-4">
-                    <UButton label="Cancel" color="gray" variant="soft" @click="providerModalOpen = false" />
-                    <UButton 
-                        type="submit" 
-                        :label="selectedProvider?.type === 'new_provider' ? 'Save Provider' : 'Update Provider'"  
-                        class="!bg-blue-500 !text-white" 
-                        @click="selectedProvider?.type === 'new_provider' ? createProvider() : updateProvider()"
-                    />
+                <div class="flex items-center pt-4">
+                    <div v-if="isNewProviderSelected && providerForm.provider_type">
+                        <UTooltip text="Regular charges may occur">
+                            <UButton 
+                                variant="soft" 
+                                color="gray"
+                                class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 mr-2"
+                                :disabled="isTestingConnection || !canTestConnection"
+                                @click="testConnection"
+                                title="Regular charges may occur"
+                            >
+                                <template v-if="isTestingConnection">
+                                    <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
+                                    Testing...
+                                </template>
+                                <template v-else>
+                                    Test Connection
+                                </template>
+                            </UButton>
+                        </UTooltip>
+                    </div>
+                    <div class="ml-auto space-x-2">
+                        <UButton label="Cancel" color="gray" variant="soft" @click="providerModalOpen = false" />
+                        <UButton 
+                            type="submit" 
+                            :label="selectedProvider?.type === 'new_provider' ? 'Save Provider' : 'Update Provider'"  
+                            class="!bg-blue-500 !text-white" 
+                            @click="selectedProvider?.type === 'new_provider' ? createProvider() : updateProvider()"
+                        />
+                    </div>
                 </div>
             </form>
         </div>
@@ -269,6 +291,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
+import Spinner from './Spinner.vue';
 
 const props = defineProps<{
     modelValue: boolean;
@@ -343,6 +366,15 @@ const providersWithNewOption = computed(() => {
 
 const showBaseUrl = ref(false);
 const showBaseUrlNew = ref(false);
+const isTestingConnection = ref(false);
+const canTestConnection = computed(() => {
+    if (selectedProvider.value && selectedProvider.value.type !== 'new_provider') {
+        // Existing provider: must have provider_type and some credential (api_key may be blank to use stored)
+        return !!selectedProvider.value.provider_type;
+    }
+    // New provider form: need type and at least api_key
+    return !!providerForm.value.provider_type && !!providerForm.value.credentials && typeof providerForm.value.credentials.api_key !== 'undefined';
+});
 
 function fieldsForProvider(providerType: string): CredentialField[] {
     const provider = providers.value.find(p => p.type === providerType) as any;
@@ -751,6 +783,84 @@ function toggleBaseUrlNewProvider() {
         if (providerForm.value.credentials.base_url === undefined) {
             (providerForm.value.credentials as any).base_url = '';
         }
+    }
+}
+
+async function testConnection() {
+    try {
+        isTestingConnection.value = true;
+        // Build payload from either existing-selected provider (edit mode) or new form
+        let payload: any;
+        if (selectedProvider.value && selectedProvider.value.type !== 'new_provider') {
+            // Use selectedProvider fields
+            const modelsPayload = (selectedProvider.value.models || []).map((m: any) => ({
+                id: m.id,
+                name: m.name,
+                model_id: m.model_id,
+                is_preset: m.is_preset,
+                is_custom: m.is_custom,
+                is_enabled: m.is_enabled,
+                is_default: m.is_default
+            }));
+
+            payload = {
+                name: selectedProvider.value.name,
+                provider_type: selectedProvider.value.provider_type || selectedProvider.value.type,
+                credentials: selectedProvider.value.credentials || {},
+                models: modelsPayload
+            };
+        } else {
+            // Build from new provider form + selected models in UI
+            const selectedPresetModels = models.value
+                .filter((model: any) => model.provider_type === providerForm.value.provider_type && !!model.is_enabled)
+                .map((model: any) => ({
+                    model_id: model.model_id,
+                    name: model.name,
+                    is_custom: false,
+                    is_enabled: true,
+                    is_preset: true
+                }));
+            const selectedCustomModelsPayload = customModels.value
+                .filter(model => model.is_enabled && model.model_id.trim() !== '')
+                .map(model => ({
+                    model_id: model.model_id,
+                    name: model.model_id,
+                    is_custom: true,
+                    is_enabled: true,
+                    is_preset: false
+                }));
+
+            payload = {
+                name: providerForm.value.name || `${providerForm.value.provider_type} (temp)` ,
+                provider_type: providerForm.value.provider_type,
+                credentials: providerForm.value.credentials,
+                models: [...selectedPresetModels, ...selectedCustomModelsPayload]
+            };
+        }
+
+        const res = await useMyFetch('/api/llm/test_connection', {
+            method: 'POST',
+            body: payload
+        });
+        if (res.status.value === 'success') {
+            const data = (res.data as any)?.value as any;
+            const ok = data?.success;
+            toast.add({
+                title: ok ? 'Connection successful' : 'Connection failed',
+                description: data?.message || (ok ? 'Connected' : 'No response'),
+                color: ok ? 'green' : 'red'
+            });
+        } else {
+            toast.add({
+                title: 'Error',
+                description: String((res.error as any)?.value || 'Request failed'),
+                color: 'red'
+            });
+        }
+    } catch (e: any) {
+        toast.add({ title: 'Error', description: String(e?.message || e), color: 'red' });
+    } finally {
+        isTestingConnection.value = false;
     }
 }
 </script>

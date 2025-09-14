@@ -39,6 +39,16 @@ async def get_available_models(
 ):
     return await llm_service.get_available_models(db, organization, current_user)
 
+@router.post("/llm/test_connection", response_model=dict)
+@requires_permission('view_llm_settings')
+async def test_connection(
+    provider: LLMProviderCreate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    return await llm_service.test_connection(db, organization, current_user, provider)
+
 @router.get("/llm/providers", response_model=List[LLMProviderSchema])
 @requires_permission('view_llm_settings')
 async def get_providers(

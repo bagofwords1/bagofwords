@@ -52,6 +52,3 @@ class OpenAi(LLMClient):
             content = chunk.choices[0].delta.content
             if content is not None:
                 yield content
-
-    def test_connection(self):
-        return True

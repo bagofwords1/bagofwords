@@ -6,10 +6,6 @@ class LLMClient(ABC):
         pass
 
     @abstractmethod
-    def test_connection(self):
-        pass
-
-    @abstractmethod
     def inference(self, prompt: str):
         pass
 

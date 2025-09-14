@@ -90,12 +90,18 @@ class LLM:
                     # Find first JSON start and begin streaming from there
                     m = re.search(r"[\{\[]", prefix)
                     if not m:
-                        # Still haven't seen JSON start; keep accumulating
-                        continue
-
-                    started_payload = True
-                    yield prefix[m.start():]
-                    prefix = ""  # release buffer
+                        # If we have any non-whitespace content, treat as plain text stream
+                        if re.search(r"\S", prefix):
+                            started_payload = True
+                            yield prefix
+                            prefix = ""
+                        else:
+                            # Still haven't seen content; keep accumulating
+                            continue
+                    else:
+                        started_payload = True
+                        yield prefix[m.start():]
+                        prefix = ""  # release buffer
                 else:
                     # After payload starts, still guard against stray closers mid-stream
                     if "```" in chunk:
@@ -103,3 +109,39 @@ class LLM:
                     yield chunk
         except Exception as e:
             raise RuntimeError(f"LLM streaming failed (provider={self.provider}, model={self.model_id}): {e}") from e
+
+
+    async def test_connection(self, prompt: str = "Hello, how are you?"):
+        try:
+            test_inference = self.inference(prompt)
+
+            if not isinstance(test_inference, str) or not test_inference.strip():
+                return {
+                    "success": False,
+                    "message": "No response from the model, regular inference request failed"
+                }
+
+            test_stream = ""
+            async for chunk in self.inference_stream(prompt):
+                if not chunk:
+                    continue
+                test_stream += chunk
+                if len(test_stream) > 100:
+                    break
+
+            if not test_stream:
+                return {
+                    "success": False,
+                    "message": "No response from the model, streaming request failed"
+                }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "message": str(e)
+            }
+
+        return {
+            "success": True,
+            "message": "Successfully connected to LLM"
+        }

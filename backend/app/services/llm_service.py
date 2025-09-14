@@ -9,7 +9,8 @@ from app.models.user import User
 from app.settings.config import settings
 from app.models.llm_provider import LLM_PROVIDER_DETAILS
 from app.models.llm_model import LLM_MODEL_DETAILS
-from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema
+from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema, LLMProviderCreate
+from app.ai.llm.llm import LLM
 from datetime import datetime
 
 class LLMService:
@@ -536,5 +537,88 @@ class LLMService:
                     organization_id=organization.id
                 )
                 db.add(model)
-
         
+    async def test_connection(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        provider: LLMProviderCreate
+    ):
+        # Build an in-memory provider based on the payload (no DB writes)
+        provider_obj = LLMProvider(
+            name=provider.name,
+            provider_type=provider.provider_type,
+            organization_id=organization.id,
+            is_preset=False,
+            is_enabled=True,
+            use_preset_credentials=False,
+            additional_config=None
+        )
+
+        # Set credentials and merge provider-specific additional_config
+        self._set_provider_credentials(provider_obj, provider.credentials)
+
+        # Choose a model to test from user-provided list, preferring default or custom
+        selected_model = None
+        if provider.models:
+            # Try catalog default first among provided models
+            catalog_default = next(
+                (m for m in LLM_MODEL_DETAILS if m["provider_type"] == provider.provider_type and m.get("is_default")),
+                None
+            )
+            preferred = None
+            if catalog_default is not None:
+                preferred = next((m for m in provider.models if m.get("model_id") == catalog_default["model_id"] and m.get("is_enabled", True)), None)
+
+            # Prefer an explicitly default and enabled model from payload if still not found
+            if not preferred:
+                preferred = next((m for m in provider.models if m.get("is_default") and m.get("is_enabled", True)), None)
+            # Otherwise prefer any enabled custom model
+            if not preferred:
+                preferred = next((m for m in provider.models if m.get("is_custom", False) and m.get("is_enabled", True)), None)
+            # Otherwise prefer any enabled model
+            if not preferred:
+                preferred = next((m for m in provider.models if m.get("is_enabled", True)), None)
+
+            if preferred:
+                selected_model = LLMModel(
+                    name=preferred.get("name") or preferred.get("model_id"),
+                    model_id=preferred["model_id"],
+                    provider=provider_obj,
+                    organization_id=organization.id,
+                    is_enabled=True,
+                    is_custom=preferred.get("is_custom", False),
+                    is_preset=preferred.get("is_preset", False),
+                    is_default=False
+                )
+
+        # Fallback to default/first enabled model for the provider type
+        if selected_model is None:
+            default_model_data = next(
+                (m for m in LLM_MODEL_DETAILS if m["provider_type"] == provider.provider_type and m.get("is_default")),
+                None
+            )
+            if default_model_data is None:
+                default_model_data = next(
+                    (m for m in LLM_MODEL_DETAILS if m["provider_type"] == provider.provider_type and m.get("is_enabled")),
+                    None
+                )
+            if default_model_data is None:
+                raise HTTPException(status_code=400, detail="No available models for the specified provider type")
+
+            selected_model = LLMModel(
+                name=default_model_data["name"],
+                model_id=default_model_data["model_id"],
+                provider=provider_obj,
+                organization_id=organization.id,
+                is_enabled=True,
+                is_custom=False,
+                is_preset=bool(default_model_data.get("is_preset", False)),
+                is_default=False
+            )
+
+        # Run a lightweight connection test against the LLM client
+        llm = LLM(selected_model)
+        return await llm.test_connection()
+
