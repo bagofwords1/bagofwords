@@ -3,6 +3,7 @@
     <DBTResourceDisplay v-if="isDbtResource" :resource="resource" />
     <LookMLResourceDisplay v-else-if="isLookMLResource" :resource="resource" />
     <MarkdownResourceDisplay v-else-if="isMarkdownResource" :resource="resource" />
+    <TableauResourceDisplay v-else-if="isTableauResource" :resource="resource" />
     <GenericResourceDisplay v-else :resource="resource" />
   </div>
 </template>
@@ -12,6 +13,7 @@ import DBTResourceDisplay from '~/components/DBTResourceDisplay.vue';
 import LookMLResourceDisplay from '~/components/LookMLResourceDisplay.vue';
 import MarkdownResourceDisplay from '~/components/MarkdownResourceDisplay.vue';
 import GenericResourceDisplay from '~/components/GenericResourceDisplay.vue';
+import TableauResourceDisplay from '~/components/TableauResourceDisplay.vue';
 
 interface Resource {
   id: string;
@@ -42,5 +44,9 @@ const isLookMLResource = computed(() => {
 
 const isMarkdownResource = computed(() => {
   return props.resource.resource_type === 'markdown' || props.resource.path?.endsWith('.md');
+});
+
+const isTableauResource = computed(() => {
+  return props.resource.resource_type.startsWith('tableau_');
 });
 </script>

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.197 (September 15, 2025)
+- Introduced Tableau data source integration: TDS files can now be imported to enhance contextual information for data sources
+- Deprecated AI Rules feature at the data source level, consolidating rule management into the centralized instruction system
+
 ## Version 0.0.196 (September 14, 2025)
 - Added inline code editor for queries with full execution capabilities: users can now edit query code, preview data results, visualize outputs, and save changes directly within the interface
 - Added widget customization controls for labels, titles, and styling

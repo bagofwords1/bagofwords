@@ -253,12 +253,17 @@ class GitRepositoryService:
             detected_types.append('markdown')
             self.logger.info(f"Detected Markdown files in {repo_path}")
         
+        # Check for Tableau TDS/TDSX files
+        if list(repo_root.glob('**/*.tds')) or list(repo_root.glob('**/*.tdsx')):
+            detected_types.append('tableau')
+            self.logger.info(f"Detected Tableau datasource files in {repo_path}")
+        
         # Add checks for other types (e.g., Airflow) here
         # if (repo_root / 'dags').is_dir():
         #     detected_types.append('airflow')
 
         if not detected_types:
-             self.logger.warning(f"No known project type (DBT, LookML, Markdown) detected in {repo_path}")
+             self.logger.warning(f"No known project type (DBT, LookML, Markdown, Tableau) detected in {repo_path}")
 
         return detected_types
 

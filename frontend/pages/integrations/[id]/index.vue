@@ -46,18 +46,6 @@
                         Context
                     </button>
                     <button 
-                        @click="activeTab = 'context'"
-                        class="px-4 py-1 text-sm"
-                        :class="{ 
-                            'border-b-2 border-blue-500 text-blue-600': activeTab === 'context', 
-                            'text-gray-500': activeTab !== 'context',
-                            'opacity-50 cursor-not-allowed': !testConnectionStatus?.success 
-                        }"
-                        :disabled="!testConnectionStatus?.success"
-                    >
-                        AI Rules
-                    </button>
-                    <button 
                         @click="activeTab = 'access'"
                         class="px-4 py-1 text-sm"
                         :class="{ 'border-b-2 border-blue-500 text-blue-600': activeTab === 'access', 'text-gray-500': activeTab !== 'access' }"
@@ -318,78 +306,7 @@ Create a table of all customers, show customer name, email, phone, address and c
             
                 </div>
 
-                <div v-if="activeTab === 'context'" class="mt-4">
-                    <div class="mt-4 flex">
-                        <div class="w-2/3 pr-4 space-y-4">
-                            <!-- AI Context Section -->
-                            <div>
-                                <h3 class="text-sm font-semibold mb-2">AI Context</h3>
-                                <UTextarea 
-                                    v-if="canUpdateDataSource"
-                                    v-model="integration.context" 
-                                    :rows="15" 
-                                    class="w-full"
-                                    placeholder="Add context for AI agents about this data source:
 
-** Key tables and fields **
-- table_a - represents users
-- table_b - represents customers
-
-** Example queries and code **
-- SELECT * FROM table_a WHERE date > '2024-01-01'
-- SELECT * FROM table_b order by date desc limit 10
-
-** Data formatting requirements **
-- Date is in EST time.
-- Don't allow more than 5 columns in a query.
-
-** Rules for using the data **
-- Prioritize tables A and B.
-- Use table C only if table A and B don't have the data you need.
-- Always use left joins with table A.
-- Always order by date desc.
-
-"
-                                />
-                                <div v-else class="bg-gray-50 border border-gray-200 rounded-md p-4 text-sm text-gray-700 whitespace-pre-wrap min-h-[300px]">
-                                    {{ integration.context || 'No AI context provided.' }}
-                                </div>
-                                <button v-if="canUpdateDataSource" @click="updateIntegrationContext()" class="bg-blue-500 text-white px-4 py-2 text-sm mt-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
-                                    Save
-                                </button>
-                            </div>
-
-
-                        </div>
-                        <div class="w-1/3 bg-gray-100 p-4 rounded-lg">
-                            <h1 class="text-sm font-semibold">
-                                What is AI Context?
-                            </h1>
-                            <p class="text-sm text-gray-500 leading-6 mt-4">
-                                The AI context for this data source is a place to add any information that you want to share with the AI agents that are using this data source.
-                                
-                                <br />
-                                <br />
-                                <b>Useful information to include:</b>
-                                <ul class="list-disc list-inside mt-4">
-                                    <li class="mb-3">
-                                        Rules for how to use the data: <br />
-                                        • Prioritize tables A and B. <br />
-                                        • Use table C only if table A and B don't have the data you need. <br />
-                                        • Date is EST time. <br />
-                                        • Always use left joins with table A. <br />
-                                        • Always order by date desc.
-                                    </li>
-                                    <li class="mb-3">Sample code queries
-                                        Users: SELECT * FROM table_a WHERE date > '2024-01-01' <br />
-                                        Customers: SELECT * FROM table_b order by date desc limit 10
-                                    </li>
-                                    <li class="mb-3">Any other information that you want to share with the AI agents</li>
-                                </ul>
-                            </p>
-                        </div>
-                    </div>
-                </div>
 
                 <div v-if="activeTab === 'access'" class="mt-4">
                     <!-- Visibility Section -->

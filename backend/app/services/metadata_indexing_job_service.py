@@ -19,6 +19,7 @@ from app.schemas.metadata_resource_schema import MetadataResourceCreate
 from app.core.dbt_parser import DBTResourceExtractor
 from app.core.lookml_parser import LookMLResourceExtractor
 from app.core.markdown_parser import MarkdownResourceExtractor
+from app.core.tableau_parser import TableauTDSResourceExtractor
 from app.dependencies import async_session_maker # Import the session maker
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ class MetadataIndexingJobService:
             'dbt': DBTResourceExtractor,
             'lookml': LookMLResourceExtractor,
             'markdown': MarkdownResourceExtractor,
+            'tableau': TableauTDSResourceExtractor,
         }
 
     async def _verify_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
@@ -188,6 +190,59 @@ class MetadataIndexingJobService:
             raise
 
         return created_or_updated_resources
+
+    async def _parse_tableau_resources(
+        self,
+        db: AsyncSession,
+        temp_dir: str,
+        data_source_id: str,
+        job_id: str,
+    ):
+        """Parse Tableau TDS/TDSX resources from a cloned repository."""
+        created_resources = []
+        try:
+            logger.info(f"Starting Tableau parsing for job {job_id} in {temp_dir}")
+
+            extractor = TableauTDSResourceExtractor(temp_dir)
+            resources_dict, columns_by_resource, docs_by_resource = extractor.extract_all_resources()
+
+            # Iterate over all resource arrays and create MetadataResource for each
+            for resource_type_key, items in resources_dict.items():
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    item_name = item.get('name')
+                    if not item_name:
+                        continue
+
+                    # Lookup columns using unified key: resource_type.name
+                    item_resource_type = item.get('resource_type', resource_type_key)
+                    # No Tableau-specific filtering here; parser controls what is emitted
+                    lookup_key = f"{item_resource_type}.{item_name}"
+                    item_columns = columns_by_resource.get(lookup_key, [])
+
+                    # For SQL: read standardized key 'sql_content' when present
+                    sql_content = item.get('sql_content')
+
+                    metadata_resource = await self._create_or_update_metadata_resource(
+                        db=db,
+                        item=item,
+                        resource_type=item_resource_type,
+                        data_source_id=data_source_id,
+                        job_id=job_id,
+                        columns=item_columns,
+                        depends_on=item.get('depends_on', []),
+                        sql_content=sql_content,
+                    )
+                    if metadata_resource:
+                        created_resources.append(metadata_resource)
+
+            logger.info(f"Completed Tableau parsing for job {job_id}. Created/updated {len(created_resources)} resources")
+            return created_resources
+
+        except Exception as e:
+            logger.error(f"Error during Tableau parsing for job {job_id}: {e}", exc_info=True)
+            raise
 
     async def _parse_lookml_resources(
         self,
@@ -552,6 +607,16 @@ class MetadataIndexingJobService:
                         job_id=job_id,
                     )
                     all_created_resources.extend(markdown_resources or [])
+
+                # --- Trigger Tableau Parsing ---
+                if 'tableau' in detected_project_types:
+                    tableau_resources = await self._parse_tableau_resources(
+                        db=db,
+                        temp_dir=repo_path,
+                        data_source_id=data_source_id,
+                        job_id=job_id,
+                    )
+                    all_created_resources.extend(tableau_resources or [])
 
                 if not detected_project_types:
                     logger.warning(f"Job {job_id}: No project types were detected, nothing to parse.")
