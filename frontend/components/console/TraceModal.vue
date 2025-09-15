@@ -17,7 +17,16 @@
 
             <!-- Content -->
             <div class="h-[500px] flex flex-col">
-                <div class="grid grid-cols-5 gap-6 flex-1 min-h-0">
+                <!-- Loading State -->
+                <div v-if="isLoading" class="flex-1 flex items-center justify-center">
+                    <div class="text-center">
+                        <Spinner class="w-8 h-8 mx-auto mb-4 text-gray-400" />
+                        <p class="text-sm text-gray-500">Loading execution trace...</p>
+                    </div>
+                </div>
+
+                <!-- Main Content -->
+                <div v-else class="grid grid-cols-5 gap-6 flex-1 min-h-0">
                     <!-- Left Pane: Minimal Block List (2/5 width) -->
                     <div class="col-span-2 border-r border-gray-200 pr-4 flex flex-col min-h-0">
                         <div class="text-xs text-gray-600 mb-2">Execution Blocks</div>
@@ -224,6 +233,7 @@ import GenericTool from '../tools/GenericTool.vue'
 import CreateDataModelTool from '../tools/CreateDataModelTool.vue'
 import ExecuteCodeTool from '../tools/ExecuteCodeTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
+import Spinner from '../Spinner.vue'
 
 interface ToolExecutionUI {
     tool_name: string

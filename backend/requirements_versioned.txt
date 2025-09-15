@@ -53,6 +53,7 @@ google-cloud-bigquery==3.27.0
 google-cloud-core==2.4.1
 google-crc32c==1.6.0
 google-generativeai==0.8.3
+google-genai==1.36.0
 google-resumable-media==2.7.2
 googleapis-common-protos==1.66.0
 greenlet==3.0.3
@@ -88,7 +89,7 @@ matplotlib==3.10.3
 matplotlib-inline==0.1.6
 more-itertools==10.5.0
 numpy==1.26.4
-openai==1.30.2
+openai==1.107.2
 openpyxl==3.1.5
 ordered-set==4.1.0
 orjson==3.10.12

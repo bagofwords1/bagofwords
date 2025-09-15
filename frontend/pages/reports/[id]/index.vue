@@ -1,7 +1,7 @@
 <template>
 
-	<!-- Loading until report is fetched -->
-	<div v-if="!reportLoaded" class="h-screen w-full flex items-center justify-center text-gray-500">
+	<!-- Loading until report is fetched (allow streaming UI to render while report loads) -->
+	<div v-if="!reportLoaded && messages.length === 0" class="h-screen w-full flex items-center justify-center text-gray-500">
 		<Spinner class="w-5 h-5 mr-2" />
 		<span class="text-sm">Loading report…</span>
 	</div>
@@ -15,6 +15,7 @@
 		<template #left>
 	<div class="flex flex-col h-screen overflow-y-hidden bg-white relative">
 		<ReportHeader 
+			v-if="report"
 			:report="report"
 			:isSplitScreen="isSplitScreen"
 			:isStreaming="isStreaming"

@@ -1,5 +1,5 @@
 <template>
-    <UModal v-model="providerModalOpen">
+    <UModal v-model="providerModalOpen" :ui="{ width: 'sm:max-w-xl' }">
         <div class="p-4 relative">
             <button @click="providerModalOpen = false" class="absolute top-2 right-2 text-gray-500 hover:text-gray-700">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
@@ -18,7 +18,7 @@
                         class="flex items-center gap-3 px-3 py-2 border border-gray-200 rounded-md hover:bg-gray-50 cursor-pointer"
                     >
                         <Icon v-if="option.type === 'new_provider'" name="heroicons:plus-circle" class="w-5 h-5 text-blue-600" />
-                        <LLMProviderIcon v-else :provider="option.type" class="w-6 h-6" />
+                        <LLMProviderIcon v-else :icon="true" :provider="option.type" class="w-6 h-6" />
                         <span class="text-sm" :class="option.type === 'new_provider' ? 'text-blue-600' : 'text-gray-800'">{{ option.name }}</span>
                     </div>
                 </div>

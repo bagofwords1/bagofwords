@@ -5,6 +5,7 @@ import tiktoken
 import json
 from partialjson.json_parser import JSONParser
 from app.schemas.ai.planner import PlannerInput
+import asyncio
 
 class Judge:
 
@@ -59,7 +60,8 @@ class Judge:
             }}
             """
 
-            response = self.llm.inference(scoring_prompt)
+            # Offload potentially blocking LLM call to a thread to avoid blocking the event loop
+            response = await asyncio.to_thread(self.llm.inference, scoring_prompt)
             try:
                 scores = json.loads(response)
                 instructions_score = max(1, min(5, int(scores.get("instructions_score", 3))))
@@ -130,7 +132,8 @@ class Judge:
             }}
             """
 
-            response = self.llm.inference(scoring_prompt)
+            # Offload potentially blocking LLM call to a thread to avoid blocking the event loop
+            response = await asyncio.to_thread(self.llm.inference, scoring_prompt)
             
             try:
                 score_data = json.loads(response)

@@ -1252,15 +1252,32 @@ class ConsoleService:
                 else:
                     head_prompt = str(head_user_completion.prompt)
 
-        # Fetch the earliest context snapshot for this agent execution (best-effort)
-        cs_query = (
-            select(ContextSnapshot)
-            .where(ContextSnapshot.agent_execution_id == agent_execution.id)
-            .order_by(ContextSnapshot.created_at.asc())
-            .limit(1)
-        )
-        cs_res = await db.execute(cs_query)
-        head_snapshot = cs_res.scalar_one_or_none()
+        # Prefer the most informative snapshot for UI: try 'final' first, else latest available
+        head_snapshot = None
+        try:
+            final_q = (
+                select(ContextSnapshot)
+                .where(
+                    ContextSnapshot.agent_execution_id == agent_execution.id,
+                    ContextSnapshot.kind == 'final',
+                )
+                .order_by(ContextSnapshot.created_at.desc())
+                .limit(1)
+            )
+            final_res = await db.execute(final_q)
+            head_snapshot = final_res.scalar_one_or_none()
+        except Exception:
+            head_snapshot = None
+
+        if head_snapshot is None:
+            latest_q = (
+                select(ContextSnapshot)
+                .where(ContextSnapshot.agent_execution_id == agent_execution.id)
+                .order_by(ContextSnapshot.created_at.desc())
+                .limit(1)
+            )
+            latest_res = await db.execute(latest_q)
+            head_snapshot = latest_res.scalar_one_or_none()
 
         # Fetch latest feedback for the completion, if any
         latest_feedback = None

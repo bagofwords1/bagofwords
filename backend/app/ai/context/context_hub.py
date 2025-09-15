@@ -124,6 +124,7 @@ class ContextHub:
         
         # Build context sections
         context = ContextSnapshot(metadata=self.metadata)
+        section_sizes: Dict[str, int] = {}
         
         # Core sections
         if spec.include_schemas:
@@ -135,7 +136,25 @@ class ContextHub:
                 top_k=schema_cfg.top_k,
             )
             context.schemas_excerpt = schemas_section.render()
-            self.metadata.schemas_count = len(context.schemas_excerpt.split('\n'))
+            # Prefer object-based count of tables if available; fallback to rendered lines
+            try:
+                data_sources = getattr(schemas_section, 'data_sources', []) or []
+                table_count = 0
+                for ds in data_sources:
+                    tables = getattr(ds, 'tables', None)
+                    if tables is None and isinstance(ds, dict):
+                        tables = (ds.get('tables') or [])
+                    if tables is None:
+                        tables = []
+                    try:
+                        table_count += len(list(tables))
+                    except Exception:
+                        pass
+                # Only set if we found a meaningful count; else fallback
+                self.metadata.schemas_count = table_count if table_count > 0 else len(context.schemas_excerpt.split('\n'))
+            except Exception:
+                self.metadata.schemas_count = len(context.schemas_excerpt.split('\n'))
+            section_sizes['schemas'] = len(context.schemas_excerpt or '')
         
         if spec.include_messages:
             # Use new config or fallback to legacy parameters
@@ -152,6 +171,7 @@ class ContextHub:
                 role_filter=message_config.role_filter
             )
             self.metadata.messages_count = len(context.messages_context.split('\n'))
+            section_sizes['messages'] = len(context.messages_context or '')
         
         if spec.include_memories:
             # Use new config or fallback to legacy parameters
@@ -163,6 +183,7 @@ class ContextHub:
                 max_memories=memory_config.max_memories
             )
             self.metadata.memories_count = len(context.memories_context.split('\n'))
+            section_sizes['memories'] = len(context.memories_context or '')
         
         if spec.include_widgets:
             # Use new config or fallback to legacy parameters
@@ -179,6 +200,7 @@ class ContextHub:
                 include_data_preview=widget_config.include_data_preview
             )
             self.metadata.widgets_count = len(context.widgets_context.split('\n'))
+            section_sizes['widgets'] = len(context.widgets_context or '')
         
         if spec.include_instructions:
             # Build object, then render for legacy ContextSnapshot
@@ -188,15 +210,18 @@ class ContextHub:
                 category=instruction_config.category,
             )
             context.instructions_context = inst_section.render()
+            section_sizes['instructions'] = len(context.instructions_context or '')
         
         # Optional sections
         if spec.include_code:
             # CodeContextBuilder has complex interface, skip for now
             # TODO: Implement when code context is needed
             context.code_context = ""
+            section_sizes['code'] = len(context.code_context or '')
         
         if spec.include_resource:
             context.resource_context = await self.resource_builder.build()
+            section_sizes['resources'] = len(context.resource_context or '')
 
         # Files section (object cached, string rendered into legacy snapshot)
         if getattr(spec, 'include_files', True):
@@ -210,8 +235,38 @@ class ContextHub:
         # Build history summary (simplified for now)
         context.history_summary = await self._build_history_summary(context)
         
-        # Update metadata
+        # Update metadata  
         self.metadata.build_duration_ms = (time.time() - start_time) * 1000
+        
+        # Count warm section items from object-based cache (more accurate than text line counting)
+        messages_section = self._warm_cache.get("messages", None)
+        if messages_section and hasattr(messages_section, 'items'):
+            self.metadata.messages_count = len(messages_section.items)
+            # Add messages section size for total_tokens calculation
+            messages_text = messages_section.render() if messages_section else ""
+            section_sizes['messages'] = len(messages_text)
+        
+        widgets_section = self._warm_cache.get("widgets", None)
+        if widgets_section and hasattr(widgets_section, 'items'):
+            self.metadata.widgets_count = len(widgets_section.items)
+            # Add widgets section size for total_tokens calculation
+            widgets_text = widgets_section.render() if widgets_section else ""
+            section_sizes['widgets'] = len(widgets_text)
+        
+        queries_section = self._warm_cache.get("queries", None)
+        if queries_section and hasattr(queries_section, 'items'):
+            self.metadata.queries_count = len(queries_section.items)
+            # Add queries section size for total_tokens calculation
+            queries_text = queries_section.render() if queries_section else ""
+            section_sizes['queries'] = len(queries_text)
+        
+        # Expose section sizes for UI diagnostics and calculate total_tokens as sum
+        try:
+            self.metadata.section_sizes = section_sizes
+            # Calculate total_tokens as sum of all section sizes
+            self.metadata.total_tokens = sum(section_sizes.values())
+        except Exception:
+            pass
         context.metadata = self.metadata
         
         return context

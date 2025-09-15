@@ -67,18 +67,19 @@ LLM_MODEL_DETAILS = [
     },
 
     {
-        "name": "Gemini Pro",
-        "model_id": "gemini-1.5-pro",
+        "name": "Gemini 2.5 Pro",
+        "model_id": "gemini-2.5-pro",
         "provider_type": "google",
-        "is_preset": False,
-        "is_enabled": False
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True
     },
     {
-        "name": "Gemini 1.5 Flash",
-        "model_id": "gemini-1.5-flash",
+        "name": "Gemini 2.5 Flash",
+        "model_id": "gemini-2.5-flash",
         "provider_type": "google",
-        "is_preset": False,
-        "is_enabled": False
+        "is_preset": True,
+        "is_enabled": True
     },
     {
         "name": "BOW Small",

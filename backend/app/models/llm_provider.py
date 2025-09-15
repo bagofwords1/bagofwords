@@ -29,14 +29,14 @@ LLM_PROVIDER_DETAILS = [
         "description": "Azure OpenAI Service for accessing OpenAI models",
         "config": "AzureConfig",
         "credentials": AzureCredentials.schema()
-    } #,
-    # {
-    #     "type": "google",
-    #     "name": "Google",
-    #     "description": "Google's API for accessing their LLM models",
-    #     "config": "GoogleConfig",
-    #     "credentials": GoogleCredentials.schema()
-    # }
+    },
+     {
+         "type": "google",
+         "name": "Google",
+         "description": "Google's API for accessing their LLM models",
+         "config": "GoogleConfig",
+         "credentials": GoogleCredentials.schema()
+     }
 ]
 
 BOW_PROVIDER_DETAILS = {

@@ -95,7 +95,6 @@ class AgentV2:
             head_completion=self.head_completion,
             widget=self.widget
         )
-
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
         
@@ -112,7 +111,6 @@ class AgentV2:
                 seen_tools.add(tool['name'])
         
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
-        
         self.planner = PlannerV2(
             model=self.model,
             tool_catalog=tool_catalog,
@@ -225,6 +223,11 @@ class AgentV2:
             # Prime static once; then refresh warm each loop
             await self.context_hub.prime_static()
             await self.context_hub.refresh_warm()
+            # Populate metadata counts (schemas/messages/etc) before first snapshot
+            try:
+                await self.context_hub.build_context()
+            except Exception:
+                pass
             view = self.context_hub.get_view()
             
             # Save initial context snapshot
@@ -980,8 +983,12 @@ class AgentV2:
                 if analysis_done:
                     break
 
-            # Save final context snapshot
+            # Save final context snapshot (recompute metadata so counts/tokens are up to date)
             await self.context_hub.refresh_warm()
+            try:
+                await self.context_hub.build_context()
+            except Exception:
+                pass
             view = self.context_hub.get_view()
             await self.project_manager.save_context_snapshot(
                 self.db,

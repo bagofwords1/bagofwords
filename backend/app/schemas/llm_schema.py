@@ -84,7 +84,7 @@ class GoogleCredentials(BaseModel):
 
 class GoogleConfig(BaseModel):
     max_output_tokens: Optional[int] = 2048
-    temperature: Optional[float] = 0.7
+    temperature: Optional[float] = 0.3
     top_p: Optional[float] = 0.8
     top_k: Optional[int] = 40
 

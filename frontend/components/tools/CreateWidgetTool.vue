@@ -25,9 +25,9 @@
         <!-- Section 1: Creating Data Model -->
         <div class="mb-4">
           <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleDm">
-            <Spinner v-if="isDMRunning" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="dmDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-            <span v-if="isDMRunning" class="tool-shimmer">Creating Data Model</span>
+            <Spinner v-if="!dmDone" class="w-3 h-3 mr-1.5 text-gray-400" />
+            <Icon v-else name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+            <span v-if="!dmDone" class="tool-shimmer">Creating Data Model</span>
             <span v-else class="text-gray-700">Creating Data Model</span>
             <Icon :name="dmCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ml-2" />
           </div>

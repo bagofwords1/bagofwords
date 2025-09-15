@@ -826,6 +826,50 @@ class ProjectManager:
     async def finish_agent_execution(self, db, agent_execution, status, first_token_ms=None, 
                                     thinking_ms=None, token_usage_json=None, error_json=None):
         """Finish an agent execution run."""
+        # If metrics are not provided, derive them from PlanDecision rows
+        if first_token_ms is None or thinking_ms is None or token_usage_json is None:
+            try:
+                from sqlalchemy import select
+                from app.models.plan_decision import PlanDecision
+
+                prompt_total = 0
+                completion_total = 0
+                total_tokens_total = 0
+                derived_first_token_ms = None
+                derived_thinking_ms = None
+
+                stmt = select(PlanDecision).where(PlanDecision.agent_execution_id == str(agent_execution.id)).order_by(PlanDecision.seq.asc())
+                rows = (await db.execute(stmt)).scalars().all()
+                for pd in rows:
+                    metrics = getattr(pd, 'metrics_json', None) or {}
+                    token_usage = metrics.get('token_usage') or {}
+                    try:
+                        prompt_total += int(token_usage.get('prompt_tokens') or 0)
+                        completion_total += int(token_usage.get('completion_tokens') or 0)
+                        total_tokens_total += int(token_usage.get('total_tokens') or 0)
+                    except Exception:
+                        pass
+                    if derived_first_token_ms is None:
+                        ft = metrics.get('first_token_ms')
+                        if isinstance(ft, (int, float)):
+                            derived_first_token_ms = float(ft)
+                    tm = metrics.get('thinking_ms')
+                    if isinstance(tm, (int, float)):
+                        derived_thinking_ms = float(tm)
+
+                if token_usage_json is None and (prompt_total or completion_total or total_tokens_total):
+                    token_usage_json = {
+                        'prompt_tokens': prompt_total,
+                        'completion_tokens': completion_total,
+                        'total_tokens': total_tokens_total or (prompt_total + completion_total),
+                    }
+                if first_token_ms is None:
+                    first_token_ms = derived_first_token_ms
+                if thinking_ms is None:
+                    thinking_ms = derived_thinking_ms
+            except Exception:
+                pass
+
         agent_execution.status = status
         agent_execution.completed_at = datetime.datetime.utcnow()
         if agent_execution.started_at:

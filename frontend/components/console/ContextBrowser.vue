@@ -271,7 +271,6 @@ interface Props {
 const props = defineProps<Props>()
 
 const expandedSections = ref<Set<string>>(new Set())
-
 // Object-based schemas (preferred), with fallback to legacy text
 const objectSchemas = computed(() => props.contextData?.static?.schemas || null)
 const dataSources = computed(() => {
@@ -352,7 +351,14 @@ const metadata = computed(() => {
   // Filter out large or uninteresting metadata
   const filtered: any = {}
   for (const [key, value] of Object.entries(meta)) {
-    if (key !== 'context_view_json' && typeof value !== 'function') {
+    if (
+      key !== 'context_view_json' &&
+      key !== 'context_window_start' &&
+      key !== 'context_window_end' &&
+      key !== 'memories_count' &&
+      key !== 'metadata_resources_count' &&
+      typeof value !== 'function'
+    ) {
       filtered[key] = value
     }
   }
@@ -371,7 +377,7 @@ function toggleSection(section: string) {
 
 // Open schemas and data sources by default
 onMounted(() => {
-  expandedSections.value.add('schemas')
+  //expandedSections.value.add('schemas')
 })
 
 watch(dataSources, (list) => {

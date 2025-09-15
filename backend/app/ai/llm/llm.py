@@ -14,7 +14,6 @@ class LLM:
         self.provider = model.provider.provider_type
         self.api_key = self.model.provider.decrypt_credentials()[0]
 
-
         if self.provider == "openai":
             base_url = None
             if self.model.provider.additional_config:
@@ -23,9 +22,7 @@ class LLM:
         elif self.provider == "anthropic":
             self.client = Anthropic(api_key=self.api_key)
         elif self.provider == "google":
-            self.client = Google()
-        elif self.provider == "bow":
-            self.client = Bow(api_key=self.api_key)
+            self.client = Google(api_key=self.api_key)
         elif self.provider == "azure":
             # Get endpoint URL from provider's additional_config
             endpoint_url = self.model.provider.additional_config.get("endpoint_url") if self.model.provider.additional_config else None
