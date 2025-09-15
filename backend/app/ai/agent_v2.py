@@ -310,7 +310,6 @@ class AgentV2:
                     # Get resources context from metadata resources
                     resources_section = await self.context_hub.resource_builder.build()
                     resources_context = resources_section.render()
-                    breakpoint()   
                     # Files context (uploaded files schemas/metadata)
                     files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
 
