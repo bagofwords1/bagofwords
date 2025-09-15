@@ -64,7 +64,7 @@ httpcore==1.0.9
 httplib2==0.22.0
 httptools==0.6.1
 httpx==0.28.1
-httpx-oauth==0.16.0
+httpx-oauth==0.16.1
 idna==3.7
 iniconfig==2.0.0
 ipython==8.22.2
