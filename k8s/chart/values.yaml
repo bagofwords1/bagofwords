@@ -30,6 +30,7 @@ config:
   encryptionKey: ""
   intercomEnabled: false
   baseUrl: ""
+  authMode: "hybrid"
   allowUninvitedSignups: false
   allowMultipleOrganizations: false
   verifyEmails: false

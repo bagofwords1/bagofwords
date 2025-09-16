@@ -8,6 +8,10 @@ features:
   allow_multiple_organizations: false 
   verify_emails: false
 
+
+auth:
+  mode: "hybrid" # hybrid | local_only | sso_only
+
 google_oauth:
   enabled: false
 

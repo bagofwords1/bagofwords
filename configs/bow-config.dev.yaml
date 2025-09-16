@@ -13,6 +13,9 @@ features:
   allow_multiple_organizations: false
   verify_emails: false
 
+auth:
+  mode: "hybrid"
+
 google_oauth:
   enabled: false
   client_id: '${BOW_GOOGLE_CLIENT_ID}'

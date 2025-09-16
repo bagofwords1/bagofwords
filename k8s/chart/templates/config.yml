@@ -12,6 +12,7 @@ data:
   # Application configuration - always include these
   BOW_BASE_URL: {{.Values.config.baseUrl | quote}}
   BOW_ENCRYPTION_KEY: {{.Values.config.encryptionKey | quote}}
+  BOW_AUTH_MODE: {{ .Values.config.authMode | quote }}
   BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
   BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
   BOW_GOOGLE_AUTH_ENABLED: {{.Values.config.googleOauthEnabled | quote}}
@@ -63,6 +64,10 @@ data:
 
     intercom:
       enabled: ${BOW_INTERCOM_ENABLED}
+
+    features:
+      auth:
+        mode: ${BOW_AUTH_MODE}
 
     # OpenID Connect providers
     oidc_providers:

@@ -32,6 +32,11 @@ class FeatureFlags(BaseModel):
     verify_emails: bool = False
 
 
+class AuthConfig(BaseModel):
+    # local_only | sso_only | hybrid
+    mode: str = "hybrid"
+
+
 class GoogleOAuth(BaseModel):
     enabled: bool = False
     client_id: Optional[str] = None
@@ -91,6 +96,7 @@ class BowConfig(BaseModel):
     deployment: DeploymentConfig = DeploymentConfig()
     base_url: Optional[str] = Field(default="http://0.0.0.0:3000")
     features: FeatureFlags = FeatureFlags()
+    auth: AuthConfig = AuthConfig()
     google_oauth: GoogleOAuth = GoogleOAuth()
     oidc_providers: List[OIDCProvider] = []
     default_llm: List[LLMProvider] = []
