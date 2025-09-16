@@ -270,13 +270,28 @@ async function testConnection() {
             }
         });
         
-        connectionStatus.value = {
-            success: response.data.value?.success,
-            message: response.data.value?.success 
-                ? (response.data.value?.message || 'Connection successful')
-                : (response.data.value?.message || 'Connection failed')
-        };
+        // Check if the response has an error
+        if (response.error.value) {
+            // Handle error response - extract the detailed error message
+            const errorMessage = response.error.value?.data?.detail || 
+                               response.error.value?.message || 
+                               'Failed to connect to repository';
+            
+            connectionStatus.value = {
+                success: false,
+                message: errorMessage
+            };
+        } else {
+            // Handle successful response
+            connectionStatus.value = {
+                success: response.data.value?.success,
+                message: response.data.value?.success 
+                    ? (response.data.value?.message || 'Connection successful')
+                    : (response.data.value?.message || 'Connection failed')
+            };
+        }
     } catch (error) {
+        // Fallback for unexpected errors
         connectionStatus.value = {
             success: false,
             message: 'Failed to connect to repository'

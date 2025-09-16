@@ -4,6 +4,7 @@
 - Introduced Tableau data source integration: TDS files can now be imported to enhance contextual information for data sources
 - Deprecated AI Rules feature at the data source level, consolidating rule management into the centralized instruction system
 - Added support for Google Gemini LLM
+- Added verbosity to git integration
 - Squashed bugs and improved overall usability
 
 
