@@ -144,7 +144,8 @@ class DataSourceCreate(DataSourceBase):
             'aws_cost': AWSCostCredentials,
             'aws_athena': AWSAthenaCredentials,
             'vertica': VerticaCredentials,
-            'aws_redshift': AwsRedshiftCredentials
+            'aws_redshift': AwsRedshiftCredentials,
+            'tableau': TableauCredentials
         }
         
         schema = credential_schemas.get(values['type'])
@@ -357,4 +358,21 @@ class AwsRedshiftConfig(BaseModel):
     cluster_identifier: str = None  # Required for IAM authentication
     ssl_mode: str = Field(default="require", description="SSL mode for connection")
     timeout: int = Field(default=30, ge=1, le=300, description="Connection timeout in seconds")
+
+
+# Tableau
+class TableauCredentials(BaseModel):
+    # Choose one auth mode: PAT or username/password
+    pat_name: str = None
+    pat_token: str = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+
+class TableauConfig(BaseModel):
+    server_url: str
+    site_name: str = None
+    verify_ssl: bool = True
+    timeout_sec: int = Field(30, ge=1, le=300)
+    default_project_id: Optional[str] = None
+    include_datasource_ids: Optional[List[str]] = None
 

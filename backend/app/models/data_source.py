@@ -127,6 +127,15 @@ DATA_SOURCE_DETAILS = [
         "config": "AwsRedshiftConfig",
         "status": "active",
         "version": "1.0.0"
+    },
+
+    {
+        "type": "tableau",
+        "title": "Tableau",
+        "description": "Discover schemas via Metadata API and query published data sources via VizQL Data Service.",
+        "config": "TableauConfig",
+        "status": "active",
+        "version": "1.0.0"
     }
 
 ]
