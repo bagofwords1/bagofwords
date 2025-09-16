@@ -33,7 +33,7 @@
         </div>
       </form>
 
-        <div class="mt-3" v-if="googleSignIn">
+        <div class="mt-3" v-if="googleSignIn || oidcProviders.length">
         <div class="relative">
           <div class="absolute inset-0 flex items-center">
             <div class="w-full border-t border-gray-300"></div>
@@ -46,10 +46,35 @@
           <button
             @click="signInWithGoogle"
             type="button"
-            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            :disabled="loadingProvider !== null"
+            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <img src="/llm_providers_icons/google.png" alt="Google logo" class="h-5 w-5 mr-2" />
-            Sign in with Google
+            <template v-if="loadingProvider === 'google'">
+              <Spinner class="h-5 w-5 mr-2" />
+              Redirecting...
+            </template>
+            <template v-else>
+              <img src="/llm_providers_icons/google.png" alt="Google logo" class="h-5 w-5 mr-2" />
+              Sign in with Google
+            </template>
+          </button>
+        </div>
+        <div class="mt-3 space-y-2" v-if="oidcProviders.length">
+          <button
+            v-for="p in oidcProviders"
+            :key="p.name"
+            @click="() => signInWithProvider(p.name)"
+            type="button"
+            :disabled="loadingProvider !== null"
+            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <template v-if="loadingProvider === p.name">
+              <Spinner class="h-5 w-5 mr-2" />
+              Redirecting...
+            </template>
+            <template v-else>
+              Sign in with {{ p.name }}
+            </template>
           </button>
         </div>
       </div>
@@ -63,6 +88,7 @@
     </div>
     </div>
   </div>
+  <div v-else class="flex h-screen items-center justify-center"><Spinner class="h-6 w-6" /></div>
   </template>
   
   
@@ -71,12 +97,15 @@
   import qs from 'qs';
   
   import { ref, onMounted } from 'vue';
+  import Spinner from '~/components/Spinner.vue';
   
   const { rawToken } = useAuthState()
   const { fetchOrganization } = useOrganization()
   const route = useRoute()
   const config = useRuntimeConfig();
   const googleSignIn = ref(config.public.googleSignIn);
+  const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
+  const loadingProvider = ref<string | null>(null)
 
   definePageMeta({
   auth: {
@@ -96,12 +125,23 @@
 
   // Add this code to handle URL parameters
   onMounted(async () => {
+    try {
+      const settings = await $fetch('/api/settings')
+      if (settings?.oidc_providers?.length) {
+        oidcProviders.value = settings.oidc_providers.filter((p: any) => p.enabled)
+      }
+    } catch (_) {}
+    const inviteError = route.query.error as string
+    if (inviteError) {
+      error_message.value = inviteError
+    }
     const access_token = route.query.access_token as string
     const userEmail = route.query.email as string
     if (access_token) {
       rawToken.value = access_token
       await getSession()
       navigateTo('/')
+      return
     }
     pageLoaded.value = true
   })
@@ -153,6 +193,7 @@
   // Add new function for Google sign-in
   async function signInWithGoogle() {
     try {
+      loadingProvider.value = 'google'
       const response = await $fetch('/api/auth/google/authorize', {
         method: 'GET',
       });
@@ -162,6 +203,20 @@
       }
     } catch (error) {
       error_message.value = 'Failed to initialize Google sign-in';
+      loadingProvider.value = null
+    }
+  }
+
+  async function signInWithProvider(name: string) {
+    try {
+      loadingProvider.value = name
+      const response = await $fetch(`/api/auth/${name}/authorize`, { method: 'GET' })
+      if ((response as any)?.authorization_url) {
+        window.location.href = (response as any).authorization_url
+      }
+    } catch (error) {
+      error_message.value = `Failed to initialize ${name} sign-in`
+      loadingProvider.value = null
     }
   }
   </script>

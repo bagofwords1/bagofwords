@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-screen justify-center py-20 px-5 sm:px-0">
+  <div class="flex h-screen justify-center py-20 px-5 sm:px-0" v-if="pageLoaded">
 <div class="w-full sm:w-1/4">
   <h1 class="font-bold text-lg">Sign up</h1>
   <form @submit.prevent='submit'>
@@ -20,7 +20,7 @@
   </form>
   <!-- Google sign in -->
 
-  <div class="mt-3" v-if="googleSignIn">
+  <div class="mt-3" v-if="googleSignIn || oidcProviders.length">
     <div class="relative">
       <div class="absolute inset-0 flex items-center">
         <div class="w-full border-t border-gray-300"></div>
@@ -29,10 +29,34 @@
         <span class="px-2 bg-white text-gray-500">Or continue with</span>
       </div>
     </div>
-    <div class="mt-3">  
-      <button @click="signInWithGoogle" class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-        <img src="/llm_providers_icons/google.png" alt="Google logo" class="h-5 w-5 mr-2" />
-        Sign up with Google
+    <div class="mt-3" v-if="googleSignIn">  
+      <button @click="signInWithGoogle" :disabled="loadingProvider !== null" class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+        <template v-if="loadingProvider === 'google'">
+          <Spinner class="h-5 w-5 mr-2" />
+          Redirecting...
+        </template>
+        <template v-else>
+          <img src="/llm_providers_icons/google.png" alt="Google logo" class="h-5 w-5 mr-2" />
+          Sign up with Google
+        </template>
+      </button>
+    </div>
+    <div class="mt-3 space-y-2" v-if="oidcProviders.length">
+      <button
+        v-for="p in oidcProviders"
+        :key="p.name"
+        @click="() => signInWithProvider(p.name)"
+        type="button"
+        :disabled="loadingProvider !== null"
+        class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <template v-if="loadingProvider === p.name">
+          <Spinner class="h-5 w-5 mr-2" />
+          Redirecting...
+        </template>
+        <template v-else>
+          Continue with {{ p.name }}
+        </template>
       </button>
     </div>
   </div>
@@ -50,11 +74,13 @@
 </div>
 </div>
 </div>
+<div v-else class="flex h-screen items-center justify-center"><Spinner class="h-6 w-6" /></div>
 </template>
 
 <script setup lang="ts">
 import qs from 'qs'
 import { ref, onMounted } from 'vue'
+import Spinner from '~/components/Spinner.vue'
 import { definePageMeta, useAuth, useRuntimeConfig, useRoute } from '#imports'
 const { rawToken } = useAuthState()
 const toast = useToast()
@@ -76,16 +102,32 @@ const error_message = ref('')
 // Access runtime configuration
 const config = useRuntimeConfig();
 const googleSignIn = ref(config.public.googleSignIn);
+const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
+const loadingProvider = ref<string | null>(null)
+const pageLoaded = ref(false)
 
 const { signIn, getSession } = useAuth();
 const { ensureOrganization, fetchOrganization } = useOrganization()
 
 // Pre-fill email from URL query parameter
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const settings = await $fetch('/api/settings')
+    if (settings?.oidc_providers?.length) {
+      oidcProviders.value = settings.oidc_providers.filter((p: any) => p.enabled)
+    }
+  } catch (_) {}
+  const inviteError = route.query.error as string
+  if (inviteError) {
+    error_message.value = inviteError
+  }
   const emailFromQuery = route.query.email as string
   if (emailFromQuery) {
     email.value = emailFromQuery
   }
+  // show spinner frame until mounted work finishes
+  await nextTick()
+  pageLoaded.value = true
 })
 
 async function signInWithCredentials(email: string, password: string) {
@@ -153,6 +195,7 @@ try {
 
 async function signInWithGoogle() {
 try {
+  loadingProvider.value = 'google'
   const response = await $fetch('/api/auth/google/authorize', {
     method: 'GET',
   });
@@ -162,7 +205,21 @@ try {
   }
 } catch (error) {
   error_message.value = 'Failed to initialize Google sign-in';
+  loadingProvider.value = null
 }
+}
+
+async function signInWithProvider(name: string) {
+  try {
+    loadingProvider.value = name
+    const response = await $fetch(`/api/auth/${name}/authorize`, { method: 'GET' })
+    if ((response as any)?.authorization_url) {
+      window.location.href = (response as any).authorization_url
+    }
+  } catch (error) {
+    error_message.value = `Failed to initialize ${name} sign-in`
+    loadingProvider.value = null
+  }
 }
 
 async function verifyEmail(email: string) {

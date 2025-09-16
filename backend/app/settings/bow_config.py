@@ -38,6 +38,26 @@ class GoogleOAuth(BaseModel):
     client_secret: Optional[str] = None
 
 
+class OIDCProvider(BaseModel):
+    name: str
+    enabled: bool = False
+    issuer: str
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+    scopes: List[str] = ["openid", "profile", "email"]
+    # UI niceties
+    label: Optional[str] = None
+    icon: Optional[str] = None
+    # Advanced options
+    pkce: bool = True
+    client_auth_method: str = "basic"  # basic | post
+    discovery: bool = True
+    uid_claim: Optional[str] = "sub"
+    redirect_path: Optional[str] = None
+    extra_authorize_params: dict = {}
+    extra_token_params: dict = {}
+
+
 class SMTPSettings(BaseModel):
     host: str = "smtp.resend.com"
     port: int = 587
@@ -72,6 +92,7 @@ class BowConfig(BaseModel):
     base_url: Optional[str] = Field(default="http://0.0.0.0:3000")
     features: FeatureFlags = FeatureFlags()
     google_oauth: GoogleOAuth = GoogleOAuth()
+    oidc_providers: List[OIDCProvider] = []
     default_llm: List[LLMProvider] = []
     smtp_settings: SMTPSettings = None
     encryption_key: str = Field(

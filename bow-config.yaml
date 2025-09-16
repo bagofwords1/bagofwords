@@ -11,6 +11,22 @@ features:
 google_oauth:
   enabled: false
 
+oidc_providers:
+- name: okta
+  enabled: false
+  issuer: https://YOUR_OKTA_DOMAIN.okta.com/oauth2/default
+  client_id: ${BOW_OKTA_CLIENT_ID}
+  client_secret: ${BOW_OKTA_CLIENT_SECRET}
+  scopes: ["openid", "profile", "email"]
+  pkce: true
+  client_auth_method: basic
+  discovery: true
+  uid_claim: sub
+ # Optional overrides:
+ # redirect_path: /api/auth/okta/callback
+ # extra_authorize_params: { prompt: login }
+ # extra_token_params: {}
+
 encryption_key: ${BOW_ENCRYPTION_KEY}
 
 intercom:

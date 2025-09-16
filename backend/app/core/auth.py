@@ -45,19 +45,17 @@ class UserManager(BaseUserManager[User, str]):
         request: Optional[Request] = None,
         json_body: Optional[dict] = None
     ) -> None:
-        # Only handle redirect for Google OAuth callback
-        if request and request.url.path == "/api/auth/google/callback":
+        # Handle redirect for any OAuth/OIDC callback
+        if request and request.url.path.endswith("/callback"):
             import json
-            # Parse the JSON string from bytes
-            response_data = json.loads(json_body.body.decode())
+            try:
+                response_data = json.loads(json_body.body.decode()) if json_body else {}
+            except Exception:
+                response_data = {}
             token = response_data.get('access_token')
-            
             if token:
                 redirect_url = f"{settings.bow_config.base_url}/users/sign-in?access_token={token}&email={user.email}"
-                raise HTTPException(
-                    status_code=303,
-                    headers={"Location": redirect_url},
-                )
+                raise HTTPException(status_code=303, headers={"Location": redirect_url})
 
     async def _attach_open_memberships(self, user: User, session: AsyncSession):
         stmt = select(Membership).where(
@@ -124,6 +122,27 @@ class UserManager(BaseUserManager[User, str]):
                 return user
             except exceptions.UserNotExists:
                 # User doesn't exist at all, create new user with OAuth
+                # Enforce invite policy similar to regular registration
+                async with self.user_db.session as session:
+                    # If uninvited signups are disabled and not first user, require invite
+                    user_count = (await session.execute(select(User))).scalars().all().__len__()
+                    if user_count > 0 and not settings.bow_config.features.allow_uninvited_signups:
+                        stmt = select(Membership).where(
+                            and_(
+                                Membership.email == account_email,
+                                Membership.user_id.is_(None)
+                            )
+                        )
+                        open_membership = (await session.execute(stmt)).scalar_one_or_none()
+                        if not open_membership:
+                            from fastapi import HTTPException
+                            raise HTTPException(
+                                status_code=403,
+                                detail={
+                                    "code": "invitation_required",
+                                    "message": "New user registration is disabled. You must be invited to create an account.",
+                                },
+                            )
                 # Fetch user info if needed (e.g., from Google)
                 fetched_name = None
                 if oauth_name == "google":

@@ -22,6 +22,8 @@ if args.config:
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
+from httpx_oauth.clients.openid import OpenID
+
 from fastapi.openapi.utils import get_openapi
 
 from app.core.auth import get_user_manager, auth_backend, create_fastapi_users, SECRET
@@ -60,6 +62,7 @@ from app.routes import (
     console,
     agent_execution
 )
+from app.routes.oidc_auth import router as oidc_auth_router
 
 # Initialize logging
 loggers = setup_logging()
@@ -108,6 +111,10 @@ if enable_google_oauth and google_client_id and google_client_secret:
     oauth_providers.append(google_oauth_client)
 else:
     google_oauth_client = None
+
+"""
+OIDC (with PKCE) is mounted via app.routes.oidc_auth. We keep main.py free of flow details.
+"""
 
 fastapi_users = create_fastapi_users(get_user_manager, auth_backend, oauth_providers)
 current_user = fastapi_users.current_user(active=True)
@@ -161,6 +168,9 @@ if google_oauth_client:
         prefix="/api/auth/google",
         tags=["auth"]
     )
+
+# Mount PKCE-capable OIDC router (handles /api/auth/{provider}/authorize & /callback)
+app.include_router(oidc_auth_router, prefix="/api/auth", tags=["auth"])
 
 app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
