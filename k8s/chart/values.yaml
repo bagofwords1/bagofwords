@@ -30,9 +30,27 @@ config:
   encryptionKey: ""
   intercomEnabled: false
   baseUrl: ""
+  authMode: "hybrid"
   allowUninvitedSignups: false
   allowMultipleOrganizations: false
   verifyEmails: false
+  # List of OIDC providers to enable (empty by default)
+  # Example:
+  # oidcProviders:
+  #   - name: okta
+  #     enabled: true
+  #     issuer: https://YOUR_OKTA_DOMAIN.okta.com/oauth2/default
+  #     clientId: "${BOW_OIDC_OKTA_CLIENT_ID}"   # or plain value
+  #     clientSecret: "${BOW_OIDC_OKTA_CLIENT_SECRET}" # or plain value
+  #     scopes: ["openid", "profile", "email"]
+  #     pkce: true
+  #     clientAuthMethod: basic   # or post
+  #     discovery: true
+  #     uidClaim: sub
+  #     redirectPath: /api/auth/okta/callback
+  #     extraAuthorizeParams: {}
+  #     extraTokenParams: {}
+  oidcProviders: []
   smtp:
     host: ""
     port: ""

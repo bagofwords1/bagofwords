@@ -22,6 +22,8 @@ if args.config:
 from fastapi import FastAPI, Request, Depends
 from fastapi.responses import RedirectResponse
 from httpx_oauth.clients.google import GoogleOAuth2
+from httpx_oauth.clients.openid import OpenID
+
 from fastapi.openapi.utils import get_openapi
 
 from app.core.auth import get_user_manager, auth_backend, create_fastapi_users, SECRET
@@ -58,8 +60,10 @@ from app.routes import (
     step,
     instruction,
     console,
-    agent_execution
+    agent_execution,
+    auth as auth_routes
 )
+from app.routes.oidc_auth import router as oidc_auth_router
 
 # Initialize logging
 loggers = setup_logging()
@@ -100,45 +104,52 @@ app = FastAPI(
 init_cors(app)
 
 oauth_providers = []
-if enable_google_oauth and google_client_id and google_client_secret:
-    google_oauth_client = GoogleOAuth2(
-        google_client_id,
-        google_client_secret
-    )
-    oauth_providers.append(google_oauth_client)
-else:
-    google_oauth_client = None
+google_oauth_client = None
+
+"""
+OIDC (with PKCE) is mounted via app.routes.oidc_auth. We keep main.py free of flow details.
+"""
 
 fastapi_users = create_fastapi_users(get_user_manager, auth_backend, oauth_providers)
 current_user = fastapi_users.current_user(active=True)
 
 app.include_router(user_profile.router, prefix="/api")
 
-# Auth routes
-app.include_router(
-    fastapi_users.get_auth_router(auth_backend),
-    prefix="/api/auth/jwt",
-    tags=["auth"]
-)
+# Determine auth mode
+auth_mode = getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'
+enable_local = auth_mode in ("hybrid", "local_only")
+enable_sso = auth_mode in ("hybrid", "sso_only")
 
-app.include_router(
-    fastapi_users.get_register_router(UserRead, UserCreate),
-    prefix="/api/auth",
-    tags=["auth"]
-)
+# New unified auth provider routes (Google + OIDC)
+if enable_sso:
+    app.include_router(auth_routes.router, prefix="/api", tags=["auth"])
 
-app.include_router(
-    fastapi_users.get_reset_password_router(),
-    prefix="/api/auth",
-    tags=["auth"],
-)
-
-if settings.bow_config.features.verify_emails:
+# Local auth routes
+if enable_local:
     app.include_router(
-        fastapi_users.get_verify_router(UserRead),
+        fastapi_users.get_auth_router(auth_backend),
+        prefix="/api/auth/jwt",
+        tags=["auth"]
+    )
+
+    app.include_router(
+        fastapi_users.get_register_router(UserRead, UserCreate),
+        prefix="/api/auth",
+        tags=["auth"]
+    )
+
+    app.include_router(
+        fastapi_users.get_reset_password_router(),
         prefix="/api/auth",
         tags=["auth"],
     )
+
+    if settings.bow_config.features.verify_emails:
+        app.include_router(
+            fastapi_users.get_verify_router(UserRead),
+            prefix="/api/auth",
+            tags=["auth"],
+        )
 
 app.include_router(
     fastapi_users.get_users_router(UserRead, UserUpdate),
@@ -146,21 +157,8 @@ app.include_router(
     tags=["users"],
 )
 
-if google_oauth_client:
-    oauth_router = fastapi_users.get_oauth_router(
-        google_oauth_client,
-        auth_backend,
-        SECRET,
-        associate_by_email=True,
-        redirect_url=settings.bow_config.base_url + "/api/auth/google/callback",
-        is_verified_by_default=True
-    )
+# Google OAuth is handled by custom OIDC router for uniform behavior
 
-    app.include_router(
-        oauth_router,
-        prefix="/api/auth/google",
-        tags=["auth"]
-    )
 
 app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")

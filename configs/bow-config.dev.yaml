@@ -13,10 +13,29 @@ features:
   allow_multiple_organizations: false
   verify_emails: false
 
+auth:
+  mode: "hybrid"
+
 google_oauth:
   enabled: false
   client_id: '${BOW_GOOGLE_CLIENT_ID}'
   client_secret: '${BOW_GOOGLE_CLIENT_SECRET}'
+
+oidc_providers:
+- name: okta
+  enabled: true
+  issuer: https://trial-9381896.okta.com/oauth2/default
+  client_id: ${OKTA_CLIENT_ID}
+  client_secret: ${OKTA_CLIENT_SECRET}
+  scopes: ["openid", "profile", "email"]
+  pkce: true
+  client_auth_method: basic
+  discovery: true
+  uid_claim: sub
+ # Optional overrides:
+ # redirect_path: /api/auth/okta/callback
+ # extra_authorize_params: { prompt: login }
+ # extra_token_params: {}
 
 smtp_settings:
   host: "smtp.resend.com"

@@ -12,6 +12,7 @@ data:
   # Application configuration - always include these
   BOW_BASE_URL: {{.Values.config.baseUrl | quote}}
   BOW_ENCRYPTION_KEY: {{.Values.config.encryptionKey | quote}}
+  BOW_AUTH_MODE: {{ .Values.config.authMode | quote }}
   BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
   BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
   BOW_GOOGLE_AUTH_ENABLED: {{.Values.config.googleOauthEnabled | quote}}
@@ -29,6 +30,8 @@ data:
   BOW_ALLOW_UNINVITED_SIGNUPS: {{.Values.config.allowUninvitedSignups | quote}}
   BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{.Values.config.allowMultipleOrganizations | quote}}
   BOW_VERIFY_EMAILS: {{.Values.config.verifyEmails | quote}}
+  # OIDC providers rendered as YAML inside the config file
+  BOW_OIDC_JSON: {{ .Values.config.oidcProviders | toJson | quote }}
   
   bowConfig: |
     # Deployment Configuration
@@ -61,3 +64,35 @@ data:
 
     intercom:
       enabled: ${BOW_INTERCOM_ENABLED}
+
+    features:
+      auth:
+        mode: ${BOW_AUTH_MODE}
+
+    # OpenID Connect providers
+    oidc_providers:
+{{- if .Values.config.oidcProviders }}
+{{- range $idx, $p := .Values.config.oidcProviders }}
+      - name: {{ $p.name | quote }}
+        enabled: {{ (default true $p.enabled) }}
+        issuer: {{ $p.issuer | quote }}
+        client_id: {{ $p.clientId | quote }}
+        client_secret: {{ $p.clientSecret | quote }}
+        scopes: {{ (default (list "openid" "profile" "email") $p.scopes) | toJson }}
+        pkce: {{ (default true $p.pkce) }}
+        client_auth_method: {{ (default "basic" $p.clientAuthMethod) | quote }}
+        discovery: {{ (default true $p.discovery) }}
+        uid_claim: {{ (default "sub" $p.uidClaim) | quote }}
+{{- if $p.redirectPath }}
+        redirect_path: {{ $p.redirectPath | quote }}
+{{- end }}
+{{- if $p.extraAuthorizeParams }}
+        extra_authorize_params: {{ $p.extraAuthorizeParams | toJson }}
+{{- end }}
+{{- if $p.extraTokenParams }}
+        extra_token_params: {{ $p.extraTokenParams | toJson }}
+{{- end }}
+{{- end }}
+{{- else }}
+      []
+{{- end }}

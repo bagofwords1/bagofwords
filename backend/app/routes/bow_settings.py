@@ -11,6 +11,15 @@ async def get_frontend_settings():
         "google_oauth": {
             "enabled": settings.bow_config.google_oauth.enabled,
         },
+        "auth": {
+            "mode": getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'
+        },
+        "oidc_providers": [
+            {
+                "name": p.name,
+                "enabled": p.enabled
+            } for p in getattr(settings.bow_config, "oidc_providers", []) or []
+        ],
         "features": {
             "allow_uninvited_signups": settings.bow_config.features.allow_uninvited_signups,
             "allow_multiple_organizations": settings.bow_config.features.allow_multiple_organizations,

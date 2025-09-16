@@ -1,9 +1,15 @@
 # Release Notes
 
+## Version 0.0.198
+- Adding login with OpenID Connect (Okta, etc):w
+- Updating Helm to allow oidc params and auth mode (hybrid, local or sso)
+- Touch up to signin/signup screens
+
 ## Version 0.0.197 (September 15, 2025)
 - Introduced Tableau data source integration: TDS files can now be imported to enhance contextual information for data sources
 - Deprecated AI Rules feature at the data source level, consolidating rule management into the centralized instruction system
 - Added support for Google Gemini LLM
+- Added verbosity to git integration
 - Squashed bugs and improved overall usability
 
 
