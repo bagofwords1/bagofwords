@@ -121,17 +121,28 @@ const stepsList = computed(() => {
   if (!onboarding.value) return []
   const m = new Map([
     ['llm_configured', { title: 'Configure LLM', description: 'Pick provider and default model' }],
-    ['data_source_created', { title: 'Connect a data source', description: 'Select one of the available data sources' }],
+    ['data_source_created', { title: 'Connect data', description: 'Select one of the available data sources' }],
+    // Keep schema entry for titles/descriptions, but exclude from the sidebar order
     ['schema_selected', { title: 'Select schema tables', description: 'Choose tables to include in LLM context' }],
-    ['instructions_added', { title: 'Add instructions', description: 'Guide the AI with context' }],
+    ['instructions_added', { title: 'Context', description: 'Set system instructions, and enrich with Tableau, dbt or markdown' }],
   ])
-  const order = ['llm_configured','data_source_created','schema_selected','instructions_added']
-  return order.map((key) => ({
+  // Exclude schema_selected from the sidebar, it is merged into Connect data
+  const order = ['llm_configured','data_source_created','instructions_added']
+  return order.map((key) => {
+    let statusValue = (onboarding.value!.steps as any)[key]?.status || 'pending'
+
+    // While on schema step, treat Connect data as the current/in-progress step
+    if (key === 'data_source_created' && currentStepKey.value === 'schema_selected') {
+      statusValue = 'in_progress'
+    }
+
+    return {
     key,
     title: m.get(key)?.title || (key as string),
     description: m.get(key)?.description || '',
-    status: (onboarding.value!.steps as any)[key]?.status || 'pending'
-  }))
+      status: statusValue
+    }
+  })
 })
 
 const currentStepKey = computed(() => props.forcedStepKey || onboarding.value?.current_step)
@@ -145,8 +156,9 @@ function routeForStep(): string {
     case 'llm_configured': return '/onboarding/llm'
     case 'data_source_created': return '/onboarding/data'
     case 'schema_selected': return '/onboarding/data/schema'
-    case 'instructions_added': return '/onboarding/context'
-    default: return '/onboarding/completed'
+    case 'instructions_added':
+      return route.params?.ds_id ? `/onboarding/data/${String(route.params.ds_id)}/context` : '/onboarding/context'
+    default: return '/'
   }
 }
 
@@ -154,8 +166,9 @@ function nextRouteForStep(): string {
   switch (currentStepKey.value) {
     case 'llm_configured': return '/onboarding/data'
     case 'data_source_created': return '/onboarding/data/schema'
-    case 'schema_selected': return '/onboarding/context'
-    case 'instructions_added': return '/onboarding/completed'
+    case 'schema_selected':
+      return route.params?.ds_id ? `/onboarding/data/${String(route.params.ds_id)}/context` : '/onboarding/context'
+    case 'instructions_added': return '/'
     default: return '/onboarding'
   }
 }
@@ -170,10 +183,19 @@ function syncUrlWithStep() {
     if (!schemaOk) router.replace(targetBase)
     return
   }
+  // Allow instructions step to be either /onboarding/context or /onboarding/data/:id/context
+  if (currentStepKey.value === 'instructions_added') {
+    const instructionsOk = route.path.startsWith('/onboarding/context') ||
+      /^\/onboarding\/data(\/[\w-]+)?\/context(\/?|$)/.test(route.path)
+    if (!instructionsOk) router.replace(targetBase)
+    return
+  }
   if (!route.path.startsWith(targetBase)) router.replace(targetBase)
 }
 
 function isCurrentStep(stepKey: string) {
+  // Treat schema as part of Connect data for highlighting
+  if (stepKey === 'data_source_created' && currentStepKey.value === 'schema_selected') return true
   return currentStepKey.value === stepKey
 }
 
@@ -208,9 +230,9 @@ function getCurrentStepButtonText() {
   if (onboarding.value?.dismissed) return 'Resume Setup'
   switch (currentStepKey.value) {
     case 'llm_configured': return 'Configure Models'
-    case 'data_source_created': return 'Add Data Source'
-    case 'schema_selected': return 'Select Schema'
-    case 'instructions_added': return 'Add Instructions'
+    case 'data_source_created': return 'Connect Data'
+    case 'schema_selected': return 'Connect Data'
+    case 'instructions_added': return 'Context'
     default: return 'Continue'
   }
 }

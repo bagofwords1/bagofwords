@@ -173,15 +173,17 @@
                   </UTooltip>
                 </div>
                 <div class="ml-auto space-x-2">
-                  <UButton type="button" class="!bg-blue-500 !text-white" :disabled="isSaving || !providerForm.provider_type || !connectionTestPassed" @click="handleSave">
-                    <template v-if="isSaving">
-                      <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
-                      Saving...
-                    </template>
-                    <template v-else>
-                      Save and Next
-                    </template>
-                  </UButton>
+                  <UTooltip :text="!connectionTestPassed ? 'Pass the connection test first' : ''">
+                    <UButton type="button" class="!bg-blue-500 !text-white" :disabled="isSaving || !providerForm.provider_type || !connectionTestPassed" @click="handleSave">
+                      <template v-if="isSaving">
+                        <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
+                        Saving...
+                      </template>
+                      <template v-else>
+                        Save and Next
+                      </template>
+                    </UButton>
+                  </UTooltip>
                 </div>
               </div>
             </div>
@@ -269,6 +271,9 @@ const isNewProviderSelected = computed(() => selectedProvider.value?.type === 'n
 function selectProviderType(type: string) {
   selectedProvider.value = { type: 'new_provider' }
   providerForm.value.provider_type = type
+  // Set default name to the provider type display name
+  const provider = providers.value.find(p => p.type === type)
+  providerForm.value.name = provider?.name || type
   connectionTestPassed.value = false
 }
 

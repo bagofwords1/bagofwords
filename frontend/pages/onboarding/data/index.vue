@@ -76,10 +76,12 @@
                       </UButton>
                     </UTooltip>
 
+                    <UTooltip :text="!connectionTestPassed ? 'Pass the connection test first' : ''">
                     <button type="submit" :disabled="isSubmitting || !connectionTestPassed" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg disabled:opacity-50">
                       <span v-if="isSubmitting">Saving...</span>
                       <span v-else>Save and Continue</span>
                     </button>
+                  </UTooltip>
                   </div>
 
                 </div>

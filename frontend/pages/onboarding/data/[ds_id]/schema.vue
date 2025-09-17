@@ -109,7 +109,7 @@ async function handleSave() {
     const res = await useMyFetch(`/data_sources/${dsId.value}/update_schema`, { method: 'PUT', body: payload })
     if ((res.status as any)?.value === 'success') {
       await updateOnboarding({ current_step: 'instructions_added' as any })
-      router.push('/onboarding/context')
+      router.push(`/onboarding/data/${dsId.value}/context`)
     }
   } finally {
     saving.value = false
