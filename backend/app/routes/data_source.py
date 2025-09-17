@@ -96,6 +96,16 @@ async def test_data_source_connection(
 ):
     return await data_source_service.test_data_source_connection(db, data_source_id, organization, current_user)
 
+@router.post("/data_sources/test_connection", response_model=dict)
+@requires_permission('create_data_source')
+async def test_new_data_source_connection(
+    data_source: DataSourceCreate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    return await data_source_service.test_new_data_source_connection(db=db, data=data_source, organization=organization, current_user=current_user)
+
 @router.put("/data_sources/{data_source_id}", response_model=DataSourceSchema)
 @requires_permission('update_data_source', model=DataSource)
 async def update_data_source(

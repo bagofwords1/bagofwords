@@ -325,6 +325,51 @@ class DataSourceService:
         
         return connection_status
     
+    async def test_new_data_source_connection(self, db: AsyncSession, data: DataSourceCreate, organization: Organization, current_user: User):
+        """Test connection for a new (unsaved) data source using DataSourceCreate payload.
+        Does not persist anything to the database.
+        """
+        try:
+            payload = data.dict()
+            data_source_type = payload.get("type")
+            config = payload.get("config") or {}
+            credentials = payload.get("credentials") or {}
+
+            # Instantiate client by type using same naming convention as DataSource.get_client
+            client = self._resolve_client_by_type(data_source_type=data_source_type, config=config, credentials=credentials)
+
+            # Test the connection
+            connection_status = client.test_connection()
+        except Exception as e:
+            connection_status = {
+                "success": False,
+                "message": str(e)
+            }
+
+        return connection_status
+
+    def _resolve_client_by_type(self, data_source_type: str, config: dict, credentials: dict):
+        """Dynamically import and construct the client for a given data source type.
+        Mirrors the naming convention used in DataSource.get_client().
+        """
+        if not data_source_type:
+            raise ValueError("Data source type is required")
+        try:
+            module_name = f"app.data_sources.clients.{data_source_type.lower()}_client"
+            title = "".join(word[:1].upper() + word[1:] for word in data_source_type.split("_"))
+            class_name = f"{title}Client"
+
+            module = importlib.import_module(module_name)
+            ClientClass = getattr(module, class_name)
+
+            client_params = (config or {}).copy()
+            if credentials:
+                client_params.update(credentials)
+
+            return ClientClass(**client_params)
+        except (ImportError, AttributeError) as e:
+            raise ValueError(f"Unable to load data source client for {data_source_type}: {str(e)}")
+    
     async def update_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, data_source: DataSourceUpdate, current_user: User):
         result = await db.execute(
             select(DataSource)

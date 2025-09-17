@@ -4,7 +4,8 @@
       <!-- Left: Progress -->
       <aside class="p-8 md:p-10 border-b md:border-b-0 md:border-r border-gray-100 md:col-span-1">
         <div>
-          <h1 class="text-lg font-semibold text-gray-900">Let's set you up for success!</h1>
+            <img src="/assets/logo-128.png" alt="Logo" class="w-10 h-10 mb-5" />
+          <h1 class="text-lg font-semibold text-gray-900">Welcome!</h1>
           <p class="text-sm text-gray-500 mt-1">Complete these steps to get started</p>
         </div>
 
@@ -37,64 +38,55 @@
 
       <!-- Right: Step details -->
       <main class="p-8 md:p-10 md:col-span-2">
-        <div v-if="loading" class="flex items-center justify-center h-full text-gray-500">Loading...</div>
+        <Transition name="fade" mode="out-in">
+          <div v-if="loading" key="loading" class="flex items-center justify-center h-full text-gray-500">Loading...</div>
 
-        <div v-else-if="props.forceCompleted || onboarding?.completed" class="flex items-center justify-center h-full">
-          <div class="text-center max-w-md">
-            <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Icon name="heroicons-check" class="w-8 h-8 text-green-600" />
+          <div v-else-if="props.forceCompleted || onboarding?.completed" key="completed" class="flex items-center justify-center h-full">
+            <div class="text-center max-w-md">
+              <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Icon name="heroicons-check" class="w-8 h-8 text-green-600" />
+              </div>
+              <h2 class="text-xl font-semibold text-gray-900 mb-2">All set!</h2>
+              <p class="text-gray-600 mb-6">You're ready to start using the app.</p>
+              <div class="flex items-center justify-center gap-3">
+                <button @click="router.push('/')" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-6 rounded-lg transition-colors">Go to Dashboard</button>
+                <button @click="router.push('/onboarding/llm')" class="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium py-2.5 px-6 rounded-lg transition-colors">Back to setup</button>
+              </div>
             </div>
-            <h2 class="text-xl font-semibold text-gray-900 mb-2">All set!</h2>
-            <p class="text-gray-600 mb-6">You're ready to start using the app.</p>
-            <div class="flex items-center justify-center gap-3">
+          </div>
+
+          <div v-else-if="onboarding?.dismissed" key="dismissed" class="flex items-center justify-center h-full">
+            <div class="text-center max-w-md">
+              <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Icon name="heroicons-clock" class="w-8 h-8 text-gray-600" />
+              </div>
+              <h2 class="text-xl font-semibold text-gray-900 mb-2">Setup paused</h2>
+              <p class="text-gray-600 mb-6">You can complete the remaining steps anytime from settings.</p>
               <button @click="router.push('/')" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-6 rounded-lg transition-colors">Go to Dashboard</button>
-              <button @click="router.push('/onboarding/llm')" class="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium py-2.5 px-6 rounded-lg transition-colors">Back to setup</button>
             </div>
           </div>
-        </div>
 
-        <div v-else-if="onboarding?.dismissed" class="flex items-center justify-center h-full">
-          <div class="text-center max-w-md">
-            <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Icon name="heroicons-clock" class="w-8 h-8 text-gray-600" />
-            </div>
-            <h2 class="text-xl font-semibold text-gray-900 mb-2">Setup paused</h2>
-            <p class="text-gray-600 mb-6">You can complete the remaining steps anytime from settings.</p>
-            <button @click="router.push('/')" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-6 rounded-lg transition-colors">Go to Dashboard</button>
-          </div>
-        </div>
+          <div v-else :key="'step-' + currentStepKey" class="max-w-xl">
+            <div class="flex items-start space-x-4">
+              <div class="flex-1">
+                <h2 class="text-lg font-semibold text-gray-900 mb-2">{{ getCurrentStepTitle() }}</h2>
+                <p class="text-gray-600 mb-6">{{ getCurrentStepDescription() }}</p>
 
-        <div v-else class="max-w-xl">
-          <div class="flex items-start space-x-4">
-            <div class="w-10 h-10 bg-gray-50 rounded-lg flex items-center justify-center flex-shrink-0">
-              <Icon :name="getCurrentStepIcon()" class="w-5 h-5 text-gray-700" />
-            </div>
-            <div class="flex-1">
-              <h2 class="text-lg font-semibold text-gray-900 mb-2">{{ getCurrentStepTitle() }}</h2>
-              <p class="text-gray-600 mb-6">{{ getCurrentStepDescription() }}</p>
+                <div class="space-y-3">
+                  <slot name="llm" v-if="currentStepKey === 'llm_configured'"></slot>
+                  <slot name="data" v-else-if="currentStepKey === 'data_source_created'"></slot>
+                  <slot name="schema" v-else-if="currentStepKey === 'schema_selected'"></slot>
+                  <slot name="instructions" v-else-if="currentStepKey === 'instructions_added'"></slot>
+                </div>
 
-              <div class="space-y-3">
-                <div v-if="currentStepKey === 'llm_configured'" class="bg-gray-50 rounded-lg p-4 text-sm text-gray-700">
-                  Set a default model and enable a provider to power the AI.
+                <div class="mt-6 flex items-center gap-3">
+                  <button @click="goToCurrentStep" class="bg-gray-900 hidden hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">{{ getCurrentStepButtonText() }}</button>
+                  <button v-if="!props.hideNextButton" @click="goToNextStep" class="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">Next</button>
                 </div>
-                <div v-else-if="currentStepKey === 'data_source_created'" class="bg-gray-50 rounded-lg p-4 text-sm text-gray-700">
-                  Connect your first data source (database, API, or files).
-                </div>
-                <div v-else-if="currentStepKey === 'schema_selected'" class="bg-gray-50 rounded-lg p-4 text-sm text-gray-700">
-                  Choose the tables you want the system to use.
-                </div>
-                <div v-else-if="currentStepKey === 'instructions_added'" class="bg-gray-50 rounded-lg p-4 text-sm text-gray-700">
-                  Add a few instructions to provide business context.
-                </div>
-              </div>
-
-              <div class="mt-6 flex items-center gap-3">
-                <button @click="goToCurrentStep" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">{{ getCurrentStepButtonText() }}</button>
-                <button @click="goToNextStep" class="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium py-2.5 px-5 rounded-lg transition-colors">Next</button>
               </div>
             </div>
           </div>
-        </div>
+        </Transition>
       </main>
     </div>
   </div>
@@ -103,7 +95,8 @@
 <script setup lang="ts">
 const props = defineProps<{ 
   forcedStepKey?: 'llm_configured'|'data_source_created'|'schema_selected'|'instructions_added',
-  forceCompleted?: boolean
+  forceCompleted?: boolean,
+  hideNextButton?: boolean
 }>()
 
 const router = useRouter()
@@ -128,8 +121,8 @@ const stepsList = computed(() => {
   if (!onboarding.value) return []
   const m = new Map([
     ['llm_configured', { title: 'Configure LLM', description: 'Pick provider and default model' }],
-    ['data_source_created', { title: 'Connect a data source', description: 'Set up a connection' }],
-    ['schema_selected', { title: 'Select schema/tables', description: 'Choose tables to index' }],
+    ['data_source_created', { title: 'Connect a data source', description: 'Select one of the available data sources' }],
+    ['schema_selected', { title: 'Select schema tables', description: 'Choose tables to include in LLM context' }],
     ['instructions_added', { title: 'Add instructions', description: 'Guide the AI with context' }],
   ])
   const order = ['llm_configured','data_source_created','schema_selected','instructions_added']
@@ -170,8 +163,14 @@ function nextRouteForStep(): string {
 function syncUrlWithStep() {
   if (props.forceCompleted) return
   if (!route.path.startsWith('/onboarding')) return
-  const target = routeForStep()
-  if (target !== route.path) router.replace(target)
+  const targetBase = routeForStep()
+  // Allow schema step to be either /onboarding/data/schema or /onboarding/data/:id/schema
+  if (currentStepKey.value === 'schema_selected') {
+    const schemaOk = /^\/onboarding\/data(\/[\w-]+)?\/schema(\/?|$)/.test(route.path)
+    if (!schemaOk) router.replace(targetBase)
+    return
+  }
+  if (!route.path.startsWith(targetBase)) router.replace(targetBase)
 }
 
 function isCurrentStep(stepKey: string) {
