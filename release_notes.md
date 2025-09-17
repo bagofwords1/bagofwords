@@ -4,6 +4,7 @@
 - Adding login with OpenID Connect (Okta, etc):w
 - Updating Helm to allow oidc params and auth mode (hybrid, local or sso)
 - Touch up to signin/signup screens
+- Fix docker image to include client for openssh
 
 ## Version 0.0.197 (September 15, 2025)
 - Introduced Tableau data source integration: TDS files can now be imported to enhance contextual information for data sources
