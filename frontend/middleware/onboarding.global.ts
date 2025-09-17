@@ -1,0 +1,31 @@
+import type { NavigationGuard } from 'nuxt/app'
+
+export default (defineNuxtRouteMiddleware(async (to) => {
+  const { data: currentUser } = useAuth()
+  const { organization, ensureOrganization } = useOrganization()
+  const { onboarding, fetchOnboarding } = useOnboarding()
+
+  // Allow auth and onboarding routes
+  const allowPrefixes = ['/users/', '/organizations/new', '/onboarding']
+  if (allowPrefixes.some(p => to.path.startsWith(p))) return
+
+  // Ensure org
+  await ensureOrganization()
+  if (!organization.value?.id) return
+
+  // Only nudge admins
+  // Find role from session organizations list if available
+  const org = (currentUser.value?.organizations || []).find((o: any) => o.id === organization.value?.id)
+  const isAdmin = org?.role === 'admin'
+  if (!isAdmin) return
+
+  // Fetch onboarding and redirect if needed
+  await fetchOnboarding()
+  const ob = onboarding.value
+  if (!ob) return
+  if (!ob.completed && !ob.dismissed) {
+    return navigateTo('/onboarding')
+  }
+}) as unknown) as NavigationGuard
+
+

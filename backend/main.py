@@ -59,6 +59,7 @@ from app.routes import (
     slack_webhook,
     step,
     instruction,
+    onboarding,
     console,
     agent_execution,
     auth as auth_routes
@@ -184,6 +185,7 @@ app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
 app.include_router(console.router, prefix="/api")
 app.include_router(agent_execution.router, prefix="/api")
+app.include_router(onboarding.router, prefix="/api")
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
