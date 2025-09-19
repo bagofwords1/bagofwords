@@ -1,21 +1,21 @@
 <template>
-  <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
+  <div class="min-h-screen bg-gray-50 flex items-center justify-center py-6 px-4">
     <div class="w-full max-w-6xl">
       <OnboardingView forcedStepKey="data_source_created" :hideNextButton="true">
         <template #data>
           <div>
             <div v-if="!selectedDataSource">
-              <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 <button
                   v-for="ds in available_ds"
                   :key="ds.type"
                   type="button"
                   @click="selectDataSource(ds)"
-                  class="group rounded-lg p-4 bg-white hover:bg-gray-50 transition-colors w-full"
+                  class="group rounded-lg p-3 bg-white hover:bg-gray-50 transition-colors w-full"
                 >
                   <div class="flex flex-col items-center text-center">
-                    <div class="p-2">
-                      <DataSourceIcon class="h-8" :type="ds.type" />
+                    <div class="p-1">
+                      <DataSourceIcon class="h-6" :type="ds.type" />
                     </div>
                     <div class="text-xs text-gray-500">
                       {{ ds.title }}
@@ -25,8 +25,8 @@
               </div>
             </div>
 
-            <div v-else class="bg-white rounded-lg border border-gray-200 p-5">
-              <div class="flex items-center gap-2 mb-4">
+            <div v-else class="bg-white rounded-lg border border-gray-200 p-4">
+              <div class="flex items-center gap-2 mb-3">
                 <button type="button" @click="backToList" class="text-gray-500 hover:text-gray-700">
                   <Icon name="heroicons:chevron-left" class="w-5 h-5" />
                 </button>
@@ -34,38 +34,42 @@
                 <span class="text-sm text-gray-800">{{ selectedDataSource.title || selectedDataSource.type }}</span>
               </div>
 
-              <form @submit.prevent="handleSubmit" class="space-y-4">
+              <form @submit.prevent="handleSubmit" class="space-y-3">
                 <div>
-                  <label class="text-sm font-medium text-gray-700 mb-2">Name</label>
-                  <input v-model="name" type="text" placeholder="Data source name" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                  <label class="text-sm font-medium text-gray-700 mb-1 block">Name</label>
+                  <input v-model="name" type="text" placeholder="Data source name" class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" />
                 </div>
 
-                <div v-if="fields.config" class="bg-gray-50 p-4 rounded border">
-                  <div class="text-sm font-medium text-gray-700 mb-3">Configuration</div>
-                  <div v-for="field in configFields" :key="field.field_name" class="mb-3" @change="clearTestResult()">
-                    <label :for="field.field_name" class="block text-sm text-gray-700">{{ field.title || field.field_name }}</label>
-                    <input v-if="field.type === 'string'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
-                    <input v-else-if="field.type === 'integer'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
+                <div v-if="fields.config" class="bg-gray-50 p-3 rounded border">
+                  <div class="text-sm font-medium text-gray-700 mb-2">Configuration</div>
+                  <div v-for="field in configFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
+                    <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
+                    <input v-if="field.type === 'string'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                    <input v-else-if="field.type === 'integer'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
                   </div>
                 </div>
 
-                <div v-if="fields.credentials" class="bg-gray-50 p-4 rounded border">
-                  <div class="text-sm font-medium text-gray-700 mb-3">Credentials</div>
-                  <div v-for="field in credentialFields" :key="field.field_name" class="mb-3" @change="clearTestResult()">
-                    <label :for="field.field_name" class="block text-sm text-gray-700">{{ field.title || field.field_name }}</label>
-                    <input :type="isPasswordField(field.field_name) ? 'password' : 'text'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                <div v-if="fields.credentials" class="bg-gray-50 p-3 rounded border">
+                  <div class="text-sm font-medium text-gray-700 mb-2">Credentials</div>
+                  <div v-for="field in credentialFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
+                    <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
+                    <input :type="isPasswordField(field.field_name) ? 'password' : 'text'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
                   </div>
                 </div>
 
-                <div class="pt-2">
+                <div class="pt-1">
+                  <div class="flex items-center gap-2 mb-2">
+                    <UToggle color="blue" v-model="use_llm_sync" />
+                    <span class="text-xs text-gray-700">Use LLM to onboard data source (runs after schema save)</span>
+                  </div>
                   <div v-if="testResultOk !== null" class="mb-2">
                     <div :class="testResultOk ? 'text-green-600' : 'text-red-600'" class="text-xs break-words line-clamp-2">
                       {{ testResultMessage }}
                     </div>
                   </div>
-                  <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center justify-end gap-2 mt-3">
                     <UTooltip text="Regular charges may occur">
-                      <UButton variant="soft" color="gray" class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50" :disabled="isTestingConnection" @click="testConnection">
+                      <UButton variant="soft" color="gray" class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="isTestingConnection" @click="testConnection">
                         <template v-if="isTestingConnection">
                           <Spinner />
                           Testing...
@@ -76,21 +80,21 @@
                       </UButton>
                     </UTooltip>
 
-                    <UTooltip :text="!connectionTestPassed ? 'Pass the connection test first' : ''">
-                    <button type="submit" :disabled="isSubmitting || !connectionTestPassed" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg disabled:opacity-50">
-                      <span v-if="isSubmitting">Saving...</span>
-                      <span v-else>Save and Continue</span>
-                    </button>
-                  </UTooltip>
-                  </div>
 
+                    <UTooltip :text="!connectionTestPassed ? 'Pass the connection test first' : ''">
+                      <button type="submit" :disabled="isSubmitting || !connectionTestPassed" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
+                        <span v-if="isSubmitting">Saving...</span>
+                        <span v-else>Save and Continue</span>
+                      </button>
+                    </UTooltip>
+                  </div>
                 </div>
               </form>
             </div>
           </div>
         </template>
       </OnboardingView>
-      <div class="text-center mt-6">
+      <div class="text-center mt-4">
         <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">Skip onboarding</button>
       </div>
     </div>
@@ -112,6 +116,7 @@ const fields = ref<{ config: any | null; credentials: any | null }>({ config: nu
 const formData = reactive<{ config: Record<string, any>; credentials: Record<string, any> }>({ config: {}, credentials: {} })
 const is_public = ref(true)
 const isSubmitting = ref(false)
+const use_llm_sync = ref(true)
 const isTestingConnection = ref(false)
 const connectionTestPassed = ref(false)
 const testResultMessage = ref('')
@@ -204,7 +209,8 @@ async function handleSubmit() {
       type: selectedDataSource.value.type,
       config: formData.config,
       credentials: formData.credentials,
-      is_public: is_public.value
+      is_public: is_public.value,
+      use_llm_sync: use_llm_sync.value
     }
     const response = await useMyFetch('/data_sources', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
     if (response.status.value === 'success') {

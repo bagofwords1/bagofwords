@@ -5,8 +5,17 @@ export default (defineNuxtRouteMiddleware(async (to) => {
   const { organization, ensureOrganization } = useOrganization()
   const { onboarding, fetchOnboarding } = useOnboarding()
 
-  // Allow auth and onboarding routes
-  const allowPrefixes = ['/users/', '/organizations/new', '/onboarding']
+  // Special handling for onboarding routes: if completed, redirect to home
+  if (to.path.startsWith('/onboarding')) {
+    await ensureOrganization()
+    await fetchOnboarding()
+    const ob = onboarding.value
+    if (ob?.completed) return navigateTo('/')
+    return
+  }
+
+  // Allow auth and organization creation routes
+  const allowPrefixes = ['/users/', '/organizations/new']
   if (allowPrefixes.some(p => to.path.startsWith(p))) return
 
   // Ensure org
@@ -24,7 +33,7 @@ export default (defineNuxtRouteMiddleware(async (to) => {
   const ob = onboarding.value
   if (!ob) return
   if (!ob.completed && !ob.dismissed) {
-    return navigateTo('/onboarding')
+    return navigateTo('/onboarding/llm')
   }
 }) as unknown) as NavigationGuard
 

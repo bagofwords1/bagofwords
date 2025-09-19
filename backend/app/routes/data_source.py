@@ -159,6 +159,16 @@ async def generate_data_source_items(
 ):
     return await data_source_service.generate_data_source_items(db, item, data_source_id, organization, current_user)
 
+@router.post("/data_sources/{data_source_id}/llm_sync", response_model=dict)
+@requires_permission('update_data_source', model=DataSource)
+async def llm_sync(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    return await data_source_service.llm_sync(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+
 @router.get("/data_sources/{data_source_id}/refresh_schema", response_model=list)
 @requires_permission('view_data_source_full_schema', model=DataSource)
 async def refresh_data_source_schema(

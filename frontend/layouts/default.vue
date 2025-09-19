@@ -1,9 +1,19 @@
 <template>
-
+    <!-- Fixed global onboarding banner shown above everything -->
+    <div v-if="showGlobalOnboardingBanner" class="fixed top-0 left-0 right-0 z-[1000]">
+      <div
+        @click="router.push(showGlobalOnboardingBannerLink)"
+        class="mx-auto max-w-screen-2xl text-center cursor-pointer text-white text-sm bg-blue-500/95 hover:bg-blue-600/90 py-2 flex items-center justify-center shadow-md"
+      >
+        <UIcon name="i-heroicons-rocket-launch" class="h-5 mr-2" />
+        <span>{{ showGlobalOnboardingBannerText }}</span>
+      </div>
+    </div>
   <aside id="separator-sidebar"
     :class="[
-      'fixed top-0 left-0 z-40 h-screen bg-gray-50 transition-all duration-300 -translate-x-full sm:translate-x-0 border-r-[3px] border-gray-100',
-      isCollapsed ? 'w-14' : 'w-48'
+      'fixed left-0 z-40 bg-gray-50 transition-all duration-300 -translate-x-full sm:translate-x-0 border-r-[3px] border-gray-100',
+      isCollapsed ? 'w-14' : 'w-48',
+      showGlobalOnboardingBanner ? 'top-10 bottom-0' : 'top-0 bottom-0'
     ]"
     aria-label="Sidebar">
     <button @click="toggleSidebar" :class="[
@@ -230,8 +240,9 @@
 
   </aside>
 
-  <div :class="['h-[100vh] transition-all duration-300', isCollapsed ? 'sm:ml-14' : 'sm:ml-48']">
+  <div :class="['min-h-screen transition-all duration-300', isCollapsed ? 'sm:ml-14' : 'sm:ml-48', showGlobalOnboardingBanner ? 'pt-10' : 'pt-0']">
     <UNotifications />
+
     <slot />
   </div>
 </template>
@@ -245,6 +256,36 @@
   })
   const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
   const { organization } = useOrganization()
+  const { onboarding, fetchOnboarding } = useOnboarding()
+  const { useCan } = await import('~/composables/usePermissions')
+  const canModifySettings = useCan('modify_settings')
+  const showGlobalOnboardingBanner = computed(() => {
+    if (!canModifySettings) return false
+    const ob = onboarding.value as any
+
+    if (!ob) return false
+    //if (ob.dismissed) return false
+    const steps = ob.steps || {}
+    const llmDone = steps.llm_configured?.status === 'done'
+    const dataDone = steps.data_source_created?.status === 'done'
+    return !(llmDone && dataDone)
+  })
+
+  const showGlobalOnboardingBannerText = computed(() => {
+    const ob = onboarding.value as any
+    if (!ob) return 'Continue onboarding'
+    return ob.current_step === 'llm_configured' ? 'Configure your LLM' : 'Connect your first data source'
+  })
+
+  const showGlobalOnboardingBannerLink = computed(() => {
+    const ob = onboarding.value as any
+    if (!ob) return '/onboarding'
+    return ob.current_step === 'llm_configured' ? '/onboarding/llm' : '/onboarding/data'
+  })
+
+  onMounted(async () => {
+    try { await fetchOnboarding() } catch {}
+  })
   const { isExcel } = useExcel()
   const router = useRouter()
   const selectedDataSources = ref<Array<{ id: string | number }>>([])

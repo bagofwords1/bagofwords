@@ -32,6 +32,7 @@ class DataSourceReportSchema(BaseModel):
     is_public: bool = False
     owner_user_id: Optional[str] = None
     config: Dict[str, Any]
+    use_llm_sync: bool = False
     # Note: NO memberships field here
     
     @validator('config', pre=True)
@@ -82,6 +83,7 @@ class DataSourceSchema(DataSourceBase):
     conversation_starters: Optional[list]
     is_active: bool
     is_public: bool = False
+    use_llm_sync: bool = False
     owner_user_id: Optional[str] = None
     config: Dict[str, Any]
     git_repository: Optional[GitRepositorySchema] = None
@@ -118,6 +120,7 @@ class DataSourceCreate(DataSourceBase):
     generate_conversation_starters: bool = False
     generate_ai_rules: bool = False
     is_public: bool = False
+    use_llm_sync: bool = False
     member_user_ids: Optional[List[str]] = []  # User IDs to grant access to
 
     @validator('credentials')
@@ -164,6 +167,7 @@ class DataSourceUpdate(DataSourceBase):
     conversation_starters: Optional[list] = None
     credentials: Optional[dict] = None
     is_public: Optional[bool] = None
+    use_llm_sync: Optional[bool] = None
     member_user_ids: Optional[List[str]] = None  # User IDs to grant access to
 
     class Config:

@@ -20,7 +20,7 @@
                 </ul>
 
                 <div class="mt-4 flex justify-end">
-                  <button @click="handleSave" :disabled="saving" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg disabled:opacity-50">
+                  <button @click="handleSave" :disabled="saving" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
                     <span v-if="saving">Saving...</span>
                     <span v-else>Save</span>
                   </button>

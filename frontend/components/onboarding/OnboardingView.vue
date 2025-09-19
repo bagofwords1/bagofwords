@@ -1,18 +1,19 @@
 <template>
-  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm">
+  <div class="bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm" :class="props.hideSidebar ? 'md:w-2/3 mx-auto' : ''">
     <div class="grid grid-cols-1 md:grid-cols-3">
       <!-- Left: Progress -->
-      <aside class="p-8 md:p-10 border-b md:border-b-0 md:border-r border-gray-100 md:col-span-1">
+      <aside v-if="!props.hideSidebar" class="p-8 md:p-10 border-b md:border-b-0 md:border-r border-gray-100 md:col-span-1">
         <div>
             <img src="/assets/logo-128.png" alt="Logo" class="w-10 h-10 mb-5" />
-          <h1 class="text-lg font-semibold text-gray-900">Welcome!</h1>
-          <p class="text-sm text-gray-500 mt-1">Complete these steps to get started</p>
+          <h1 class="text-lg font-semibold text-gray-900">Welcome to Bag of words! 🎉</h1>
+          <p class="text-sm text-gray-500 mt-1">Chat with your data, run deep analysis and create dashboards in seconds</p>
         </div>
 
         <div class="mt-8">
           <div v-if="loading" class="text-gray-500 text-sm">Loading...</div>
           <div v-else class="space-y-5">
             <div
+              v-if="currentStepKey !== 'onboarding'"
               v-for="(item, index) in stepsList"
               :key="item.key"
               class="flex items-start space-x-3"
@@ -37,42 +38,24 @@
       </aside>
 
       <!-- Right: Step details -->
-      <main class="p-8 md:p-10 md:col-span-2">
+      <main class="p-8 md:p-10" :class="props.hideSidebar ? 'md:col-span-3' : 'md:col-span-2'">
+        <div :class="props.hideSidebar ? '' : ''">
         <Transition name="fade" mode="out-in">
           <div v-if="loading" key="loading" class="flex items-center justify-center h-full text-gray-500">Loading...</div>
 
-          <div v-else-if="props.forceCompleted || onboarding?.completed" key="completed" class="flex items-center justify-center h-full">
-            <div class="text-center max-w-md">
-              <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Icon name="heroicons-check" class="w-8 h-8 text-green-600" />
-              </div>
-              <h2 class="text-xl font-semibold text-gray-900 mb-2">All set!</h2>
-              <p class="text-gray-600 mb-6">You're ready to start using the app.</p>
-              <div class="flex items-center justify-center gap-3">
-                <button @click="router.push('/')" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-6 rounded-lg transition-colors">Go to Dashboard</button>
-                <button @click="router.push('/onboarding/llm')" class="text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 text-sm font-medium py-2.5 px-6 rounded-lg transition-colors">Back to setup</button>
-              </div>
-            </div>
-          </div>
+          
 
-          <div v-else-if="onboarding?.dismissed" key="dismissed" class="flex items-center justify-center h-full">
-            <div class="text-center max-w-md">
-              <div class="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Icon name="heroicons-clock" class="w-8 h-8 text-gray-600" />
-              </div>
-              <h2 class="text-xl font-semibold text-gray-900 mb-2">Setup paused</h2>
-              <p class="text-gray-600 mb-6">You can complete the remaining steps anytime from settings.</p>
-              <button @click="router.push('/')" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-6 rounded-lg transition-colors">Go to Dashboard</button>
-            </div>
-          </div>
+          <!-- Removed 'Setup paused' state; users can always continue onboarding -->
 
           <div v-else :key="'step-' + currentStepKey" class="max-w-xl">
             <div class="flex items-start space-x-4">
               <div class="flex-1">
+                <img src="/assets/logo-128.png" alt="Logo" class="w-10 h-10 mb-5" v-if="props.hideSidebar" />
                 <h2 class="text-lg font-semibold text-gray-900 mb-2">{{ getCurrentStepTitle() }}</h2>
                 <p class="text-gray-600 mb-6">{{ getCurrentStepDescription() }}</p>
 
                 <div class="space-y-3">
+                  <slot name="onboarding" v-if="currentStepKey === 'onboarding'"></slot>
                   <slot name="llm" v-if="currentStepKey === 'llm_configured'"></slot>
                   <slot name="data" v-else-if="currentStepKey === 'data_source_created'"></slot>
                   <slot name="schema" v-else-if="currentStepKey === 'schema_selected'"></slot>
@@ -87,6 +70,7 @@
             </div>
           </div>
         </Transition>
+        </div>
       </main>
     </div>
   </div>
@@ -94,9 +78,10 @@
 
 <script setup lang="ts">
 const props = defineProps<{ 
-  forcedStepKey?: 'llm_configured'|'data_source_created'|'schema_selected'|'instructions_added',
+  forcedStepKey?: 'onboarding'|'llm_configured'|'data_source_created'|'schema_selected'|'instructions_added',
   forceCompleted?: boolean,
-  hideNextButton?: boolean
+  hideNextButton?: boolean,
+  hideSidebar?: boolean
 }>()
 
 const router = useRouter()
@@ -107,25 +92,24 @@ const loading = ref(true)
 
 onMounted(async () => {
   await fetchOnboarding()
-  if (onboarding.value && !props.forceCompleted) {
-    onboarding.value.completed = false as any
-    onboarding.value.dismissed = false as any
-  }
   if (!props.forceCompleted) {
     syncUrlWithStep()
   }
   loading.value = false
 })
 
+// Complete step metadata, used for titles/descriptions irrespective of sidebar order
+const stepMeta = new Map([
+  ['onboarding', { title: 'Welcome to Bag of words! 🎉', description: 'Chat with your data, run deep analysis and create dashboards in seconds' }],
+  ['llm_configured', { title: 'Configure LLM', description: 'Pick provider and default model' }],
+  ['data_source_created', { title: 'Connect data', description: 'Select one of the available data sources' }],
+  // Shown on the right panel while selecting tables
+  ['schema_selected', { title: 'Select table', description: 'Choose tables to include in LLM context' }],
+  ['instructions_added', { title: 'Context', description: 'Set system instructions, and enrich with Tableau, dbt or markdown' }],
+])
+
 const stepsList = computed(() => {
   if (!onboarding.value) return []
-  const m = new Map([
-    ['llm_configured', { title: 'Configure LLM', description: 'Pick provider and default model' }],
-    ['data_source_created', { title: 'Connect data', description: 'Select one of the available data sources' }],
-    // Keep schema entry for titles/descriptions, but exclude from the sidebar order
-    ['schema_selected', { title: 'Select schema tables', description: 'Choose tables to include in LLM context' }],
-    ['instructions_added', { title: 'Context', description: 'Set system instructions, and enrich with Tableau, dbt or markdown' }],
-  ])
   // Exclude schema_selected from the sidebar, it is merged into Connect data
   const order = ['llm_configured','data_source_created','instructions_added']
   return order.map((key) => {
@@ -137,9 +121,9 @@ const stepsList = computed(() => {
     }
 
     return {
-    key,
-    title: m.get(key)?.title || (key as string),
-    description: m.get(key)?.description || '',
+      key,
+      title: stepMeta.get(key)?.title || (key as string),
+      description: stepMeta.get(key)?.description || '',
       status: statusValue
     }
   })
@@ -151,19 +135,28 @@ if (!props.forceCompleted) {
   watch(currentStepKey, () => syncUrlWithStep())
 }
 
+// Redirect immediately when onboarding is completed
+watch(() => onboarding.value?.completed, (isCompleted) => {
+  if (isCompleted && route.path.startsWith('/onboarding')) {
+    router.replace('/?setup=done')
+  }
+})
+
 function routeForStep(): string {
   switch (currentStepKey.value) {
+    case 'onboarding': return '/onboarding'
     case 'llm_configured': return '/onboarding/llm'
     case 'data_source_created': return '/onboarding/data'
     case 'schema_selected': return '/onboarding/data/schema'
     case 'instructions_added':
       return route.params?.ds_id ? `/onboarding/data/${String(route.params.ds_id)}/context` : '/onboarding/context'
-    default: return '/'
+    default: return '/onboarding'
   }
 }
 
 function nextRouteForStep(): string {
   switch (currentStepKey.value) {
+    case 'onboarding': return '/onboarding/llm'
     case 'llm_configured': return '/onboarding/data'
     case 'data_source_created': return '/onboarding/data/schema'
     case 'schema_selected':
@@ -175,6 +168,42 @@ function nextRouteForStep(): string {
 
 function syncUrlWithStep() {
   if (props.forceCompleted) return
+  // If onboarding is completed, immediately redirect out of onboarding
+  if (onboarding.value?.completed) {
+    if (route.path.startsWith('/onboarding')) router.replace('/?setup=done')
+    return
+  }
+  // Allow onboarding landing page to render without auto-redirect
+  if (route.path === '/onboarding') return
+  // If the user is on schema/context sub-steps, never auto-redirect away.
+  const isSchemaRoute = /^\/onboarding\/data(\/[\w-]+)?\/schema(\/?|$)/.test(route.path)
+  const isContextRoute = /^\/onboarding\/data(\/[\w-]+)?\/context(\/?|$)/.test(route.path) || route.path.startsWith('/onboarding/context')
+  const stepKey = currentStepKey.value
+  if (isSchemaRoute || isContextRoute || stepKey === 'schema_selected' || stepKey === 'instructions_added') {
+    // Let the schema/context flow proceed.
+    return
+  }
+  // Decide routing based on LLM/Data step status for top-level onboarding pages
+  const steps: any = (onboarding.value && (onboarding.value as any).steps) || {}
+  const llmDone = steps.llm_configured?.status === 'done'
+  const dataDone = steps.data_source_created?.status === 'done'
+
+  // If both done → home
+  if (llmDone && dataDone) {
+    if (route.path.startsWith('/onboarding')) router.replace('/?setup=done')
+    return
+  }
+  // If only LLM done → go to Connect data
+  if (llmDone && !dataDone) {
+    const target = '/onboarding/data'
+    if (route.path !== target) router.replace(target)
+    return
+  }
+  // If only data done (and LLM not) → home
+  if (!llmDone && dataDone) {
+    if (route.path.startsWith('/onboarding')) router.replace('/')
+    return
+  }
   if (!route.path.startsWith('/onboarding')) return
   const targetBase = routeForStep()
   // Allow schema step to be either /onboarding/data/schema or /onboarding/data/:id/schema
@@ -206,17 +235,18 @@ function getStepIndicatorClass(status: string, isCurrent: boolean) {
 }
 
 function getCurrentStepTitle() {
-  const step = stepsList.value.find(s => s.key === currentStepKey.value)
-  return step?.title || 'Get Started'
+  const key = (currentStepKey.value || '') as string
+  return stepMeta.get(key)?.title || 'Get Started'
 }
 
 function getCurrentStepDescription() {
-  const step = stepsList.value.find(s => s.key === currentStepKey.value)
-  return step?.description || 'Complete the next step in your setup'
+  const key = (currentStepKey.value || '') as string
+  return stepMeta.get(key)?.description || 'Complete the next step in your setup'
 }
 
 function getCurrentStepIcon() {
   switch (currentStepKey.value) {
+    case 'onboarding': return 'heroicons-play'
     case 'llm_configured': return 'heroicons-cpu-chip'
     case 'data_source_created': return 'heroicons-circle-stack'
     case 'schema_selected': return 'heroicons-table-cells'
@@ -229,6 +259,7 @@ function getCurrentStepButtonText() {
   if (onboarding.value?.completed) return 'Completed'
   if (onboarding.value?.dismissed) return 'Resume Setup'
   switch (currentStepKey.value) {
+    case 'onboarding': return 'Welcome'
     case 'llm_configured': return 'Configure Models'
     case 'data_source_created': return 'Connect Data'
     case 'schema_selected': return 'Connect Data'
@@ -241,6 +272,8 @@ function goToCurrentStep() {
   const ob = onboarding.value
   if (!ob || ob.dismissed || ob.completed) return router.push('/')
   switch (currentStepKey.value) {
+    case 'onboarding':
+      return router.push('/onboarding')
     case 'llm_configured':
       return router.push('/settings/models')
     case 'data_source_created':

@@ -1,7 +1,6 @@
 import os
 import json
 import uvicorn
-import sentry_sdk
 import argparse
 import uuid
 import time
@@ -69,12 +68,6 @@ from app.routes.oidc_auth import router as oidc_auth_router
 # Initialize logging
 loggers = setup_logging()
 logger = get_logger(__name__)
-
-sentry_sdk.init(
-    dsn=settings.SENTRY_DSN,
-    traces_sample_rate=1.0,
-    environment=settings.ENVIRONMENT,
-)
 
 # Read configuration
 enable_google_oauth = settings.bow_config.google_oauth.enabled

@@ -52,7 +52,7 @@
 
             <!-- Instructions List -->
             <div v-if="isLoading" class="flex items-center justify-center py-12">
-                <USpinner size="lg" />
+                <Spinner />
             </div>
             <div v-else-if="instructions.length > 0">
                 <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">

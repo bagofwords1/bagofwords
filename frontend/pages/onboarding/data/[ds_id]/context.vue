@@ -3,66 +3,146 @@
     <div class="w-full max-w-6xl">
       <OnboardingView forcedStepKey="instructions_added" :hideNextButton="true">
         <template #instructions>
-          <div class="space-y-6">
+          <!-- Loading State -->
+            <div v-if="isLLMSyncInProgress" class="flex items-center justify-center min-h-[400px] space-x-2">
+              <Spinner class="w-4 h-4" />
+              <span class="thinking-shimmer text-sm">Thinking...</span>
+            </div>
+
+          <!-- Content Sections -->
+          <div v-else class="space-y-6 fade-in">
             <!-- Suggested Instructions -->
-            <div>
-              <h3 class="text-sm font-medium text-gray-900 mb-1">Suggested Instructions</h3>
-              <p class="text-xs text-gray-500 mb-3">Add a few instructions to guide the AI with business context.</p>
-              <div class="space-y-2">
-                <div 
-                  v-for="instruction in suggestedInstructions" 
-                  :key="instruction.id"
-                  @click="toggleInstruction(instruction)"
-                  class="flex items-center gap-3 p-3 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50"
-                  :class="{ 'bg-blue-50 border-blue-200': instruction.selected }"
-                >
-                  <UCheckbox color="blue" v-model="instruction.selected" />
-                  <span class="text-sm text-gray-800">{{ instruction.text }}</span>
+            <div class="bg-white border border-gray-200 rounded-lg transition-all duration-500 ease-in-out">
+              <div 
+                @click="toggleInstructionsSection"
+                class="flex items-center justify-between cursor-pointer p-3 hover:bg-gray-50"
+              >
+                <div class="flex items-center">
+                  <UIcon 
+                    :name="instructionsExpanded ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
+                    class="w-5 h-5 text-gray-500 mr-2 transition-transform duration-200"
+                  />
+                  <h3 class="text-sm font-semibold text-gray-900">Suggested Instructions</h3>
+                </div>
+              </div>
+
+              <div v-if="instructionsExpanded" class="px-3 pb-3">
+                <div class="text-left mb-4">
+                  <p class="text-xs text-gray-500">Add a few instructions to guide the AI with business context.</p>
+                </div>
+                
+                <div class="space-y-3">
+                  <div v-if="isLoadingInstructions" class="text-xs text-gray-500 flex items-center gap-2">
+                    <Spinner class="w-4 h-4" />
+                    Loading instructions...
+                  </div>
+                  <div v-else>
+                    <div 
+                      v-for="instruction in suggestedInstructions" 
+                      :key="instruction.id"
+                      class="hover:bg-gray-50 bg-white mt-2 border border-gray-200 rounded-md p-3 transition-colors relative"
+                    >
+                      <div class="text-[12px] text-gray-800 leading-relaxed pr-24 whitespace-normal break-words max-w-full">
+                        {{ instruction.text }}
+                      </div>
+                      
+                      <div class="absolute top-2 right-2 flex items-center gap-2">
+                        <template v-if="instructionAction[instruction.id]">
+                          <span 
+                            class="px-2 py-0.5 text-[11px] rounded-full border"
+                            :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'"
+                          >
+                            {{ instructionAction[instruction.id] === 'approved' ? 'Approved' : 'Removed' }}
+                          </span>
+                        </template>
+                        <template v-else>
+                          <span class="hover:bg-gray-100 rounded cursor-pointer" @click="rejectInstruction(instruction)">
+                            <Icon 
+                              name="heroicons:x-mark" 
+                              class="w-4 h-4 text-red-500 rounded cursor-pointer" 
+                            />
+                          </span>
+                          <span class="hover:bg-gray-100 rounded cursor-pointer" @click="approveInstruction(instruction)">
+                            <Icon 
+                              name="heroicons:check" 
+                              class="w-4 h-4 text-green-500 rounded cursor-pointer" 
+                            />
+                          </span>
+                        </template>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button class="text-xs text-blue-500 hover:text-blue-600 p-2 rounded-md" @click="openInstructionModal">
+                        Add Custom Instruction
+                      </button>
+                      <button 
+                        v-if="suggestedInstructions.length === 0 && hasAttemptedLLMSync"
+                        class="text-xs text-gray-500 hover:text-gray-600 p-2 rounded-md"
+                        :disabled="isLLMSyncInProgress"
+                        @click="runLLMSync"
+                      >
+                        {{ isLLMSyncInProgress ? 'Generating...' : 'Generate AI Suggestions' }}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
             <!-- Context Enrichment -->
-            <div>
-              <h3 class="text-sm font-medium text-gray-900 mb-1">Context Enrichment</h3>
-              <p class="text-xs text-gray-500 mb-3">Connect a Git repo to load dbt/markdown resources, then toggle items to include them in AI context.</p>
-              <div class="bg-white border border-gray-200 rounded-lg p-4">
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center">
-                    <UTooltip text="Tableau">
-                    <img src="/icons/tableau.png" alt="Tableau" class="h-5 mr-4 inline" />
-                    </UTooltip>
-                    <UTooltip text="dbt">
-                    <img src="/icons/dbt.png" alt="dbt" class="h-5 mr-4 inline" />
-                    </UTooltip>
-                    <UTooltip text="LookML">
-                    <img src="/icons/lookml.png" alt="dbt" class="h-5 mr-4 inline" />
-                    </UTooltip>
-                    <UTooltip text="Markdown">
-                    <img src="/icons/markdown.png" alt="dbt" class="h-5 mr-4 inline" />
-                    </UTooltip>
-                  </div>
-                  <div>
-                    <UTooltip v-if="integration?.git_repository" :text="integration.git_repository.repo_url">
-                      <UButton
-                        icon="heroicons:code-bracket"
-                        :label="repoDisplayName"
-                        class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs rounded-md hover:bg-gray-200"
-                        @click="showGitModal = true"
-                      />
-                    </UTooltip>
+            <div class="bg-white border border-gray-200 rounded-lg transition-all duration-500 ease-in-out">
+              <div 
+                @click="toggleEnrichmentSection"
+                class="flex items-center justify-between cursor-pointer p-3 hover:bg-gray-50"
+              >
+                <div class="flex items-center">
+                  <UIcon 
+                    :name="enrichmentExpanded ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
+                    class="w-5 h-5 text-gray-500 mr-2 transition-transform duration-200"
+                  />
+                  <h3 class="text-sm font-semibold text-gray-900">Enrich Context</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                  <UTooltip text="Tableau">
+                    <img src="/icons/tableau.png" alt="Tableau" class="h-3 inline" />
+                  </UTooltip>
+                  <UTooltip text="dbt">
+                    <img src="/icons/dbt.png" alt="dbt" class="h-3 inline" />
+                  </UTooltip>
+                  <UTooltip text="LookML">
+                    <img src="/icons/lookml.png" alt="LookML" class="h-3 inline" />
+                  </UTooltip>
+                  <UTooltip text="Markdown">
+                    <img src="/icons/markdown.png" alt="Markdown" class="h-3 inline" />
+                  </UTooltip>
+                </div>
+              </div>
+
+              <div v-if="enrichmentExpanded" class="px-3 pb-3">
+                <div class="text-center mb-4 mt-5">
+                  <p class="text-xs text-gray-500">Connect a Git repo to load dbt/markdown resources, then toggle items to include them in AI context.</p>
+                </div>
+                
+                <div class="text-center mb-4">
+                  <UTooltip v-if="integration?.git_repository" :text="integration.git_repository.repo_url">
                     <UButton
-                      v-else
                       icon="heroicons:code-bracket"
-                      class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm text-black hover:bg-gray-50"
+                      :label="repoDisplayName"
+                      class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs rounded-md hover:bg-gray-200"
                       @click="showGitModal = true"
-                    >
-                      Integrate
-                    </UButton>
-                  </div>
+                    />
+                  </UTooltip>
+                  <UButton
+                    v-else
+                    icon="heroicons:code-bracket"
+                    class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50"
+                    @click="showGitModal = true"
+                  >
+                    Integrate
+                  </UButton>
                 </div>
 
-                <div v-if="integration?.git_repository?.status === 'pending'" class="flex items-center mt-3 text-xs text-gray-500">
+                <div v-if="integration?.git_repository?.status === 'pending'" class="flex items-center justify-center text-xs text-gray-500">
                   <UIcon name="heroicons:arrow-path" class="w-4 h-4 animate-spin mr-2" />
                   Indexing in progress... Resources will appear automatically when complete.
                 </div>
@@ -87,7 +167,7 @@
                                 <UIcon :name="expandedResources[res.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 mr-1" />
                                 <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-4 h-4 text-gray-500 mr-1" />
                                 <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-4 h-4 text-gray-500 mr-1" />
-                                <span class="text-sm text-gray-800 truncate">{{ res.name }}</span>
+                                <span class="text-sm text-gray-800 ">{{ res.name }}</span>
                               </div>
                             </div>
                             <div v-if="expandedResources[res.id]" class="ml-6 mt-2">
@@ -100,7 +180,7 @@
                         <button 
                           @click="updateResourceStatus" 
                           :disabled="isUpdatingResources" 
-                          class="bg-gray-900 hover:bg-black text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+                          class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
                         >
                           <UIcon v-if="isUpdatingResources" name="heroicons:arrow-path" class="w-4 h-4 animate-spin inline mr-1" />
                           {{ isUpdatingResources ? 'Saving...' : 'Save Resources' }}
@@ -118,7 +198,7 @@
               <button 
                 @click="handleSave" 
                 :disabled="saving"
-                class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg disabled:opacity-50"
+                class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
               >
                 <span v-if="saving">Saving...</span>
                 <span v-else>Save & Continue</span>
@@ -127,9 +207,7 @@
           </div>
         </template>
       </OnboardingView>
-      <div class="text-center mt-6">
-        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">Skip onboarding</button>
-      </div>
+
       <!-- Git Modal -->
       <GitRepoModalComponent 
         v-model="showGitModal"
@@ -139,12 +217,20 @@
         @update:modelValue="handleGitModalClose"
       />
     </div>
+  <UModal v-model="showInstructionCreate" :ui="{ width: 'sm:max-w-2xl' }">
+    <div class="p-4">
+      <InstructionGlobalCreateComponent @instructionSaved="() => { showInstructionCreate = false; fetchInstructions(); }" @cancel="() => { showInstructionCreate = false }" />
+    </div>
+  </UModal>
+
+
   </div>
 </template>
 
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'onboarding' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
+import InstructionGlobalCreateComponent from '@/components/InstructionGlobalCreateComponent.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import ResourceDisplay from '~/components/ResourceDisplay.vue'
 
@@ -154,11 +240,17 @@ const router = useRouter()
 
 const dsId = computed(() => String(route.params.ds_id || ''))
 const saving = ref(false)
+const isLoadingInstructions = ref(false)
+const isLLMSyncInProgress = ref(false)
+const showInstructionCreate = ref(false)
 const showGitModal = ref(false)
 const isLoadingMetadataResources = ref(false)
 const isUpdatingResources = ref(false)
+const hasAttemptedLLMSync = ref(false)
 const metadataResources = ref<any>({ resources: [] })
 const resourceSearch = ref('')
+const enrichmentExpanded = ref(false)
+const instructionsExpanded = ref(true)
 const totalResources = computed(() => metadataResources.value?.resources?.length || 0)
 const filteredResources = computed(() => {
   const q = resourceSearch.value.trim().toLowerCase()
@@ -171,6 +263,14 @@ function toggleResource(resource: any) {
   expandedResources.value[resource.id] = !expandedResources.value[resource.id]
 }
 
+function toggleEnrichmentSection() {
+  enrichmentExpanded.value = !enrichmentExpanded.value
+}
+
+function toggleInstructionsSection() {
+  instructionsExpanded.value = !instructionsExpanded.value
+}
+
 const integration = ref<any>(null)
 const repoDisplayName = computed(() => {
   const url = integration.value?.git_repository?.repo_url || ''
@@ -178,21 +278,113 @@ const repoDisplayName = computed(() => {
   return tail.replace(/\.git$/, '') || 'Repository'
 })
 
-// Mock suggested instructions
-const suggestedInstructions = ref([
-  { id: 1, text: "Focus on sales performance metrics and revenue trends", selected: false },
-  { id: 2, text: "Analyze customer behavior and segmentation patterns", selected: false },
-  { id: 3, text: "Monitor operational efficiency and cost optimization", selected: false },
-  { id: 4, text: "Track product performance and market analytics", selected: false },
-  { id: 5, text: "Generate executive-level summaries and KPI reports", selected: false }
-])
+// Suggested instructions fetched from API (published, filtered to this data source)
+const suggestedInstructions = ref<any[]>([])
+const instructionAction = ref<Record<string, 'approved' | 'removed'>>({})
 
-const hasSelectedInstructions = computed(() => 
-  suggestedInstructions.value.some(i => i.selected)
-)
+function openInstructionModal() {
+  showInstructionCreate.value = true
+}
 
-function toggleInstruction(instruction: any) {
-  instruction.selected = !instruction.selected
+async function fetchInstructions() {
+  isLoadingInstructions.value = true
+  try {
+    // Leverage same API shape as InstructionsListModal: published instructions; filter by ds via query if backend supports it
+    const params: any = { limit: 100 }
+    if (dsId.value) params.data_source_id = dsId.value
+    const { data, error } = await useMyFetch<any[]>('/instructions', { method: 'GET', query: params })
+    if (!error.value && data.value) {
+      suggestedInstructions.value = data.value
+      const map: Record<string, 'approved' | 'removed'> = {}
+      for (const inst of suggestedInstructions.value) {
+        const gs = (inst as any).global_status
+        const st = (inst as any).status
+        if (gs === 'approved' && st === 'published') {
+          map[inst.id] = 'approved'
+        } else if (gs === 'rejected' || st === 'archived') {
+          map[inst.id] = 'removed'
+        }
+      }
+      instructionAction.value = map
+    }
+  } finally {
+    isLoadingInstructions.value = false
+  }
+}
+
+function getLLMSyncKey() {
+  return `llm_sync_attempted_${dsId.value}`
+}
+
+function hasTriedLLMSyncBefore() {
+  if (typeof window === 'undefined') return false
+  return localStorage.getItem(getLLMSyncKey()) === 'true'
+}
+
+function markLLMSyncAttempted() {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(getLLMSyncKey(), 'true')
+  }
+  hasAttemptedLLMSync.value = true
+}
+
+function shouldRunLLMSync() {
+  return suggestedInstructions.value.length === 0 && 
+         !hasAttemptedLLMSync.value && 
+         !hasTriedLLMSyncBefore()
+}
+
+async function runLLMSync() {
+  if (!dsId.value) return
+  
+  isLLMSyncInProgress.value = true
+  try {
+    await useMyFetch(`/data_sources/${dsId.value}/llm_sync`, { method: 'POST' })
+    // Mark that we've attempted LLM sync for this data source
+    markLLMSyncAttempted()
+    // After llm_sync completes, refresh the instructions list
+    await fetchInstructions()
+  } catch (error) {
+    console.error('LLM sync failed:', error)
+    // Even if it fails, mark as attempted to avoid retrying immediately
+    markLLMSyncAttempted()
+  } finally {
+    isLLMSyncInProgress.value = false
+  }
+}
+
+async function approveInstruction(instruction: any) {
+  try {
+    const payload = {
+      // Approve: status published, global_status approved, keep visible
+      status: 'published',
+      global_status: 'approved',
+      is_seen: true
+    }
+    const res = await useMyFetch(`/instructions/${instruction.id}`, { method: 'PUT', body: payload })
+    if ((res.status as any)?.value === 'success') {
+      instructionAction.value[instruction.id] = 'approved'
+    }
+  } catch (e) {
+    console.error('Failed to approve instruction', e)
+  }
+}
+
+async function rejectInstruction(instruction: any) {
+  try {
+    const payload = {
+      // Reject: archive and mark global_status rejected
+      status: 'archived',
+      global_status: 'rejected',
+      is_seen: true
+    }
+    const res = await useMyFetch(`/instructions/${instruction.id}`, { method: 'PUT', body: payload })
+    if ((res.status as any)?.value === 'success') {
+      instructionAction.value[instruction.id] = 'removed'
+    }
+  } catch (e) {
+    console.error('Failed to reject instruction', e)
+  }
 }
 
 async function fetchMetadataResources() {
@@ -231,9 +423,8 @@ async function handleSave() {
   saving.value = true
   
   try {
-    const selectedInstructionTexts = suggestedInstructions.value
-      .filter(i => i.selected)
-      .map(i => i.text)
+    // No longer using selection logic
+    const selectedInstructionTexts: string[] = []
     
     // TODO: Save instructions and enrichment preferences
     // const payload = {
@@ -242,14 +433,16 @@ async function handleSave() {
     // }
     // await useMyFetch(`/data_sources/${dsId.value}/context`, { method: 'POST', body: payload })
     
+    // Update onboarding as completed - OnboardingView will automatically redirect
     try {
-      await updateOnboarding({ current_step: 'completed' as any, completed: true as any, dismissed: false as any })
+      await updateOnboarding({ current_step: 'instructions_added' as any, completed: true as any, dismissed: false as any })
     } catch (e) {
       console.warn('Failed to update onboarding, continuing to home:', e)
+      // Fallback: navigate manually if onboarding update fails
+      await navigateTo({path: '/', query: { setup: 'done' } })
     }
   } finally {
     saving.value = false
-    router.push({ path: '/', query: { setup: 'done' } })
   }
 }
 
@@ -267,7 +460,53 @@ async function fetchIntegration() {
 }
 
 onMounted(async () => {
+  // Initialize the attempted state from localStorage
+  hasAttemptedLLMSync.value = hasTriedLLMSyncBefore()
+  
   await fetchIntegration()
   await fetchMetadataResources()
+  
+  // Fetch existing instructions first
+  await fetchInstructions()
+  
+  // Only run LLM sync if conditions are met
+  if (shouldRunLLMSync()) {
+    await runLLMSync()
+  }
 })
+
 </script>
+
+<style scoped>
+.fade-in {
+  animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -100% 0; }
+  100% { background-position: 100% 0; }
+}
+
+.thinking-shimmer {
+  background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2s linear infinite;
+  font-weight: 400;
+  opacity: 1;
+}
+</style>
+

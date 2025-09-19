@@ -3,12 +3,17 @@
     <div class="w-full max-w-6xl">
       <OnboardingView forcedStepKey="schema_selected" :hideNextButton="true">
         <template #schema>
-          <div>
-             <div class="bg-white border border-gray-200 rounded-lg p-4 flex flex-col h-[50vh] overflow-hidden">
+          <div class="relative h-[50vh]">
+             <!-- Schema card -->
+             <div
+               class="bg-white border border-gray-200 rounded-lg p-4 flex flex-col h-full overflow-hidden"
+             >
               <div class="mb-2">
                 <input v-model="search" type="text" placeholder="Search tables..." class="border border-gray-300 rounded-lg px-3 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                 <div class="mt-1 text-xs text-gray-500 text-right">{{ selectedCount }} of {{ totalTables }} selected</div>
               </div>
+
+
 
               <div v-if="loading" class="text-sm text-gray-500">Loading schema...</div>
               <div v-else class="flex-1 flex flex-col h-full">
@@ -44,9 +49,11 @@
               </div>
             </div>
 
+  
+
           </div>
             <div class="mt-3 flex justify-end">
-              <button @click="handleSave" :disabled="saving" class="bg-gray-900 hover:bg-black text-white text-sm font-medium py-2.5 px-5 rounded-lg disabled:opacity-50">
+              <button @click="handleSave" :disabled="saving" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
                 <span v-if="saving">Saving...</span>
                 <span v-else>Save</span>
               </button>
@@ -54,9 +61,6 @@
           </div>
         </template>
       </OnboardingView>
-      <div class="text-center mt-6">
-        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">Skip onboarding</button>
-      </div>
     </div>
   </div>
 </template>
@@ -64,6 +68,7 @@
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'onboarding' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
+import Spinner from '@/components/Spinner.vue'
 
 const route = useRoute()
 const { updateOnboarding } = useOnboarding()
@@ -108,8 +113,9 @@ async function handleSave() {
     const payload = tables.value.map(t => ({ ...t, datasource_id: dsId.value, pks: t.pks || [], fks: t.fks || [] }))
     const res = await useMyFetch(`/data_sources/${dsId.value}/update_schema`, { method: 'PUT', body: payload })
     if ((res.status as any)?.value === 'success') {
-      await updateOnboarding({ current_step: 'instructions_added' as any })
-      router.push(`/onboarding/data/${dsId.value}/context`)
+      const target = `/onboarding/data/${String(dsId.value)}/context`
+      await updateOnboarding({ current_step: 'instructions_added' as any, dismissed: false as any })
+      router.replace(target)
     }
   } finally {
     saving.value = false

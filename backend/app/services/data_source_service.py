@@ -28,6 +28,8 @@ from app.models.datasource_table import DataSourceTable  # Add this import at th
 
 from typing import List
 from sqlalchemy.orm import selectinload
+from app.services.instruction_service import InstructionService
+from app.schemas.instruction_schema import InstructionCreate
 
 class DataSourceService:
 
@@ -69,6 +71,7 @@ class DataSourceService:
         credentials = data_source_dict.pop("credentials")
         config = data_source_dict.pop("config")
         is_public = data_source_dict.pop("is_public", False)
+        use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         
         # Create base data source dict
@@ -78,6 +81,7 @@ class DataSourceService:
             "config": json.dumps(config),
             "organization_id": organization.id,
             "is_public": is_public,
+            "use_llm_sync": use_llm_sync,
             "owner_user_id": current_user.id
         }
         
@@ -149,6 +153,108 @@ class DataSourceService:
             response["description"] = data_source_agent.generate_description()
 
         return response
+
+    async def llm_sync(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User | None = None) -> dict:
+        """Run multiple LLM onboarding generators sequentially for a data source.
+        Returns a dict of generated fields.
+        """
+        result: dict = {}
+
+        from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
+        model = await organization.get_default_llm_model(db)
+        suggest_instructions = SuggestInstructions(model=model)
+
+        # Load the data source model instance for context and schema sync
+        ds_q = await db.execute(
+            select(DataSource).filter(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id
+            )
+        )
+        data_source = ds_q.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+
+
+        try:
+            summary = await self.generate_data_source_items(db=db, item="summary", data_source_id=data_source_id, organization=organization, current_user=current_user or User())
+            result.update(summary)
+            # Persist description on the data source if available
+            if isinstance(summary, dict) and summary.get("summary"):
+                data_source.description = summary.get("summary")
+                await db.commit()
+                await db.refresh(data_source)
+        except Exception:
+            pass
+        try:
+            starters = await self.generate_data_source_items(db=db, item="conversation_starters", data_source_id=data_source_id, organization=organization, current_user=current_user or User())
+            result.update(starters)
+            # Persist conversation starters on the data source if available
+            if isinstance(starters, dict) and starters.get("conversation_starters") is not None:
+                data_source.conversation_starters = starters.get("conversation_starters")
+                await db.commit()
+                await db.refresh(data_source)
+        except Exception:
+            pass
+        # Build a lightweight context view for onboarding suggestions
+        try:
+            from app.ai.context import ContextHub  # Local import to avoid circular dependency
+            context_hub = ContextHub(
+                db=db,
+                organization=organization,
+                report=None,
+                data_sources=[data_source],
+                user=current_user,
+                head_completion=None,
+                widget=None,
+            )
+            await context_hub.prime_static()
+            view = context_hub.get_view()
+        except Exception:
+            view = None
+
+        # Stream onboarding suggestions (non-fatal if fails)
+        try:
+            created_instruction_payloads: list[dict] = []
+            instruction_service = InstructionService()
+            async for draft in suggest_instructions.onboarding_suggestions(context_view=view):
+                text = (draft or {}).get("text")
+                category = (draft or {}).get("category")
+                if not (text and category):
+                    continue
+                try:
+                    # Create as a draft suggestion (not published)
+                    create_payload = InstructionCreate(
+                        text=text,
+                        category=category,
+                        ai_source="onboarding",
+                        data_source_ids=[data_source_id],
+                        status="draft",
+                        global_status="suggested",
+                    )
+                    created = await instruction_service.create_instruction(
+                        db=db,
+                        instruction_data=create_payload,
+                        current_user=current_user or User(),
+                        organization=organization,
+                    )
+                    created_instruction_payloads.append({
+                        "id": created.id,
+                        "text": created.text,
+                        "category": created.category,
+                        "status": created.status,
+                        "global_status": created.global_status,
+                        "data_source_ids": [data_source_id],
+                    })
+                except Exception as e:
+                    # Skip persisting this draft if creation fails
+                    continue
+            if created_instruction_payloads:
+                result["instructions"] = created_instruction_payloads
+        except Exception as e:
+            pass
+
+        return result
 
     async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None) -> DataSourceSchema:
         query = (

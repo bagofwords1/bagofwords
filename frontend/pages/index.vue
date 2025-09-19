@@ -1,13 +1,6 @@
 <template>
   <div class="flex flex-col min-h-screen bg-white relative">
-    <div v-if="hasLoadedModels && models.filter(model => model.is_enabled).length === 0">
-      <div
-        @click="router.push('/settings/models')"
-      class="text-center cursor-pointer text-gray-500 text-sm bg-blue-500 text-white p-2 flex items-center justify-center">
-        <UIcon name="i-heroicons-cube-transparent" class="h-5 mr-2 bg-yellow-500" />
-        <span>Connect your LLM to get started</span>
-      </div>
-    </div>
+
     <!-- Add background div with grid -->
     <div class="absolute inset-0 pointer-events-none" 
          style="background-image: linear-gradient(to right, rgb(15 23 42 / 0.04) 1px, transparent 1px),
@@ -30,7 +23,12 @@
         </div>
     </div>
 
-    <div class="flex flex-col p-4 flex-grow md:w-2/3 text-center md:mx-auto mt-20">
+    <div v-if="isLoading" class="flex flex-col items-center justify-center flex-grow py-20">
+      <Spinner class="h-4 w-4 text-gray-400" />
+      <p class="text-sm text-gray-500 mt-2">Loading...</p>
+    </div>
+
+    <div v-else class="flex flex-col p-4 flex-grow md:w-2/3 text-center md:mx-auto mt-20">
       <div v-if="showSetupComplete" class="mb-4">
         <div class="mx-auto max-w-lg bg-green-50 border border-green-200 text-green-800 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
           <span class="mr-2">✅</span>
@@ -63,7 +61,7 @@
     </div>
 
     <!-- Existing content -->
-    <div class="flex flex-col p-4 flex-grow md:w-1/3 md:mx-auto relative z-10">
+    <div v-if="!isLoading" class="flex flex-col p-4 flex-grow md:w-1/3 md:mx-auto relative z-10">
      
       <div class="flex cursor-pointer flex-col text-sm w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300"
         v-if="models.length === 0"
@@ -131,7 +129,9 @@ import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
 
 import { useCan } from '~/composables/usePermissions'
+import { KeyCode } from 'monaco-editor';
 const router = useRouter()
+const { onboarding, fetchOnboarding } = useOnboarding()
 const previous_reports = ref<any[]>([])
 const selectedDataSources = ref<any[]>([])
 const models = ref<any[]>([])
@@ -148,10 +148,13 @@ const getModels = async () => {
         throw new Error(`Could not fetch models: ${response.error.value}`);
     }
 
-    models.value = (response.data.value as any[]) || [];
+    const modelsData = (response.data.value as any[]) || [];
+    models.value = modelsData;
+    return modelsData;
   } catch (error) {
     console.error('Failed to fetch models:', error);
     models.value = [];
+    throw error;
   }
 }
 
@@ -178,14 +181,22 @@ definePageMeta({
 })
 
 const textContent = ref('')
+const showOnboardingBanner = computed(() => {
+  // If onboarding info not yet fetched, fallback to model/data heuristics below
+  const steps = (onboarding.value as any)?.steps || {}
+  const llmStatus = steps.llm_configured?.status
+  const dataStatus = steps.data_source_created?.status
+  // Show when not both done: (no llm and no data) OR (llm yes but data not done)
+  if (llmStatus || dataStatus) {
+    const llmDone = llmStatus === 'done'
+    const dataDone = dataStatus === 'done'
+    return !(llmDone && dataDone)
+  }
+  // Heuristic fallback: if no enabled models → prompt onboarding
+  if (hasLoadedModels.value && models.value.filter(m => m.is_enabled).length === 0) return true
+  return false
+})
 
-function handleMentionUpdate(value: string) {
-  textContent.value = value
-}
-
-function handleMentionsUpdated(mentions: any) {
-  console.log('Mentions updated:', mentions)
-}
 
 const menuItems = ref([
   [{ label: 'Reports', icon: 'i-heroicons-document-chart-bar', to: '/reports' }],
@@ -231,6 +242,19 @@ onMounted(async () => {
   try {
     // Ensure organization is loaded first before making any API calls
     await withTimeout(ensureOrganization(), 6000, 'ensureOrganization')
+    // Fetch onboarding state early for banner visibility
+    try { await withTimeout(fetchOnboarding(), 6000, 'fetchOnboarding') } catch {}
+    // If onboarding already started and not completed, redirect to correct step
+    const ob = onboarding.value as any
+    if (ob && !ob.completed && !ob.dismissed) {
+      const step = ob.current_step
+      if (step === 'llm_configured') router.replace('/onboarding/llm')
+      else if (step === 'data_source_created') router.replace('/onboarding/data')
+      else if (step === 'schema_selected') router.replace('/onboarding/data/schema')
+      else if (step === 'instructions_added') router.replace('/onboarding/context')
+      else router.replace('/onboarding')
+      return
+    }
     
     // Only proceed with API calls if organization is available
     if (organization.value?.id) {
@@ -250,11 +274,6 @@ onMounted(async () => {
   }
 })
 
-const checkExcelStatus = () => {
-console.log('Manually checking Excel status:', isExcel.value)
-// You can add more logic here if needed
-}
-
 const getReports = async () => {
   try {
     const response = await useMyFetch('/reports', {
@@ -265,10 +284,13 @@ const getReports = async () => {
         throw new Error(`Could not fetch reports: ${response.error.value}`);
     }
 
-    previous_reports.value = (response.data.value as any[]) || [];
+    const reportsData = (response.data.value as any[]) || [];
+    previous_reports.value = reportsData;
+    return reportsData;
   } catch (error) {
     console.error('Failed to fetch reports:', error);
     previous_reports.value = [];
+    throw error;
   }
 }
 
@@ -283,10 +305,13 @@ const getDataSourceOptions = async () => {
     }
 
     const dataSources = (response.data.value as any[]) || [];
-    selectedDataSources.value = dataSources.filter((data_source: any) => data_source.is_active !== false);
+    const activeDataSources = dataSources.filter((data_source: any) => data_source.is_active !== false);
+    selectedDataSources.value = activeDataSources;
+    return activeDataSources;
   } catch (error) {
     console.error('Failed to fetch data sources:', error);
     selectedDataSources.value = [];
+    throw error;
   }
 }
 

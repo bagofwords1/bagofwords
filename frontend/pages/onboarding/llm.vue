@@ -31,12 +31,12 @@
               <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
                 <div>
                   <label class="text-sm font-medium text-gray-700 mb-2">API Key</label>
-                  <input v-model="selectedProvider.credentials.api_key" type="text" placeholder="Keep blank to use stored key" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                  <input v-model="selectedProvider.credentials.api_key" type="text" placeholder="Keep blank to use stored key" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                 </div>
 
                 <div v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
                   <label class="text-sm font-medium text-gray-700 mb-2">Endpoint URL</label>
-                  <input v-model="selectedProvider.credentials.endpoint_url" type="text" placeholder="e.g. https://[resource].openai.azure.com" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                  <input v-model="selectedProvider.credentials.endpoint_url" type="text" placeholder="e.g. https://[resource].openai.azure.com" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                 </div>
 
                 <div v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
@@ -47,7 +47,7 @@
                   </div>
                   <div v-if="showBaseUrl" class="mt-2">
                     <label class="text-sm font-medium text-gray-700 mb-2">Base URL (optional)</label>
-                    <input v-model="selectedProvider.credentials.base_url" type="text" placeholder="e.g. https://my-openai-proxy.example.com/v1" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                    <input v-model="selectedProvider.credentials.base_url" type="text" placeholder="e.g. https://my-openai-proxy.example.com/v1" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
                 </div>
 
@@ -55,8 +55,8 @@
           <div>
                   <label class="text-sm font-medium text-gray-700 mb-2">Models</label>
                   <div class="space-y-2">
-                    <div v-for="model in selectedProvider.models" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg" @change="connectionTestPassed = false">
-                      <UCheckbox v-model="model.is_enabled" />
+                    <div v-for="model in selectedProvider.models" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
+                      <UCheckbox v-model="model.is_enabled" @change="clearTestResult()" />
                       <div class="flex-1">
                         <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
                         <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
@@ -64,10 +64,10 @@
                     </div>
 
                     <!-- Custom models for existing provider -->
-                    <div v-for="(customModel, index) in existingProviderCustomModels" :key="`existing-custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50" @change="connectionTestPassed = false">
-                      <UCheckbox v-model="customModel.is_enabled" />
+                    <div v-for="(customModel, index) in existingProviderCustomModels" :key="`existing-custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
+                      <UCheckbox v-model="customModel.is_enabled" @change="clearTestResult()" />
                       <div class="flex-1">
-                        <input v-model="customModel.model_id" type="text" placeholder="Model ID" class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500" />
+                        <input v-model="customModel.model_id" type="text" placeholder="Model ID" class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                       </div>
                       <button type="button" @click="removeExistingProviderCustomModel(index)" class="text-red-500 hover:text-red-700">
                         <Icon name="heroicons:trash" class="w-4 h-4" />
@@ -89,19 +89,19 @@
                 <!-- Provider selection buttons removed on config screen -->
 
                 <div v-if="providerForm.provider_type">
-                  <div class="flex flex-col mb-4" @change="connectionTestPassed = false">
+                  <div class="flex flex-col mb-4">
                     <label class="text-sm font-medium text-gray-700 mb-2">Name</label>
-                    <input v-model="providerForm.name" type="text" required :placeholder="`Provider Name (e.g. ${providerForm.provider_type} production)`" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                    <input v-model="providerForm.name" type="text" required :placeholder="`Provider Name (e.g. ${providerForm.provider_type} production)`" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
-                  <div v-for="(field, index) in credentialFieldsForNewProvider" :key="field.key" @change="connectionTestPassed = false">
+                  <div v-for="(field, index) in credentialFieldsForNewProvider" :key="field.key">
                     <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
-                    <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required" :placeholder="field.description || ''" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                    <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required" :placeholder="field.description || ''" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
                   <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                     <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">{{ showBaseUrlNew ? 'Use default base URL' : 'Set custom base URL' }}</button>
                     <div v-if="showBaseUrlNew" class="mt-2">
                       <label class="text-sm font-medium text-gray-700 mb-2">Base URL (optional)</label>
-                      <input v-model="providerForm.credentials.base_url" type="text" placeholder="e.g. https://my-openai-proxy.example.com/v1" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                      <input v-model="providerForm.credentials.base_url" type="text" placeholder="e.g. https://my-openai-proxy.example.com/v1" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                     </div>
                   </div>
                 </div>
@@ -110,10 +110,10 @@
               <!-- Models block for new provider -->
               <div v-if="providerForm.provider_type">
                 <label class="text-sm font-medium text-gray-700 mb-2">Models</label>
-                <div class="space-y-2" @change="connectionTestPassed = false">
+                <div class="space-y-2">
                   <template v-if="filteredModels.length > 0">
                     <div v-for="model in filteredModels" :key="model.id" class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg">
-                      <UCheckbox v-model="model.is_enabled" />
+                      <UCheckbox v-model="model.is_enabled" @change="clearTestResult()" />
                       <div class="flex-1">
                         <div class="text-sm font-medium text-gray-900">{{ model.name }}</div>
                         <div class="text-xs text-gray-500">Model ID: {{ model.model_id }}</div>
@@ -125,10 +125,10 @@
                   </template>
 
                   <!-- Custom Models -->
-                  <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50" @change="connectionTestPassed = false">
-                    <UCheckbox v-model="customModel.is_enabled" />
+                  <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50">
+                    <UCheckbox v-model="customModel.is_enabled" @change="clearTestResult()" />
                     <div class="flex-1">
-                      <input v-model="customModel.model_id" type="text" placeholder="Model ID" class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500" />
+                      <input v-model="customModel.model_id" type="text" placeholder="Model ID" class="text-sm border border-gray-300 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                     </div>
                     <button type="button" @click="removeCustomModel(index)" class="text-red-500 hover:text-red-700">
                       <Icon name="heroicons:trash" class="w-4 h-4" />
@@ -144,47 +144,40 @@
                 </div>
               </div>
 
+              <!-- Test result message -->
+              <div v-if="testResultOk !== null" class="pt-2">
+                <div :class="testResultOk ? 'text-green-600' : 'text-red-600'" class="text-xs break-words overflow-hidden">
+                  <div class="line-clamp-3 max-w-full">
+                    {{ testResultMessage }}
+                  </div>
+                </div>
+              </div>
+
               <!-- Actions: Test + Save -->
-              <div class="flex items-center pt-4">
-                <div v-if="isNewProviderSelected && providerForm.provider_type">
-                  <UTooltip text="Regular charges may occur">
-                    <UButton variant="soft" color="gray" class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 mr-2" :disabled="isTestingConnection || !canTestConnection" @click="testConnection" title="Regular charges may occur">
-                      <template v-if="isTestingConnection">
-                        <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
-                        Testing...
-                      </template>
-                      <template v-else>
-                        Test Connection
-                      </template>
-                    </UButton>
-                  </UTooltip>
-                </div>
-                <div v-else>
-                  <UTooltip text="Regular charges may occur">
-                    <UButton variant="soft" color="gray" class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm hover:bg-gray-50 mr-2" :disabled="isTestingConnection || !canTestConnection" @click="testConnection" title="Regular charges may occur">
-                      <template v-if="isTestingConnection">
-                        <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
-                        Testing...
-                      </template>
-                      <template v-else>
-                        Test Connection
-                      </template>
-                    </UButton>
-                  </UTooltip>
-                </div>
-                <div class="ml-auto space-x-2">
-                  <UTooltip :text="!connectionTestPassed ? 'Pass the connection test first' : ''">
-                    <UButton type="button" class="!bg-blue-500 !text-white" :disabled="isSaving || !providerForm.provider_type || !connectionTestPassed" @click="handleSave">
-                      <template v-if="isSaving">
-                        <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
-                        Saving...
-                      </template>
-                      <template v-else>
-                        Save and Next
-                      </template>
-                    </UButton>
-                  </UTooltip>
-                </div>
+              <div class="flex items-center justify-end gap-2 pt-4">
+                <UTooltip text="Regular charges may occur">
+                  <UButton variant="soft" color="gray" class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" :disabled="isTestingConnection || !canTestConnection" @click="testConnection" title="Regular charges may occur">
+                    <template v-if="isTestingConnection">
+                      <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
+                      Testing...
+                    </template>
+                    <template v-else>
+                      Test Connection
+                    </template>
+                  </UButton>
+                </UTooltip>
+                
+                <UTooltip :text="!connectionTestPassed ? 'Pass the connection test first' : ''">
+                  <UButton type="button" class="!bg-blue-500 !text-white text-xs py-1.5 px-3" :disabled="isSaving || !providerForm.provider_type || !connectionTestPassed" @click="handleSave">
+                    <template v-if="isSaving">
+                      <Spinner class="w-4 h-4 mr-2 inline-block align-[-0.125em]" />
+                      Saving...
+                    </template>
+                    <template v-else>
+                      Save and Next
+                    </template>
+                  </UButton>
+                </UTooltip>
               </div>
             </div>
           </div>
@@ -239,6 +232,8 @@ const showBaseUrlNew = ref(false)
 const isTestingConnection = ref(false)
 const isSaving = ref(false)
 const connectionTestPassed = ref(false)
+const testResultMessage = ref('')
+const testResultOk = ref<boolean | null>(null)
 
 onMounted(async () => {
   try {
@@ -274,7 +269,7 @@ function selectProviderType(type: string) {
   // Set default name to the provider type display name
   const provider = providers.value.find(p => p.type === type)
   providerForm.value.name = provider?.name || type
-  connectionTestPassed.value = false
+  clearTestResult()
 }
 
 function fieldsForProvider(providerType: string): CredentialField[] {
@@ -342,7 +337,7 @@ watch(() => providerForm.value.provider_type, (providerType: string) => {
       }
     }
   }
-  connectionTestPassed.value = false
+  clearTestResult()
 })
 
 watch(selectedProvider, (newValue) => {
@@ -367,7 +362,7 @@ watch(selectedProvider, (newValue) => {
     }
     providerForm.value = { name: '', provider_type: '', credentials: {} }
   }
-  connectionTestPassed.value = false
+  clearTestResult()
 })
 
 function addCustomModel() {
@@ -387,7 +382,7 @@ function toggleBaseUrl() {
   if (!showBaseUrl.value && selectedProvider.value && selectedProvider.value.credentials) {
     (selectedProvider.value.credentials as any).base_url = ''
   }
-  connectionTestPassed.value = false
+  clearTestResult()
 }
 function toggleBaseUrlNewProvider() {
   showBaseUrlNew.value = !showBaseUrlNew.value
@@ -396,7 +391,7 @@ function toggleBaseUrlNewProvider() {
   } else {
     if (providerForm.value.credentials.base_url === undefined) (providerForm.value.credentials as any).base_url = ''
   }
-  connectionTestPassed.value = false
+  clearTestResult()
 }
 
 async function testConnection() {
@@ -437,18 +432,33 @@ async function testConnection() {
     if (res.status.value === 'success') {
       const data = (res.data as any)?.value as any
       const ok = data?.success
-      toast.add({ title: ok ? 'Connection successful' : 'Connection failed', description: data?.message || (ok ? 'Connected' : 'No response'), color: ok ? 'green' : 'red' })
+      const msg = data?.message || (ok ? 'Connection successful' : 'Connection failed')
       connectionTestPassed.value = !!ok
+      testResultOk.value = !!ok
+      testResultMessage.value = truncateMessage(String(msg))
     } else {
-      toast.add({ title: 'Error', description: String((res.error as any)?.value || 'Request failed'), color: 'red' })
-      connectionTestPassed.value = false
+      clearTestResult()
+      testResultOk.value = false
+      testResultMessage.value = truncateMessage(String((res.error as any)?.value || 'Request failed'))
     }
   } catch (e: any) {
-    toast.add({ title: 'Error', description: String(e?.message || e), color: 'red' })
-    connectionTestPassed.value = false
+    clearTestResult()
+    testResultOk.value = false
+    testResultMessage.value = truncateMessage(String(e?.message || e || 'Request failed'))
   } finally {
     isTestingConnection.value = false
   }
+}
+
+function clearTestResult() {
+  connectionTestPassed.value = false
+  testResultMessage.value = ''
+  testResultOk.value = null
+}
+
+function truncateMessage(message: string, maxLength: number = 200): string {
+  if (message.length <= maxLength) return message
+  return message.substring(0, maxLength) + '...'
 }
 
 async function createProvider() {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import json
 from typing import Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,15 +53,17 @@ class OnboardingService:
         # Pydantic will coerce enum keys/values
         return OnboardingConfig(**raw)
 
-    def _compute_current_step(self, cfg: OnboardingConfig) -> OnboardingStepKey | None:
-        order = [
+    def _ordered_steps(self) -> list[OnboardingStepKey]:
+        return [
             OnboardingStepKey.organization_created,
             OnboardingStepKey.llm_configured,
             OnboardingStepKey.data_source_created,
             OnboardingStepKey.schema_selected,
             OnboardingStepKey.instructions_added,
         ]
-        for step in order:
+
+    def _compute_current_step(self, cfg: OnboardingConfig) -> OnboardingStepKey | None:
+        for step in self._ordered_steps():
             status = cfg.steps.get(step, OnboardingStepStatus()).status if isinstance(cfg.steps, dict) else None
             if status != OnboardingStatus.done:
                 return step
@@ -78,17 +81,37 @@ class OnboardingService:
             computed = self._compute_current_step(cfg)
             if cfg.current_step != computed:
                 cfg.current_step = computed
-                settings.config["onboarding"] = cfg.dict()
+                settings.config["onboarding"] = json.loads(cfg.json())
                 flag_modified(settings, "config")
                 db.add(settings)
                 await db.commit()
                 await db.refresh(settings)
         elif mutated:
-            settings.config["onboarding"] = cfg.dict()
+            settings.config["onboarding"] = json.loads(cfg.json())
             flag_modified(settings, "config")
             db.add(settings)
             await db.commit()
             await db.refresh(settings)
+
+        # Safety net (scoped): If LLM configured AND DS created, complete onboarding
+        # as long as we're not actively in schema/context steps.
+        llm_done = (cfg.steps.get(OnboardingStepKey.llm_configured, OnboardingStepStatus()).status == OnboardingStatus.done)
+        ds_done = (cfg.steps.get(OnboardingStepKey.data_source_created, OnboardingStepStatus()).status == OnboardingStatus.done)
+        if llm_done and ds_done and not cfg.completed:
+            # Only auto-complete if current_step is not schema/context, or flow was dismissed
+            if cfg.dismissed or cfg.current_step in (
+                None,
+                OnboardingStepKey.organization_created,
+                OnboardingStepKey.llm_configured,
+                OnboardingStepKey.data_source_created,
+            ):
+                cfg.completed = True
+                cfg.current_step = None
+                settings.config["onboarding"] = json.loads(cfg.json())
+                flag_modified(settings, "config")
+                db.add(settings)
+                await db.commit()
+                await db.refresh(settings)
 
         return OnboardingResponse(onboarding=cfg)
 
@@ -105,12 +128,33 @@ class OnboardingService:
         if payload.current_step is not None:
             cfg.current_step = payload.current_step
 
+        # Advance step statuses based on provided current_step/completed
+        now = datetime.utcnow()
+        if cfg.completed:
+            # Mark all steps done if completed was requested
+            for step in self._ordered_steps():
+                cfg.steps[step] = OnboardingStepStatus(status=OnboardingStatus.done, ts=now)
+            cfg.current_step = None
+        elif cfg.current_step is not None:
+            # Interpret current_step as: user advanced to this step; mark all prior steps as done
+            try:
+                order = self._ordered_steps()
+                idx = order.index(cfg.current_step)
+                for s in order[:idx]:
+                    # Preserve existing ts if already set
+                    prev = cfg.steps.get(s)
+                    ts = getattr(prev, 'ts', None) if isinstance(prev, OnboardingStepStatus) else (prev or {}).get('ts')
+                    cfg.steps[s] = OnboardingStepStatus(status=OnboardingStatus.done, ts=ts or now)
+            except ValueError:
+                # Unknown step; ignore gracefully
+                pass
+
         # If all steps are done, mark completed
         if not cfg.completed:
             if self._compute_current_step(cfg) is None:
                 cfg.completed = True
 
-        settings.config["onboarding"] = cfg.dict()
+        settings.config["onboarding"] = json.loads(cfg.json())
         flag_modified(settings, "config")
         db.add(settings)
         await db.commit()
