@@ -6,10 +6,14 @@ from typing import Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
+from sqlalchemy import select, func
 
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.organization_settings import OrganizationSettings
+from app.models.data_source import DataSource
+from app.models.datasource_table import DataSourceTable
+from app.models.instruction import Instruction
 from app.schemas.onboarding_schema import (
     OnboardingConfig,
     OnboardingResponse,
@@ -69,6 +73,60 @@ class OnboardingService:
                 return step
         return None
 
+    async def _derive_onboarding_booleans(self, db: AsyncSession, organization: Organization) -> dict[OnboardingStepKey, bool]:
+        """Derive step completion from actual organization state."""
+        # Organization exists by definition here
+        organization_created = True
+
+        # LLM configured: any enabled default model available
+        llm_exists = bool(await organization.get_default_llm_model(db))
+
+        # Data source created: any data source for this org
+        ds_count_stmt = select(func.count(DataSource.id)).where(DataSource.organization_id == organization.id)
+        ds_count = (await db.execute(ds_count_stmt)).scalar_one() or 0
+        data_source_created = ds_count > 0
+
+        # Schema selected: any datasource tables linked to this org
+        tables_count_stmt = (
+            select(func.count(DataSourceTable.id))
+            .select_from(DataSourceTable)
+            .join(DataSource, DataSource.id == DataSourceTable.datasource_id)
+            .where(DataSource.organization_id == organization.id)
+        )
+        tables_count = (await db.execute(tables_count_stmt)).scalar_one() or 0
+        schema_selected = tables_count > 0
+
+        # Instructions added: any instruction for this org
+        instr_count_stmt = select(func.count(Instruction.id)).where(Instruction.organization_id == organization.id)
+        instr_count = (await db.execute(instr_count_stmt)).scalar_one() or 0
+        instructions_added = instr_count > 0
+
+        return {
+            OnboardingStepKey.organization_created: organization_created,
+            OnboardingStepKey.llm_configured: llm_exists,
+            OnboardingStepKey.data_source_created: data_source_created,
+            OnboardingStepKey.schema_selected: schema_selected,
+            OnboardingStepKey.instructions_added: instructions_added,
+        }
+
+    def _steps_all_pending(self, cfg: OnboardingConfig) -> bool:
+        """Return True if all steps are present but still pending with no timestamps.
+        Missing steps count as pending/uninitialized."""
+        for step in self._ordered_steps():
+            raw = cfg.steps.get(step)
+            if isinstance(raw, OnboardingStepStatus):
+                status = raw.status
+                ts = raw.ts
+            elif isinstance(raw, dict):
+                status = raw.get("status")
+                ts = raw.get("ts")
+            else:
+                # Missing step -> treat as pending/uninitialized
+                return True
+            if status != OnboardingStatus.pending or ts is not None:
+                return False
+        return True
+
     async def get_onboarding(self, db: AsyncSession, organization: Organization, current_user: User) -> OnboardingResponse:
         settings = await organization.get_settings(db)
         mutated = await self._ensure_onboarding_initialized(settings)
@@ -76,8 +134,49 @@ class OnboardingService:
         raw = settings.config.get("onboarding", {})
         cfg = self._coerce_to_config(raw)
 
+        # If we just created onboarding config (null before), derive from reality and persist
+        if mutated:
+            derived = await self._derive_onboarding_booleans(db, organization)
+            now = datetime.utcnow()
+            for step in self._ordered_steps():
+                is_done = bool(derived.get(step))
+                cfg.steps[step] = OnboardingStepStatus(
+                    status=OnboardingStatus.done if is_done else OnboardingStatus.pending,
+                    ts=now if is_done else None,
+                )
+            # Compute current step and completion
+            cfg.current_step = self._compute_current_step(cfg)
+            if cfg.current_step is None:
+                cfg.completed = True
+
+            settings.config["onboarding"] = json.loads(cfg.json())
+            flag_modified(settings, "config")
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+
+        # For legacy orgs: if dismissed or obviously uninitialized, derive from reality and persist once
+        elif not cfg.completed and (cfg.dismissed or self._steps_all_pending(cfg)):
+            derived = await self._derive_onboarding_booleans(db, organization)
+            now = datetime.utcnow()
+            for step in self._ordered_steps():
+                is_done = bool(derived.get(step))
+                cfg.steps[step] = OnboardingStepStatus(
+                    status=OnboardingStatus.done if is_done else OnboardingStatus.pending,
+                    ts=now if is_done else None,
+                )
+            cfg.current_step = self._compute_current_step(cfg)
+            if cfg.current_step is None:
+                cfg.completed = True
+
+            settings.config["onboarding"] = json.loads(cfg.json())
+            flag_modified(settings, "config")
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+
         # Ensure current_step reflects step statuses unless completed/dismissed
-        if not cfg.completed and not cfg.dismissed:
+        elif not cfg.completed and not cfg.dismissed:
             computed = self._compute_current_step(cfg)
             if cfg.current_step != computed:
                 cfg.current_step = computed
@@ -86,20 +185,14 @@ class OnboardingService:
                 db.add(settings)
                 await db.commit()
                 await db.refresh(settings)
-        elif mutated:
-            settings.config["onboarding"] = json.loads(cfg.json())
-            flag_modified(settings, "config")
-            db.add(settings)
-            await db.commit()
-            await db.refresh(settings)
 
         # Safety net (scoped): If LLM configured AND DS created, complete onboarding
-        # as long as we're not actively in schema/context steps.
+        # only if we're not actively in schema/context steps.
         llm_done = (cfg.steps.get(OnboardingStepKey.llm_configured, OnboardingStepStatus()).status == OnboardingStatus.done)
         ds_done = (cfg.steps.get(OnboardingStepKey.data_source_created, OnboardingStepStatus()).status == OnboardingStatus.done)
         if llm_done and ds_done and not cfg.completed:
-            # Only auto-complete if current_step is not schema/context, or flow was dismissed
-            if cfg.dismissed or cfg.current_step in (
+            # Only auto-complete if current_step is not schema/context
+            if cfg.current_step in (
                 None,
                 OnboardingStepKey.organization_created,
                 OnboardingStepKey.llm_configured,

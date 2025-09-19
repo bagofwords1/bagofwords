@@ -101,11 +101,11 @@ onMounted(async () => {
 // Complete step metadata, used for titles/descriptions irrespective of sidebar order
 const stepMeta = new Map([
   ['onboarding', { title: 'Welcome to Bag of words! 🎉', description: 'Chat with your data, run deep analysis and create dashboards in seconds' }],
-  ['llm_configured', { title: 'Configure LLM', description: 'Pick provider and default model' }],
+  ['llm_configured', { title: 'Configure LLM', description: 'Connect to any LLM provider, and bring your own API key' }],
   ['data_source_created', { title: 'Connect data', description: 'Select one of the available data sources' }],
   // Shown on the right panel while selecting tables
-  ['schema_selected', { title: 'Select table', description: 'Choose tables to include in LLM context' }],
-  ['instructions_added', { title: 'Context', description: 'Set system instructions, and enrich with Tableau, dbt or markdown' }],
+  ['schema_selected', { title: 'Select tables', description: 'Choose which tables the AI can access and query during conversations' }],
+  ['instructions_added', { title: 'Context', description: 'Add more context and custom instructions to help the AI make better decisions' }],
 ])
 
 const stepsList = computed(() => {
@@ -187,9 +187,26 @@ function syncUrlWithStep() {
   const steps: any = (onboarding.value && (onboarding.value as any).steps) || {}
   const llmDone = steps.llm_configured?.status === 'done'
   const dataDone = steps.data_source_created?.status === 'done'
+  const schemaDone = steps.schema_selected?.status === 'done'
+  const instructionsDone = steps.instructions_added?.status === 'done'
 
-  // If both done → home
+  // If models and data are done but schema/context are pending → stay in onboarding
   if (llmDone && dataDone) {
+    // Prefer schema selection if not completed
+    if (!schemaDone) {
+      const target = '/onboarding/data/schema'
+      if (route.path !== target && !/^\/onboarding\/data(\/[\w-]+)?\/schema(\/?|$)/.test(route.path)) router.replace(target)
+      return
+    }
+    // If schema is done but instructions/context pending → go to context
+    if (!instructionsDone) {
+      const target = '/onboarding/context'
+      const isContextRoute = route.path.startsWith('/onboarding/context') ||
+        /^\/onboarding\/data(\/[\w-]+)?\/context(\/?|$)/.test(route.path)
+      if (!isContextRoute) router.replace(target)
+      return
+    }
+    // Everything is done → home
     if (route.path.startsWith('/onboarding')) router.replace('/?setup=done')
     return
   }

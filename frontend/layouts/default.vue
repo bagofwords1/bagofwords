@@ -258,9 +258,9 @@
   const { organization } = useOrganization()
   const { onboarding, fetchOnboarding } = useOnboarding()
   const { useCan } = await import('~/composables/usePermissions')
-  const canModifySettings = useCan('modify_settings')
+  const canModifySettings = computed(() => useCan('modify_settings'))
   const showGlobalOnboardingBanner = computed(() => {
-    if (!canModifySettings) return false
+    if (!canModifySettings.value) return false
     const ob = onboarding.value as any
 
     if (!ob) return false

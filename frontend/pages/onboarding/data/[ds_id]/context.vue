@@ -28,7 +28,7 @@
 
               <div v-if="instructionsExpanded" class="px-3 pb-3">
                 <div class="text-left mb-4">
-                  <p class="text-xs text-gray-500">Add a few instructions to guide the AI with business context.</p>
+                  <p class="text-xs leading-relaxed text-gray-500">Custom instructions are great for business-specific context, glossary and useful code guidelines/snippets.</p>
                 </div>
                 
                 <div class="space-y-3">
@@ -120,10 +120,24 @@
 
               <div v-if="enrichmentExpanded" class="px-3 pb-3">
                 <div class="text-center mb-4 mt-5">
-                  <p class="text-xs text-gray-500">Connect a Git repo to load dbt/markdown resources, then toggle items to include them in AI context.</p>
+                  <p class="text-sm text-gray-500">Connect a Git repo to load dbt/markdown resources, then toggle items to include them in AI context.</p>
+                </div>
+                <div class="flex items-center justify-center gap-2">
+                  <UTooltip text="Tableau">
+                    <img src="/icons/tableau.png" alt="Tableau" class="h-5 inline" />
+                  </UTooltip>
+                  <UTooltip text="dbt">
+                    <img src="/icons/dbt.png" alt="dbt" class="h-5 inline" />
+                  </UTooltip>
+                  <UTooltip text="LookML">
+                    <img src="/icons/lookml.png" alt="LookML" class="h-5 inline" />
+                  </UTooltip>
+                  <UTooltip text="Markdown">
+                    <img src="/icons/markdown.png" alt="Markdown" class="h-5 inline" />
+                  </UTooltip>
                 </div>
                 
-                <div class="text-center mb-4">
+                <div class="text-center mb-4 mt-6">
                   <UTooltip v-if="integration?.git_repository" :text="integration.git_repository.repo_url">
                     <UButton
                       icon="heroicons:code-bracket"
@@ -249,7 +263,7 @@ const isUpdatingResources = ref(false)
 const hasAttemptedLLMSync = ref(false)
 const metadataResources = ref<any>({ resources: [] })
 const resourceSearch = ref('')
-const enrichmentExpanded = ref(false)
+const enrichmentExpanded = ref(true)
 const instructionsExpanded = ref(true)
 const totalResources = computed(() => metadataResources.value?.resources?.length || 0)
 const filteredResources = computed(() => {

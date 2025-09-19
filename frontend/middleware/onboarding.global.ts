@@ -33,7 +33,7 @@ export default (defineNuxtRouteMiddleware(async (to) => {
   const ob = onboarding.value
   if (!ob) return
   if (!ob.completed && !ob.dismissed) {
-    return navigateTo('/onboarding/llm')
+    return navigateTo('/onboarding')
   }
 }) as unknown) as NavigationGuard
 
