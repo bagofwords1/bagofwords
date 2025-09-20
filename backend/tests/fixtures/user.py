@@ -8,3 +8,4 @@ def create_user(test_client):
         assert response.status_code == 201, response.json()
         return {"name": name, "email": email, "password": password}
     return _create_user
+

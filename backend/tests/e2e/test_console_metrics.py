@@ -6,13 +6,13 @@ def test_console_basic_metrics_access(
     get_console_metrics,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test basic access to console metrics endpoint"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     # Test basic metrics endpoint
     response = get_console_metrics(user_token=user_token, org_id=org_id)
@@ -46,13 +46,13 @@ def test_console_metrics_with_date_range(
     get_console_metrics,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test console metrics with date range filtering"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     # Test with specific date range (last 7 days)
     end_date = datetime.utcnow()
@@ -77,13 +77,13 @@ def test_console_metrics_comparison(
     get_console_metrics_comparison,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test console metrics comparison endpoint"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     response = get_console_metrics_comparison(user_token=user_token, org_id=org_id)
     
@@ -108,13 +108,13 @@ def test_timeseries_metrics(
     get_timeseries_metrics,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test timeseries metrics endpoint"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     response = get_timeseries_metrics(user_token=user_token, org_id=org_id)
     
@@ -148,13 +148,13 @@ def test_table_usage_metrics(
     get_table_usage_metrics,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test table usage metrics endpoint"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     response = get_table_usage_metrics(user_token=user_token, org_id=org_id)
     
@@ -176,13 +176,13 @@ def test_top_users_metrics(
     get_top_users_metrics,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test top users metrics endpoint"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     response = get_top_users_metrics(user_token=user_token, org_id=org_id)
     
@@ -201,12 +201,12 @@ def test_tool_usage_metrics(
     get_tool_usage_metrics,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test tool usage metrics endpoint"""
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     response = get_tool_usage_metrics(user_token=user_token, org_id=org_id)
     assert response.status_code == 200
@@ -220,13 +220,13 @@ def test_recent_negative_feedback(
     get_recent_negative_feedback,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test recent negative feedback endpoint"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     response = get_recent_negative_feedback(user_token=user_token, org_id=org_id)
     
@@ -245,7 +245,7 @@ def test_recent_negative_feedback(
 def test_unauthorized_access_to_console_metrics(
     get_console_metrics,
     create_user,
-    create_organization
+    whoami
 ):
     """Test that console metrics require authentication"""
     # Try to access without authentication
@@ -261,13 +261,13 @@ def test_diagnosis_dashboard_metrics(
     get_diagnosis_dashboard_metrics,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test new diagnosis dashboard metrics endpoint (used by diagnosis page dashboard cards)"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     response = get_diagnosis_dashboard_metrics(user_token=user_token, org_id=org_id)
     
@@ -290,13 +290,13 @@ def test_agent_execution_summaries(
     get_agent_execution_summaries,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     """Test agent execution summaries endpoint (used by diagnosis page table)"""
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     response = get_agent_execution_summaries(user_token=user_token, org_id=org_id)
     

@@ -69,7 +69,7 @@ async function createOrg() {
         // Refresh the session to get the new organization
         await getSession({ force: true })
         
-        navigateTo('/')
+        navigateTo('/onboarding')
     } catch (error) {
         console.error('Error during org creation:', error);
     }

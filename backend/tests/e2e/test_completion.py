@@ -11,14 +11,14 @@ def test_completion_creation(
     create_report,
     create_user,
     login_user,
-    create_organization,
+    whoami,
     create_llm_provider_and_models,
     get_default_model
 ):
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Skip if OPENAI_API_KEY_TEST is not set
     if not os.getenv("OPENAI_API_KEY_TEST"):
@@ -78,13 +78,13 @@ def test_completion_background(
     create_report,
     create_user,
     login_user,
-    create_organization,
+    whoami,
     create_llm_provider_and_models,
     get_default_model
 ):
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     provider_id = create_llm_provider_and_models(user_token, org_id)
     default_model = get_default_model(user_token, org_id)
@@ -117,13 +117,13 @@ def test_completion_streaming(
     create_report,
     create_user,
     login_user,
-    create_organization,
+    whoami,
     create_llm_provider_and_models,
     get_default_model
 ):
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     provider_id = create_llm_provider_and_models(user_token, org_id)
     default_model = get_default_model(user_token, org_id)

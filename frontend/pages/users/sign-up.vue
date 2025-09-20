@@ -5,7 +5,7 @@
         <img src="/assets/logo-128.png" alt="Bag of Words" class="h-10 w-10 mx-auto" />
       </div>
       <h1 class="font-medium text-3xl mt-4 mb-5">Sign up</h1>
-      <div class="px-10 py-6 rounded-md border border-gray-100 shadow-sm bg-gray-50">
+      <div class="px-10 py-6  border border-gray-200 rounded-xl shadow-sm bg-white">
         <form @submit.prevent='submit' v-if="authMode !== 'sso_only'">
           <div class="field block mt-3">
             <input placeholder="Name" id='name' v-model='name' class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"/>

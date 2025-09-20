@@ -1,7 +1,12 @@
 # Release Notes
 
-## Version 0.0.198
-- Adding login with OpenID Connect (Okta, etc):w
+## Version 0.0.199 (September 18, 2025)
+- Revamped app onboarding
+- Auto suggest instructions during onboarding
+- Remove sentry 
+
+## Version 0.0.198 (September 17, 2025)
+- Adding login with OpenID Connect (Okta, etc)
 - Updating Helm to allow oidc params and auth mode (hybrid, local or sso)
 - Touch up to signin/signup screens
 - Fix docker image to include client for openssh

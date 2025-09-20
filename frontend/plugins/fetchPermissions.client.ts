@@ -100,7 +100,8 @@ function getPermissionsForRole(role: string): string[] {
       'update_instructions',
       'delete_instructions',
       'view_hidden_instructions',
-      'manage_data_source_memberships'
+      'manage_data_source_memberships',
+      'modify_settings'
     ],
     member: [
       'view_data_source',

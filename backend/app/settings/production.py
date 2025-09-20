@@ -9,7 +9,6 @@ class Production(Settings):
     # POSTGRES_USER: str
     # POSTGRES_DB: str
     # POSTGRES_HOST: str
-    SENTRY_DSN: str = ""
 
     class Config:
         env_prefix = ""

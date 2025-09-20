@@ -29,7 +29,7 @@ export const useOrganization = () => {
         const route = useRoute()
         // Skip redirect if we're on the verify page or organization creation page
         if (!route.path.startsWith('/users/') && !route.path.startsWith('/organizations/')) {
-          router.push('/organizations/new')
+          //router.push('/organizations/new')
         }
       }
     }

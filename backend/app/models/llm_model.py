@@ -27,21 +27,6 @@ LLM_MODEL_DETAILS = [
         "is_enabled": True,
         "is_default": False
     },
-    {
-        "name": "GPT-4o",
-        "model_id": "gpt-4o",
-        "provider_type": "openai",
-        "is_preset": True,
-        "is_enabled": True,
-        "is_default": False
-    },
-    {
-        "name": "GPT-4o Mini",
-        "model_id": "gpt-4o-mini",
-        "provider_type": "openai",
-        "is_preset": True,
-        "is_enabled": True
-    },
 
     {
         "name": "Claude 4 Sonnet",

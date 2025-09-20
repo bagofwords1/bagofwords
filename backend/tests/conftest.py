@@ -11,9 +11,12 @@ from app.models.base import Base
 from app.settings.config import settings
 from app.settings.database import create_async_database_engine, create_async_session_factory
 
+# Ensure the application uses the test database/engine during tests
+settings.TESTING = True
+
 from tests.fixtures.client import test_client
 from tests.fixtures.user import create_user
-from tests.fixtures.auth import login_user
+from tests.fixtures.auth import login_user, whoami
 from tests.fixtures.organization import create_organization, add_organization_member, get_organization_members, update_organization_member, remove_organization_member, get_user_organizations
 from tests.fixtures.llm import create_llm_provider_and_models, get_models, get_default_model, set_llm_provider_as_default, toggle_llm_active_status, delete_llm_provider, create_openai_provider_with_base_url, update_llm_provider_base_url, create_azure_provider_and_models
 from tests.fixtures.report import create_report, get_reports, get_report, update_report, delete_report, publish_report, rerun_report, schedule_report, get_public_report

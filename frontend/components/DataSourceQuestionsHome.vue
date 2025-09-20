@@ -1,5 +1,9 @@
 <template>
-    <UDropdown :items="getConversationStarters(data_source)" :ui="{ width: 'w-81' }" v-for="data_source in props.data_sources">
+    <UDropdown 
+        :items="getConversationStarters(data_source)" 
+        :ui="{ width: 'w-81' }" 
+        v-for="data_source in validDataSources" 
+        :key="data_source.id">
         <button
             class="group relative overflow-hidden rounded bg-white px-4 py-2 text-xs text-gray-500 transition-all duration-300 ease-out hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 ring-1 ring-gray-200 hover:ring-1  hover:ring-offset-2">
             <span
@@ -37,46 +41,69 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 
 const props = defineProps<{
     data_sources: any[]
 }>()
 
-console.log('Component initializing, data_sources:', props.data_sources)
+// console.log('Component initializing, data_sources:', props.data_sources)
 
 const starterIndexes = ref(new Map())
+const intervalIds = ref(new Map())
 const emit = defineEmits(['update-content'])
 
-// Watch for changes in data_sources
-watch(() => props.data_sources, (newDataSources) => {
-    if (!newDataSources || !Array.isArray(newDataSources) || newDataSources.length === 0) {
-        console.warn('Invalid or empty data_sources')
+// Filter out invalid data sources
+const validDataSources = computed(() => {
+    if (!props.data_sources || !Array.isArray(props.data_sources)) {
+        return []
+    }
+    return props.data_sources.filter(ds => 
+        ds && 
+        ds.id && 
+        ds.conversation_starters && 
+        Array.isArray(ds.conversation_starters) && 
+        ds.conversation_starters.length > 0
+    )
+})
+
+// Watch for changes in validDataSources
+watch(validDataSources, (newValidDataSources) => {
+    // Clear existing intervals
+    intervalIds.value.forEach(intervalId => clearInterval(intervalId))
+    intervalIds.value.clear()
+    
+    if (!newValidDataSources || newValidDataSources.length === 0) {
         return
     }
 
-    
-    newDataSources.forEach(ds => {
-        if (!ds.id || !ds.conversation_starters) {
-            console.warn('Invalid data source:', ds)
-            return
-        }
-
+    newValidDataSources.forEach(ds => {
         starterIndexes.value.set(ds.id, 0)
         
         const randomInterval = 35000 + Math.random() * 5000
         
-        setInterval(() => {
+        const intervalId = setInterval(() => {
             const currentIndex = starterIndexes.value.get(ds.id)
             const maxIndex = ds.conversation_starters?.length || 1
             const newMap = new Map(starterIndexes.value)
             newMap.set(ds.id, (currentIndex + 1) % maxIndex)
             starterIndexes.value = newMap
         }, randomInterval)
+        
+        intervalIds.value.set(ds.id, intervalId)
     })
 }, { immediate: true })
 
+// Cleanup on component unmount
+onUnmounted(() => {
+    intervalIds.value.forEach(intervalId => clearInterval(intervalId))
+    intervalIds.value.clear()
+})
+
 function getConversationStarters(data_source: any) {
+    if (!data_source.conversation_starters || !Array.isArray(data_source.conversation_starters)) {
+        return []
+    }
     return [data_source.conversation_starters.map((item: any) => ({
         label: item.split('\n')[0],
         icon: data_source.type,

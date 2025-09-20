@@ -1,7 +1,7 @@
 <template>
   <div class="flex h-screen justify-center py-20 px-5 sm:px-0">
     <div class="w-full sm:w-1/4">
-      <template v-if="!emailSent">
+      <template v-if="!emailSent" class="bg-white">
         <h1 class="font-bold text-lg">Forgot Password</h1>
         <p class="mt-3 text-sm text-gray-700">
           Enter your email address and we'll send you a link to reset your password.

@@ -139,3 +139,101 @@ Return a single JSON object matching this schema exactly:
                             emitted_indices.add(idx)
                             yielded_count += 1
                             yield {"text": text, "category": category}
+
+
+    async def onboarding_suggestions(self, context_view: Any = None) -> AsyncIterator[Dict[str, str]]:
+        """Stream instruction suggestions as they become valid.
+
+        Yields dicts with keys {"text", "category"}.
+        """
+
+        # Build lightweight onboarding context (schemas, metadata resources, optional messages)
+        schemas_excerpt = getattr(getattr(context_view, "static", None), "schemas", None)
+        schemas_excerpt = schemas_excerpt.render() if schemas_excerpt else ""
+
+        resources_section = getattr(getattr(context_view, "static", None), "resources", None)
+        resources_context = resources_section.render() if resources_section else ""
+
+        messages_section = getattr(getattr(context_view, "warm", None), "messages", None)
+        messages_context = messages_section.render() if messages_section else ""
+
+        header = f"""
+You are a helpful analytics assistant. Your goal is to improve our system AI analyst by turning newly learned facts or failure learnings into durable instructions.
+
+The user has just connected a data source and is onboarding.
+
+        
+General rules:
+- 1–3 instructions max. Each instruction must end with a period.
+- Instructions CANNOT be duplicate or conflict with ANY of the existing instructions. Review the existing instructions carefully and ensure your instructions are not a duplicate or conflict.
+- Category must be one of: "code" | "general".
+- If confidence is low, return an empty list.
+
+Examples (clarification → instruction):
+- User clarified: “Active user = user with ≥1 session in the last 30 days.”
+  Instruction (general): “Treat an active user as a user with at least one session in the last 30 days for all activity-based metrics.”
+
+Examples (code recovery → instruction):
+- “Always join payments to customers on customer_id and filter out NULL customer_id before aggregation.”
+- “Cast date strings to DATE before grouping by day and use timezone-aware truncation to avoid off-by-one errors.”
+
+Longer example:
+- Instruction: Authoritative Net Revenue (NR) Calculation — SaaS.
+  Rule: Include only invoice_lines with line_type IN ('recurring','usage'), is_trial=false; recognize revenue pro‑rata over service_start → service_end; convert to USD using daily EOD spot; exclude VAT/taxes and processor fees; allocate refunds/credits to original service days; stop recognition at cancellation_effective_at; clamp per‑day NR to ≥ 0 after discounts.
+
+Context:
+Schema
+  {schemas_excerpt if schemas_excerpt else 'No schema available'}
+
+Metadata Resources
+  {resources_context if resources_context else 'No metadata resources available'}
+
+Recent Messages
+  {messages_context if messages_context else 'No recent messages'}
+
+        Return a single JSON object matching this schema exactly:
+        {{
+          "instructions": [
+            {{"text": "...", "category": "general|code"}}
+          ]
+        }}
+"""
+
+        parser = JSONParser()
+        buffer = ""
+        allowed_categories = {"code", "general"}
+        partial_items: dict[int, dict] = {}
+        emitted_indices: set[int] = set()
+        yielded_count = 0
+        
+        async for chunk in self.llm.inference_stream(header):
+            if not chunk:
+                continue
+            buffer += chunk
+            try:
+                parsed = parser.parse(buffer)
+            except Exception:
+                parsed = None
+
+            if isinstance(parsed, dict):
+                arr = parsed.get("instructions")
+                if isinstance(arr, list):
+                    for idx, item in enumerate(arr):
+                        if not isinstance(item, dict):
+                            continue
+                        current = partial_items.get(idx, {})
+                        if "text" in item and isinstance(item.get("text"), str):
+                            current["text"] = item.get("text").strip()
+                        if "category" in item and isinstance(item.get("category"), str):
+                            current["category"] = item.get("category").strip()
+                        partial_items[idx] = current
+
+                        text = (current.get("text") or "").strip()
+                        category = (current.get("category") or "").strip()
+                        is_valid = (
+                            len(text) >= 12 and text.endswith(".") and category in allowed_categories
+                        )
+                        if is_valid and idx not in emitted_indices and yielded_count < 3:
+                            emitted_indices.add(idx)
+                            yielded_count += 1
+                            yield {"text": text, "category": category}

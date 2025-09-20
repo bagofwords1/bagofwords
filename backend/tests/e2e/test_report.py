@@ -8,12 +8,12 @@ def test_report_creation(
     create_report,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Create a basic report matching frontend implementation
     report = create_report(
@@ -37,12 +37,12 @@ def test_report_create_and_publish(
     create_report,
     create_user,
     login_user,
-    create_organization,
+    whoami,
     publish_report
 ):
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     report = create_report(
         title="Test Report",
