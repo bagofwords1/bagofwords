@@ -1,13 +1,10 @@
 import pytest
-from fastapi.testclient import TestClient
-from main import app
-from tests.utils.user_creds import main_user
 
 @pytest.mark.e2e
-def test_llm_providers(create_llm_provider_and_models, get_models, get_default_model, set_llm_provider_as_default, toggle_llm_active_status, delete_llm_provider, create_user, login_user, get_user_organizations, create_organization):
+def test_llm_providers(create_llm_provider_and_models, get_models, get_default_model, create_user, login_user, whoami):
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     provider_id = create_llm_provider_and_models(user_token, org_id)
     models = get_models(user_token, org_id)
@@ -24,11 +21,11 @@ def test_llm_providers(create_llm_provider_and_models, get_models, get_default_m
     #delete_llm_provider(provider_id, user_token, org_id)
 
 @pytest.mark.e2e
-def test_llm_provider_with_base_url(create_openai_provider_with_base_url, get_models, create_user, login_user, create_organization, test_client):
+def test_llm_provider_with_base_url(create_openai_provider_with_base_url, get_models, create_user, login_user, whoami, test_client):
     """Test creating an OpenAI provider with a custom base_url"""
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Test with a custom base URL (e.g., for OpenAI-compatible services)
     custom_base_url = "https://api.groq.com/openai/v1"
@@ -65,11 +62,11 @@ def test_llm_provider_with_base_url(create_openai_provider_with_base_url, get_mo
     assert len(provider_models) > 0
 
 @pytest.mark.e2e
-def test_llm_provider_update_base_url(create_llm_provider_and_models, update_llm_provider_base_url, create_user, login_user, create_organization, test_client):
+def test_llm_provider_update_base_url(create_llm_provider_and_models, update_llm_provider_base_url, create_user, login_user, whoami, test_client):
     """Test updating a provider's base_url"""
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Create a standard OpenAI provider without base_url
     provider_response = create_llm_provider_and_models(user_token, org_id)
@@ -105,11 +102,11 @@ def test_llm_provider_update_base_url(create_llm_provider_and_models, update_llm
     assert updated_provider["additional_config"]["base_url"] == new_base_url
 
 @pytest.mark.e2e
-def test_llm_provider_clear_base_url(create_openai_provider_with_base_url, update_llm_provider_base_url, create_user, login_user, create_organization, test_client):
+def test_llm_provider_clear_base_url(create_openai_provider_with_base_url, update_llm_provider_base_url, create_user, login_user, whoami, test_client):
     """Test clearing a provider's base_url"""
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Create a provider with base_url
     initial_base_url = "https://api.custom.com/v1"
@@ -149,11 +146,11 @@ def test_llm_provider_clear_base_url(create_openai_provider_with_base_url, updat
     assert updated_provider["additional_config"] is None or "base_url" not in updated_provider["additional_config"]
 
 @pytest.mark.e2e
-def test_llm_provider_with_base_url_creates_models(create_openai_provider_with_base_url, get_models, create_user, login_user, create_organization):
+def test_llm_provider_with_base_url_creates_models(create_openai_provider_with_base_url, get_models, create_user, login_user, whoami):
     """Test that creating a provider with base_url still creates models correctly"""
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Create provider with custom base_url
     provider_response = create_openai_provider_with_base_url(

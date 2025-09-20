@@ -7,14 +7,14 @@ import os
 def test_global_instruction_creation(create_global_instruction,
 create_user,
 login_user,
-create_organization):
+whoami):
 
     """Tests that an admin can create a global instruction."""
 
 
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     instruction = create_global_instruction(
         text="A new global rule",
@@ -34,11 +34,11 @@ create_organization):
 def test_get_instructions(get_instructions, create_global_instruction,
 create_user,
 login_user,
-create_organization):
+whoami):
 
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     instruction1 = create_global_instruction(
         text="A new global rule 1",
