@@ -24,8 +24,10 @@ interface OnboardingResponse {
 export const useOnboarding = () => {
   const state = useState<OnboardingConfig | null>('onboarding', () => null)
 
-  const fetchOnboarding = async () => {
-    const res = await useMyFetch('/organization/onboarding')
+  const fetchOnboarding = async (opts?: { in_onboarding?: boolean }) => {
+    const res = await useMyFetch('/organization/onboarding', {
+      params: { in_onboarding: opts?.in_onboarding ? 'true' : 'false' }
+    })
     if (res.error.value) throw res.error.value
     const data = (res.data as Ref<OnboardingResponse | null>).value
     if (data) state.value = data.onboarding

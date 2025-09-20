@@ -91,7 +91,7 @@ const { onboarding, fetchOnboarding, updateOnboarding } = useOnboarding()
 const loading = ref(true)
 
 onMounted(async () => {
-  await fetchOnboarding()
+  await fetchOnboarding({ in_onboarding: true })
   if (!props.forceCompleted) {
     syncUrlWithStep()
   }

@@ -221,6 +221,9 @@
           </div>
         </template>
       </OnboardingView>
+      <div class="text-center mt-6">
+        <button @click="skipForNow" class="text-gray-500 hover:text-gray-700 text-sm">Skip onboarding</button>
+      </div>
 
       <!-- Git Modal -->
       <GitRepoModalComponent 

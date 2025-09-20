@@ -127,7 +127,7 @@ class OnboardingService:
                 return False
         return True
 
-    async def get_onboarding(self, db: AsyncSession, organization: Organization, current_user: User) -> OnboardingResponse:
+    async def get_onboarding(self, db: AsyncSession, organization: Organization, current_user: User, in_onboarding: bool = False) -> OnboardingResponse:
         settings = await organization.get_settings(db)
         mutated = await self._ensure_onboarding_initialized(settings)
 
@@ -186,18 +186,12 @@ class OnboardingService:
                 await db.commit()
                 await db.refresh(settings)
 
-        # Safety net (scoped): If LLM configured AND DS created, complete onboarding
-        # only if we're not actively in schema/context steps.
+        # Reconciliation: If LLM configured AND DS created, decide completion based on in_onboarding flag.
         llm_done = (cfg.steps.get(OnboardingStepKey.llm_configured, OnboardingStepStatus()).status == OnboardingStatus.done)
         ds_done = (cfg.steps.get(OnboardingStepKey.data_source_created, OnboardingStepStatus()).status == OnboardingStatus.done)
         if llm_done and ds_done and not cfg.completed:
-            # Only auto-complete if current_step is not schema/context
-            if cfg.current_step in (
-                None,
-                OnboardingStepKey.organization_created,
-                OnboardingStepKey.llm_configured,
-                OnboardingStepKey.data_source_created,
-            ):
+            if not in_onboarding and not cfg.dismissed:
+                # User is outside onboarding → treat as implicit complete
                 cfg.completed = True
                 cfg.current_step = None
                 settings.config["onboarding"] = json.loads(cfg.json())
@@ -205,6 +199,7 @@ class OnboardingService:
                 db.add(settings)
                 await db.commit()
                 await db.refresh(settings)
+            # else: keep flow open so frontend can guide schema/context
 
         return OnboardingResponse(onboarding=cfg)
 

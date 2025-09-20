@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db, get_current_organization
@@ -19,9 +19,10 @@ service = OnboardingService()
 async def get_onboarding(
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization)
+    organization: Organization = Depends(get_current_organization),
+    in_onboarding: bool = Query(False)
 ):
-    return await service.get_onboarding(db, organization, current_user)
+    return await service.get_onboarding(db, organization, current_user, in_onboarding=in_onboarding)
 
 
 @router.put("/organization/onboarding", response_model=OnboardingResponse)

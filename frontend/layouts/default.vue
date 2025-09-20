@@ -284,7 +284,13 @@
   })
 
   onMounted(async () => {
-    try { await fetchOnboarding() } catch {}
+    try {
+      const route = useRoute()
+      const inOnboarding = route.path.startsWith('/onboarding')
+      if (!inOnboarding) {
+        await fetchOnboarding({ in_onboarding: false })
+      }
+    } catch {}
   })
   const { isExcel } = useExcel()
   const router = useRouter()

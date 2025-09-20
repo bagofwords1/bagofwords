@@ -1,4 +1,4 @@
-import type { NavigationGuard } from 'nuxt/app'
+//
 
 export default (defineNuxtRouteMiddleware(async (to) => {
   const { data: currentUser } = useAuth()
@@ -8,7 +8,7 @@ export default (defineNuxtRouteMiddleware(async (to) => {
   // Special handling for onboarding routes: if completed, redirect to home
   if (to.path.startsWith('/onboarding')) {
     await ensureOrganization()
-    await fetchOnboarding()
+    await fetchOnboarding({ in_onboarding: true })
     const ob = onboarding.value
     if (ob?.completed) return navigateTo('/')
     return
@@ -24,17 +24,17 @@ export default (defineNuxtRouteMiddleware(async (to) => {
 
   // Only nudge admins
   // Find role from session organizations list if available
-  const org = (currentUser.value?.organizations || []).find((o: any) => o.id === organization.value?.id)
+  const org = ((currentUser.value as any)?.organizations || []).find((o: any) => o.id === organization.value?.id)
   const isAdmin = org?.role === 'admin'
   if (!isAdmin) return
 
   // Fetch onboarding and redirect if needed
-  await fetchOnboarding()
+  await fetchOnboarding({ in_onboarding: false })
   const ob = onboarding.value
   if (!ob) return
   if (!ob.completed && !ob.dismissed) {
     return navigateTo('/onboarding')
   }
-}) as unknown) as NavigationGuard
+}))
 
 
