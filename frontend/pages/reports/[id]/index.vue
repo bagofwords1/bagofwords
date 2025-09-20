@@ -28,11 +28,15 @@
 		<div class="flex-1 overflow-y-auto mt-4 pb-4" ref="scrollContainer">
 			<div class="pl-4 pr-2 pb-[3px]" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full mx-auto'">
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
+					<!-- Top loader for older pages -->
+					<li v-if="hasMore && isLoadingMore" class="text-gray-500 mb-2 text-xs text-center">
+						<Spinner class="w-4 h-4 inline mr-2" /> Loading older messages…
+					</li>
 					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
 						<div class="flex rounded-lg p-1">
 							<div class="w-[28px] mr-2">
-								<div v-if="m.role === 'user'" class="h-7 w-7 flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
-									Y
+								<div v-if="m.role === 'user'" class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
+									{{ report.user.name.charAt(0) }}
 								</div>
 								<div v-else class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
 								</div>
@@ -402,12 +406,24 @@ const report_id = (route.params.id as string) || ''
 const canViewConsole = computed(() => useCan('view_console'))
 
 const messages = ref<ChatMessage[]>([])
+// Pagination state
+const pageLimit = 10
+const hasMore = ref<boolean>(true)
+const isLoadingMore = ref<boolean>(false)
+const cursorBefore = ref<string | null>(null)
 const promptText = ref<string>('')
 const isStreaming = ref<boolean>(false)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
 const scrollAnchor = ref<HTMLElement | null>(null)
 // No absolute prompt box; no padding ref needed
+// Scroll state tracking
+const isUserAtBottom = ref<boolean>(true)
+const suppressAutoScroll = ref<boolean>(false)
+const lastScrollTop = ref<number>(0)
+// Hysteresis thresholds
+const NEAR_BOTTOM_PX = 96
+const RETURN_TO_BOTTOM_PX = 12
 
 // Trace modal state
 const showTraceModal = ref(false)
@@ -626,7 +642,7 @@ watch(() => messages.value, (newMessages) => {
 
 // Watch for split screen changes and scroll to bottom to maintain position
 watch(() => isSplitScreen.value, () => {
-	nextTick(() => setTimeout(scrollToBottom, 80))
+    nextTick(() => setTimeout(safeScrollToBottom, 80))
 })
 
 function goBack() {
@@ -669,12 +685,19 @@ function scrollToBottom() {
   })
 }
 
+// Guarded scroll that respects user upward scrolling during streaming
+function safeScrollToBottom() {
+  if (isStreaming.value && suppressAutoScroll.value) return
+  scrollToBottom()
+}
+
 // Only auto-scroll when the user is already near the bottom to avoid jumpiness
 function autoScrollIfNearBottom() {
   const container = scrollContainer.value
   if (!container) return
-  const threshold = 96 // px
+  const threshold = NEAR_BOTTOM_PX
   const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight)
+  if (suppressAutoScroll.value && isStreaming.value) return
   if (distanceFromBottom <= threshold) {
     scrollToBottom()
   }
@@ -682,7 +705,7 @@ function autoScrollIfNearBottom() {
 
 function scheduleInitialScroll() {
     const delays = [0, 80, 160, 320, 640]
-    for (const delay of delays) setTimeout(scrollToBottom, delay)
+    for (const delay of delays) setTimeout(safeScrollToBottom, delay)
 }
 
 // Keep scrolling to bottom across successive layout passes until height stabilizes
@@ -1096,7 +1119,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 async function loadCompletions() {
 	try {
-		const { data } = await useMyFetch(`/reports/${report_id}/completions`)
+		const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}`)
 		const response = data.value as any
 		const list = response?.completions || []
 		messages.value = list.map((c: any) => {
@@ -1139,11 +1162,108 @@ async function loadCompletions() {
 				instruction_suggestions: c.instruction_suggestions
 			}
 		})
-		await nextTick()
-		scrollToBottom()
+		// Update cursors
+		hasMore.value = !!response?.has_more
+		cursorBefore.value = response?.next_before || null
+        await nextTick()
+        safeScrollToBottom()
 	} catch (e) {
 		console.error('Error loading completions:', e)
 	}
+}
+
+// Load previous page (older completions) and prepend while preserving scroll anchor
+async function loadPreviousCompletions() {
+    if (isLoadingMore.value || !hasMore.value) return
+    const container = scrollContainer.value
+    if (!container) return
+    isLoadingMore.value = true
+    const prevHeight = container.scrollHeight
+    try {
+        const qs = cursorBefore.value ? `&before=${encodeURIComponent(cursorBefore.value)}` : ''
+        const { data } = await useMyFetch(`/reports/${report_id}/completions?limit=${pageLimit}${qs}`)
+        const response = data.value as any
+        const list: any[] = response?.completions || []
+        const newItems: ChatMessage[] = list.map((c: any) => {
+            let status = c.status as ChatStatus
+            if (c.sigkill && status === 'in_progress') status = 'stopped'
+            return {
+                id: c.id,
+                role: c.role as ChatRole,
+                status,
+                prompt: c.prompt,
+                completion_blocks: c.completion_blocks?.map((b: any) => ({
+                    id: b.id,
+                    seq: b.seq,
+                    block_index: b.block_index,
+                    status: b.status,
+                    content: b.content,
+                    reasoning: b.reasoning,
+                    plan_decision: b.plan_decision,
+                    tool_execution: b.tool_execution ? {
+                        id: b.tool_execution.id,
+                        tool_name: b.tool_execution.tool_name,
+                        tool_action: b.tool_execution.tool_action,
+                        status: b.tool_execution.status,
+                        result_summary: b.tool_execution.result_summary,
+                        result_json: b.tool_execution.result_json,
+                        duration_ms: b.tool_execution.duration_ms,
+                        created_widget_id: b.tool_execution.created_widget_id,
+                        created_step_id: b.tool_execution.created_step_id,
+                        created_widget: b.tool_execution.created_widget,
+                        created_step: b.tool_execution.created_step
+                    } : undefined
+                })) || [],
+                created_at: c.created_at,
+                sigkill: c.sigkill,
+                feedback_score: c.feedback_score,
+                instruction_suggestions: c.instruction_suggestions
+            }
+        })
+        // Dedupe by id and prepend
+        const existingIds = new Set(messages.value.map(m => m.id))
+        const toPrepend = newItems.filter(m => !existingIds.has(m.id))
+        if (toPrepend.length > 0) {
+            messages.value = [...toPrepend, ...messages.value]
+            await nextTick()
+            // Keep viewport anchored to previous items
+            const newHeight = container.scrollHeight
+            container.scrollTop = newHeight - prevHeight
+        }
+        hasMore.value = !!response?.has_more
+        cursorBefore.value = response?.next_before || null
+    } catch (e) {
+        // keep hasMore as-is on error
+    } finally {
+        isLoadingMore.value = false
+    }
+}
+
+function onScroll() {
+    const container = scrollContainer.value
+    if (!container) return
+    // Infinite scroll trigger near top
+    if (!isLoadingMore.value && hasMore.value) {
+        const thresholdTop = 64
+        if (container.scrollTop <= thresholdTop) {
+            loadPreviousCompletions()
+        }
+    }
+
+    // Update bottom proximity and user intent
+    const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight)
+    isUserAtBottom.value = distanceFromBottom <= RETURN_TO_BOTTOM_PX
+
+    const isScrollingUp = container.scrollTop < lastScrollTop.value
+    // Suppress auto-scroll on any upward scroll, regardless of proximity
+    if (isScrollingUp) {
+        suppressAutoScroll.value = true
+    }
+    // Re-enable only when the user returns to within tight bottom threshold
+    if (!isScrollingUp && distanceFromBottom <= RETURN_TO_BOTTOM_PX) {
+        suppressAutoScroll.value = false
+    }
+    lastScrollTop.value = container.scrollTop
 }
 
 async function loadReport() {
@@ -1225,7 +1345,7 @@ function toggleSplitScreen() {
 		if (isSplitScreen.value) {
 			leftPanelWidth.value = 460
 		}
-		scrollToBottom()
+        safeScrollToBottom()
 	})
 }
 
@@ -1246,7 +1366,7 @@ function handleResize(e: MouseEvent) {
 	const newWidth = initialPanelWidth.value + dx
 	leftPanelWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
 	// Trigger scroll to bottom during live resize to maintain scroll position
-	scrollToBottom()
+    safeScrollToBottom()
 }
 
 function stopResize() {
@@ -1260,7 +1380,8 @@ onUnmounted(() => {
 	document.removeEventListener('mousemove', handleResize)
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
-	window.removeEventListener('resize', scrollToBottom)
+    window.removeEventListener('resize', safeScrollToBottom)
+	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
 })
@@ -1312,7 +1433,7 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
         } catch {}
 		// Scroll to bottom when dashboard opens after adding widget
 		await nextTick()
-		scrollToBottom()
+        safeScrollToBottom()
     } catch (e) {
         console.error('Failed to add widget from preview:', e)
     }
@@ -1648,11 +1769,23 @@ onMounted(async () => {
 	if (visualizations.value.some(viz => viz.status === 'published')) {
 		isSplitScreen.value = true
 		// Scroll to bottom when automatically opening dashboard
-		nextTick(() => setTimeout(scrollToBottom, 100))
+    nextTick(() => setTimeout(safeScrollToBottom, 100))
 	}
-	// Aggressive initial scroll to handle async content mounting
+    // Aggressive initial scroll to handle async content mounting
 	scheduleInitialScroll()
-	window.addEventListener('resize', scrollToBottom)
+    window.addEventListener('resize', safeScrollToBottom)
+	// Attach scroll listener for infinite scroll up
+	try { scrollContainer.value?.addEventListener('scroll', onScroll) } catch {}
+    // Initialize scroll position state
+    try {
+        const c = scrollContainer.value
+        if (c) {
+            lastScrollTop.value = c.scrollTop
+            const dist = c.scrollHeight - (c.scrollTop + c.clientHeight)
+            isUserAtBottom.value = dist <= RETURN_TO_BOTTOM_PX
+            suppressAutoScroll.value = false
+        }
+    } catch {}
 })
 
 </script>

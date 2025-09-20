@@ -1,9 +1,10 @@
 # Release Notes
 
 ## Version 0.0.199 (September 18, 2025)
-- Revamped app onboarding
-- Auto suggest instructions during onboarding
-- Remove sentry 
+- Redesigned application onboarding experience
+- Implemented automatic instruction suggestions throughout the onboarding process
+- Removed Sentry integration
+- Updated tests
 
 ## Version 0.0.198 (September 17, 2025)
 - Adding login with OpenID Connect (Okta, etc)

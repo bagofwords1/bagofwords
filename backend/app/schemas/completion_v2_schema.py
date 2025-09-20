@@ -131,5 +131,8 @@ class CompletionsV2Response(BaseModel):
     total_steps_created: int
     earliest_completion: Optional[datetime] = None
     latest_completion: Optional[datetime] = None
+    # Cursor pagination
+    has_more: bool = False
+    next_before: Optional[datetime] = None
 
 
