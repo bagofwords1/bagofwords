@@ -1,7 +1,4 @@
 import pytest
-from fastapi.testclient import TestClient
-from main import app
-from tests.utils.user_creds import main_user
 import os
 import time
 
@@ -59,7 +56,7 @@ def test_basic_eval(
     create_report,
     create_user,
     login_user,
-    create_organization,
+    whoami,
     create_llm_provider_and_models,
     get_default_model,
     create_data_source,
@@ -68,7 +65,7 @@ def test_basic_eval(
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Skip if OPENAI_API_KEY_TEST is not set
     if not os.getenv("OPENAI_API_KEY_TEST"):

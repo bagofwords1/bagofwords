@@ -72,7 +72,7 @@ ENV PIP_NO_CACHE_DIR=1 \
 # Install Python runtime, Node.js 22 (runtime only), and minimal system libs
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg git python3 python3-venv tini libpq5 && \
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client python3 python3-venv tini libpq5 && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
     apt-get clean && \

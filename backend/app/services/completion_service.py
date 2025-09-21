@@ -452,10 +452,15 @@ class CompletionService:
                 completions_stmt = completions_stmt.where(Completion.created_at < before_dt)
             except Exception:
                 pass
-        completions_stmt = completions_stmt.order_by(Completion.created_at.desc()).limit(limit)
+        # Order newest first, fetch one extra to determine has_more
+        completions_stmt = completions_stmt.order_by(Completion.created_at.desc()).limit(limit + 1)
         completions_res = await db.execute(completions_stmt)
+        fetched_desc = completions_res.scalars().all()
+        has_more = len(fetched_desc) > limit
+        if has_more:
+            fetched_desc = fetched_desc[:limit]
         # Reverse into chronological order for UI
-        all_completions = list(reversed(completions_res.scalars().all()))
+        all_completions = list(reversed(fetched_desc))
 
         if not all_completions:
             return CompletionsV2Response(
@@ -467,6 +472,8 @@ class CompletionService:
                 total_steps_created=0,
                 earliest_completion=None,
                 latest_completion=None,
+                has_more=False,
+                next_before=None,
             )
 
         completion_ids = [c.id for c in all_completions]
@@ -589,6 +596,8 @@ class CompletionService:
             total_steps_created=total_steps,
             earliest_completion=earliest,
             latest_completion=latest,
+            has_more=has_more,
+            next_before=earliest,
         )
 
     async def _assemble_v2_for_completion_ids(self, db: AsyncSession, completion_ids: list[str]) -> list[CompletionV2Schema]:

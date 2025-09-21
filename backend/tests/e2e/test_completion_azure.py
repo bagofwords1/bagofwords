@@ -8,7 +8,7 @@ def test_completion_streaming_azure(
     create_report,
     create_user,
     login_user,
-    create_organization,
+    whoami,
     create_llm_provider_and_models,
     get_default_model,
     test_client,
@@ -24,7 +24,7 @@ def test_completion_streaming_azure(
 
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Use existing fixture to create providers/models; test env should configure Azure as default
     create_llm_provider_and_models(user_token, org_id)

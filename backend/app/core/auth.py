@@ -29,8 +29,14 @@ from app.models.oauth_account import OAuthAccount
 from fastapi.responses import RedirectResponse
 
 from app.settings.config import settings
+from app.services.organization_service import OrganizationService
+from app.schemas.organization_schema import OrganizationCreate
 
 SECRET = settings.bow_config.encryption_key
+
+
+DEFAULT_ORG_NAME = "Main Org"
+DEFAULT_ORG_DESCRIPTION = ""
 
 class UserManager(BaseUserManager[User, str]):
     reset_password_token_secret = SECRET
@@ -85,6 +91,8 @@ class UserManager(BaseUserManager[User, str]):
                 user.is_verified = True
             
             await session.commit()
+            # Auto-create organization for the first uninvited user
+            await self._ensure_org_for_first_uninvited_user(session, user)
 
     async def oauth_callback(
         self: "UserManager[User, str]",
@@ -185,7 +193,42 @@ class UserManager(BaseUserManager[User, str]):
                     session.add(oauth_account)
                     await session.commit()
                     await session.refresh(user)
+                    # Auto-create organization for the first uninvited user
+                    await self._ensure_org_for_first_uninvited_user(session, user)
                 return user
+
+    async def _ensure_org_for_first_uninvited_user(self, session: AsyncSession, user: User) -> None:
+        """Create an organization automatically if this is the first user without an invite.
+
+        Conditions:
+        - User has no memberships (not invited/attached)
+        - Total users == 1
+        - Total organizations == 0
+        """
+        # If user already has a membership, skip
+        user_membership = (
+            await session.execute(
+                select(Membership).where(Membership.user_id == user.id)
+            )
+        ).scalars().first()
+        if user_membership:
+            return
+
+        total_users = (await session.execute(select(User))).scalars().all().__len__()
+        total_orgs = (await session.execute(select(Organization))).scalars().all().__len__()
+
+        if total_users != 1 or total_orgs != 0:
+            return
+
+        org_name = DEFAULT_ORG_NAME
+        description = DEFAULT_ORG_DESCRIPTION
+
+        organization_service = OrganizationService()
+        await organization_service.create_organization(
+            session,
+            OrganizationCreate(name=org_name, description=description),
+            user,
+        )
 
     async def on_after_forgot_password(
         self, user: User, token: str, request: Optional[Request] = None

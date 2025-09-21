@@ -140,7 +140,6 @@ requests-toolbelt==1.0.0
 rpds-py==0.22.3
 rsa==4.9
 s3transfer==0.10.4
-sentry-sdk==2.17.0
 setuptools==78.1.1
 simple-salesforce==1.12.6
 six==1.16.0
@@ -153,7 +152,7 @@ SQLAlchemy==2.0.29
 sqlparse==0.5.1
 sseclient-py==1.8.0
 stack-data==0.6.3
-starlette>=0.42.0
+starlette>=0.45.0
 stripe==11.4.1
 tenacity==9.0.0
 text-unidecode==1.3

@@ -1,6 +1,4 @@
 import pytest
-from fastapi.testclient import TestClient
-from main import app
 import os
 
 @pytest.mark.e2e
@@ -10,12 +8,12 @@ def test_data_source_creation(
     test_connection,
     create_user,
     login_user,
-    create_organization
+    whoami
 ):
     # Setup user and organization
     user = create_user()
     user_token = login_user(user["email"], user["password"])
-    org_id = create_organization(user_token=user_token)
+    org_id = whoami(user_token)['organizations'][0]['id']
 
     # Skip if environment variables are not set
     if not all([

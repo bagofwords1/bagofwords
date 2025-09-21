@@ -151,11 +151,13 @@ class DataSource(BaseSchema):
     last_synced_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     is_public = Column(Boolean, nullable=False, default=True)
+    # When true, the system may run LLM onboarding synchronously (onboarding flow only)
     owner_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     context = Column(Text, nullable=True)
     description = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
     conversation_starters = Column(JSON, nullable=True)
+    use_llm_sync = Column(Boolean, nullable=False, default=False)
 
     # The organization that owns this data source
     organization_id = Column(String(36), ForeignKey(
