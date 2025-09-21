@@ -87,6 +87,7 @@ class SchemaContextBuilder:
                     degree_in=getattr(t, 'degree_in', None),
                     degree_out=getattr(t, 'degree_out', None),
                     entity_like=getattr(t, 'entity_like', None),
+                    metadata_json=getattr(t, 'metadata_json', None),
                 )
 
                 if with_stats:

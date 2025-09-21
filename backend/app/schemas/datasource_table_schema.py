@@ -29,6 +29,7 @@ class DataSourceTableSchema(BaseModel):
     pks: List[Dict[str, Any]]  # Keep as raw JSON
     fks: List[Dict[str, Any]]  # Keep as raw JSON
     is_active: bool = False
+    metadata_json: Optional[Dict[str, Any]] = None
     # Topology and richness metrics
     centrality_score: Optional[float] = None
     richness: Optional[float] = None
@@ -43,22 +44,45 @@ class DataSourceTableSchema(BaseModel):
     def to_prompt_table(self) -> 'Table':
         """Convert to prompt formatter Table model."""
         from app.ai.prompt_formatters import Table, TableColumn, ForeignKey
+        # columns/pks/fks are dict-shaped in this schema; normalize to prompt models
+        cols = [
+            TableColumn(name=(col.get('name') if isinstance(col, dict) else getattr(col, 'name', '')),
+                        dtype=(col.get('dtype') if isinstance(col, dict) else getattr(col, 'dtype', None)))
+            for col in (self.columns or [])
+        ]
+        pks = [
+            TableColumn(name=(pk.get('name') if isinstance(pk, dict) else getattr(pk, 'name', '')),
+                        dtype=(pk.get('dtype') if isinstance(pk, dict) else getattr(pk, 'dtype', None)))
+            for pk in (self.pks or [])
+        ]
+        fks: List[ForeignKey] = []
+        for fk in (self.fks or []):
+            if isinstance(fk, dict):
+                col_d = fk.get('column') or {}
+                ref_col_d = fk.get('references_column') or {}
+                fks.append(
+                    ForeignKey(
+                        column=TableColumn(name=col_d.get('name'), dtype=col_d.get('dtype')),
+                        references_name=fk.get('references_name'),
+                        references_column=TableColumn(name=ref_col_d.get('name'), dtype=ref_col_d.get('dtype')),
+                    )
+                )
+            else:
+                # Best-effort fallback if objects leak through
+                fks.append(
+                    ForeignKey(
+                        column=TableColumn(name=getattr(getattr(fk, 'column', None), 'name', ''), dtype=getattr(getattr(fk, 'column', None), 'dtype', None)),
+                        references_name=getattr(fk, 'references_name', ''),
+                        references_column=TableColumn(name=getattr(getattr(fk, 'references_column', None), 'name', ''), dtype=getattr(getattr(fk, 'references_column', None), 'dtype', None)),
+                    )
+                )
 
         return Table(
             name=self.name,
-            columns=[TableColumn(name=col.name, dtype=col.dtype) for col in self.columns],
-            pks=[TableColumn(name=pk.name, dtype=pk.dtype) for pk in self.pks],
-            fks=[
-                ForeignKey(
-                    column=TableColumn(name=fk.column.name, dtype=fk.column.dtype),
-                    references_name=fk.references_name,
-                    references_column=TableColumn(
-                        name=fk.references_column.name,
-                        dtype=fk.references_column.dtype
-                    )
-                )
-                for fk in self.fks
-            ]
+            columns=cols,
+            pks=pks,
+            fks=fks,
+            metadata_json=self.metadata_json,
         )
 
 

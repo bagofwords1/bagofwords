@@ -50,7 +50,20 @@ class TablesSchemaContext(ContextSection):
                     if t.last_feedback_at:
                         metrics_lines.append(f'<last_feedback_at value="{xml_escape(t.last_feedback_at)}"/>')
                 metrics_xml = xml_tag("metrics", "\n".join(metrics_lines)) if metrics_lines else ""
-                inner = "\n".join(filter(None, [xml_tag("columns", cols), metrics_xml]))
+                # Optional metadata (compact attributes)
+                metadata_xml = ""
+                try:
+                    tj = (t.metadata_json or {}).get("tableau", {}) if isinstance(t.metadata_json, dict) else {}
+                    attrs = {}
+                    for k in ("datasourceLuid", "projectName", "name"):
+                        v = tj.get(k)
+                        if v is not None:
+                            attrs[k] = v
+                    if attrs:
+                        metadata_xml = xml_tag("metadata", "", attrs)
+                except Exception:
+                    metadata_xml = ""
+                inner = "\n".join(filter(None, [xml_tag("columns", cols), metadata_xml, metrics_xml]))
                 tables_xml.append(xml_tag("table", inner, {"name": t.name}))
             content_parts = []
             if self.info.context:

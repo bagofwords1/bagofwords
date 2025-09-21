@@ -256,6 +256,18 @@ const helperText = computed(() => mode.value === 'deep' ? 'Deep Analysis may tak
 onMounted(async () => {
     await loadModels()
     nextTick(autoGrow)
+    // Hydrate selected data sources from report when in a report context
+    try {
+        if (props.report_id) {
+            const res = await useMyFetch(`/reports/${props.report_id}`, { method: 'GET' })
+            const report = (res as any)?.data?.value as any
+            if (report && Array.isArray(report.data_sources)) {
+                selectedDataSources.value = report.data_sources
+            }
+        }
+    } catch (e) {
+        console.error('Failed to hydrate data sources for report:', e)
+    }
     // Compact mode: if container is narrow, hide labels
     const root = document.querySelector('.flex-shrink-0') as HTMLElement
     const ro = new ResizeObserver(() => {
@@ -272,6 +284,20 @@ watch(() => props.textareaContent, (newVal) => {
         nextTick(autoGrow)
     }
 }, { immediate: true })
+
+// Re-hydrate data sources if report_id changes
+watch(() => props.report_id, async (newId) => {
+    if (!newId) return
+    try {
+        const res = await useMyFetch(`/reports/${newId}`, { method: 'GET' })
+        const report = (res as any)?.data?.value as any
+        if (report && Array.isArray(report.data_sources)) {
+            selectedDataSources.value = report.data_sources
+        }
+    } catch (e) {
+        console.error('Failed to rehydrate data sources when report changed:', e)
+    }
+})
 
 const router = useRouter()
 

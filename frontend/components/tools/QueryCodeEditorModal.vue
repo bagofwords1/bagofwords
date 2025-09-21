@@ -74,7 +74,7 @@
                     </tbody>
                   </table>
                 </div>
-                <div v-else class="text-xs text-gray-400">No preview yet.</div>
+                <div v-else class="text-xs" :class="errorMsg ? 'text-red-600' : 'text-gray-400'">{{ errorMsg || 'No preview yet.' }}</div>
               </div>
             </div>
           </div>
@@ -190,6 +190,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const route = useRoute()
 const emit = defineEmits(['close', 'stepCreated'])
 
 const editorCode = ref('')
@@ -274,6 +275,24 @@ async function loadQueryData() {
     queryData.value = null
     visualizations.value = []
   }
+}
+
+// Ensure we have a query id; create one if missing
+async function ensureQueryId() {
+  if (queryId.value) return
+  // Try to sync from props/step first
+  await syncQueryIdOnOpen()
+  if (queryId.value) return
+  // Create a new query with the provided title
+  const resp: any = await useMyFetch('/api/queries', {
+    method: 'POST',
+    body: { title: props.title, report_id: (route?.params as any)?.id || null }
+  })
+  const q = resp?.data?.value
+  if (!q?.id) {
+    throw new Error('Failed to create query.')
+  }
+  queryId.value = q.id
 }
 
 watch(() => props.visible, async (v) => {
@@ -406,16 +425,11 @@ async function previewRun() {
   runMode.value = 'preview'
   errorMsg.value = ''
   try {
-    // Ensure we have a query id at click-time
-    if (!queryId.value) {
-      await syncQueryIdOnOpen()
-    }
-    if (!queryId.value) {
-      throw new Error('Query not found.')
-    }
+    // Ensure we have or create a query id
+    await ensureQueryId()
     const resp: any = await useMyFetch(`/api/queries/${queryId.value}/preview`, {
       method: 'POST',
-      body: { code: editorCode.value, title: props.title, type: 'table' }
+      body: { code: editorCode.value, title: props.title, type: 'table', tool_execution_id: props.toolExecutionId || null }
     })
     const payload = resp?.data?.value
     if (payload?.error) {
@@ -437,13 +451,8 @@ async function runNewStep() {
   runMode.value = 'save'
   errorMsg.value = ''
   try {
-    // Ensure we have a query id at click-time
-    if (!queryId.value) {
-      await syncQueryIdOnOpen()
-    }
-    if (!queryId.value) {
-      throw new Error('Query not found.')
-    }
+    // Ensure we have or create a query id
+    await ensureQueryId()
     const resp: any = await useMyFetch(`/api/queries/${queryId.value}/run`, {
       method: 'POST',
       body: {

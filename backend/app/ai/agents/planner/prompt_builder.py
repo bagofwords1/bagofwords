@@ -34,7 +34,6 @@ class PromptBuilder:
         
         # Calculate research step count for context
         research_step_count = PromptBuilder._extract_research_step_count(planner_input.history_summary)
-
         if planner_input.mode == "deep":
             deep_analytics = True
             deep_analytics_text = """

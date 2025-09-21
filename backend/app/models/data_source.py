@@ -275,7 +275,8 @@ class DataSource(BaseSchema):
                 columns=columns,
                 pks=table.pks,
                 fks=table.fks,
-                is_active=table.is_active
+                is_active=table.is_active,
+                metadata_json=table.metadata_json
             )
             if with_stats:
                 key = (table.name or '').lower()

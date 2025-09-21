@@ -325,10 +325,10 @@ const createdQueryId = computed(() => {
   return resultQ || null
 })
 
-const canOpenEditor = computed(() => !!(initialStepId.value || createdQueryId.value))
+const canOpenEditor = computed(() => !!(initialStepId.value || createdQueryId.value || codeContent.value))
 
 async function openEditor() {
-  if (!initialStepId.value) return
+  if (!canOpenEditor.value) return
   showEditor.value = true
 }
 

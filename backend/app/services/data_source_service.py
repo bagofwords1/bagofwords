@@ -622,6 +622,7 @@ class DataSourceService:
                         "columns": normalize_columns(t.get("columns", [])),
                         "pks": normalize_columns(t.get("pks", [])),
                         "fks": t.get("fks", []),
+                        "metadata_json": t.get("metadata_json")
                     }
                 else:
                     name = getattr(t, "name", None)
@@ -631,6 +632,7 @@ class DataSourceService:
                         "columns": normalize_columns(getattr(t, "columns", [])),
                         "pks": normalize_columns(getattr(t, "pks", [])),
                         "fks": getattr(t, "fks", []) or [],
+                        "metadata_json": getattr(t, "metadata_json", None)
                     }
 
             # Load existing
@@ -643,10 +645,11 @@ class DataSourceService:
                 if name in existing_rows:
                     row = existing_rows[name]
                     # Detect diffs (shallow compare)
-                    if row.columns != payload["columns"] or row.pks != payload["pks"] or row.fks != payload["fks"]:
+                    if row.columns != payload["columns"] or row.pks != payload["pks"] or row.fks != payload["fks"] or row.metadata_json != payload.get("metadata_json"):
                         row.columns = payload["columns"]
                         row.pks = payload["pks"]
                         row.fks = payload["fks"]
+                        row.metadata_json = payload.get("metadata_json")
                         row.is_active = True
                         changed = True
                 else:
@@ -657,6 +660,7 @@ class DataSourceService:
                         fks=payload["fks"],
                         datasource_id=data_source.id,
                         is_active=should_set_active,
+                        metadata_json=payload.get("metadata_json"),
                     ))
                     changed = True
 

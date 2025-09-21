@@ -68,9 +68,17 @@ async function getDataSources() {
     }).then((response) => {
         dataSources.value = (response.data.value as any[]) || []
     })
-    // Initialize selection from prop if provided else default to all
-    internalSelectedDataSources.value = (props.selectedDataSources as any[])?.length ? (props.selectedDataSources as any[]) : dataSources.value
-    handleSelectionChange()
+    // Initialize selection from prop if provided, otherwise leave empty for parent to decide
+    if ((props.selectedDataSources as any[])?.length) {
+        // Align to the objects from the current dataSources list by id
+        const ids = new Set((props.selectedDataSources as any[]).map((x: any) => x.id))
+        internalSelectedDataSources.value = dataSources.value.filter((ds: any) => ids.has(ds.id))
+        handleSelectionChange()
+    } else if (!props.reportId) {
+        // Landing page (no report): default to ALL active data sources
+        internalSelectedDataSources.value = dataSources.value
+        handleSelectionChange()
+    }
 
 }
 
@@ -90,6 +98,8 @@ function toggleDataSource(ds: DataSource) {
         internalSelectedDataSources.value = [...internalSelectedDataSources.value, ds]
     }
     handleSelectionChange()
+    // If we are in a report context, persist selection at report level immediately
+    persistSelectionIfReport()
 }
 
 onMounted(() => {
@@ -139,6 +149,30 @@ onMounted(() => {
         }
     })
 })
+// Keep internal selection in sync with parent-provided selectedDataSources
+watch(() => props.selectedDataSources, (newVal: any[]) => {
+    if (!Array.isArray(newVal)) return
+    const ids = new Set(newVal.map((x: any) => x.id))
+    // Map to known dataSources, or fall back to the raw objects if not present yet
+    const mapped = dataSources.value.length
+        ? dataSources.value.filter((ds: any) => ids.has(ds.id))
+        : newVal
+    internalSelectedDataSources.value = mapped as any
+}, { immediate: true, deep: true })
+
+async function persistSelectionIfReport() {
+    try {
+        if (!props.reportId) return
+        const ids = internalSelectedDataSources.value.map((x: any) => x.id)
+        await useMyFetch(`/reports/${props.reportId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data_sources: ids })
+        })
+    } catch (e) {
+        console.error('Failed to update report data sources:', e)
+    }
+}
 const dataTooltip = computed<string>(() => {
     if (internalSelectedDataSources.value.length <= 1) return ''
     const rest = internalSelectedDataSources.value.slice(1).map(s => s.name).join(', ')

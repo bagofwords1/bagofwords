@@ -95,12 +95,12 @@ class TableauClient(DataSourceClient):
             site_prefix = self._vizql_site_prefix()
 
             # VizQL health probe
-            health_url = f"{base_url}{site_prefix}/vizql-data-service/v1/simple-request"
+            health_url = f"{base_url}/api/v1/vizql-data-service/simple-request"
             health_resp = self._http.get(health_url, headers=headers, timeout=self.timeout_sec, verify=self.verify_ssl)
             health_status = health_resp.status_code
 
             # Query-datasource probe (best-effort): use first datasource LUID if available
-            query_url = f"{base_url}{site_prefix}/vizql-data-service/v1/query-datasource"
+            query_url = f"{base_url}/api/v1/vizql-data-service/query-datasource"
             datasource_id = None
             try:
                 dss = self.list_published_datasources()
@@ -186,7 +186,17 @@ class TableauClient(DataSourceClient):
                 for f in fields
             ]
             table_name = f"{(ds.get('project_name') or '').strip()}/{ds.get('name') or ds.get('id')}".strip("/")
-            tables.append(Table(name=table_name, columns=columns, pks=[], fks=[], is_active=True))
+            metadata_json = {
+                "tableau": {
+                    "datasourceLuid": ds.get("id"),
+                    "projectId": ds.get("project_id"),
+                    "projectName": ds.get("project_name"),
+                    "name": ds.get("name"),
+                    "path": table_name,
+                    "siteName": self.site_name,
+                }
+            }
+            tables.append(Table(name=table_name, columns=columns, pks=[], fks=[], is_active=True, metadata_json=metadata_json))
         return tables
 
     def get_schema(self, table_name: str) -> Table:
@@ -230,12 +240,22 @@ class TableauClient(DataSourceClient):
             for f in fields
         ]
         resolved_name = f"{(target.get('project_name') or '').strip()}/{target.get('name') or target.get('id')}".strip("/")
-        return Table(name=resolved_name, columns=columns, pks=[], fks=[], is_active=True)
+        metadata_json = {
+            "tableau": {
+                "datasourceLuid": target.get("id"),
+                "projectId": target.get("project_id"),
+                "projectName": target.get("project_name"),
+                "name": target.get("name"),
+                "path": resolved_name,
+                "siteName": self.site_name,
+            }
+        }
+        return Table(name=resolved_name, columns=columns, pks=[], fks=[], is_active=True, metadata_json=metadata_json)
 
     def execute_query(
         self,
         *,
-        datasource_id: str,
+        datasource_luid: str,
         fields: List[Dict],
         filters: Optional[List[Dict]] = None,
         return_format: str = "OBJECTS",
@@ -245,12 +265,13 @@ class TableauClient(DataSourceClient):
         """
         Execute Headless BI query-datasource against a published datasource and return a DataFrame.
         """
+
         self.connect()
-        url = f"{self.server_url.rstrip('/')}{self._vizql_site_prefix()}/vizql-data-service/v1/query-datasource"
+        url = f"{self.server_url.rstrip('/')}/api/v1/vizql-data-service/query-datasource"
         headers = self._build_headers()
         body = {
             "datasource": {
-                "datasourceLuid": datasource_id,
+                "datasourceLuid": datasource_luid,
             },
             "query": {
                 "fields": fields or [],
@@ -262,6 +283,7 @@ class TableauClient(DataSourceClient):
                 "disaggregate": disaggregate,
             },
         }
+
         resp = self._http.post(url, json=body, headers=headers, timeout=self.timeout_sec, verify=self.verify_ssl)
         if resp.status_code >= 300:
             raise RuntimeError(f"query-datasource failed: HTTP {resp.status_code} {resp.text}")
@@ -315,7 +337,7 @@ Executes VizQL queries against Tableau data sources to answer business questions
 ```python
 # Quick profiling: record count
 df = client.execute_query(
-  datasource_id="abc123",
+  datasource_luid="c286c122-cd2c-428b-bed2-b7c8e637557d",
   fields=[{"fieldCaption": "Order ID", "function": "COUNT", "fieldAlias": "Total Records"}]
 )
 ```
@@ -323,7 +345,7 @@ df = client.execute_query(
 ```python
 # Top 10 customers by revenue (with current year filter)
 df = client.execute_query(
-  datasource_id="abc123",
+  datasource_luid="c286c122-cd2c-428b-bed2-b7c8e637557d",
   fields=[
     {"fieldCaption": "Customer Name"},
     {
@@ -355,7 +377,7 @@ df = client.execute_query(
 ```python
 # Monthly sales trend (last 12 months)
 df = client.execute_query(
-  datasource_id="abc123",
+  datasource_luid="c286c122-cd2c-428b-bed2-b7c8e637557d",
   fields=[
     {
       "fieldCaption": "Order Date",
@@ -514,16 +536,16 @@ Filter relative date periods:
             "Accept": "application/json",
         }
 
-    def _vizql_read_metadata(self, datasource_id: str) -> List[Dict]:
+    def _vizql_read_metadata(self, datasource_luid: str) -> List[Dict]:
         """
         Call VizQL Data Service read-metadata for a single datasource and return fields list.
         """
         self.connect()
-        url = f"{self.server_url.rstrip('/')}{self._vizql_site_prefix()}/vizql-data-service/v1/read-metadata"
+        url = f"{self.server_url.rstrip('/')}/api/v1/vizql-data-service/read-metadata"
         headers = self._build_headers()
         body = {
             "datasource": {
-                "datasourceLuid": datasource_id,
+                "datasourceLuid": datasource_luid,
             },
             "options": {
                 "returnFormat": "OBJECTS",
@@ -535,14 +557,14 @@ Filter relative date periods:
             # Feature or endpoint may be unavailable; allow fallback to Metadata API
             return []
         if resp.status_code >= 300:
-            raise RuntimeError(f"read-metadata failed for {datasource_id}: HTTP {resp.status_code} {resp.text}")
+            raise RuntimeError(f"read-metadata failed for {datasource_luid}: HTTP {resp.status_code} {resp.text}")
         payload = resp.json() or {}
         fields = payload.get("data") or []
         if not isinstance(fields, list):
             return []
         return fields
 
-    def _metadata_fields_for_datasource(self, datasource_id: str) -> List[Dict]:
+    def _metadata_fields_for_datasource(self, datasource_luid: str) -> List[Dict]:
         """
         Fetch fields via Tableau Metadata API using publishedDatasources(filter: { luid: "..." }).
         Returns simplified list of dicts with fieldName/fieldCaption/dataType.
@@ -551,7 +573,7 @@ Filter relative date periods:
         query = (
             f"""
             query datasourceFieldInfo {{
-              publishedDatasources(filter: {{ luid: "{datasource_id}" }}) {{
+              publishedDatasources(filter: {{ luid: "{datasource_luid}" }}) {{
                 name
                 fields {{
                   name
@@ -588,12 +610,12 @@ Filter relative date periods:
             )
         return out
 
-    def _combined_fields_for_datasource(self, datasource_id: str) -> List[Dict]:
+    def _combined_fields_for_datasource(self, datasource_luid: str) -> List[Dict]:
         """
         Combine VizQL read-metadata with Metadata API fields by name, preferring VizQL types.
         """
-        read_fields = self._vizql_read_metadata(datasource_id)  # list of dicts
-        gql_fields = self._metadata_fields_for_datasource(datasource_id)
+        read_fields = self._vizql_read_metadata(datasource_luid)  # list of dicts
+        gql_fields = self._metadata_fields_for_datasource(datasource_luid)
         if not read_fields and not gql_fields:
             return []
         name_to_gql = {str(f.get("fieldName") or f.get("fieldCaption") or f.get("name") or ""): f for f in gql_fields}

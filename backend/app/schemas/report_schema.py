@@ -22,6 +22,7 @@ class ReportUpdate(BaseModel):
     theme_name: Optional[str] = None
     theme_overrides: Optional[dict] = None
     cron_schedule: Optional[str] = None
+    data_sources: Optional[List[str]] = None
 
 class ReportSchema(ReportBase):
     class PublicGeneralSettings(BaseModel):

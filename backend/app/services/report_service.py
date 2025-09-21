@@ -157,6 +157,7 @@ class ReportService:
     async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportUpdate, current_user: User, organization: Organization) -> Report:
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
+
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         
@@ -169,6 +170,9 @@ class ReportService:
             report.theme_name = report_data.theme_name
         if hasattr(report_data, 'theme_overrides') and report_data.theme_overrides is not None:
             report.theme_overrides = report_data.theme_overrides
+        # Replace data_sources associations if provided
+        if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
+            await self.set_data_sources_for_report(db, report, report_data.data_sources)
         
         #await self._set_slug_for_report(db, report)
 
@@ -359,6 +363,25 @@ class ReportService:
         report.data_sources.extend(data_sources)
         await db.commit()  
 
+        return report
+
+    async def set_data_sources_for_report(self, db: AsyncSession, report: Report, data_source_ids: list[str]) -> Report:
+        """Replace a report's data source associations atomically with the provided ids."""
+        if data_source_ids:
+            # Load all requested data sources
+            result = await db.execute(
+                select(DataSource)
+                .options(selectinload(DataSource.data_source_memberships))
+                .filter(DataSource.id.in_(data_source_ids))
+            )
+            new_data_sources = result.scalars().all()
+        else:
+            new_data_sources = []
+
+        # Replace associations
+        report.data_sources = list(new_data_sources)
+        await db.commit()
+        await db.refresh(report, ["data_sources"])
         return report
     
 

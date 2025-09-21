@@ -46,15 +46,15 @@ async def get_reports(
 ):
     return await report_service.get_reports(db, current_user, organization, page, limit, filter)
 
-@router.get("/reports/{report_id}", response_model=ReportSchema)
-@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
-async def get_report(report_id: str, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
-    return await report_service.get_report(db, report_id, current_user, organization)
-
 @router.put("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
 async def update_report(report_id: str, report: ReportUpdate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await report_service.update_report(db, report_id, report, current_user, organization)
+
+@router.get("/reports/{report_id}", response_model=ReportSchema)
+@requires_permission('view_reports', model=Report, owner_only=True, allow_public=True)
+async def get_report(report_id: str, db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization)):
+    return await report_service.get_report(db, report_id, current_user, organization)
 
 @router.delete("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('delete_reports', model=Report, owner_only=True)

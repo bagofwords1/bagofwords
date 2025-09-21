@@ -17,6 +17,8 @@ class DataSourceTable(BaseSchema):
 
     is_active = Column(Boolean, nullable=False, default=True)
 
+    metadata_json = Column(JSON, nullable=True)
+
     # Topology and richness metrics (computed on schema refresh)
     centrality_score = Column(Float, nullable=True)
     richness = Column(Float, nullable=True)
@@ -55,5 +57,6 @@ class DataSourceTable(BaseSchema):
             name=self.name,
             columns=columns,
             pks=pks,
-            fks=fks
+            fks=fks,
+            metadata_json=self.metadata_json
         )

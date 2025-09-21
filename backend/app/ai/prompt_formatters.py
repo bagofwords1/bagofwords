@@ -20,6 +20,8 @@ class Table(BaseModel):
     pks: list[TableColumn] | None
     fks: list[ForeignKey] | None
     is_active: bool = True
+
+    metadata_json: Optional[dict] = None
     # Optional structural metrics
     centrality_score: Optional[float] = None
     richness: Optional[float] = None
@@ -54,6 +56,21 @@ class ServiceFormatter:
         table_strs = []
         table_title = f"table: {table.name}"
         table_strs.append(table_title)
+        # Optional compact metadata block
+        if table.metadata_json:
+            try:
+                # Prefer a concise single-line summary with key Tableau identifiers
+                tmeta = table.metadata_json.get("tableau", {}) if isinstance(table.metadata_json, dict) else {}
+                kv = []
+                for k in ["datasourceLuid", "projectName", "name"]:
+                    v = tmeta.get(k)
+                    if v is not None:
+                        kv.append(f"{k}={v}")
+                if kv:
+                    table_strs.append(f"meta: {'; '.join(kv)}")
+            except Exception:
+                # Best-effort only; never fail formatting due to metadata
+                pass
         for col in table.columns or []:
             table_strs.append(f"column: {col.name} type: {col.dtype or 'any'}")
         
