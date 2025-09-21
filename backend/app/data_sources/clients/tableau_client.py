@@ -337,7 +337,7 @@ Executes VizQL queries against Tableau data sources to answer business questions
 ```python
 # Quick profiling: record count
 df = client.execute_query(
-  datasource_luid="c286c122-cd2c-428b-bed2-b7c8e637557d",
+  datasource_Luid="version-4 UUID (take it from the schema)",
   fields=[{"fieldCaption": "Order ID", "function": "COUNT", "fieldAlias": "Total Records"}]
 )
 ```
@@ -345,7 +345,7 @@ df = client.execute_query(
 ```python
 # Top 10 customers by revenue (with current year filter)
 df = client.execute_query(
-  datasource_luid="c286c122-cd2c-428b-bed2-b7c8e637557d",
+  datasource_Luid="version-4 UUID (take it from the schema)",
   fields=[
     {"fieldCaption": "Customer Name"},
     {
@@ -377,7 +377,7 @@ df = client.execute_query(
 ```python
 # Monthly sales trend (last 12 months)
 df = client.execute_query(
-  datasource_luid="c286c122-cd2c-428b-bed2-b7c8e637557d",
+  datasource_Luid="version-4 UUID (take it from the schema)",
   fields=[
     {
       "fieldCaption": "Order Date",
