@@ -1,10 +1,10 @@
 # Release Notes
 
-## Version 0.0.199 (September 18, 2025)
+## Version 0.0.199 (September 20, 2025)
 - Redesigned application onboarding experience
 - Implemented automatic instruction suggestions throughout the onboarding process
-- Removed Sentry integration
-- Updated tests
+- Added support to Tableau as a data source
+- Some general updates, bug fixes and new tests and sentry removal
 
 ## Version 0.0.198 (September 17, 2025)
 - Adding login with OpenID Connect (Okta, etc)
