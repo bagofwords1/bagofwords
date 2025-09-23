@@ -46,19 +46,26 @@
                 </div>
   
                 <div v-for="field in configFields" :key="field.field_name" class="mb-4">
-                  <label :for="field.field_name" class="block text-sm font-medium text-gray-700">
+                  <label v-if="field.type !== 'boolean'" :for="field.field_name" class="block text-sm font-medium text-gray-700">
                     {{ field.title || field.field_name }}
                   </label>
-                  <input
-                    v-if="field.type === 'string'"
-                    type="text"
+                  <p v-if="field.description" class="text-xs text-gray-500 mt-0.5">{{ field.description }}</p>
+                  <UCheckbox
+                    v-if="field.uiType === 'boolean' || field.type === 'boolean'"
+                    v-model="formData.config[field.field_name]"
+                    :label="field.title || field.field_name"
+                    color="blue"
+                  />
+                  <textarea
+                    v-else-if="field.uiType === 'textarea'"
                     v-model="formData.config[field.field_name]"
                     :id="field.field_name"
                     class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                     :placeholder="field.title || field.field_name"
+                    rows="4"
                   />
                   <input
-                    v-else-if="field.type === 'integer'"
+                    v-else-if="field.uiType === 'number' || field.type === 'integer'"
                     type="number"
                     v-model="formData.config[field.field_name]"
                     :id="field.field_name"
@@ -67,19 +74,79 @@
                     class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
                     :placeholder="field.title || field.field_name"
                   />
+                  <input
+                    v-else-if="field.uiType === 'password' || field.type === 'password'"
+                    type="password"
+                    v-model="formData.config[field.field_name]"
+                    :id="field.field_name"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    :placeholder="field.title || field.field_name"
+                  />
+                  <input
+                    v-else
+                    type="text"
+                    v-model="formData.config[field.field_name]"
+                    :id="field.field_name"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    :placeholder="field.title || field.field_name"
+                  />
                 </div>
               </div>
 
               <!-- Credentials Fields -->
               <div v-if="fields.credentials" class="mb-6 bg-gray-50 p-5 rounded border">
-                <h3 class="text-sm font-semibold mb-4">Credentials</h3>
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-sm font-semibold">Credentials</h3>
+                  <div v-if="authOptions.length" class="w-48">
+                    <USelectMenu
+                      v-model="selectedAuth"
+                      :options="authOptions"
+                      option-attribute="label"
+                      value-attribute="value"
+                      @change="handleAuthChange"
+                      v-if="authOptions.length > 1"
+                    >
+                    </USelectMenu>
+                  </div>
+                </div>
                 <div v-for="field in credentialFields" :key="field.field_name" class="mb-4">
                   <label :for="field.field_name" class="block text-sm font-medium text-gray-700">
                     {{ field.title || field.field_name }}
                   </label>
+                  <p v-if="field.description" class="text-xs text-gray-500 mt-0.5">{{ field.description }}</p>
+                  <UCheckbox
+                    v-if="field.uiType === 'boolean' || field.type === 'boolean'"
+                    v-model="formData.credentials[field.field_name]"
+                    :label="field.title || field.field_name"
+                    color="blue"
+                  />
+                  <textarea
+                    v-else-if="field.uiType === 'textarea'"
+                    v-model="formData.credentials[field.field_name]"
+                    :id="field.field_name"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    :placeholder="field.title || field.field_name"
+                    rows="4"
+                  />
                   <input
-                    v-if="field.type === 'string'"
-                    :type="isPasswordField(field.field_name) ? 'password' : 'text'"
+                    v-else-if="field.uiType === 'number'"
+                    type="number"
+                    v-model="formData.credentials[field.field_name]"
+                    :id="field.field_name"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    :placeholder="field.title || field.field_name"
+                  />
+                  <input
+                    v-else-if="field.uiType === 'password' || isPasswordField(field.field_name)"
+                    type="password"
+                    v-model="formData.credentials[field.field_name]"
+                    :id="field.field_name"
+                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    :placeholder="field.title || field.field_name"
+                  />
+                  <input
+                    v-else
+                    type="text"
                     v-model="formData.credentials[field.field_name]"
                     :id="field.field_name"
                     class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
@@ -120,6 +187,7 @@ const available_ds = ref([]);
 const selected_ds = ref('');
 const route = useRoute();
 const fields = ref({ config: null, credentials: null });
+const selectedAuth = ref<string | null>(null);
 const name = ref('');
 const formData = reactive({
   config: {},
@@ -130,9 +198,6 @@ const generate_summary = ref(true);
 const generate_conversation_starters = ref(true);
 const generate_ai_rules = ref(true);
 const isSubmitting = ref(false);
-const showNatGateway = ref(false);
-
-const nat_gateway_ip = ref('51.21.11.139');
 
 const toast = useToast();
 
@@ -140,19 +205,46 @@ const { isExcel } = useExcel()
 
 // Computed properties for fields
 const configFields = computed(() => {
-  if (!fields.value.config?.properties) return [];
-  return Object.entries(fields.value.config.properties).map(([field_name, schema]) => ({
+  if (!fields.value.config?.properties) return [] as Array<any>;
+  return Object.entries(fields.value.config.properties).map(([field_name, schema]: any) => ({
     field_name,
-    ...schema
+    title: schema?.title,
+    description: schema?.description,
+    type: schema?.type,
+    minimum: schema?.minimum,
+    maximum: schema?.maximum,
+    uiType: schema?.['ui:type'] || null,
   }));
 });
 
 const credentialFields = computed(() => {
-  if (!fields.value.credentials?.properties) return [];
-  return Object.entries(fields.value.credentials.properties).map(([field_name, schema]) => ({
+  // Prefer credentials_by_auth if present and an auth is selected
+  const byAuth = (fields.value as any)?.credentials_by_auth;
+  const active = byAuth && selectedAuth.value ? byAuth[selectedAuth.value] : null;
+  const credsSchema = active || fields.value.credentials;
+  if (!credsSchema?.properties) return [] as Array<any>;
+  return Object.entries(credsSchema.properties).map(([field_name, schema]: any) => ({
     field_name,
-    ...schema
+    title: schema?.title,
+    description: schema?.description,
+    type: schema?.type,
+    minimum: schema?.minimum,
+    maximum: schema?.maximum,
+    uiType: schema?.['ui:type'] || null,
   }));
+});
+
+// Auth options, if backend provides auth metadata
+const authOptions = computed(() => {
+  const authMeta = (fields.value as any)?.auth;
+  if (!authMeta) return [] as Array<{ label: string; value: string }>;
+  const options: Array<{ label: string; value: string }> = [];
+  const byAuth = authMeta.by_auth || {};
+  for (const key of Object.keys(byAuth)) {
+    const label = (byAuth[key]?.title as string) || key;
+    options.push({ label, value: key });
+  }
+  return options;
 });
 
 // Helper function to determine if a field should be a password input
@@ -191,11 +283,16 @@ async function testConnection(dataSourceId: string) {
 async function getFields() {
   const type = route.query.type;
   try {
-    const response = await useMyFetch(`/data_sources/${type}/fields`, {
+    const response = await useMyFetch(`/data_sources/${type}/fields` as any, {
       method: 'GET',
     });
     
     fields.value = response.data.value;
+    // If backend returns auth metadata, set default selected
+    const authMeta = (fields.value as any)?.auth;
+    if (authMeta && !selectedAuth.value) {
+      selectedAuth.value = authMeta.default || null;
+    }
     initFormData();
   } catch (error) {
     console.error('Error fetching fields:', error);
@@ -218,6 +315,12 @@ function initFormData() {
       formData.credentials[field_name] = schema.default || '';
     });
   }
+}
+
+function handleAuthChange() {
+  // Reset credentials when auth mode changes and re-init fields locally
+  formData.credentials = {} as any;
+  initFormData();
 }
 
 async function handleSubmit() {

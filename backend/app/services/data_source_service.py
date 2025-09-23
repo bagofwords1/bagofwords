@@ -1,7 +1,12 @@
 import importlib
 from app.models.user import User
 from app.models.organization import Organization
-from app.models.data_source import DataSource, DATA_SOURCE_DETAILS
+from app.models.data_source import DataSource
+from app.schemas.data_source_registry import (
+    list_available_data_sources,
+    config_schema_for,
+    default_credentials_schema_for,
+)
 from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
@@ -275,7 +280,7 @@ class DataSourceService:
         return DataSourceSchema.from_orm(data_source)
 
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
-        return [ds for ds in DATA_SOURCE_DETAILS if ds["status"] == "active"]
+        return list_available_data_sources()
     
     async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization) -> List[DataSourceSchema]:
         # Query for data sources the user has access to
@@ -334,34 +339,39 @@ class DataSourceService:
         data_sources = result.scalars().all()
         return [DataSourceSchema.from_orm(d) for d in data_sources]
     
-    async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User):
-        ds = next((ds for ds in DATA_SOURCE_DETAILS if ds["type"] == data_source_type), None)
-        if not ds:
-            raise ValueError(f"Unknown data source type: {data_source_type}")
-
-        schema_module = importlib.import_module("app.schemas.data_source_schema")
-        
-        # Get both config and credentials schemas
-        config_schema_name = ds.get("config")
-        credentials_schema_name = config_schema_name.replace("Config", "Credentials")
-        
+    async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User, auth_type: str | None = None):
         try:
-            config_schema = getattr(schema_module, config_schema_name)
-            credentials_schema = getattr(schema_module, credentials_schema_name)
-            
-            # Extract fields from both schemas
+            # Resolve schemas via registry
+            config_schema = config_schema_for(data_source_type)
+            from app.schemas.data_source_registry import credentials_schema_for, get_entry
+            entry = get_entry(data_source_type)
+            # Build config fields
             config_fields = self._extract_fields_from_schema(schema=config_schema)
-            credentials_fields = self._extract_fields_from_schema(schema=credentials_schema)
-            
-            # Return both sets of fields
+            # Build credentials fields for default and for all auth modes
+            default_credentials_schema = credentials_schema_for(data_source_type, auth_type)
+            credentials_fields = self._extract_fields_from_schema(schema=default_credentials_schema)
+            credentials_by_auth: dict[str, dict] = {}
+            for mode, variant in (entry.credentials_auth.by_auth or {}).items():
+                try:
+                    credentials_by_auth[mode] = self._extract_fields_from_schema(schema=variant.schema)
+                except Exception:
+                    continue
+            # Get titles/descriptions and auth metadata
+            catalog = {d.get("type"): d for d in list_available_data_sources()}
+            meta = catalog.get(data_source_type) or {}
             return {
                 "config": config_fields,
                 "credentials": credentials_fields,
+                "credentials_by_auth": credentials_by_auth,
                 "type": data_source_type,
-                "title": ds.get("title"),
-                "description": ds.get("description")
+                "title": meta.get("title"),
+                "description": meta.get("description"),
+                "auth": {
+                    "default": entry.credentials_auth.default,
+                    "by_auth": {k: {"title": v.title} for k, v in (entry.credentials_auth.by_auth or {}).items()},
+                },
             }
-        except AttributeError as e:
+        except Exception as e:
             raise ValueError(f"Schema not found for {data_source_type}: {str(e)}")
     
     async def delete_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
