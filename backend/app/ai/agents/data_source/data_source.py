@@ -11,9 +11,8 @@ from app.models.llm_model import LLMModel
 
 class DataSourceAgent:
 
-    def __init__(self, data_source: DataSource, model: LLMModel, schema):
+    def __init__(self, data_source: DataSource, schema: str, model: LLMModel):
         self.data_source = data_source
-        self.client = data_source.get_client()
         self.llm = LLM(model)
         self.schema = schema
 

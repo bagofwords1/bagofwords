@@ -12,6 +12,7 @@ from app.models.user_data_source_credentials import UserDataSourceCredentials
 from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
+from app.models.git_repository import GitRepository
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -154,9 +155,9 @@ class DataSourceService:
         if not model:
             raise HTTPException(status_code=400, detail="No default LLM model found")
 
-        schema = await data_source.get_schemas(db=db, include_inactive=False)
+        schema = await self._get_prompt_schema(db=db, data_source=data_source, organization=organization, current_user=current_user)
 
-        data_source_agent = DataSourceAgent(data_source=data_source, model=model, schema=schema)
+        data_source_agent = DataSourceAgent(data_source=data_source, schema=schema, model=model)
         response = {}
         if item == "summary":
             response["summary"] = data_source_agent.generate_summary()
@@ -382,6 +383,8 @@ class DataSourceService:
             s = DataSourceListItemSchema(
                 id=str(d.id),
                 name=d.name,
+                type=d.type,
+                auth_policy=d.auth_policy,
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
@@ -391,6 +394,14 @@ class DataSourceService:
                     s.user_status = await u_svc.build_user_status(db=db, data_source=d, user=current_user, live_test=False)
             except Exception:
                 pass
+            # Exclude user_required data sources that the user can access but has no credentials for
+            if getattr(d, "auth_policy", "system_only") == "user_required" and current_user:
+                try:
+                    if not getattr(s.user_status, "has_user_credentials", False):
+                        continue
+                except Exception:
+                    # If user_status could not be determined, be conservative and hide the DS from active list
+                    continue
             items.append(s)
         return items
     
@@ -451,8 +462,39 @@ class DataSourceService:
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
-            
+
+        # 1) Delete dependent metadata resources first (they FK both data source and jobs)
+        resources_q = await db.execute(
+            select(MetadataResource).where(MetadataResource.data_source_id == data_source_id)
+        )
+        for resource in resources_q.scalars().all():
+            await db.delete(resource)
+
+        # 2) Delete metadata indexing jobs for this data source
+        jobs_q = await db.execute(
+            select(MetadataIndexingJob).where(MetadataIndexingJob.data_source_id == data_source_id)
+        )
+        for job in jobs_q.scalars().all():
+            await db.delete(job)
+
+        # 3) Delete any linked git repository for this data source
+        repo_q = await db.execute(
+            select(GitRepository).where(
+                GitRepository.data_source_id == data_source_id,
+                GitRepository.organization_id == organization.id,
+            )
+        )
+        repo = repo_q.scalar_one_or_none()
+        if repo:
+            await db.delete(repo)
+
+        # Apply deletions before removing the data source to avoid NULLing non-nullable FKs
+        await db.commit()
+
+        # 4) Delete schema tables associated with this data source (commits internally)
         await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
+
+        # 5) Finally delete the data source
         await db.delete(data_source)
         await db.commit()
         return {"message": "Data source deleted successfully"}
@@ -808,14 +850,11 @@ class DataSourceService:
                     data_source_table_id=str(canonical_by_name.get(table_name).id) if canonical_by_name.get(table_name) else None,
                     is_accessible=True,
                     status="accessible",
-                    discovered_at=now,
-                    last_seen_at=now,
                     metadata_json=payload.get("metadata_json"),
                 )
                 db.add(t_row)
                 await db.flush()
             else:
-                t_row.last_seen_at = now
                 t_row.metadata_json = payload.get("metadata_json")
                 if t_row.data_source_table_id is None and canonical_by_name.get(table_name):
                     t_row.data_source_table_id = str(canonical_by_name.get(table_name).id)
@@ -836,11 +875,9 @@ class DataSourceService:
                         is_accessible=True,
                         is_masked=False,
                         data_type=col.get("dtype"),
-                        last_seen_at=now,
                     )
                 else:
                     c_row.data_type = col.get("dtype")
-                    c_row.last_seen_at = now
                 db.add(c_row)
 
         await db.commit()
@@ -1099,4 +1136,21 @@ class DataSourceService:
         )
         data_source_memberships = result.scalars().all()
         return [DataSourceMembershipSchema.from_orm(m) for m in data_source_memberships]
+
+    async def _get_prompt_schema(self, db: AsyncSession, data_source: DataSource, organization: Organization, current_user: User | None) -> str:
+        """Resolve a prompt-ready schema string for this data source.
+        - For system_only: use canonical via DataSource.prompt_schema
+        - For user_required with user: use per-user overlay tables and TableFormatter
+        """
+        # User-required path uses per-user overlays
+        if getattr(data_source, "auth_policy", "system_only") == "user_required" and current_user is not None:
+            tables = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+            try:
+                from app.ai.prompt_formatters import TableFormatter
+                return TableFormatter(tables).table_str
+            except Exception:
+                # Fallback to no-stats canonical prompt schema
+                return await data_source.prompt_schema(db=db, with_stats=False)
+        # System path: canonical tables
+        return await data_source.prompt_schema(db=db, with_stats=False)
 

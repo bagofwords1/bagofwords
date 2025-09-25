@@ -13,6 +13,7 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
+from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
 
 
 class SchemaContextBuilder:
@@ -20,19 +21,17 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None):
         self.db = db
         self.organization = organization
         self.report = report
         self.data_sources = data_sources
+        self.user = user
 
     async def build(self, include_inactive: bool = False, with_stats: bool = True, top_k: Optional[int] = None) -> TablesSchemaContext:
         """Return TablesSchemaContext built from report's data sources, with optional stats and top_k filtering."""
 
         ds_sections: List[TablesSchemaContext.DataSource] = []
-
-        # Preload TableStats for all DS to minimize queries (org-wide rollup)
-        #org_id = str(self.organization.id) if self.organization else None
 
         for ds in self.data_sources:
             # Build stats map (table name lowercase -> TableStats)
@@ -47,25 +46,91 @@ class SchemaContextBuilder:
                 for s in res.scalars().all():
                     stats_map[(s.table_fqn or '').lower()] = s
 
-            scored: List[tuple[float, PromptTable]] = []
-            tables: List[PromptTable] = []
-            # Load tables via explicit async query to avoid lazy IO
+            # Canonical (org-level) source
             ds_tables_result = await self.db.execute(
                 select(DataSourceTable).where(DataSourceTable.datasource_id == str(ds.id))
             )
             ds_tables = ds_tables_result.scalars().all()
+            canonical_by_name: Dict[str, DataSourceTable] = {getattr(t, 'name', ''): t for t in ds_tables}
 
-            for t in ds_tables:
-                if not include_inactive and not getattr(t, 'is_active', False):
-                    continue
+            # Choose source: overlay for user_required with user, else canonical
+            use_overlay = (getattr(ds, 'auth_policy', 'system_only') == 'user_required') and (self.user is not None)
 
+            # Normalize into a common shape for downstream rendering
+            # Each entry: { name, columns: [{name,dtype}], pks: [{name,dtype}], fks: [fk], metadata_json, metrics, is_active }
+            normalized: List[Dict[str, Any]] = []
+
+            if use_overlay:
+                overlays_q = await self.db.execute(
+                    select(UserDataSourceTable).where(
+                        UserDataSourceTable.data_source_id == str(ds.id),
+                        UserDataSourceTable.user_id == str(self.user.id),
+                        UserDataSourceTable.is_accessible == True,
+                    )
+                )
+                overlay_tables = overlays_q.scalars().all()
+                overlay_ids = [str(ot.id) for ot in overlay_tables]
+                cols_q = await self.db.execute(
+                    select(UserDataSourceColumn).where(
+                        UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids)
+                    )
+                )
+                cols = cols_q.scalars().all()
+                cols_by_table: Dict[str, list[UserDataSourceColumn]] = {}
+                for c in cols:
+                    cols_by_table.setdefault(str(c.user_data_source_table_id), []).append(c)
+
+                for ot in overlay_tables:
+                    name = getattr(ot, 'table_name', '') or ''
+                    overlay_cols = cols_by_table.get(str(ot.id), [])
+                    columns = [{"name": getattr(c, 'column_name', ''), "dtype": getattr(c, 'data_type', None)} for c in overlay_cols]
+                    base = canonical_by_name.get(name)
+                    pks = getattr(base, 'pks', []) if base is not None else []
+                    fks = getattr(base, 'fks', []) if base is not None else []
+                    metadata_json = getattr(base, 'metadata_json', None) if base is not None else None
+                    normalized.append({
+                        "name": name,
+                        "columns": columns,
+                        "pks": pks,
+                        "fks": fks,
+                        "metadata_json": metadata_json,
+                        "centrality_score": getattr(base, 'centrality_score', None) if base is not None else None,
+                        "richness": getattr(base, 'richness', None) if base is not None else None,
+                        "degree_in": getattr(base, 'degree_in', None) if base is not None else None,
+                        "degree_out": getattr(base, 'degree_out', None) if base is not None else None,
+                        "entity_like": getattr(base, 'entity_like', None) if base is not None else None,
+                        "is_active": True,
+                    })
+            else:
+                for t in ds_tables:
+                    if not include_inactive and not getattr(t, 'is_active', False):
+                        continue
+                    columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown")} for col in (getattr(t, 'columns', []) or [])]
+                    normalized.append({
+                        "name": getattr(t, 'name', ''),
+                        "columns": columns,
+                        "pks": getattr(t, 'pks', []) or [],
+                        "fks": getattr(t, 'fks', []) or [],
+                        "metadata_json": getattr(t, 'metadata_json', None),
+                        "centrality_score": getattr(t, 'centrality_score', None),
+                        "richness": getattr(t, 'richness', None),
+                        "degree_in": getattr(t, 'degree_in', None),
+                        "degree_out": getattr(t, 'degree_out', None),
+                        "entity_like": getattr(t, 'entity_like', None),
+                        "is_active": bool(getattr(t, 'is_active', False)),
+                    })
+
+            # Common rendering and scoring
+            scored: List[tuple[float, PromptTable]] = []
+            tables: List[PromptTable] = []
+            for item in normalized:
                 columns = [
-                    PromptTableColumn(name=col.get("name"), dtype=col.get("dtype", "unknown"))
-                    for col in (getattr(t, 'columns', []) or [])
+                    PromptTableColumn(name=c.get("name"), dtype=c.get("dtype"))
+                    for c in (item.get("columns") or [])
                 ]
                 pks = [
                     PromptTableColumn(name=pk.get("name"), dtype=pk.get("dtype"))
-                    for pk in (getattr(t, 'pks', []) or [])
+                    for pk in (item.get("pks") or [])
                 ]
                 fks = [
                     PromptForeignKey(
@@ -73,25 +138,25 @@ class SchemaContextBuilder:
                         references_name=fk.get('references_name'),
                         references_column=PromptTableColumn(name=fk.get('references_column', {}).get('name'), dtype=fk.get('references_column', {}).get('dtype')),
                     )
-                    for fk in (getattr(t, 'fks', []) or [])
+                    for fk in (item.get("fks") or [])
                 ]
 
                 tbl = PromptTable(
-                    name=getattr(t, 'name', ''),
+                    name=item.get("name", ""),
                     columns=columns,
                     pks=pks,
                     fks=fks,
-                    is_active=bool(getattr(t, 'is_active', False)),
-                    centrality_score=getattr(t, 'centrality_score', None),
-                    richness=getattr(t, 'richness', None),
-                    degree_in=getattr(t, 'degree_in', None),
-                    degree_out=getattr(t, 'degree_out', None),
-                    entity_like=getattr(t, 'entity_like', None),
-                    metadata_json=getattr(t, 'metadata_json', None),
+                    is_active=bool(item.get("is_active", True)),
+                    centrality_score=item.get("centrality_score"),
+                    richness=item.get("richness"),
+                    degree_in=item.get("degree_in"),
+                    degree_out=item.get("degree_out"),
+                    entity_like=item.get("entity_like"),
+                    metadata_json=item.get("metadata_json"),
                 )
 
                 if with_stats:
-                    key = (getattr(t, 'name', '') or '').lower()
+                    key = (item.get("name", "") or '').lower()
                     s = stats_map.get(key)
                     if s:
                         usage_count = int(s.usage_count or 0)
@@ -112,7 +177,7 @@ class SchemaContextBuilder:
                         recency = pow(2.718281828, -age_days / 14.0)
                         usage_signal = (weighted_usage_count)**0.5
                         feedback_signal = (float(s.weighted_pos_feedback or 0.0) - float(s.weighted_neg_feedback or 0.0))
-                        structural_signal = (float(getattr(t, 'centrality_score', 0.0) or 0.0) + float(getattr(t, 'richness', 0.0) or 0.0) + (0.5 if getattr(t, 'entity_like', False) else 0.0))
+                        structural_signal = (float(item.get("centrality_score") or 0.0) + float(item.get("richness") or 0.0) + (0.5 if item.get("entity_like") else 0.0))
                         score = 0.35 * (usage_signal * recency) + 0.25 * success_rate + 0.2 * feedback_signal + 0.2 * structural_signal - 0.2 * (failure_count**0.5)
                         tbl.usage_count = usage_count
                         tbl.success_count = success_count
@@ -126,7 +191,7 @@ class SchemaContextBuilder:
                         tbl.score = float(round(score, 6))
                         scored.append((tbl.score or 0.0, tbl))
                     else:
-                        structural_signal = (float(getattr(t, 'centrality_score', 0.0) or 0.0) + float(getattr(t, 'richness', 0.0) or 0.0) + (0.5 if getattr(t, 'entity_like', False) else 0.0))
+                        structural_signal = (float(item.get("centrality_score") or 0.0) + float(item.get("richness") or 0.0) + (0.5 if item.get("entity_like") else 0.0))
                         score = 0.1 * structural_signal
                         tbl.score = float(round(score, 6))
                         scored.append((tbl.score or 0.0, tbl))

@@ -86,7 +86,7 @@ class ContextHub:
         self.files_builder = FilesContextBuilder(self.db, self.organization, self.report)
         
         # New builders (port from agent.py)
-        self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report)
+        self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user)
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
         self.memory_builder = MemoryContextBuilder(self.db, self.organization, self.user, self.head_completion)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)

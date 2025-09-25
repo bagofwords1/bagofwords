@@ -20,9 +20,6 @@ class UserDataSourceTable(BaseSchema):
     status = Column(String, nullable=False, default="accessible")  # accessible | inaccessible | unknown
 
     # Provenance and diagnostics
-    source_fingerprint = Column(String, nullable=True)
-    discovered_at = Column(DateTime, nullable=True)
-    last_seen_at = Column(DateTime, nullable=True)
     metadata_json = Column(JSON, nullable=True)
 
     data_source = relationship("DataSource", lazy="selectin")
@@ -40,6 +37,5 @@ class UserDataSourceColumn(BaseSchema):
     is_accessible = Column(Boolean, nullable=False, default=True)
     is_masked = Column(Boolean, nullable=False, default=False)
     data_type = Column(String, nullable=True)
-    last_seen_at = Column(DateTime, nullable=True)
 
 

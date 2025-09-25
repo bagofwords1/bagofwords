@@ -223,7 +223,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Discover schemas via Metadata API and query published data sources via VizQL Data Service.",
         config_schema=TableauConfig,
         credentials_auth=AuthOptions(default="pat", by_auth={
-            "pat": AuthVariant(title="Personal Access Token", schema=TableauPATCredentials, scopes=["system"])  # user OAuth later
+            "pat": AuthVariant(title="Personal Access Token", schema=TableauPATCredentials, scopes=["system", "user"])  
         }),
         client_path="app.data_sources.clients.tableau_client.TableauClient",
     ),
