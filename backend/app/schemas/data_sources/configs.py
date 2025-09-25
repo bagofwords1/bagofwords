@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 # PostgreSQL
 class PostgreSQLCredentials(BaseModel):
     user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
-    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+    # Password can be empty for some deployments; treat as optional/blank-allowed
+    password: str = Field("", title="Password", description="", json_schema_extra={"ui:type": "password"})
 
 
 class PostgreSQLConfig(BaseModel):

@@ -6,7 +6,9 @@ from app.schemas.data_source_registry import (
     list_available_data_sources,
     config_schema_for,
     default_credentials_schema_for,
+    resolve_client_class,
 )
+from app.models.user_data_source_credentials import UserDataSourceCredentials
 from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
@@ -15,7 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.schemas.data_source_schema import (
     DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate,
-    DataSourceMembershipSchema, DataSourceMembershipCreate
+    DataSourceMembershipSchema, DataSourceMembershipCreate, DataSourceUserStatus,
+    DataSourceListItemSchema,
 )
 from app.schemas.metadata_resource_schema import MetadataResourceSchema
 
@@ -26,10 +29,12 @@ from fastapi import HTTPException
 import uuid
 from uuid import UUID
 import json
+from datetime import datetime, timezone
 
 from sqlalchemy import insert, delete, or_, and_
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
+from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 
 from typing import List
 from sqlalchemy.orm import selectinload
@@ -78,6 +83,7 @@ class DataSourceService:
         is_public = data_source_dict.pop("is_public", False)
         use_llm_sync = data_source_dict.pop("use_llm_sync", False)
         member_user_ids = data_source_dict.pop("member_user_ids", [])
+        auth_policy = data_source_dict.get("auth_policy", "system_only")
         
         # Create base data source dict
         ds_create_dict = {
@@ -87,6 +93,7 @@ class DataSourceService:
             "organization_id": organization.id,
             "is_public": is_public,
             "use_llm_sync": use_llm_sync,
+            "auth_policy": auth_policy,
             "owner_user_id": current_user.id
         }
         
@@ -113,7 +120,8 @@ class DataSourceService:
         # Test connection and generate items...
         connection = await self.test_data_source_connection(db=db, data_source_id=new_data_source.id, organization=organization, current_user=current_user)
         if connection["success"]:
-            await self.save_or_update_tables(db=db, data_source=new_data_source, organization=organization, should_set_active=True)
+            if getattr(new_data_source, "auth_policy", "system_only") == "system_only":
+                await self.save_or_update_tables(db=db, data_source=new_data_source, organization=organization, should_set_active=True)
 
             if generate_summary:
                 response = await self.generate_data_source_items(db=db, item="summary", data_source_id=new_data_source.id, organization=organization, current_user=current_user)
@@ -276,13 +284,24 @@ class DataSourceService:
         
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
+
+        schema = DataSourceSchema.from_orm(data_source)
+        # Attach user_status via user creds service when a user context exists
+        try:
+            if current_user:
+                from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+                u_svc = UserDataSourceCredentialsService()
+                schema.user_status = await u_svc.build_user_status(db=db, data_source=data_source, user=current_user, live_test=True)
+        except Exception:
+            pass
         
-        return DataSourceSchema.from_orm(data_source)
+        return schema
+
 
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
         return list_available_data_sources()
     
-    async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization) -> List[DataSourceSchema]:
+    async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization) -> List[DataSourceListItemSchema]:
         # Query for data sources the user has access to
         query = (
             select(DataSource)
@@ -306,10 +325,29 @@ class DataSourceService:
         )
         result = await db.execute(query)
         data_sources = result.scalars().all()
-        return [DataSourceSchema.from_orm(d) for d in data_sources]
+        # Build list with user_status (no live test for list to keep it fast)
+        from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+        u_svc = UserDataSourceCredentialsService()
+        schemas: list[DataSourceListItemSchema] = []
+        for d in data_sources:
+            s = DataSourceListItemSchema(
+                id=str(d.id),
+                name=d.name,
+                type=d.type,
+                auth_policy=d.auth_policy,
+                description=getattr(d, "description", None),
+                created_at=d.created_at,
+                status=("active" if bool(d.is_active) else "inactive"),
+            )
+            try:
+                s.user_status = await u_svc.build_user_status(db=db, data_source=d, user=current_user, live_test=False)
+            except Exception:
+                pass
+            schemas.append(s)
+        return schemas
 
-    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None):
-        """Get all active data sources for an organization that the user has access to"""
+    async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None) -> List[DataSourceListItemSchema]:
+        """Get all active data sources for an organization that the user has access to, compact list shape"""
         # Build base query for active data sources
         stmt = (
             select(DataSource)
@@ -337,21 +375,54 @@ class DataSourceService:
             
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
-        return [DataSourceSchema.from_orm(d) for d in data_sources]
+        from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+        u_svc = UserDataSourceCredentialsService()
+        items: list[DataSourceListItemSchema] = []
+        for d in data_sources:
+            s = DataSourceListItemSchema(
+                id=str(d.id),
+                name=d.name,
+                description=getattr(d, "description", None),
+                created_at=d.created_at,
+                status=("active" if bool(d.is_active) else "inactive"),
+            )
+            try:
+                if current_user:
+                    s.user_status = await u_svc.build_user_status(db=db, data_source=d, user=current_user, live_test=False)
+            except Exception:
+                pass
+            items.append(s)
+        return items
     
-    async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User, auth_type: str | None = None):
+    async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User, auth_type: str | None = None, auth_policy: str | None = None):
         try:
             # Resolve schemas via registry
             config_schema = config_schema_for(data_source_type)
             from app.schemas.data_source_registry import credentials_schema_for, get_entry
             entry = get_entry(data_source_type)
+            # Filter auth variants by policy if provided (system_only vs user_required)
+            def allowed(mode: str) -> bool:
+                try:
+                    scopes = (entry.credentials_auth.by_auth.get(mode) or {}).scopes or []
+                except Exception:
+                    scopes = []
+                if not auth_policy or auth_policy == "system_only":
+                    return "system" in scopes
+                if auth_policy == "user_required":
+                    return "user" in scopes
+                return True
             # Build config fields
             config_fields = self._extract_fields_from_schema(schema=config_schema)
             # Build credentials fields for default and for all auth modes
+            # If a policy is specified and the chosen auth_type is not allowed, drop it so default applies
+            if auth_type and not allowed(auth_type):
+                auth_type = None
             default_credentials_schema = credentials_schema_for(data_source_type, auth_type)
             credentials_fields = self._extract_fields_from_schema(schema=default_credentials_schema)
             credentials_by_auth: dict[str, dict] = {}
             for mode, variant in (entry.credentials_auth.by_auth or {}).items():
+                if not allowed(mode):
+                    continue
                 try:
                     credentials_by_auth[mode] = self._extract_fields_from_schema(schema=variant.schema)
                 except Exception:
@@ -368,7 +439,8 @@ class DataSourceService:
                 "description": meta.get("description"),
                 "auth": {
                     "default": entry.credentials_auth.default,
-                    "by_auth": {k: {"title": v.title} for k, v in (entry.credentials_auth.by_auth or {}).items()},
+                    "by_auth": {k: {"title": v.title} for k, v in (entry.credentials_auth.by_auth or {}).items() if allowed(k)},
+                    "policy": auth_policy or "system_only",
                 },
             }
         except Exception as e:
@@ -406,34 +478,36 @@ class DataSourceService:
             if not data_source:
                 raise ValueError(f"Data source not found: {data_source_id}")
 
-
-
             # Get the matching client from DATA_SOURCE_DETAILS
             # Import and instantiate the client class
-            client = data_source.get_client()
+            # Resolve client with policy-aware credentials
+            client = await self.construct_client(db=db, data_source=data_source, current_user=current_user)
             # Test the connection
             connection_status = client.test_connection()
 
-            if connection_status["success"] == False:
-                # set data_source active=False
-                data_source.is_active = False
-                await db.commit()
-                await db.refresh(data_source)
-            else:
-                if data_source.is_active == False:
-                    data_source.is_active = True
+            # Reflect connectivity on org-wide flag only for system creds
+            if getattr(data_source, "auth_policy", "system_only") == "system_only":
+                if connection_status.get("success") is False:
+                    data_source.is_active = False
                     await db.commit()
                     await db.refresh(data_source)
+                else:
+                    if data_source.is_active == False:
+                        data_source.is_active = True
+                        await db.commit()
+                        await db.refresh(data_source)
 
         except Exception as e:
-            # set data_source active=False
-
-            data_source.is_active = False
-            await db.commit()
-            await db.refresh(data_source)
+            # For system creds, mark DS inactive; for user creds, don't flip org state
+            try:
+                if 'data_source' in locals() and getattr(data_source, "auth_policy", "system_only") == "system_only":
+                    data_source.is_active = False
+                    await db.commit()
+                    await db.refresh(data_source)
+            except Exception:
+                pass
 
             # Return the error message instead of True
-
             connection_status = {
                 "success": False,
                 "message": str(e)
@@ -463,6 +537,59 @@ class DataSourceService:
             }
 
         return connection_status
+
+    async def resolve_credentials(self, db: AsyncSession, data_source: DataSource, current_user: User | None) -> dict:
+        # system_only → use stored system credentials
+        if getattr(data_source, "auth_policy", "system_only") == "system_only":
+            try:
+                return data_source.decrypt_credentials() or {}
+            except Exception:
+                return {}
+        # user_required → require per-user credentials
+        if not current_user:
+            raise HTTPException(status_code=403, detail="User credentials required")
+        row = await db.execute(
+            select(UserDataSourceCredentials)
+            .where(
+                UserDataSourceCredentials.data_source_id == data_source.id,
+                UserDataSourceCredentials.user_id == current_user.id,
+                UserDataSourceCredentials.is_active == True,
+            )
+            .order_by(UserDataSourceCredentials.is_primary.desc(), UserDataSourceCredentials.updated_at.desc())
+        )
+        row = row.scalars().first()
+        if not row:
+            # Owner/admin fallback: allow creator to use system creds if present
+            try:
+                is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
+            except Exception:
+                is_owner = False
+            if is_owner and getattr(data_source, "credentials", None):
+                try:
+                    return data_source.decrypt_credentials() or {}
+                except Exception:
+                    pass
+            raise HTTPException(status_code=403, detail="User credentials required for this data source")
+        return row.decrypt_credentials() or {}
+
+    async def construct_client(self, db: AsyncSession, data_source: DataSource, current_user: User | None):
+        # Resolve client class from registry (no model dependency)
+        ClientClass = resolve_client_class(data_source.type)
+        # Merge config and creds
+        config = json.loads(data_source.config) if isinstance(data_source.config, str) else (data_source.config or {})
+        creds = await self.resolve_credentials(db=db, data_source=data_source, current_user=current_user)
+        params = {**(config or {}), **(creds or {})}
+        # Strip meta keys
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys}
+        # Narrow to constructor signature
+        try:
+            import inspect
+            sig = inspect.signature(ClientClass.__init__)
+            allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+        except Exception:
+            allowed = params
+        return ClientClass(**allowed)
 
     def _resolve_client_by_type(self, data_source_type: str, config: dict, credentials: dict):
         """Dynamically import and construct the client for a given data source type.
@@ -568,8 +695,7 @@ class DataSourceService:
             raise HTTPException(status_code=404, detail="Data source not found")
             
 
-            
-        client = data_source.get_client()
+        client = await self.construct_client(db=db, data_source=data_source, current_user=current_user)
         try:
             schema = client.get_schemas()
             if not schema:
@@ -586,11 +712,138 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
             
-
+        # For user_required policy, prefer the user's live schema view and upsert overlay
+        if getattr(data_source, "auth_policy", "system_only") == "user_required" and current_user is not None:
+            try:
+                return await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+            except Exception:
+                # Fallback to canonical schema if user overlay fetch fails
+                pass
 
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive)
 
         return schemas
+
+    async def get_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
+        """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list."""
+        client = await self.construct_client(db=db, data_source=data_source, current_user=user)
+        fresh = client.get_schemas()
+        if not fresh:
+            return []
+
+        # Normalize
+        def normalize_columns(cols):
+            return [{"name": (c.name if hasattr(c, "name") else c.get("name")), "dtype": (c.dtype if hasattr(c, "dtype") else c.get("dtype"))} for c in cols or []]
+
+        normalized: dict[str, dict] = {}
+        for t in fresh:
+            if isinstance(t, dict):
+                name = t.get("name")
+                if not name:
+                    continue
+                normalized[name] = {
+                    "columns": normalize_columns(t.get("columns", [])),
+                    "pks": normalize_columns(t.get("pks", [])),
+                    "fks": t.get("fks", []) or [],
+                    "metadata_json": t.get("metadata_json"),
+                }
+            else:
+                name = getattr(t, "name", None)
+                if not name:
+                    continue
+                normalized[name] = {
+                    "columns": normalize_columns(getattr(t, "columns", [])),
+                    "pks": normalize_columns(getattr(t, "pks", [])),
+                    "fks": getattr(t, "fks", []) or [],
+                    "metadata_json": getattr(t, "metadata_json", None),
+                }
+
+        # Persist overlays
+        await self._upsert_user_overlay(db=db, data_source=data_source, user=user, normalized=normalized)
+
+        # Build Table models compatible with prompt formatters
+        from app.ai.prompt_formatters import Table, TableColumn, ForeignKey as PromptForeignKey
+        tables: list[Table] = []
+        for name, payload in normalized.items():
+            columns = [TableColumn(name=c["name"], dtype=c.get("dtype")) for c in (payload.get("columns") or [])]
+            pks = [TableColumn(name=c["name"], dtype=c.get("dtype")) for c in (payload.get("pks") or [])]
+            fks = []
+            for fk in (payload.get("fks") or []):
+                try:
+                    fks.append(
+                        PromptForeignKey(
+                            column=TableColumn(name=fk["column"]["name"], dtype=fk["column"].get("dtype")),
+                            references_name=fk["references_name"],
+                            references_column=TableColumn(name=fk["references_column"]["name"], dtype=fk["references_column"].get("dtype")),
+                        )
+                    )
+                except Exception:
+                    continue
+            tables.append(Table(name=name, columns=columns, pks=pks, fks=fks, metadata_json=payload.get("metadata_json")))
+
+        return tables
+
+    async def _upsert_user_overlay(self, db: AsyncSession, data_source: DataSource, user: User, normalized: dict[str, dict]):
+        """Upsert per-user table/column overlay based on normalized schema."""
+        now = datetime.now(timezone.utc)
+        # Load canonical mapping to link if present
+        existing_q = await db.execute(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id))
+        canonical_by_name = {row.name: row for row in existing_q.scalars().all()}
+
+        for table_name, payload in normalized.items():
+            # Upsert table overlay
+            row_q = await db.execute(
+                select(UserOverlayTable).where(
+                    UserOverlayTable.data_source_id == data_source.id,
+                    UserOverlayTable.user_id == user.id,
+                    UserOverlayTable.table_name == table_name,
+                )
+            )
+            t_row = row_q.scalar_one_or_none()
+            if t_row is None:
+                t_row = UserOverlayTable(
+                    data_source_id=str(data_source.id),
+                    user_id=str(user.id),
+                    table_name=table_name,
+                    data_source_table_id=str(canonical_by_name.get(table_name).id) if canonical_by_name.get(table_name) else None,
+                    is_accessible=True,
+                    status="accessible",
+                    discovered_at=now,
+                    last_seen_at=now,
+                    metadata_json=payload.get("metadata_json"),
+                )
+                db.add(t_row)
+                await db.flush()
+            else:
+                t_row.last_seen_at = now
+                t_row.metadata_json = payload.get("metadata_json")
+                if t_row.data_source_table_id is None and canonical_by_name.get(table_name):
+                    t_row.data_source_table_id = str(canonical_by_name.get(table_name).id)
+                db.add(t_row)
+
+            # Upsert column overlays
+            existing_cols_q = await db.execute(select(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id == t_row.id))
+            existing_cols = {c.column_name: c for c in existing_cols_q.scalars().all()}
+            for col in (payload.get("columns") or []):
+                col_name = col.get("name")
+                if not col_name:
+                    continue
+                c_row = existing_cols.get(col_name)
+                if c_row is None:
+                    c_row = UserOverlayColumn(
+                        user_data_source_table_id=str(t_row.id),
+                        column_name=col_name,
+                        is_accessible=True,
+                        is_masked=False,
+                        data_type=col.get("dtype"),
+                        last_seen_at=now,
+                    )
+                else:
+                    c_row.data_type = col.get("dtype")
+                    c_row.last_seen_at = now
+                db.add(c_row)
+
+        await db.commit()
     
     async def update_table_status_in_schema(self, db: AsyncSession, data_source_id: str, tables: list[DataSourceTableSchema], organization: Organization):
         data_source = await self.get_data_source(db=db, data_source_id=data_source_id, organization=organization)
@@ -607,14 +860,14 @@ class DataSourceService:
         
         return data_source
     
-    async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None, should_set_active: bool = True):
+    async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None, should_set_active: bool = True, current_user: User | None = None):
         """Diff-based upsert of datasource tables.
         - Insert new tables
         - Update changed tables
         - Deactivate missing tables (keep history)
         """
         try:
-            fresh_tables = await self.get_data_source_fresh_schema(db=db, data_source_id=data_source.id, organization=organization)
+            fresh_tables = await self.get_data_source_fresh_schema(db=db, data_source_id=data_source.id, organization=organization, current_user=current_user)
             if not fresh_tables:
                 return
 

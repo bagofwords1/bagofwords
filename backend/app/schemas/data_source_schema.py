@@ -12,8 +12,8 @@ class DataSourceSummarySchema(BaseModel):
         from_attributes = True
 
 from pydantic import BaseModel, Field, validator
-from typing import Optional, Dict, Any, List
-from app.schemas.data_source_registry import default_credentials_schema_for
+from typing import Optional, Dict, Any, List, Literal
+from app.schemas.data_source_registry import default_credentials_schema_for, credentials_schema_for
 import uuid
 from datetime import datetime
 import json
@@ -67,13 +67,29 @@ class DataSourceMembershipCreate(BaseModel):
     config: Optional[Dict[str, Any]] = None
 
 
+class DataSourceUserStatus(BaseModel):
+    has_user_credentials: bool
+    auth_mode: Optional[str] = None
+    is_primary: Optional[bool] = None
+    last_used_at: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+    connection: Literal["offline", "not_connected", "success", "unknown"] = "unknown"
+    last_checked_at: Optional[datetime] = None
+    effective_auth: Literal["user", "system", "none"] = "none"
+    uses_fallback: bool = False
+
+
 class DataSourceBase(BaseModel):
     name: str = None
     type: str = None  # e.g., "postgresql", "bigquery", "netsuite"
     config: dict = None  # JSON config, will be validated based on the type
+    auth_policy: str = "system_only"
+    allowed_user_auth_modes: Optional[List[str]] = None
 
 
 class DataSourceSchema(DataSourceBase):
+    class Config:
+        from_attributes = True
     id: str
     organization_id: str
     created_at: datetime
@@ -86,9 +102,15 @@ class DataSourceSchema(DataSourceBase):
     is_public: bool = False
     use_llm_sync: bool = False
     owner_user_id: Optional[str] = None
+    auth_policy: str = "system_only"
+    allowed_user_auth_modes: Optional[List[str]] = None
     config: Dict[str, Any]
     git_repository: Optional[GitRepositorySchema] = None
     memberships: Optional[List[DataSourceMembershipSchema]] = []
+    user_status: Optional[DataSourceUserStatus] = None
+
+    class Config:
+        from_attributes = True
 
     @validator('config', pre=True)
     def parse_config(cls, value):
@@ -99,20 +121,19 @@ class DataSourceSchema(DataSourceBase):
                 raise ValueError('Invalid JSON string for config')
         return value
 
-    @validator('git_repository', pre=True)
-    def validate_git_repository(cls, v):
-        if v is None:
-            return None
-        try:
-            if isinstance(v, list):
-                return v[-1] if v else None
-            return v
-        except Exception:
-            return None
+
+class DataSourceListItemSchema(BaseModel):
+    id: str
+    name: str
+    type: str
+    auth_policy: str
+    description: Optional[str]
+    created_at: datetime
+    status: str  # "active" | "inactive"
+    user_status: Optional[DataSourceUserStatus] = None
 
     class Config:
         from_attributes = True
-        arbitrary_types_allowed = True
 
 
 class DataSourceCreate(DataSourceBase):
@@ -130,7 +151,10 @@ class DataSourceCreate(DataSourceBase):
             raise ValueError('Data source type must be specified')
 
         ds_type = values['type']
-        schema_cls = default_credentials_schema_for(ds_type)
+        # Prefer auth_type from config when present (selected by UI)
+        cfg = values.get('config') or {}
+        auth_type = (cfg or {}).get('auth_type')
+        schema_cls = credentials_schema_for(ds_type, auth_type)
         return schema_cls(**v).dict()
 
 
@@ -145,6 +169,7 @@ class DataSourceUpdate(DataSourceBase):
     credentials: Optional[dict] = None
     is_public: Optional[bool] = None
     use_llm_sync: Optional[bool] = None
+    auth_policy: Optional[str] = None
     member_user_ids: Optional[List[str]] = None  # User IDs to grant access to
 
     class Config:
@@ -156,6 +181,6 @@ class DataSourceInDBBase(DataSourceBase):
     credentials: Optional[str]
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 

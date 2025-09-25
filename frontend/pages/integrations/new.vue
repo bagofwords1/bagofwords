@@ -158,6 +158,7 @@
             <div class="mt-4 flex flex-col gap-2 bg-gray-50 p-5 rounded border">
               <h1 class="text-sm font-semibold">Access Settings</h1>
               <UCheckbox v-model="is_public" label="Make this data source public (accessible to all organization members)" />
+              <UCheckbox v-model="require_user_auth" label="Require user auth (users must provide their own credentials)" />
             </div>
             <div class="mt-4 flex flex-col gap-2 bg-gray-50 p-5 rounded border">
               <h1 class="text-sm font-semibold">LLM settings</h1>
@@ -194,6 +195,7 @@ const formData = reactive({
   credentials: {}
 });
 const is_public = ref(true);
+const require_user_auth = ref(false);
 const generate_summary = ref(true);
 const generate_conversation_starters = ref(true);
 const generate_ai_rules = ref(true);
@@ -233,6 +235,9 @@ const credentialFields = computed(() => {
     uiType: schema?.['ui:type'] || null,
   }));
 });
+
+// Map checkbox to backend policy string
+const auth_policy = computed(() => (require_user_auth.value ? 'user_required' : 'system_only'));
 
 // Auth options, if backend provides auth metadata
 const authOptions = computed(() => {
@@ -283,7 +288,7 @@ async function testConnection(dataSourceId: string) {
 async function getFields() {
   const type = route.query.type;
   try {
-    const response = await useMyFetch(`/data_sources/${type}/fields` as any, {
+    const response = await useMyFetch(`/data_sources/${type}/fields?auth_policy=${auth_policy.value}` as any, {
       method: 'GET',
     });
     
@@ -308,11 +313,20 @@ function initFormData() {
     });
   }
 
-  // Initialize credentials fields
-  if (fields.value.credentials?.properties) {
-    Object.keys(fields.value.credentials.properties).forEach(field_name => {
-      const schema = fields.value.credentials.properties[field_name];
-      formData.credentials[field_name] = schema.default || '';
+  // Initialize credentials fields (respect selected auth mode)
+  const byAuth = (fields.value as any)?.credentials_by_auth;
+  const active = byAuth && selectedAuth.value ? byAuth[selectedAuth.value] : null;
+  const credsSchema = active || fields.value.credentials;
+  if (credsSchema?.properties) {
+    Object.keys(credsSchema.properties).forEach((field_name: string) => {
+      const schema: any = credsSchema.properties[field_name];
+      if (schema?.type === 'boolean') {
+        formData.credentials[field_name] = typeof schema.default === 'boolean' ? schema.default : false;
+      } else if (schema?.type === 'integer' || schema?.['ui:type'] === 'number') {
+        formData.credentials[field_name] = typeof schema.default === 'number' ? schema.default : undefined;
+      } else {
+        formData.credentials[field_name] = schema?.default ?? '';
+      }
     });
   }
 }
@@ -345,9 +359,10 @@ async function handleSubmit() {
     const payload = {
       name: name.value,
       type: selected_ds.value.type,
-      config: formData.config,
+      config: { ...formData.config, auth_type: selectedAuth.value || undefined },
       credentials: formData.credentials,
       is_public: is_public.value,
+      auth_policy: auth_policy.value,
       generate_summary: generate_summary.value,
       generate_conversation_starters: generate_conversation_starters.value,
       generate_ai_rules: generate_ai_rules.value

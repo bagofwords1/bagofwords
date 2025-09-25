@@ -8,7 +8,7 @@ from app.core.auth import current_user
 from app.models.organization import Organization
 from app.dependencies import get_current_organization
 from app.services.data_source_service import DataSourceService
-from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate, DataSourceMembershipCreate
+from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate, DataSourceMembershipCreate, DataSourceListItemSchema
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
 from app.schemas.data_source_schema import DataSourceMembershipSchema
 from app.schemas.datasource_table_schema import DataSourceTableSchema
@@ -27,7 +27,7 @@ async def get_available_data_sources(
 ):
     return await data_source_service.get_available_data_sources(db, organization)
 
-@router.get("/data_sources", response_model=list[DataSourceSchema])
+@router.get("/data_sources", response_model=list[DataSourceListItemSchema])
 @requires_permission('view_data_source')
 async def get_data_sources(
     current_user: User = Depends(current_user),
@@ -36,7 +36,7 @@ async def get_data_sources(
 ):
     return await data_source_service.get_data_sources(db, current_user, organization)
 
-@router.get("/data_sources/active", response_model=list[DataSourceSchema])
+@router.get("/data_sources/active", response_model=list[DataSourceListItemSchema])
 @requires_permission('view_data_source')
 async def get_active_data_sources(
     current_user: User = Depends(current_user),

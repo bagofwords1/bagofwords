@@ -35,6 +35,8 @@ from app.services.widget_service import WidgetService
 from app.services.report_service import ReportService
 from app.services.mention_service import MentionService
 from app.services.memory_service import MemoryService
+from app.services.data_source_service import DataSourceService
+
 from app.websocket_manager import websocket_manager
 from app.settings.database import create_async_session_factory
 
@@ -114,6 +116,7 @@ class CompletionService:
         self.memory_service = MemoryService()
         self.mention_service = MentionService()
         self.llm_service = LLMService()
+        self.data_source_service = DataSourceService()
 
     async def _serialize_completion(self, db: AsyncSession, completion: Completion, current_user: User = None, organization: Organization = None) -> CompletionSchema:
         """Serialize a completion model to a schema following get_completions format"""
@@ -274,6 +277,8 @@ class CompletionService:
                             if not all([report_obj, head_obj, system_obj]):
                                 logging.error("Background agent init failed: missing objects")
                                 return
+                            
+                            clients = { data_source.name: self.data_source_service.construct_client(session, data_source, current_user) for data_source in report_obj.data_sources }
 
                             agent = AgentV2(
                                 db=session,
@@ -286,6 +291,7 @@ class CompletionService:
                                 system_completion=system_obj,
                                 widget=widget_obj,
                                 step=step_obj,
+                                clients=clients,
                             )
                             await agent.main_execution()
                         except Exception as e:
@@ -316,6 +322,7 @@ class CompletionService:
             else:
                 try:
                     # Foreground execution (wait and return final v2)
+                    clients = { data_source.name: self.data_source_service.construct_client(db, data_source, current_user) for data_source in report.data_sources }
                     agent = AgentV2(
                         db=db,
                         organization=organization,
@@ -327,6 +334,7 @@ class CompletionService:
                         system_completion=system_completion,
                         widget=widget,
                         step=step,
+                        clients=clients,
                     )
                     await agent.main_execution()
 
@@ -902,6 +910,8 @@ class CompletionService:
                             )
                             await event_queue.put(error_event)
                             return
+                        
+                        clients = { data_source.name: self.data_source_service.construct_client(session, data_source, current_user) for data_source in report_obj.data_sources }
 
                         # Create agent with event queue
                         agent = AgentV2(
@@ -916,7 +926,8 @@ class CompletionService:
                             system_completion=system_completion_obj,
                             widget=widget_obj,
                             step=step_obj,
-                            event_queue=event_queue  # Pass event queue for streaming
+                            event_queue=event_queue,  # Pass event queue for streaming
+                            clients=clients
                         )
                         
                         # Run agent execution

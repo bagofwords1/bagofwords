@@ -44,6 +44,7 @@ from app.schemas.data_sources.configs import (
 class AuthVariant(BaseModel):
     title: str
     schema: Type[BaseModel]
+    scopes: list[str] = ["system", "user"]  # which contexts this auth is allowed in
 
     class Config:
         arbitrary_types_allowed = True
@@ -86,7 +87,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Open-source relational database known for reliability and feature robustness.",
         config_schema=PostgreSQLConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials)
+            "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system","user"])
         }),
         client_path=None
     ),
@@ -96,7 +97,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Cloud-based data warehousing platform that supports SQL queries.",
         config_schema=SnowflakeConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SnowflakeCredentials)
+            "userpass": AuthVariant(title="Username / Password", schema=SnowflakeCredentials, scopes=["system","user"])
         }),
         client_path="app.data_sources.clients.snowflake_client.SnowflakeClient",
     ),
@@ -106,7 +107,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Serverless, highly scalable, and cost-effective multi-cloud data warehouse.",
         config_schema=BigQueryConfig,
         credentials_auth=AuthOptions(default="service_account", by_auth={
-            "service_account": AuthVariant(title="Service Account JSON", schema=BigQueryCredentials)
+            "service_account": AuthVariant(title="Service Account JSON", schema=BigQueryCredentials, scopes=["system"])  # system-managed only
         }),
         client_path=None,
     ),
@@ -116,7 +117,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Cloud-based enterprise resource planning (ERP) software suite.",
         config_schema=NetSuiteConfig,
         credentials_auth=AuthOptions(default="token", by_auth={
-            "token": AuthVariant(title="Token-Based Auth", schema=NetSuiteCredentials)
+            "token": AuthVariant(title="Token-Based Auth", schema=NetSuiteCredentials, scopes=["system"])  # typically system
         }),
         client_path=None,
         status="inactive",
@@ -128,7 +129,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Popular open-source relational database management system.",
         config_schema=SQLConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials)
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
         client_path=None,
     ),
@@ -138,7 +139,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="AWS Athena is a serverless query service that makes it easy to analyze data in Amazon S3 using standard SQL.",
         config_schema=AWSAthenaConfig,
         credentials_auth=AuthOptions(default="key", by_auth={
-            "key": AuthVariant(title="AWS Keys", schema=AWSAthenaCredentials)
+            "key": AuthVariant(title="AWS Keys", schema=AWSAthenaCredentials, scopes=["system"])  # system
         }),
         client_path=None,
         version="beta",
@@ -149,7 +150,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="MariaDB is a fast, open-source MySQL replacement.",
         config_schema=SQLConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials)
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
         client_path=None,
     ),
@@ -159,7 +160,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Cloud-based CRM platform for sales, service, marketing, and more.",
         config_schema=SalesforceConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials)
+            "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system"])  # likely system
         }),
         client_path=None,
     ),
@@ -169,7 +170,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="MSSQL is Microsoft's relational database for managing and analyzing data.",
         config_schema=SQLConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials)
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
         client_path=None,
     ),
@@ -179,7 +180,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="ClickHouse is a fast, open-source columnar database for real-time analytics.",
         config_schema=SQLConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials)
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
         client_path=None,
     ),
@@ -189,7 +190,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="AWS Cost Explorer helps analyze and visualize your AWS spending and usage patterns over time.",
         config_schema=AWSCostConfig,
         credentials_auth=AuthOptions(default="key", by_auth={
-            "key": AuthVariant(title="AWS Keys", schema=AWSCostCredentials)
+            "key": AuthVariant(title="AWS Keys", schema=AWSCostCredentials, scopes=["system"])  # system
         }),
         client_path=None,
         version="beta",
@@ -200,7 +201,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="High-performance columnar analytics database optimized for large-scale data warehousing and analytics workloads.",
         config_schema=VerticaConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=VerticaCredentials)
+            "userpass": AuthVariant(title="Username / Password", schema=VerticaCredentials, scopes=["system","user"])
         }),
         client_path=None,
     ),
@@ -210,9 +211,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Fully managed, petabyte-scale data warehouse service in the cloud for analytics and business intelligence.",
         config_schema=AwsRedshiftConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=AwsRedshiftUserPassCredentials),
-            "iam": AuthVariant(title="AWS Keys (IAM)", schema=AwsRedshiftIAMCredentials),
-            "arn": AuthVariant(title="Assume Role (ARN)", schema=AwsRedshiftAssumeRoleCredentials),
+            "userpass": AuthVariant(title="Username / Password", schema=AwsRedshiftUserPassCredentials, scopes=["system","user"]),
+            "iam": AuthVariant(title="AWS Keys (IAM)", schema=AwsRedshiftIAMCredentials, scopes=["system"]),
+            "arn": AuthVariant(title="Assume Role (ARN)", schema=AwsRedshiftAssumeRoleCredentials, scopes=["system"]),
         }),
         client_path=None,
     ),
@@ -222,7 +223,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Discover schemas via Metadata API and query published data sources via VizQL Data Service.",
         config_schema=TableauConfig,
         credentials_auth=AuthOptions(default="pat", by_auth={
-            "pat": AuthVariant(title="Personal Access Token", schema=TableauPATCredentials)
+            "pat": AuthVariant(title="Personal Access Token", schema=TableauPATCredentials, scopes=["system"])  # user OAuth later
         }),
         client_path="app.data_sources.clients.tableau_client.TableauClient",
     ),
@@ -258,19 +259,19 @@ def config_schema_for(ds_type: str) -> Type[BaseModel]:
 def default_credentials_schema_for(ds_type: str) -> Type[BaseModel]:
     entry = get_entry(ds_type)
     default = entry.credentials_auth.default
-    schema = entry.credentials_auth.by_auth.get(default)
-    if not schema:
+    variant = entry.credentials_auth.by_auth.get(default)
+    if not variant:
         raise ValueError("No default credentials schema defined")
-    return schema
+    return variant.schema
 
 
 def credentials_schema_for(ds_type: str, auth_type: Optional[str]) -> Type[BaseModel]:
     entry = get_entry(ds_type)
     selected = auth_type or entry.credentials_auth.default
-    schema = entry.credentials_auth.by_auth.get(selected)
-    if not schema:
+    variant = entry.credentials_auth.by_auth.get(selected)
+    if not variant:
         raise ValueError("Unsupported authentication method for this data source")
-    return schema
+    return variant.schema
 
 
 def resolve_client_class(ds_type: str):

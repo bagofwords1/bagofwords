@@ -30,9 +30,14 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     queries = relationship("Query", back_populates="user")
     
     external_user_mappings = relationship("ExternalUserMapping", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
+    user_data_source_credentials = relationship("UserDataSourceCredentials", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
 
 
 
 # from app.models.organization import Organization
 # from app.models.membership import Membership
 # from app.models.memory import Memory
+
+# Ensure SQLAlchemy registers the dependent mapper before configuration
+# by importing the model module after User is defined.
+from app.models.user_data_source_credentials import UserDataSourceCredentials  # noqa: E402,F401

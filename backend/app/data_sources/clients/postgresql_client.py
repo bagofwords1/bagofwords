@@ -11,7 +11,7 @@ from functools import cached_property
 
 
 class PostgresqlClient(DataSourceClient):
-    def __init__(self, host, port, database, user, password):
+    def __init__(self, host, port, database, user, password=""):
         self.host = host
         self.port = port
         self.database = database

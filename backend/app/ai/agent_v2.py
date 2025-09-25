@@ -33,7 +33,7 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None):
+                 model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None):
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
@@ -53,7 +53,7 @@ class AgentV2:
         if report:
             # Handle case where data_sources or files might be None
             self.data_sources = getattr(report, 'data_sources', []) or []
-            self.clients = {data_source.name: data_source.get_client() for data_source in self.data_sources}
+            self.clients = clients
             self.files = getattr(report, 'files', []) or []
         else:
             self.data_sources = []

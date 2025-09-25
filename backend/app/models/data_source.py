@@ -31,6 +31,9 @@ class DataSource(BaseSchema):
     last_synced_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     is_public = Column(Boolean, nullable=False, default=True)
+    auth_policy = Column(String, nullable=False, default="system_only") # system_only, user_required
+    allowed_user_auth_modes = Column(JSON, nullable=True, default=None)
+
     # When true, the system may run LLM onboarding synchronously (onboarding flow only)
     owner_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     context = Column(Text, nullable=True)
@@ -61,6 +64,7 @@ class DataSource(BaseSchema):
     metadata_resources = relationship("MetadataResource", back_populates="data_source")
     metadata_indexing_jobs = relationship("MetadataIndexingJob", back_populates="data_source")
     data_source_memberships = relationship("DataSourceMembership", back_populates="data_source", cascade="all, delete-orphan")
+    user_data_source_credentials = relationship("UserDataSourceCredentials", back_populates="data_source", cascade="all, delete-orphan")
 
     @property
     def memberships(self):
@@ -91,7 +95,8 @@ class DataSource(BaseSchema):
             if self.credentials:
                 decrypted_credentials = self.decrypt_credentials()
                 client_params.update(decrypted_credentials)
-            
+            if "auth_type" in client_params.keys():
+                del client_params["auth_type"]
             # Debug logging
             import logging
             logger = logging.getLogger(__name__)
@@ -101,6 +106,15 @@ class DataSource(BaseSchema):
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:
             raise ValueError(f"Unable to load data source client for {self.type}: {str(e)}")
+    
+    def get_credentials(self):
+        if self.auth_policy == "system_only":
+            return self.decrypt_credentials()
+        elif self.auth_policy == "user_required":
+            #return self.user_data_source_credentials.decrypt_credentials()
+            return None
+        else:
+            raise ValueError(f"Invalid auth policy: {self.auth_policy}")
         
     def encrypt_credentials(self, credentials: dict):
         fernet = Fernet(settings.bow_config.encryption_key)
