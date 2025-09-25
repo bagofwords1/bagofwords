@@ -236,9 +236,9 @@ class DataSource(BaseSchema):
         tables = await self.get_schemas(db=db, with_stats=with_stats, top_k=top_k)
         schema_str = TableFormatter(tables).table_str
         
-        resource_context = await self.get_resources(db, prompt_content)
-        if resource_context:
-            schema_str += f"\n\n{resource_context}"
+        #resource_context = await self.get_resources(db, prompt_content)
+        #if resource_context:
+            #schema_str += f"\n\n{resource_context}"
                 
         return schema_str
     
