@@ -40,16 +40,39 @@ class UserDataSourceCredentialsService:
         return UserDataSourceCredentialsSchema.from_orm(row) if row else None
 
     async def build_user_status(self, db: AsyncSession, data_source: DataSource, user: User, live_test: bool = False) -> DataSourceUserStatus:
-        # Only meaningful for user_required
+        # For system-only data sources, report system connection status
         if getattr(data_source, "auth_policy", "system_only") != "user_required":
-            return DataSourceUserStatus(has_user_credentials=False, connection="unknown", effective_auth="system")
+            conn = "unknown"
+            if live_test:
+                try:
+                    from app.services.data_source_service import DataSourceService
+                    ds_service = DataSourceService()
+                    client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
+                    ok = client.test_connection()
+                    success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
+                    conn = "success" if success else "not_connected"
+                except Exception:
+                    conn = "not_connected"
+            return DataSourceUserStatus(has_user_credentials=False, connection=conn, effective_auth="system")
 
         row = await self.get_primary_active_row(db, data_source, user)
         if not row:
             # Owner fallback possible; if no creds but owner can use system, reflect that
             is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
             if is_owner and getattr(data_source, "credentials", None):
-                return DataSourceUserStatus(has_user_credentials=False, connection="unknown", effective_auth="system", uses_fallback=True)
+                conn = "unknown"
+                if live_test:
+                    try:
+                        # Attempt live test using system credentials
+                        from app.services.data_source_service import DataSourceService
+                        ds_service = DataSourceService()
+                        client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
+                        ok = client.test_connection()
+                        success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
+                        conn = "success" if success else "not_connected"
+                    except Exception:
+                        conn = "not_connected"
+                return DataSourceUserStatus(has_user_credentials=False, connection=conn, effective_auth="system", uses_fallback=True)
             return DataSourceUserStatus(has_user_credentials=False, connection="offline", effective_auth="none")
 
         conn = "unknown"
@@ -74,6 +97,7 @@ class UserDataSourceCredentialsService:
             connection=conn,
             effective_auth="user",
             uses_fallback=False,
+            credentials_id=str(getattr(row, "id", "")) if getattr(row, "id", None) else None,
         )
 
     async def test_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> dict:

@@ -6,8 +6,10 @@
         <p class="mt-4 text-gray-500 text-center">Connect and manage your data sources</p>
       </div>
 
+      <WizardSteps class="mt-4" current="connect" />
+
       <div class="mt-6">
-        <ConnectForm @success="handleSuccess" mode="create" />
+        <ConnectForm @success="handleSuccess" :forceShowSystemCredentials="true" :showRequireUserAuthToggle="true" :initialRequireUserAuth="false" :showTestButton="true" :showLLMToggle="true" :allowNameEdit="true" mode="create" />
       </div>
     </div>
   </div>
@@ -16,6 +18,7 @@
 <script setup lang="ts">
 definePageMeta({ auth: true })
 import ConnectForm from '@/components/datasources/ConnectForm.vue'
+import WizardSteps from '@/components/datasources/WizardSteps.vue'
 
 function handleSuccess(ds: any) {
   const id = ds?.id

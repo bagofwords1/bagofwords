@@ -77,6 +77,7 @@ class DataSourceUserStatus(BaseModel):
     last_checked_at: Optional[datetime] = None
     effective_auth: Literal["user", "system", "none"] = "none"
     uses_fallback: bool = False
+    credentials_id: Optional[str] = None
 
 
 class DataSourceBase(BaseModel):

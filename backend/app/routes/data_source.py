@@ -53,7 +53,7 @@ async def get_data_source(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await data_source_service.get_data_source(db, data_source_id, organization)
+    return await data_source_service.get_data_source(db, data_source_id, organization, current_user)
 
 
 @router.get("/data_sources/{data_source_type}/fields", response_model=dict)

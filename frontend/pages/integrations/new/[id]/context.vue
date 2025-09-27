@@ -1,10 +1,12 @@
 <template>
-  <div class="min-h-screen bg-gray-50 py-12 px-4">
-    <div class="w-full max-w-6xl mx-auto">
-      <div class="mb-4">
-        <h1 class="text-lg font-semibold">Context</h1>
-        <p class="text-gray-500 text-sm">Add description, approve suggestions, and link resources</p>
+
+  <div class="min-h-screen py-10 px-4 md:w-1/2 mx-auto text-sm">
+      <div class="w-full px-4 pl-0 py-4">
+      <div>
+        <h1 class="text-lg font-semibold text-center">Integrations</h1>
+        <p class="mt-4 text-gray-500 text-center">Connect and manage your data sources</p>
       </div>
+        <WizardSteps class="mb-5 mt-4" current="context" :ds-id="dsId" />
 
       <!-- Loading State -->
       <div v-if="isLLMSyncInProgress" class="flex items-center justify-center min-h-[200px] space-x-2">
@@ -14,16 +16,15 @@
 
       <div v-else class="space-y-6">
         <!-- Suggested Instructions -->
-        <div class="bg-white border border-gray-200 rounded-lg">
-          <div @click="toggleInstructionsSection" class="flex items-center justify-between cursor-pointer p-3 hover:bg-gray-50">
-            <div class="flex items-center">
-              <UIcon :name="instructionsExpanded ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-5 h-5 text-gray-500 mr-2" />
-              <h3 class="text-sm font-semibold text-gray-900">Suggested Instructions</h3>
+        <div class="bg-white">
+          <div @click="toggleInstructionsSection" class="flex items-center justify-between cursor-pointer hover:bg-gray-50">
+            <div class="flex items-center border-b border-gray-200 pb-3">
+              <h3 class="text-lg mt-4 font-semibold text-gray-900">Add custom AI rules and instructions</h3>
             </div>
           </div>
-          <div v-if="instructionsExpanded" class="px-3 pb-3">
+          <div v-if="instructionsExpanded" class="">
             <div class="text-left mb-4">
-              <p class="text-xs text-gray-500">Custom instructions are great for business-specific context, glossary and useful code guidelines/snippets.</p>
+              <p class="text-sm mt-4 text-gray-500">Custom instructions are great for business-specific context, glossary and useful code guidelines/snippets.</p>
             </div>
             <div class="space-y-3">
               <div v-if="isLoadingInstructions" class="text-xs text-gray-500 flex items-center gap-2">
@@ -63,24 +64,29 @@
         </div>
 
         <!-- Enrichment -->
-        <div class="bg-white border border-gray-200 rounded-lg">
-          <div @click="toggleEnrichmentSection" class="flex items-center justify-between cursor-pointer p-3 hover:bg-gray-50">
-            <div class="flex items-center">
-              <UIcon :name="enrichmentExpanded ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-5 h-5 text-gray-500 mr-2" />
-              <h3 class="text-sm font-semibold text-gray-900">Enrich Context</h3>
+        <div class="bg-white">
+          <div @click="toggleEnrichmentSection" class="flex items-center justify-between cursor-pointer hover:bg-gray-50">
+            <div class="flex items-center border-b border-gray-200 pb-3">
+              <h3 class="text-lg mt-4 font-semibold text-gray-900">Connect Tableau, dbt, and your AGENTS.md files</h3>
             </div>
-            <div class="flex items-center gap-2">
-              <UTooltip text="Tableau"><img src="/icons/tableau.png" alt="Tableau" class="h-3 inline" /></UTooltip>
-              <UTooltip text="dbt"><img src="/icons/dbt.png" alt="dbt" class="h-3 inline" /></UTooltip>
-              <UTooltip text="LookML"><img src="/icons/lookml.png" alt="LookML" class="h-3 inline" /></UTooltip>
-              <UTooltip text="Markdown"><img src="/icons/markdown.png" alt="Markdown" class="h-3 inline" /></UTooltip>
-            </div>
+
           </div>
-          <div v-if="enrichmentExpanded" class="px-3 pb-3">
-            <div class="text-center mb-4 mt-5">
-              <p class="text-sm text-gray-500">Connect a Git repo to load dbt/markdown resources, then toggle items to include them in AI context.</p>
+          <div v-if="enrichmentExpanded" class="">
+            <div class="text-left mb-4 mt-5">
+              <p class="text-sm text-gray-500 leading-relaxed">
+
+                Connect additional context from Tableau, dbt, LookML, code, and markdown files to your data sources. It will be used by AI agents to throught out data analysis. 
+                <br />
+                Integration is via git repository.
+              </p>
+            <div class="flex mt-4 mb-4">
+              <UTooltip text="Tableau"><img src="/public/icons/tableau.png" alt="Tableau" class="h-5 inline" /></UTooltip>
+              <UTooltip text="dbt"><img src="/public/icons/dbt.png" alt="dbt" class="h-5 inline" /></UTooltip>
+              <UTooltip text="LookML"><img src="/public/icons/lookml.png" alt="LookML" class="h-5 inline" /></UTooltip>
+              <UTooltip text="Markdown"><img src="/public/icons/markdown.png" alt="Markdown" class="h-5 inline" /></UTooltip>
             </div>
-            <div class="text-center mb-4 mt-6">
+            </div>
+            <div class="mb-4 mt-6">
               <UTooltip v-if="integration?.git_repository" :text="integration.git_repository.repo_url">
                 <UButton icon="heroicons:code-bracket" :label="repoDisplayName" class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs rounded-md hover:bg-gray-200" @click="showGitModal = true" />
               </UTooltip>
@@ -88,7 +94,7 @@
             </div>
             <div>
               <div v-if="isLoadingMetadataResources" class="text-xs text-gray-500 flex items-center gap-2">
-                <UIcon name="heroicons:arrow-path" class="w-4 h-4 animate-spin" />
+                <Spinner class="w-4 h-4" />
                 Loading resources...
               </div>
               <div v-else>
@@ -153,6 +159,7 @@ import Spinner from '@/components/Spinner.vue'
 import InstructionGlobalCreateComponent from '@/components/InstructionGlobalCreateComponent.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import ResourceDisplay from '~/components/ResourceDisplay.vue'
+import WizardSteps from '@/components/datasources/WizardSteps.vue'
 
 const route = useRoute()
 const router = useRouter()
