@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.200 (September 27, 2025)
+- Enhanced data source setup experience for new users
+- Redesigned user interface for data source management
+- Introduced "require user authentication" option for data sources
+- Sample questions for data sources is now customizable
+
 ## Version 0.0.199 (September 20, 2025)
 - Redesigned application onboarding experience
 - Implemented automatic instruction suggestions throughout the onboarding process
