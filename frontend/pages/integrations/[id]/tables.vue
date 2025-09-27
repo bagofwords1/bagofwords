@@ -28,7 +28,11 @@ onMounted(async () => {
     loading.value = true
     try {
         const policy = await getAuthPolicy()
-        schemaMode.value = policy === 'user_required' ? 'user' : 'full'
+        if(canUpdateDataSource.value) {
+            schemaMode.value = 'full'
+        } else {
+            schemaMode.value = 'user'
+        }
     } finally {
         loading.value = false
     }

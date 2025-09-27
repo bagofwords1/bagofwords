@@ -92,45 +92,7 @@
               </UTooltip>
               <UButton v-else icon="heroicons:code-bracket" class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50" @click="showGitModal = true">Integrate</UButton>
             </div>
-            <div>
-              <div v-if="isLoadingMetadataResources" class="text-xs text-gray-500 flex items-center gap-2">
-                <Spinner class="w-4 h-4" />
-                Loading resources...
-              </div>
-              <div v-else>
-                <div v-if="metadataResources?.resources && metadataResources.resources.length > 0">
-                  <div class="mb-2">
-                    <input v-model="resourceSearch" type="text" placeholder="Search resources..." class="border border-gray-300 rounded-lg px-3 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
-                    <div class="mt-1 text-xs text-gray-500 text-right">{{ filteredResources.length }} of {{ totalResources }} shown</div>
-                  </div>
-                  <div class="border border-gray-100 rounded max-h-64 overflow-y-auto min-h-[120px]">
-                    <ul class="divide-y divide-gray-100">
-                      <li v-for="res in filteredResources" :key="res.id" class="py-2 px-3">
-                        <div class="flex items-center">
-                          <UCheckbox v-model="res.is_active" class="mr-2" />
-                          <div class="font-semibold text-gray-500 cursor-pointer flex items-center" @click="toggleResource(res)">
-                            <UIcon :name="expandedResources[res.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 mr-1" />
-                            <UIcon v-if="res.resource_type === 'model' || res.resource_type === 'model_config'" name="heroicons:cube" class="w-4 h-4 text-gray-500 mr-1" />
-                            <UIcon v-else-if="res.resource_type === 'metric'" name="heroicons:hashtag" class="w-4 h-4 text-gray-500 mr-1" />
-                            <span class="text-sm text-gray-800 ">{{ res.name }}</span>
-                          </div>
-                        </div>
-                        <div v-if="expandedResources[res.id]" class="ml-6 mt-2">
-                          <ResourceDisplay :resource="res" />
-                        </div>
-                      </li>
-                    </ul>
-                  </div>
-                  <div class="pt-3 text-left">
-                    <button @click="updateResourceStatus" :disabled="isUpdatingResources" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
-                      <UIcon v-if="isUpdatingResources" name="heroicons:arrow-path" class="w-4 h-4 animate-spin inline mr-1" />
-                      {{ isUpdatingResources ? 'Saving...' : 'Save Resources' }}
-                    </button>
-                  </div>
-                </div>
-                <div v-else class="text-xs text-gray-500"></div>
-              </div>
-            </div>
+            <ResourcesSelector :ds-id="String(dsId)" @saved="() => {}" @error="(e:any) => console.error(e)" />
           </div>
         </div>
 
@@ -158,7 +120,7 @@ definePageMeta({ auth: true })
 import Spinner from '@/components/Spinner.vue'
 import InstructionGlobalCreateComponent from '@/components/InstructionGlobalCreateComponent.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
-import ResourceDisplay from '~/components/ResourceDisplay.vue'
+import ResourcesSelector from '~/components/datasources/ResourcesSelector.vue'
 import WizardSteps from '@/components/datasources/WizardSteps.vue'
 
 const route = useRoute()
