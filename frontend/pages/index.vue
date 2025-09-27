@@ -28,11 +28,13 @@
       <p class="text-sm text-gray-500 mt-2">Loading...</p>
     </div>
 
-    <div v-else class="flex flex-col p-4 flex-grow md:w-2/3 text-center md:mx-auto mt-20">
-      <div v-if="showSetupComplete" class="mb-4">
-        <div class="mx-auto max-w-lg bg-green-50 border border-green-200 text-green-800 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
-          <span class="mr-2">✅</span>
-          <span>Setup complete — you can now start asking questions in natural language.</span>
+    <div v-else class="flex flex-col p-4 flex-grow md:w-2/3 text-center md:mx-auto mt-14">
+      <div v-if="showSetupComplete" class="mb-10">
+        <div class="mx-auto max-w-xl bg-green-50 border border-green-200 text-green-800 text-sm rounded-lg px-3 py-2 flex items-center justify-center">
+          <span class="mr-2 flex items-center">
+            <Icon name="heroicons-check" />
+          </span>
+          <span class="flex items-center">Setup complete — you can now start asking questions in natural language.</span>
         </div>
       </div>
       <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="w-10 mx-auto" />
