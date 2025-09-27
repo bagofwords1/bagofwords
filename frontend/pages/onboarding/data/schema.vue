@@ -5,7 +5,7 @@
         <template #schema>
           <div>
               <div class="">
-                <TablesSelector :ds-id="dsId" schema="full" :can-update="true" :show-refresh="true" :show-save="true" save-label="Save" @saved="onSaved" />
+                <TablesSelector :ds-id="dsId" schema="full" :can-update="true" :show-header="false" :show-refresh="true" :show-save="true" save-label="Save" @saved="onSaved" />
               </div>
           </div>
         </template>

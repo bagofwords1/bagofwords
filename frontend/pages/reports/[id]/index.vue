@@ -254,7 +254,9 @@
 
 				<hr class="my-4">
 				<p class="text-gray-500 text-sm"><span class="font-semibold">Tip:</span> <br />
-					Use @ to explore data sources and memories<br /> and to mention them in your question.</p>
+					Not sure what to ask? You can ask the AI Analyst to suggest questions about a specific topic.
+				</p>
+
 			</div>
 			</div>
 		</div>

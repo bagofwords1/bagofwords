@@ -323,8 +323,7 @@ function clearTestResult() {
 }
 
 watch(require_user_auth, (val) => {
-  // When switching to user auth, clear any system credentials and reset test result
-  if (val) formData.credentials = {} as any
+  // Preserve existing credential values when toggling auth policy
   clearTestResult()
   // Refresh fields since schema can depend on auth policy
   preserveOnNextFetch.value = true

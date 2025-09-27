@@ -98,7 +98,7 @@ class DataSourceSchema(DataSourceBase):
     context: Optional[str]
     description: Optional[str]
     summary: Optional[str]
-    conversation_starters: Optional[list]
+    conversation_starters: Optional[list] = None
     is_active: bool
     is_public: bool = False
     use_llm_sync: bool = False
@@ -129,6 +129,7 @@ class DataSourceListItemSchema(BaseModel):
     type: str
     auth_policy: str
     description: Optional[str]
+    conversation_starters: Optional[list] = None
     created_at: datetime
     status: str  # "active" | "inactive"
     user_status: Optional[DataSourceUserStatus] = None

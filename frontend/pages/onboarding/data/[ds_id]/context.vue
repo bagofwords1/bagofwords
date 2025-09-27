@@ -194,7 +194,7 @@
                         <button 
                           @click="updateResourceStatus" 
                           :disabled="isUpdatingResources" 
-                          class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
+                          class="hidden bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
                         >
                           <UIcon v-if="isUpdatingResources" name="heroicons:arrow-path" class="w-4 h-4 animate-spin inline mr-1" />
                           {{ isUpdatingResources ? 'Saving...' : 'Save Resources' }}
@@ -451,6 +451,7 @@ async function handleSave() {
     // await useMyFetch(`/data_sources/${dsId.value}/context`, { method: 'POST', body: payload })
     
     // Update onboarding as completed - OnboardingView will automatically redirect
+    await updateResourceStatus()
     try {
       await updateOnboarding({ current_step: 'instructions_added' as any, completed: true as any, dismissed: false as any })
     } catch (e) {

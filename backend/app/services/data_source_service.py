@@ -13,6 +13,7 @@ from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TY
 from app.models.metadata_resource import MetadataResource
 from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobStatus
 from app.models.git_repository import GitRepository
+from app.models.membership import Membership, ROLES_PERMISSIONS
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -378,6 +379,20 @@ class DataSourceService:
         data_sources = result.scalars().all()
         from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
         u_svc = UserDataSourceCredentialsService()
+        # Compute once whether the current user has org-level permission to update data sources
+        has_update_perm = False
+        if current_user:
+            try:
+                mem_res = await db.execute(
+                    select(Membership).where(
+                        Membership.user_id == current_user.id,
+                        Membership.organization_id == organization.id,
+                    )
+                )
+                membership = mem_res.scalar_one_or_none()
+                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+            except Exception:
+                has_update_perm = False
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
             s = DataSourceListItemSchema(
@@ -385,6 +400,7 @@ class DataSourceService:
                 name=d.name,
                 type=d.type,
                 auth_policy=d.auth_policy,
+                conversation_starters=getattr(d, "conversation_starters", None),
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
@@ -394,13 +410,14 @@ class DataSourceService:
                     s.user_status = await u_svc.build_user_status(db=db, data_source=d, user=current_user, live_test=False)
             except Exception:
                 pass
-            # Exclude user_required data sources that the user can access but has no credentials for
+            # Exclude user_required data sources lacking user credentials,
+            # unless the user has permission to update data sources (admin/editor)
             if getattr(d, "auth_policy", "system_only") == "user_required" and current_user:
                 try:
-                    if not getattr(s.user_status, "has_user_credentials", False):
-                        continue
+                    has_user_creds = getattr(s.user_status, "has_user_credentials", False)
                 except Exception:
-                    # If user_status could not be determined, be conservative and hide the DS from active list
+                    has_user_creds = False
+                if not has_user_creds and not has_update_perm:
                     continue
             items.append(s)
         return items
@@ -601,12 +618,25 @@ class DataSourceService:
         )
         row = row.scalars().first()
         if not row:
-            # Owner/admin fallback: allow creator to use system creds if present
+            # Owner/admin fallback: allow creator or admin to use system creds if present
             try:
                 is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
             except Exception:
                 is_owner = False
-            if is_owner and getattr(data_source, "credentials", None):
+            # Check org role permission for update_data_source
+            has_update_perm = False
+            try:
+                mem_res = await db.execute(
+                    select(Membership).where(
+                        Membership.user_id == current_user.id,
+                        Membership.organization_id == getattr(data_source, "organization_id", None),
+                    )
+                )
+                membership = mem_res.scalar_one_or_none()
+                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+            except Exception:
+                has_update_perm = False
+            if (is_owner or has_update_perm) and getattr(data_source, "credentials", None):
                 try:
                     return data_source.decrypt_credentials() or {}
                 except Exception:

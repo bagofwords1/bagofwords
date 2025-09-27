@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full">
+  <div class="w-full" v-if="totalResources.length > 0">
     <div v-if="showHeader" class="mb-2">
       <h1 class="text-lg font-semibold">{{ headerTitle }}</h1>
       <p class="text-gray-500 text-sm">{{ headerSubtitle }}</p>

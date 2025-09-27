@@ -1,136 +1,138 @@
 <template>
-    <UDropdown 
-        :items="getConversationStarters(data_source)" 
-        :ui="{ width: 'w-81' }" 
-        v-for="data_source in validDataSources" 
-        :key="data_source.id">
+    <div v-if="visibleItems.length > 0" class="flex flex-wrap justify-center gap-3">
         <button
-            class="group relative overflow-hidden rounded bg-white px-4 py-2 text-xs text-gray-500 transition-all duration-300 ease-out hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 ring-1 ring-gray-200 hover:ring-1  hover:ring-offset-2">
-            <span
-                class="ease absolute right-0 -mt-12 h-32 w-8 translate-x-12 rotate-12 transform bg-white opacity-10 transition-all duration-700 group-hover:-translate-x-40"></span>
-            <div class="relative">
-                <DataSourceIcon :type="data_source.type" class="h-3 inline mr-2" />
-                <transition name="fade" mode="out-in">
-                    <span :key="starterIndexes.get(data_source.id)">
-                        {{ getCurrentStarter(data_source) }}
-                    </span>
-                </transition>
-                <span>
-                    <UIcon name="i-heroicons-chevron-down" class="h-3 inline-block ml-2" />
-                </span>
-            </div>
+            v-for="(item, idx) in visibleItems"
+            :key="item.key + '-' + idx"
+            @click="emitContent(item.value)"
+            :class="['group relative overflow-hidden rounded-2xl bg-white px-4 py-2 text-xs text-gray-800 font-medium transition-all duration-300 ease-out hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 border border-gray-200', (fadingIndex === idx) ? 'swap-out' : 'swap-in']">
+            <span class="ease absolute right-0 -mt-12 h-32 w-8 translate-x-12 rotate-12 transform bg-white opacity-10 transition-all duration-700 group-hover:-translate-x-40"></span>
+            <span class="relative">{{ item.label }}</span>
         </button>
-        <template #item="{ item }">
-            <div @click="emitContent(item.value)" class="text-left text-sm">
-                {{ item.label }}
-            </div>
-        </template>
-    </UDropdown>
-
-
-    <!-- excel / PDF -->
-    <button @click="emitContent('Extract data from Excel / PDF')"
-        class="group relative overflow-hidden rounded bg-white px-4 py-2 text-xs text-gray-500 transition-all duration-300 ease-out hover:bg-gradient-to-r hover:from-gray-50 hover:to-gray-100 ring-1 ring-gray-200 hover:ring-1  hover:ring-offset-2">
-        <span
-            class="ease absolute right-0 -mt-12 h-32 w-8 translate-x-12 rotate-12 transform bg-white opacity-10 transition-all duration-700 group-hover:-translate-x-40"></span>
-        <span class="relative">
-            <DataSourceIcon type="excel" class="h-3 inline mr-2" />
-            Extract data from Excel / PDF
-        </span>
-    </button>
+    </div>
+    <div v-else-if="shouldShowSpinner" class="flex items-center justify-center">
+        <Spinner class="h-4 w-4 text-gray-400" />
+    </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, onMounted, nextTick } from 'vue'
+import Spinner from '@/components/Spinner.vue'
 
 const props = defineProps<{
     data_sources: any[]
 }>()
 
-// console.log('Component initializing, data_sources:', props.data_sources)
-
-const starterIndexes = ref(new Map())
-const intervalIds = ref(new Map())
 const emit = defineEmits(['update-content'])
 
-// Filter out invalid data sources
-const validDataSources = computed(() => {
-    if (!props.data_sources || !Array.isArray(props.data_sources)) {
-        return []
+type Suggestion = { key: string, label: string, value: string }
+
+// Build a flat pool of suggestions from all selected data sources
+const pool = computed<Suggestion[]>(() => {
+    if (!props.data_sources || !Array.isArray(props.data_sources)) return []
+    const uniqueByLabel = new Map<string, Suggestion>()
+    for (const ds of props.data_sources) {
+        const starters = Array.isArray(ds?.conversation_starters) ? ds.conversation_starters : []
+        for (const raw of starters) {
+            const label = String(raw ?? '').split('\n')[0].trim()
+            if (!label) continue
+            if (!uniqueByLabel.has(label)) {
+                uniqueByLabel.set(label, { key: `${label}-${uniqueByLabel.size}`, label, value: String(raw) })
+            }
+        }
     }
-    return props.data_sources.filter(ds => 
-        ds && 
-        ds.id && 
-        ds.conversation_starters && 
-        Array.isArray(ds.conversation_starters) && 
-        ds.conversation_starters.length > 0
-    )
+    return Array.from(uniqueByLabel.values())
 })
 
-// Watch for changes in validDataSources
-watch(validDataSources, (newValidDataSources) => {
-    // Clear existing intervals
-    intervalIds.value.forEach(intervalId => clearInterval(intervalId))
-    intervalIds.value.clear()
-    
-    if (!newValidDataSources || newValidDataSources.length === 0) {
-        return
-    }
+const VISIBLE_COUNT = 5
+const visibleItems = ref<Suggestion[]>([])
+const fadingIndex = ref<number | null>(null)
 
-    newValidDataSources.forEach(ds => {
-        starterIndexes.value.set(ds.id, 0)
-        
-        const randomInterval = 35000 + Math.random() * 5000
-        
-        const intervalId = setInterval(() => {
-            const currentIndex = starterIndexes.value.get(ds.id)
-            const maxIndex = ds.conversation_starters?.length || 1
-            const newMap = new Map(starterIndexes.value)
-            newMap.set(ds.id, (currentIndex + 1) % maxIndex)
-            starterIndexes.value = newMap
-        }, randomInterval)
-        
-        intervalIds.value.set(ds.id, intervalId)
-    })
+function pickRandom<T>(arr: T[]): T | undefined {
+    if (!arr.length) return undefined
+    const index = Math.floor(Math.random() * arr.length)
+    return arr[index]
+}
+
+function repopulateInitial() {
+    const available = [...pool.value]
+    const next: Suggestion[] = []
+    const desired = Math.min(VISIBLE_COUNT, available.length)
+    while (available.length > 0 && next.length < desired) {
+        const candidate = pickRandom(available)
+        if (!candidate) break
+        next.push(candidate)
+        const idx = available.indexOf(candidate)
+        if (idx >= 0) available.splice(idx, 1)
+    }
+    visibleItems.value = next
+}
+
+function rotateOne() {
+    const currentLabels = new Set(visibleItems.value.map(i => i.label))
+    const candidates = pool.value.filter(i => !currentLabels.has(i.label))
+    if (visibleItems.value.length === 0) return
+    // If no unique candidates remain, stop rotating
+    if (candidates.length === 0) return
+    const replaceIndex = Math.floor(Math.random() * visibleItems.value.length)
+    const replacement = pickRandom(candidates)
+    if (!replacement) return
+    fadingIndex.value = replaceIndex
+    setTimeout(async () => {
+        const nextArr = visibleItems.value.slice()
+        nextArr.splice(replaceIndex, 1, replacement)
+        visibleItems.value = nextArr
+        await nextTick()
+        setTimeout(() => { fadingIndex.value = null }, 50)
+    }, 200)
+}
+
+let rotationInterval: any
+function startRotation() {
+    clearInterval(rotationInterval)
+    rotationInterval = setInterval(() => {
+        rotateOne()
+    }, 5000) // rotate one every 5s
+}
+
+watch(pool, () => {
+    repopulateInitial()
+    startRotation()
 }, { immediate: true })
 
-// Cleanup on component unmount
+onMounted(() => {})
+
 onUnmounted(() => {
-    intervalIds.value.forEach(intervalId => clearInterval(intervalId))
-    intervalIds.value.clear()
+    clearInterval(rotationInterval)
 })
-
-function getConversationStarters(data_source: any) {
-    if (!data_source.conversation_starters || !Array.isArray(data_source.conversation_starters)) {
-        return []
-    }
-    return [data_source.conversation_starters.map((item: any) => ({
-        label: item.split('\n')[0],
-        icon: data_source.type,
-        value: item
-    }))]
-}
-
-function getCurrentStarter(data_source: any) {
-    if (!data_source.conversation_starters?.length) return ''
-    const index = starterIndexes.value.get(data_source.id) || 0
-    return data_source.conversation_starters[index].split('\n')[0]
-}
 
 function emitContent(content: string) {
     emit('update-content', content)
 }
 
+// Show spinner only while DS list is loading (undefined/null). Empty array shows nothing.
+const shouldShowSpinner = computed(() => props.data_sources === undefined || props.data_sources === null)
 </script>
 
 <style scoped>
 .fade-enter-active,
 .fade-leave-active {
-    transition: opacity 0.5s ease;
+    transition: opacity 0.35s ease, transform 0.35s ease;
 }
 
 .fade-enter-from,
 .fade-leave-to {
     opacity: 0;
+}
+
+/* Per-item swap animation without removing element from flow */
+.swap-in {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.swap-out {
+    opacity: 0;
+    transform: translateY(4px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
 }
 </style>

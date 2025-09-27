@@ -41,7 +41,7 @@
       </h1>
       <div class="w-full mx-auto mt-2 space-x-3 space-y-3 bg-red-100">
       </div>
-      <p class="text-lg mt-5 text-gray-500">
+      <p class="text-lg mt-5 font-light text-gray-500">
           Create reports, dashboards, and simply get the data you need
       </p>
       <div class="w-full md:w-4/5 mx-auto mt-10 rounded-lg relative z-10">
@@ -50,7 +50,7 @@
               @update:modelValue="handlePromptUpdate"
           />
       </div>
-      <div class="w-full mx-auto mt-5 space-x-3 space-y-3" v-if="selectedDataSources">
+      <div class="w-full mx-auto mt-0 space-x-3 space-y-3" v-if="selectedDataSources">
         <DataSourceQuestionsHome 
             :data_sources="selectedDataSources" 
             @update-content="updateTextarea" 
@@ -296,7 +296,7 @@ const getReports = async () => {
 
 const getDataSourceOptions = async () => {
   try {
-    const response = await useMyFetch('/data_sources', {
+    const response = await useMyFetch('/data_sources/active', {
         method: 'GET',
     });
 
@@ -305,9 +305,8 @@ const getDataSourceOptions = async () => {
     }
 
     const dataSources = (response.data.value as any[]) || [];
-    const activeDataSources = dataSources.filter((data_source: any) => data_source.is_active !== false);
-    selectedDataSources.value = activeDataSources;
-    return activeDataSources;
+    selectedDataSources.value = dataSources;
+    return dataSources;
   } catch (error) {
     console.error('Failed to fetch data sources:', error);
     selectedDataSources.value = [];

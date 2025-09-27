@@ -53,12 +53,16 @@ Please generate 4 conversation starters. Return them in a strict JSON array form
 The response should be an array of strings, where each string contains a title and detailed prompt separated by a newline character.
 
 A few examples:
-- Title: What are the top 10 customers by revenue?
+- Title: Top Customers
   Prompt: List the top 10 customers by revenue. Measure revenue by summing the total payments. Show name, email,  geo, total revenue, and total payments
-- Title: What are the best selling products?
+- Title: Best Sellers
   Prompt: List the top 10 products by revenue. Measure revenue by summing the total payments. Show name, total revenue, and total payments
-- Title: Who are the most unhappy customers?
+- Title: Unhappy Customers
   Prompt: List the top 10 customers by negative reviews. Show name, email, geo, total reviews, and total negative reviews
+- Title: Customers Churn Root Cause
+  Prompt: List the top 10 customers by churn. Show name, email, geo, total churn, and total churn reason.
+- Title: Stray Cloud Users
+  Prompt: List the top 10 users who are not in the cloud. Show name, email, geo, total users, and total users not in the cloud.
 
 Example format:
 [
