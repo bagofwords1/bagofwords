@@ -107,6 +107,7 @@
                   <button
                     class="absolute top-2 right-2 px-2 py-1 text-xs rounded border border-gray-300 bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-800"
                     :disabled="!canOpenEditor"
+                    v-if="canOpenEditor.value"
                     @click.stop="openEditor"
                   >
                     Edit code

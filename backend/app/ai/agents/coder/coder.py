@@ -233,7 +233,9 @@ class Coder:
 
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
         """
+
         result = self.llm.inference(text)
+
         # Remove markdown code block indicators if present
         result = re.sub(r'^```python\n|^```\n|```$', '', result.strip())
         # Remove any code after return df

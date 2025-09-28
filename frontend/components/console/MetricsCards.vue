@@ -29,10 +29,15 @@
         <!-- Accuracy -->
         <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
             <div class="text-2xl font-bold text-gray-900">
-                {{ metricsComparison?.current.accuracy || 'N/A' }}
+                {{ isJudgeEnabled ? (metricsComparison?.current?.accuracy || 'N/A') : 'N/A' }}
             </div>
-            <div class="text-sm font-medium text-gray-600 mt-1">Accuracy</div>
-            <div v-if="metricsComparison?.changes.accuracy" class="text-xs mt-2">
+            <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
+                Accuracy
+                <UTooltip :text="isJudgeEnabled ? 'Overall accuracy as judged by the LLM' : 'LLM Judge agent is turned off'">
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
+                </UTooltip>
+            </div>
+            <div v-if="isJudgeEnabled && metricsComparison?.changes.accuracy" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.accuracy.percentage)">
                     {{ formatChange(metricsComparison.changes.accuracy) }}
                 </span>
@@ -42,15 +47,15 @@
         <!-- Instructions Effectiveness -->
         <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
             <div class="text-2xl font-bold text-gray-900">
-                {{ Math.round(metricsComparison?.current.instructions_effectiveness) }}%
+               {{ isJudgeEnabled ? (metricsComparison?.current?.instructions_effectiveness != null ? Math.round(metricsComparison.current.instructions_effectiveness) + '%' : 'N/A') : 'N/A' }}
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                 Instructions Effectiveness
-                <UTooltip text="AI judge score for how well instructions guide responses (20-100 scale)">
+                <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions guide responses (20-100 scale)' : 'LLM Judge agent is turned off'">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
-            <div v-if="metricsComparison?.changes.instructions_effectiveness" class="text-xs mt-2">
+            <div v-if="isJudgeEnabled && metricsComparison?.changes.instructions_effectiveness" class="text-xs mt-2">
                 <span :class="getChangeClass(metricsComparison.changes.instructions_effectiveness.percentage)">
                     {{ formatJudgeChange(metricsComparison.changes.instructions_effectiveness) }}
                 </span>
@@ -64,7 +69,7 @@
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                 Context Effectiveness
-                <UTooltip text="AI judge score for context quality and relevance (0-100)">
+                <UTooltip :text="isJudgeEnabled ? 'AI judge score for context quality and relevance (0-100)' : 'LLM Judge agent is turned off'">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
@@ -82,7 +87,7 @@
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
                 Response Quality
-                <UTooltip text="AI judge score for overall response quality (0-100)">
+                <UTooltip :text="isJudgeEnabled ? 'AI judge score for overall response quality (0-100)' : 'LLM Judge agent is turned off'">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
@@ -151,6 +156,8 @@ interface Props {
 }
 
 defineProps<Props>()
+
+const { isJudgeEnabled } = useOrgSettings()
 
 const formatChange = (change: MetricChange) => {
     const sign = change.percentage > 0 ? '+' : ''

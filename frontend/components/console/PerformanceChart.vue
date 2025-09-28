@@ -2,7 +2,12 @@
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div class="p-6 border-b border-gray-50">
             <h3 class="text-lg font-semibold text-gray-900">Performance Metrics</h3>
-            <p class="text-sm text-gray-500 mt-1">Accuracy and efficiency trends</p>
+            <p class="text-sm text-gray-500 mt-1 flex items-center">
+                <span>Accuracy and efficiency trends</span>
+                <UTooltip v-if="!isJudgeEnabled" text="LLM Judge agent is turned off">
+                    <Icon name="heroicons-information-circle" class="w-4 h-4 ml-2 text-gray-400 cursor-help" />
+                </UTooltip>
+            </p>
         </div>
         <div class="p-6">
             <div class="h-80">
@@ -39,7 +44,8 @@ import {
     GridComponent,
     LegendComponent,
 } from 'echarts/components'
-import type { EChartsOption } from 'echarts'
+import type { EChartsOption, SeriesOption } from 'echarts'
+const { isJudgeEnabled } = useOrgSettings()
 
 // Register ECharts components
 use([
@@ -75,11 +81,11 @@ const props = defineProps<Props>()
 const chartOptions = computed((): EChartsOption | null => {
     if (!props.performanceMetrics) return null
     
-    const accuracy = props.performanceMetrics.accuracy
-    const instructionsEffectiveness = props.performanceMetrics.instructions_effectiveness || []
+    const accuracy = isJudgeEnabled.value ? props.performanceMetrics.accuracy : []
+    const instructionsEffectiveness = isJudgeEnabled.value ? (props.performanceMetrics.instructions_effectiveness || []) : []
     
     // Filter out data points where both accuracy and instructions effectiveness are 0
-    const filteredData = accuracy.map((accuracyItem, index) => {
+    const filteredData = (accuracy as typeof props.performanceMetrics.accuracy).map((accuracyItem, index) => {
         const instructionsItem = instructionsEffectiveness[index]
         return {
             date: accuracyItem.date,
@@ -107,6 +113,40 @@ const chartOptions = computed((): EChartsOption | null => {
         interval = Math.floor(numDates / 6)
     }
     
+    const series: SeriesOption[] = [
+        {
+            name: 'Accuracy',
+            type: 'line',
+            data: accuracyData,
+            smooth: true,
+            showSymbol: false,
+            lineStyle: {
+                width: 3,
+                color: '#4ade80'
+            },
+            itemStyle: {
+                color: '#4ade80'
+            }
+        }
+    ]
+
+    if (isJudgeEnabled.value) {
+        series.push({
+            name: 'Instructions Effectiveness',
+            type: 'line',
+            data: instructionsEffectivenessData,
+            smooth: true,
+            showSymbol: false,
+            lineStyle: {
+                width: 3,
+                color: '#3b82f6'
+            },
+            itemStyle: {
+                color: '#3b82f6'
+            }
+        } as SeriesOption)
+    }
+
     return {
         tooltip: {
             trigger: 'axis',
@@ -205,36 +245,7 @@ const chartOptions = computed((): EChartsOption | null => {
             itemWidth: 8,
             itemHeight: 8
         },
-        series: [
-            {
-                name: 'Accuracy',
-                type: 'line',
-                data: accuracyData,
-                smooth: true,
-                showSymbol: false,
-                lineStyle: {
-                    width: 3,
-                    color: '#4ade80'
-                },
-                itemStyle: {
-                    color: '#4ade80'
-                }
-            },
-            {
-                name: 'Instructions Effectiveness',
-                type: 'line',
-                data: instructionsEffectivenessData,
-                smooth: true,
-                showSymbol: false,
-                lineStyle: {
-                    width: 3,
-                    color: '#3b82f6'
-                },
-                itemStyle: {
-                    color: '#3b82f6'
-                }
-            }
-        ]
+        series
     }
 })
 </script>

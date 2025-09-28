@@ -5,6 +5,7 @@
 - Redesigned user interface for data source management
 - Introduced "require user authentication" option for data sources
 - Sample questions for data sources is now customizable
+- Added to organizations ability to set judge, autogen instructions and code editing as enabled/disabled
 
 ## Version 0.0.199 (September 20, 2025)
 - Redesigned application onboarding experience

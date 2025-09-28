@@ -47,7 +47,7 @@ async def create_global_instruction(
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=True)
 
 # LIST INSTRUCTIONS
-@router.get("/instructions", response_model=List[InstructionSchema])
+@router.get("/instructions", response_model=List[InstructionListSchema])
 @requires_permission('view_instructions')
 async def get_instructions(
     skip: int = Query(0, ge=0),
@@ -59,6 +59,7 @@ async def get_instructions(
     include_archived: bool = Query(False), 
     include_hidden: bool = Query(False),
     user_id: Optional[str] = Query(None),
+    data_source_id: Optional[str] = Query(None, description="Filter by data source id"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -73,7 +74,8 @@ async def get_instructions(
         include_drafts=include_drafts,
         include_archived=include_archived,
         include_hidden=include_hidden,
-        user_id=user_id
+        user_id=user_id,
+        data_source_id=data_source_id
     )
 
 # SUGGESTION WORKFLOW

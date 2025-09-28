@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from app.schemas.user_schema import UserSchema
-from app.schemas.data_source_schema import DataSourceSchema
+from app.schemas.data_source_schema import DataSourceSchema, DataSourceMinimalSchema
 from enum import Enum
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema, InstructionReferenceCreate
 
@@ -105,7 +105,8 @@ class InstructionListSchema(BaseModel):
     can_user_toggle: bool
     reviewed_by_user_id: Optional[str] = None
     
-    data_source_count: int = 0  # Number of associated data sources
+    # Minimal DS projection for list view
+    data_sources: List[DataSourceMinimalSchema] = []
     created_at: datetime
     updated_at: datetime
 

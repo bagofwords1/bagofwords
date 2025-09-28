@@ -278,7 +278,9 @@ class CompletionService:
                                 logging.error("Background agent init failed: missing objects")
                                 return
                             
-                            clients = { data_source.name: self.data_source_service.construct_client(session, data_source, current_user) for data_source in report_obj.data_sources }
+                            clients = {}
+                            for data_source in report_obj.data_sources:
+                                clients[data_source.name] = await self.data_source_service.construct_client(session, data_source, current_user)
 
                             agent = AgentV2(
                                 db=session,
@@ -322,7 +324,9 @@ class CompletionService:
             else:
                 try:
                     # Foreground execution (wait and return final v2)
-                    clients = { data_source.name: self.data_source_service.construct_client(db, data_source, current_user) for data_source in report.data_sources }
+                    clients = {}
+                    for data_source in report.data_sources:
+                        clients[data_source.name] = await self.data_source_service.construct_client(db, data_source, current_user)
                     agent = AgentV2(
                         db=db,
                         organization=organization,
@@ -911,7 +915,9 @@ class CompletionService:
                             await event_queue.put(error_event)
                             return
                         
-                        clients = { data_source.name: self.data_source_service.construct_client(session, data_source, current_user) for data_source in report_obj.data_sources }
+                        clients = {}
+                        for data_source in report_obj.data_sources:
+                            clients[data_source.name] = await self.data_source_service.construct_client(session, data_source, current_user)
 
                         # Create agent with event queue
                         agent = AgentV2(

@@ -8,7 +8,7 @@
         />
             
         <!-- Metrics Cards -->
-        <MetricsCards :metrics-comparison="metricsComparison" />
+        <MetricsCards :metrics-comparison="metricsComparison" :org-settings="orgSettings" />
 
         <!-- Main Charts Section -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
@@ -22,6 +22,7 @@
             <PerformanceChart
                 :performance-metrics="timeSeriesData?.performance_metrics || null"
                 :is-loading="isLoadingCharts"
+                :org-settings="orgSettings"
             />
         </div>
 
@@ -203,6 +204,8 @@ const timeSeriesData = ref<TimeSeriesMetrics | null>(null)
 
 // Add these missing state definitions:
 const selectedPeriod = ref({ label: 'All Time', value: 'all_time' })
+
+const orgSettings = useOrgSettings()
 
 const periodOptions = [
     { label: 'All Time', value: 'all_time' },

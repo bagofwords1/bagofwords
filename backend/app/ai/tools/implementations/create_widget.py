@@ -260,6 +260,7 @@ CRITICAL:
         async def _validator_fn(code, data_model):
             validator_coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, context_hub=context_hub)
             return await validator_coder.validate_code(code, data_model)
+
         async for e in streamer.generate_and_execute_stream(
             data_model=final_data_model,
             prompt=data.interpreted_prompt or data.user_prompt,
@@ -314,7 +315,7 @@ CRITICAL:
         # Success path: format widget data and preview (privacy aware)
         widget_data = streamer.format_df_for_widget(exec_df)
         info = widget_data.get("info", {})
-        allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
+        allow_llm_see_data = organization_settings.get_config("enable_llm_see_data").value if organization_settings else True
         if allow_llm_see_data:
             data_preview = {
                 "columns": widget_data.get("columns", []),

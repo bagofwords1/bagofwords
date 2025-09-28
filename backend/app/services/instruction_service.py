@@ -19,7 +19,8 @@ from app.models.organization import Organization
 from app.schemas.instruction_schema import (
     InstructionCreate, 
     InstructionUpdate, 
-    InstructionSchema, 
+    InstructionSchema,
+    InstructionListSchema,
 )
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema
 from app.services.instruction_reference_service import InstructionReferenceService
@@ -110,8 +111,9 @@ class InstructionService:
         include_drafts: bool = False,
         include_archived: bool = False,
         include_hidden: bool = False,
-        user_id: Optional[str] = None
-    ) -> List[InstructionSchema]:
+        user_id: Optional[str] = None,
+        data_source_id: Optional[str] = None
+    ) -> List[InstructionListSchema]:
         """Get instructions with clean permission-based filtering"""
         
         user_permissions = await self._get_user_permissions(db, current_user, organization)
@@ -140,7 +142,7 @@ class InstructionService:
         
         # Execute query
         return await self._execute_instructions_query(
-            db, organization, conditions, status, category, skip, limit
+            db, organization, conditions, status, category, skip, limit, data_source_id
         )
 
     async def get_instruction(
@@ -302,7 +304,7 @@ class InstructionService:
         organization: Organization,
         current_user: User,
         status: str = "published"
-    ) -> List[InstructionSchema]:
+    ) -> List[InstructionListSchema]:
         """Get all instructions that apply to a specific data source (including global ones)"""
         
         # Validate data source exists
@@ -629,7 +631,8 @@ class InstructionService:
         status: Optional[str], 
         category: Optional[str], 
         skip: int, 
-        limit: int
+        limit: int,
+        data_source_id: Optional[str] = None
     ) -> List[InstructionSchema]:
         """Execute the instructions query with given conditions"""
         
@@ -637,9 +640,9 @@ class InstructionService:
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
+                # lighter for list usage
+                selectinload(Instruction.data_sources),
                 selectinload(Instruction.reviewed_by),
-                selectinload(Instruction.references),
             )
             .where(
                 and_(
@@ -661,12 +664,40 @@ class InstructionService:
         if category:
             query = query.where(Instruction.category == category)
         
+        # Data source filter
+        if data_source_id:
+            query = query.where(Instruction.data_sources.any(DataSource.id == data_source_id))
+
         # Apply pagination and ordering
         query = query.offset(skip).limit(limit).order_by(Instruction.created_at.desc())
         
         result = await db.execute(query)
         instructions = result.scalars().all()
-        return await self._instructions_to_schema_with_references(db, instructions)
+        # Map to list schema with minimal DS projection
+        from app.schemas.instruction_schema import InstructionListSchema
+        from app.schemas.data_source_schema import DataSourceMinimalSchema
+        list_items: List[InstructionListSchema] = []
+        for inst in instructions:
+            ds_min = [DataSourceMinimalSchema.from_orm(ds) for ds in (inst.data_sources or [])]
+            list_items.append(
+                InstructionListSchema(
+                    id=str(inst.id),
+                    text=inst.text,
+                    status=inst.status,
+                    category=inst.category,
+                    user_id=inst.user_id,
+                    organization_id=inst.organization_id,
+                    private_status=inst.private_status,
+                    global_status=inst.global_status,
+                    is_seen=inst.is_seen,
+                    can_user_toggle=inst.can_user_toggle,
+                    reviewed_by_user_id=inst.reviewed_by_user_id,
+                    data_sources=ds_min,
+                    created_at=inst.created_at,
+                    updated_at=inst.updated_at,
+                )
+            )
+        return list_items
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
         """Get user's permissions in the organization"""

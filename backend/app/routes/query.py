@@ -64,9 +64,6 @@ async def get_query(
         raise HTTPException(status_code=404, detail="Query not found")
     return QuerySchema.model_validate(q)
 
-
-
-
 @router.post("/{query_id}/run", response_model=dict)
 @requires_permission('view_reports')
 async def run_query_new_step(

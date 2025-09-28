@@ -49,7 +49,7 @@
             </div>
             <hr />
             <!-- AI Agents Section -->
-            <div v-if="Object.keys(aiFeatures).length > 0">
+            <div v-if="Object.keys(aiFeatures).length > 0" class="hidden">
                 <h3 class="text-base font-semibold text-gray-900 mb-4">AI Agents</h3>
                 <p class="text-sm text-gray-500 mb-6">Configure AI agents and capabilities available to your organization's members.</p>
                 

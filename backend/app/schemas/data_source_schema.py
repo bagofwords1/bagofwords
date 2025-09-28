@@ -11,6 +11,15 @@ class DataSourceSummarySchema(BaseModel):
     class Config:
         from_attributes = True
 
+class DataSourceMinimalSchema(BaseModel):
+    id: str
+    name: str
+    type: str
+    description: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
 from pydantic import BaseModel, Field, validator
 from typing import Optional, Dict, Any, List, Literal
 from app.schemas.data_source_registry import default_credentials_schema_for, credentials_schema_for

@@ -11,6 +11,7 @@
         <aside class="w-40 border-r">
           <nav class="p-2 text-sm">
             <button
+              v-if="canEditCode"
               class="w-full text-left px-2 py-1.5 rounded mb-1 transition-colors"
               :class="activeTab === 'code' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
               @click="activeTab = 'code'"
@@ -25,7 +26,7 @@
 
         <!-- Right content -->
         <section class="flex-1 flex flex-col overflow-hidden min-h-0">
-          <div v-if="activeTab === 'code'" class="h-full flex flex-col">
+          <div v-if="canEditCode && activeTab === 'code'" class="h-full flex flex-col">
             <!-- Editor section - exactly half height, fixed and non-scrollable -->
             <div class="h-1/2 p-4 flex flex-col border-b">
               <ClientOnly>
@@ -179,6 +180,7 @@ import RenderCount from '../RenderCount.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import VisualizationConfigEditor from './VisualizationConfigEditor.vue'
+import { useOrgSettings } from '~/composables/useOrgSettings'
 
 interface Props {
   visible: boolean
@@ -211,7 +213,14 @@ const open = computed({
   }
 })
 
-const activeTab = ref<'code' | 'visuals'>('code')
+const { canEditCode } = useOrgSettings()
+debugger
+
+const activeTab = ref<'code' | 'visuals'>(canEditCode.value ? 'code' : 'visuals')
+
+watch(canEditCode, (v) => {
+  if (!v) activeTab.value = 'visuals'
+})
 
 // Keep internal queryId in sync with prop while modal is open
 watch(() => props.queryId, (v) => {
@@ -301,6 +310,7 @@ watch(() => props.visible, async (v) => {
     errorMsg.value = ''
     preview.value = null
     currentStepId.value = props.stepId || null
+    if (!canEditCode.value) activeTab.value = 'visuals'
     await syncQueryIdOnOpen()
     await loadQueryData()
     await loadInitialStepOrDefault()

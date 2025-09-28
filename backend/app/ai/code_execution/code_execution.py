@@ -171,15 +171,11 @@ class StreamingCodeExecutor:
         exec_df = pd.DataFrame()
         execution_log = ""
         executed_successfully = False
-
         while retries < max_retries:
             # Cooperative cancellation check at loop start
             if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                 break
-            if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
-                break
 
-            # Generating code
             yield {"type": "progress", "payload": {"stage": "generating_code", "attempt": retries}}
             try:
                 # Cancellation before expensive LLM call

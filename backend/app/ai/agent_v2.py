@@ -137,15 +137,20 @@ class AgentV2:
             async with SessionLocal() as session:
                 try:
                     # Use a new Judge instance (stateless) and score from the same planner input
-                    judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                    instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
+                    if self.organization_settings.get_config("enable_llm_judgement").value:
+                        judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                        instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
+                    else:
+                        instructions_score = 3
+                        context_score = 3
                     # Re-fetch completion to avoid using objects from another session
                     completion = await session.get(Completion, str(self.head_completion.id))
                     if completion is not None:
                         await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
                 except Exception:
                     pass
-        except Exception:
+        except Exception as e:
+
             pass
 
     async def _run_late_scoring_background(self, messages_context: str, observation_data: dict):
@@ -154,15 +159,18 @@ class AgentV2:
             SessionLocal = create_async_session_factory()
             async with SessionLocal() as session:
                 try:
-                    judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                    original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
-                    response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+                    if self.organization_settings.get_config("enable_llm_judgement").value:
+                        judge = Judge(model=self.model, organization_settings=self.organization_settings)
+                        original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
+                        response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
+                    else:
+                        response_score = 3
                     completion = await session.get(Completion, str(self.head_completion.id))
                     if completion is not None:
                         await self.project_manager.update_completion_response_score(session, completion, response_score)
                 except Exception:
                     pass
-        except Exception:
+        except Exception as e:
             pass
 
     async def _handle_completion_update(self, message: str):
@@ -1117,23 +1125,13 @@ class AgentV2:
             if self.event_queue:
                 await self.event_queue.put(event)
             
-            # Keep existing websocket broadcasting for backward compatibility
-            if self.report:
-                legacy_event_data = {
-                    "event": event.event,
-                    "data": event.data,
-                    "report_id": str(self.report.id)
-                }
-                await websocket_manager.broadcast_to_report(
-                    str(self.report.id), 
-                    json.dumps(legacy_event_data)
-                )
-                
         except Exception as e:
             print(f"Error emitting SSE event: {e}")
 
-    async def _should_suggest_instructions(self, prev_tool_name_before_last_user: Optional[str]) -> bool:
+    async def _should_suggest_instructions(self, prev_tool_name_before_last_user: Optional[str]) -> Dict[str, object]:
         """Decide whether to run suggest_instructions based on report history.
+
+        Always returns a dict: {"decision": bool, "hint": str}.
 
         Conditions:
         - A) This agent_execution includes a create_widget tool AND the previous tool before the latest user message was clarify.
@@ -1141,11 +1139,14 @@ class AgentV2:
         - B) Within THIS agent_execution, there exists a successful create_widget whose result_json.errors has length >= 1
              (i.e., one or more internal retries/failures before eventual success).
         """
+        if not self.organization_settings.get_config("suggest_instructions").value:
+            return {"decision": False, "hint": ""}
+        
         hint = ""
         try:
             report_id = str(self.report.id) if self.report else None
             if not report_id:
-                return False
+                return {"decision": False, "hint": ""}
 
             # A) Current execution contains create_widget
             ran_create_widget = False
@@ -1192,7 +1193,7 @@ class AgentV2:
 
             return { "decision": bool(trigger_a or success_with_retries), "hint": hint }
         except Exception:
-            return False
+            return {"decision": False, "hint": ""}
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type."""

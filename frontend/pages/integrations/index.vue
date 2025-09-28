@@ -52,9 +52,9 @@
                 </div>
             </div>
 
-            <div class="mt-6 mb-4">
+            <div class="mt-6 mb-4" v-if="canCreateDataSource()">
                 <div class="font-medium">
-                    {{ (typeof can === 'function' && can('create_data_source')) ? 'Integrate a data source:' : 'Available Integrations' }}
+                    Integrate a data source:
                 </div>
             <NuxtLink
                 :to="`/integrations/new?type=${ds.type}`"
@@ -128,6 +128,15 @@ function getAuthTooltipSource(ds: any) {
   if (ds?.user_status?.effective_auth === 'user') return 'user credentials'
   if (ds?.user_status?.effective_auth === 'system' || ds?.auth_policy === 'system_only') return 'system credentials'
   return 'no credentials'
+}
+
+function canCreateDataSource() {
+  try {
+    // prefer composable if available
+    return typeof useCan === 'function' ? useCan('create_data_source') : false
+  } catch (e) {
+    return false
+  }
 }
 onMounted(async () => {
     nextTick(async () => {

@@ -73,7 +73,7 @@
                                     <pre class="text-xs text-gray-900 font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
                                     
                                     <!-- AI Scoring section -->
-                                    <div v-if="traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)" class="mt-4">
+                                    <div v-if="isJudgeEnabled && traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)" class="mt-4">
                                         <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">AI Scoring</div>
                                         <div class="grid grid-cols-3 gap-3">
                                             <div v-if="traceData.agent_execution.instructions_effectiveness !== null" class="text-center">
@@ -89,6 +89,10 @@
                                                 <div class="text-sm font-medium text-gray-900">{{ traceData.agent_execution.response_score }}/5</div>
                                             </div>
                                         </div>
+                                    </div>
+                                    <div v-else class="mt-4 text-xs text-gray-500 flex items-center">
+                                        <span>LLM Judge agent is turned off</span>
+                                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400" />
                                     </div>
                                     
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
@@ -234,6 +238,7 @@ import CreateDataModelTool from '../tools/CreateDataModelTool.vue'
 import ExecuteCodeTool from '../tools/ExecuteCodeTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
 import Spinner from '../Spinner.vue'
+const { isJudgeEnabled } = useOrgSettings()
 
 interface ToolExecutionUI {
     tool_name: string
