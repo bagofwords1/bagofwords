@@ -1,12 +1,19 @@
 <template>
   <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
+    <!-- Page-level loading overlay so spinner shows even before slot renders -->
+    <div v-if="isLoading" class="fixed inset-0 z-50 flex items-center justify-center bg-white/70">
+      <div class="flex items-center gap-2 text-gray-700">
+        <Spinner class="w-5 h-5" />
+        <span class="text-sm">{{ loadingText }}</span>
+      </div>
+    </div>
     <div class="w-full max-w-6xl">
       <OnboardingView forcedStepKey="instructions_added" :hideNextButton="true">
         <template #instructions>
           <!-- Loading State -->
-            <div v-if="isLLMSyncInProgress" class="flex items-center justify-center min-h-[400px] space-x-2">
+            <div v-if="isLoading" class="flex items-center justify-center min-h-[400px] space-x-2">
               <Spinner class="w-4 h-4" />
-              <span class="thinking-shimmer text-sm">Thinking...</span>
+              <span class="thinking-shimmer text-sm">{{ loadingText }}</span>
             </div>
 
           <!-- Content Sections -->
@@ -235,7 +242,7 @@
       />
     </div>
   <UModal v-model="showInstructionCreate" :ui="{ width: 'sm:max-w-2xl' }">
-    <div class="p-4">
+    <div>
       <InstructionGlobalCreateComponent @instructionSaved="() => { showInstructionCreate = false; fetchInstructions(); }" @cancel="() => { showInstructionCreate = false }" />
     </div>
   </UModal>
@@ -257,7 +264,7 @@ const router = useRouter()
 
 const dsId = computed(() => String(route.params.ds_id || ''))
 const saving = ref(false)
-const isLoadingInstructions = ref(false)
+const isLoadingInstructions = ref(true)
 const isLLMSyncInProgress = ref(false)
 const showInstructionCreate = ref(false)
 const showGitModal = ref(false)
@@ -294,6 +301,10 @@ const repoDisplayName = computed(() => {
   const tail = String(url).split('/')?.pop() || ''
   return tail.replace(/\.git$/, '') || 'Repository'
 })
+
+// Global loading gate for the instructions section
+const isLoading = computed(() => isLLMSyncInProgress.value || isLoadingInstructions.value)
+const loadingText = computed(() => isLLMSyncInProgress.value ? 'Thinking...' : 'Loading instructions...')
 
 // Suggested instructions fetched from API (published, filtered to this data source)
 const suggestedInstructions = ref<any[]>([])
@@ -480,13 +491,14 @@ async function fetchIntegration() {
 onMounted(async () => {
   // Initialize the attempted state from localStorage
   hasAttemptedLLMSync.value = hasTriedLLMSyncBefore()
-  
-  await fetchIntegration()
-  await fetchMetadataResources()
-  
-  // Fetch existing instructions first
-  await fetchInstructions()
-  
+
+  // Kick off all fetches in parallel so loading UI appears immediately
+  const integrationPromise = fetchIntegration()
+  const metadataPromise = fetchMetadataResources()
+  const instructionsPromise = fetchInstructions()
+
+  await Promise.all([integrationPromise, metadataPromise, instructionsPromise])
+
   // Only run LLM sync if conditions are met
   if (shouldRunLLMSync()) {
     await runLLMSync()

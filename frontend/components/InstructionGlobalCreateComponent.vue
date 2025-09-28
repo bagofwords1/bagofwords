@@ -1,221 +1,171 @@
 <template>
     <div>
-        <form @submit.prevent="submitForm" class="space-y-4">
+        <form @submit.prevent="submitForm" class="p-4">
             <!-- Instruction Text -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    Instruction <span class="text-red-500">*</span>
+            <div class="flex flex-col mx-auto max-w-2xl py-2">
+                <label class="text-md font-medium text-gray-800 mb-4">
+                    Create Instruction
                 </label>
-                <UTextarea 
+                <textarea 
                     v-model="instructionForm.text"
-                    :rows="4"
-                    placeholder="Enter the instruction text..."
-                    class="w-full"
+                    :rows="7"
+                    placeholder="Enter the instruction, rule, code, or any other text..."
+                    class="w-full text-sm p-3 min-h-[160px] border border-gray-200 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300"
                     required
                 />
             </div>
 
-            <!-- Data Sources -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    Data Sources
-                </label>
-                <p class="text-xs text-gray-500 mb-2">Select which data sources this instruction applies to. If none selected, applies to all.</p>
-                
-                <USelectMenu 
-                    v-model="selectedDataSources" 
-                    :options="dataSourceOptions" 
-                    option-attribute="name"
-                    value-attribute="id"
-                    multiple
-                    class="w-full"
-                    :ui="{
-                        base: 'border border-gray-300 rounded-md',
-                    }"
-                    :uiMenu="{
-                        base: 'w-full max-h-60 overflow-y-auto',
-                    }"
-                >
-                    <template #label>
-                        <div class="flex items-center flex-wrap gap-1">
-                            <span v-if="isAllDataSourcesSelected" class="flex items-center">
-                                <div class="flex -space-x-1 mr-2">
-                                    <DataSourceIcon 
-                                        v-for="ds in availableDataSources.slice(0, 3)" 
-                                        :key="ds.id" 
-                                        :type="ds.type" 
-                                        class="h-4 w-4 border border-white rounded" 
-                                    />
-                                    <div v-if="availableDataSources.length > 3" 
-                                         class="h-4 w-4 bg-gray-400 text-white text-xs rounded flex items-center justify-center border border-white">
-                                        +{{ availableDataSources.length - 3 }}
+            <!-- Scope (Data Sources + References) -->
+            <div class="p-2 border border-gray-200 rounded-md mx-auto max-w-2xl mt-2">
+                <div class="flex items-center cursor-pointer  hover:bg-gray-50 p-1" @click="showScope = !showScope">
+                    <Icon 
+                        :name="showScope ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
+                        class="w-4 h-4 mr-2 transition-transform duration-200"
+                    />
+                    <h3 class="text-xs font-medium text-gray-700">Scope</h3>
+                </div>
+
+                <div v-show="showScope" class="mt-4 space-y-4">
+                    <div class="flex flex-col">
+                        <p class="text-xs font-normal text-gray-700">Select data sources and/or references (tables, etc)</p>
+                    </div>
+                    <!-- Data Sources -->
+                    <div class="flex flex-col">
+                        <USelectMenu 
+                            v-model="selectedDataSources" 
+                            :options="dataSourceOptions" 
+                            option-attribute="name"
+                            value-attribute="id"
+                            size="xs"
+                            multiple
+                            class="w-full text-xs shadow-none"
+                        >
+                            <template #label>
+                                <div class="flex items-center flex-wrap gap-1">
+                                    <span v-if="isAllDataSourcesSelected" class="flex items-center">
+                                        <div class="flex -space-x-1 mr-2">
+                                            <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 w-3 border border-white rounded" />
+                                            <div v-if="availableDataSources.length > 3" class="h-3 w-3 bg-gray-400 text-white text-[10px] rounded flex items-center justify-center border border-white">+{{ availableDataSources.length - 3 }}</div>
+                                        </div>
+                                        All Data Sources
+                                    </span>
+                                    <span v-else-if="selectedDataSources.length === 0" class="text-gray-500">Select data sources</span>
+                                    <div v-else class="flex items-center flex-wrap gap-1">
+                                        <span v-for="ds in getSelectedDataSourceObjects" :key="ds.id" class="flex items-center bg-blue-100 text-blue-800 text-[10px] px-1.5 py-0.5 rounded">
+                                            <DataSourceIcon :type="ds.type" class="h-3 w-3 mr-1" />
+                                            {{ ds.name }}
+                                        </span>
                                     </div>
                                 </div>
-                                All Data Sources
-                            </span>
-                            <span v-else-if="selectedDataSources.length === 0" class="text-gray-500">
-                                Select data sources (default: all)
-                            </span>
-                            <div v-else class="flex items-center flex-wrap gap-1">
-                                <span v-for="ds in getSelectedDataSourceObjects" :key="ds.id" 
-                                      class="flex items-center bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                                    <DataSourceIcon :type="ds.type" class="h-3 w-3 mr-1" />
-                                    {{ ds.name }}
-                                </span>
-                            </div>
-                        </div>
-                    </template>
+                            </template>
+                            <template #option="{ option }">
+                                <div class="flex items-center justify-between w-full py-1 pr-2">
+                                    <div class="flex items-center">
+                                        <div v-if="option.id === 'all'" class="flex -space-x-1 mr-2">
+                                            <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 w-3 border border-white rounded" />
+                                            <div v-if="availableDataSources.length > 3" class="h-3 w-3 bg-gray-400 text-white text-[10px] rounded flex items-center justify-center border border-white">+{{ availableDataSources.length - 3 }}</div>
+                                        </div>
+                                        <DataSourceIcon v-else :type="option.type" class="w-3 h-3 mr-2" />
+                                        <span class="text-xs">{{ option.name }}</span>
+                                    </div>
+                                    <UCheckbox :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(String(option.id))" @update:model-value="handleDataSourceToggle(String(option.id))" @click.stop class="flex-shrink-0 ml-2" />
+                                </div>
+                            </template>
+                        </USelectMenu>
+                    </div>
 
-                    <template #option="{ option }">
-                        <div class="flex items-center justify-between w-full py-2 pr-2">
-                            <div class="flex items-center">
-                                <div v-if="option.id === 'all'" class="flex -space-x-1 mr-2">
-                                    <DataSourceIcon 
-                                        v-for="ds in availableDataSources.slice(0, 3)" 
-                                        :key="ds.id" 
-                                        :type="ds.type" 
-                                        class="h-4 w-4 border border-white rounded" 
-                                    />
-                                    <div v-if="availableDataSources.length > 3" 
-                                         class="h-4 w-4 bg-gray-400 text-white text-xs rounded flex items-center justify-center border border-white">
-                                        +{{ availableDataSources.length - 3 }}
+                    <!-- References -->
+                    <div class="flex flex-col">
+                        <USelectMenu
+                            :options="filteredMentionableOptions"
+                            option-attribute="name"
+                            value-attribute="id"
+                            size="xs"
+                            multiple
+                            searchable
+                            searchable-placeholder="Search references..."
+                            :model-value="selectedReferenceIds"
+                            @update:model-value="handleReferencesChange"
+                            class="w-full text-xs shadow-none border-none" 
+                        >
+                            <template #label>
+                                <div class="flex items-center flex-wrap gap-1">
+                                    <span v-if="selectedReferences.length === 0" class="text-gray-500">Select references</span>
+                                    <span v-for="ref in selectedReferences" :key="ref.id" class="flex items-center bg-gray-100 text-gray-800 text-[10px] px-1.5 py-0.5 rounded">
+                                        <UIcon :name="getRefIcon(ref.type)" class="w-3 h-3 mr-1" />
+                                        {{ ref.name }}
+                                    </span>
+                                </div>
+                            </template>
+                            <template #option="{ option }">
+                                <div class="w-full py-1 px-0.5 ">
+                                    <div class="flex items-center gap-2 mb-1">
+                                        <UCheckbox :model-value="selectedReferenceIds.includes(String(option.id))" @update:model-value="toggleReference(String(option.id))" @click.stop @mousedown.stop class="flex-shrink-0" />
+                                        <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 text-gray-600 flex-shrink-0" />
+                                        <span class="text-xs font-medium text-gray-900 truncate">{{ option.name }}</span>
+                                    </div>
+                                    <div class="flex items-center gap-2 ml-6">
+                                        <DataSourceIcon :type="option.data_source_type" class="w-3 h-3 flex-shrink-0" />
+                                        <span class="text-[11px] text-gray-500 truncate">{{ option.data_source_name }}</span>
                                     </div>
                                 </div>
-                                <DataSourceIcon v-else :type="option.type" class="w-4 h-4 mr-2" />
-                                <span>{{ option.name }}</span>
-                            </div>
-                            <UCheckbox 
-                                :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(option.id)"
-                                @update:model-value="handleDataSourceToggle(option.id)"
-                                class="flex-shrink-0 ml-2"
-                            />
-                        </div>
-                    </template>
-                </USelectMenu>
+                            </template>
+                        </USelectMenu>
+                    </div>
+                </div>
             </div>
 
-            <!-- References -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    References
-                </label>
-                <p class="text-xs text-gray-500 mb-2">Select metadata resources, data source tables, or memories this instruction targets.</p>
-                <USelectMenu
-                    :options="filteredMentionableOptions"
-                    option-attribute="name"
-                    value-attribute="id"
-                    multiple
-                    searchable
-                    searchable-placeholder="Search references..."
-                    :model-value="selectedReferenceIds"
-                    @update:model-value="handleReferencesChange"
-                    class="w-full"
-                    :ui="{ base: 'border border-gray-300 rounded-md' }"
-                    :uiMenu="{ base: 'w-full max-h-60 overflow-y-auto' }"
-                >
-                    <template #label>
-                        <div class="flex items-center flex-wrap gap-1">
-                            <span v-if="selectedReferences.length === 0" class="text-gray-500">Select references</span>
-                            <span v-for="ref in selectedReferences" :key="ref.id" class="flex items-center bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
-                                <UIcon :name="getRefIcon(ref.type)" class="w-3 h-3 mr-1" />
-                                {{ ref.name }}
-                            </span>
-                        </div>
-                    </template>
-                    <template #option="{ option }">
-                        <div class="w-full py-1 px-0.5 ">
-                            <!-- Top row: Checkbox | Item type icon | Item name (all aligned) -->
-                            <div class="flex items-center gap-2 mb-1">
-                                <UCheckbox :model-value="selectedReferenceIds.includes(option.id)" class="flex-shrink-0" />
-                                <UIcon :name="getRefIcon(option.type)" class="w-4 h-4 text-gray-600 flex-shrink-0" />
-                                <span class="text-sm font-medium text-gray-900 truncate">
-                                    {{ option.name }}
-                                </span>
+            <!-- Meta Row: Status & Category -->
+            <div class="mx-auto max-w-2xl grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
+                <div class="flex flex-col">
+                    <label class="text-xs font-medium text-gray-600 mb-1.5">Status</label>
+                    <USelectMenu size="xs" v-model="instructionForm.status" :options="statusOptions" option-attribute="label" value-attribute="value" class="w-full text-xs" required >
+                        <template #label>
+                            <div class="inline-flex items-center text-xs">
+                                <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">{{ getCurrentStatusDisplayText() }}</span>
                             </div>
-                            
-                            <!-- Bottom row: Data source icon | Data source name (indented to align under content) -->
-                            <div class="flex items-center gap-2 ml-6">
-                                <DataSourceIcon :type="option.data_source_type" class="w-3 h-3 flex-shrink-0" />
-                                <span class="text-xs text-gray-500 truncate">
-                                    {{ option.data_source_name }}
-                                </span>
+                        </template>
+                        <template #option="{ option }">
+                            <div class="flex items-center gap-2 text-xs">
+                                <span :class="getStatusClass(option.value)" class="inline-flex px-2 py-1 !text-xs font-medium rounded-full">{{ option.label }}</span>
                             </div>
-                        </div>
-                    </template>
-                </USelectMenu>
-            </div>
-
-            <!-- Status -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    Status <span class="text-red-500">*</span>
-                </label>
-                <USelectMenu 
-                    v-model="instructionForm.status" 
-                    :options="statusOptions" 
-                    option-attribute="label"
-                    value-attribute="value"
-                    class="w-full"
-                    required
-                >
-                    <UButton color="gray" class="flex-1 justify-start">
-                        <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-1 text-xs font-medium rounded-full mr-2">
-                            {{ getCurrentStatusDisplayText() }}
-                        </span>
-                    </UButton>
-
-                    <template #option="{ option }">
-                        <div class="flex items-center gap-2">
-                            <span :class="getStatusClass(option.value)" class="inline-flex px-2 py-1 text-xs font-medium rounded-full">
-                                {{ option.label }}
-                            </span>
-                        </div>
-                    </template>
-                </USelectMenu>
-            </div>
-
-            <!-- Category -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    Category <span class="text-red-500">*</span>
-                </label>
-                <USelectMenu 
-                    v-model="instructionForm.category" 
-                    :options="categoryOptions" 
-                    option-attribute="label"
-                    value-attribute="value"
-                    class="w-full"
-                    required
-                >
-                    <UButton color="gray" class="flex-1 justify-start">
-                        <Icon :name="getCategoryIcon(instructionForm.category)" class="w-4 h-4 mr-2" />
-                        {{ formatCategory(instructionForm.category) }}
-                    </UButton>
-
-                    <template #option="{ option }">
-                        <div class="flex items-center gap-2">
-                            <Icon :name="getCategoryIcon(option.value)" class="w-4 h-4" />
-                            <span>{{ option.label }}</span>
-                        </div>
-                    </template>
-                </USelectMenu>
+                        </template>
+                    </USelectMenu>
+                </div>
+                <div class="flex flex-col">
+                    <label class="text-xs font-medium text-gray-600 mb-1.5">Category</label>
+                    <USelectMenu size="xs" v-model="instructionForm.category" :options="categoryOptions" option-attribute="label" value-attribute="value" class="w-full text-xs">
+                        <template #label>
+                            <div class="inline-flex items-center text-xs text-gray-700">
+                                <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 mr-1.5" />
+                                <span class="text-xs py-0.5 px-2">{{ formatCategory(instructionForm.category) }}</span>
+                            </div>
+                        </template>
+                        <template #option="{ option }">
+                            <div class="flex items-center gap-2">
+                                <Icon :name="getCategoryIcon(option.value)" class="w-3 h-3" />
+                                <span class="text-xs py-1 px-2">{{ option.label }}</span>
+                            </div>
+                        </template>
+                    </USelectMenu>
+                </div>
             </div>
 
             <!-- Advanced Section -->
-            <div class="border border-gray-200 rounded-lg p-4">
-                <div class="flex items-center cursor-pointer" @click="showAdvanced = !showAdvanced">
+            <div class="p-2 border border-gray-200 rounded-md mx-auto max-w-2xl mt-4">
+                <div class="flex items-center cursor-pointer hover:bg-gray-50 p-1" @click="showAdvanced = !showAdvanced">
                     <Icon 
                         :name="showAdvanced ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
                         class="w-4 h-4 mr-2 transition-transform duration-200"
                     />
-                    <h3 class="text-sm font-medium text-gray-700">Advanced Settings</h3>
+                    <h3 class="text-xs font-medium text-gray-700">Advanced Settings</h3>
                 </div>
                 
                 <div v-show="showAdvanced" class="mt-4 space-y-4">
                     <div class="flex items-center justify-between">
                         <div>
-                            <label class="text-sm font-medium text-gray-700">Visible in Instruction List</label>
-                            <p class="text-xs text-gray-500">Users can see this instruction in the instructions list</p>
+                            <label class="text-xs font-medium text-gray-700">Visible in Instruction List</label>
+                            <p class="text-[11px] text-gray-500">Users can see this instruction in the instructions list</p>
                         </div>
                         <UToggle v-model="instructionForm.is_seen" />
                     </div>
@@ -224,7 +174,7 @@
             </div>
 
             <!-- Form Actions -->
-            <div class="flex justify-between items-center pt-4">
+            <div class="flex justify-between items-center pt-3 mx-auto max-w-2xl">
                 <!-- Delete button (only show when editing) -->
                 <UButton 
                     v-if="isEditing"
@@ -236,18 +186,8 @@
                 />
                 
                 <div class="flex space-x-2" :class="{ 'ml-auto': !isEditing }">
-                    <UButton 
-                        label="Cancel" 
-                        color="gray" 
-                        variant="soft" 
-                        @click="$emit('cancel')" 
-                    />
-                    <UButton 
-                        type="submit" 
-                        :label="isEditing ? 'Update Instruction' : 'Create Instruction'"  
-                        class="!bg-blue-500 !text-white"
-                        :loading="isSubmitting"
-                    />
+                    <UButton label="Cancel" color="gray" variant="soft" size="xs" @click="$emit('cancel')" />
+                    <UButton type="submit" :label="isEditing ? 'Update Instruction' : 'Create Instruction'"  size="xs" class="!bg-blue-500 !text-white" :loading="isSubmitting" />
                 </div>
             </div>
         </form>
@@ -296,6 +236,7 @@ const toast = useToast()
 const isSubmitting = ref(false)
 const isDeleting = ref(false)
 const showAdvanced = ref(false)
+const showScope = ref(false)
 const availableDataSources = ref<DataSource[]>([])
 const selectedDataSources = ref<string[]>([])
 const mentionableOptions = ref<MentionableItem[]>([])
@@ -487,6 +428,17 @@ const getRefIcon = (type: string) => {
 const handleReferencesChange = (ids: string[]) => {
     const idSet = new Set(ids)
     selectedReferences.value = filteredMentionableOptions.value.filter(m => idSet.has(m.id))
+}
+
+// Toggle a single reference id from checkbox interaction
+const toggleReference = (id: string) => {
+    const currentIds = new Set(selectedReferenceIds.value.map(String))
+    if (currentIds.has(id)) {
+        currentIds.delete(id)
+    } else {
+        currentIds.add(id)
+    }
+    handleReferencesChange(Array.from(currentIds))
 }
 
 // Validate references when data sources change

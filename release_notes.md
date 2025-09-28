@@ -6,6 +6,7 @@
 - Introduced "require user authentication" option for data sources
 - Sample questions for data sources is now customizable
 - Added to organizations ability to set judge, autogen instructions and code editing as enabled/disabled
+- Added a bunch of AGENTS.md files throughout the repo for faster and better coding
 
 ## Version 0.0.199 (September 20, 2025)
 - Redesigned application onboarding experience

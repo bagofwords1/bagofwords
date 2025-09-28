@@ -104,7 +104,7 @@
         </div>
 
         <UModal v-model="showInstructionCreate" :ui="{ width: 'sm:max-w-2xl' }">
-          <div class="p-4">
+          <div>
             <InstructionGlobalCreateComponent @instructionSaved="() => { showInstructionCreate = false; fetchInstructions(); }" @cancel="() => { showInstructionCreate = false }" />
           </div>
         </UModal>

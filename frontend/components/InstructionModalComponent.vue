@@ -1,6 +1,6 @@
 <template>
     <UModal v-model="instructionModalOpen">
-        <div class="p-4 relative">
+        <div class="relative">
             <button @click="instructionModalOpen = false" class="absolute top-2 right-2 text-gray-500 hover:text-gray-700">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
