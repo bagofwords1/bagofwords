@@ -1,9 +1,9 @@
 <div>
-  <img src="./media/logo-128.png" />
+  <img src="./media/logo-128.png" style="width:64px;" />
 </div>
 
 # Bag of words
-Deploy an agentic AI data tool that can **chat with any data** — with full observability, deep customizability, and secure self-hosting.
+Deploy an agentic AI data tool that can **chat with any data**.  With full observability, deep customizability, and secure self-hosting.
 
 <div style="text-align: center; margin: 20px 0;">
     <img src="./media/homev2.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
@@ -17,34 +17,47 @@ Deploy an agentic AI data tool that can **chat with any data** — with full obs
 
 Bag of words is an open-source AI platform that helps data teams deploy and manage chat-with-your-data agents in a controlled, reliable, and self-learning environment.
 
+* **Chat** : Create charts, tables, and full dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
 
-* ✨ **Chat** : Create charts, tables, and full dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
+*  **Context Management & Self-learning**: Define terms, KPIs, rules and instructions. Load from external knowledge stores or let AI autogenerate based from usage patterns.
 
-* 🔍 **Observability**: Capture queries, AI decisions, traces, user feedback, latency; analyze quality and usage in the console.
+*  **Observability**: Log and analyze SQL/python queries, AI decisions, traces, user feedback, latency, and instructions; analyze quality and usage in the console.
 
-* 📈 **Self-learning**: Automatically improve AI quality with generated instructions from feedback and usage patterns.
+*  **Data Sources**: Snowflake, BigQuery, Postgres, and more. Enrich context with `Tableau`, `dbt`, `LookML`, `AGENTS.md`, docs, and code.
 
-* 🔗 **Data sources**: Snowflake, BigQuery, Postgres, and more. Enrich context with `dbt`, `LookML`, `AGENTS.md`, docs, and code.
+*  **LLM Integration**: Bring your own API key (OpenAI, Anthropic, or any OpenAI-compatible API).
 
-* 🤖 **LLM integration**: Bring your own API key (OpenAI, Anthropic, or any OpenAI-compatible API).
+*  **Governance & Integrations**: Users and orgs, RBAC, audit logs, SSO (OIDC), SMTP.
 
-* 🛡 **Governance & integrations**: Users and orgs, RBAC, audit logs, SSO (OIDC), SMTP.
-
-* ⚙️ **Deployment**: Self-host in your VPC via VMs, Docker/Compose, or Kubernetes.
-
-Additional integrations to offer an AI Analyst in Slack, Excel, Google Sheets, and more. Get started in minutes, scale to org-wide analytics
+*  **Deployment**: Self-host in your VPC via VMs, Docker/Compose, or Kubernetes.
 
 
+## Architecture
+
+Bag of words acts as a **context-aware analytics layer** that connects to any database or service, works with any LLM, and enriches queries with docs, BI models, or code.
+
+The architecture is fully flexible: plug in any data source, any model, and any interface — giving your team maximum freedom of choice, without sacrificing governance or reliability.
+
+<div style="text-align: center; margin: 20px 0;">
+    <img src="./media/arch.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+</div>
+
+## Integrations
+
+Get data from everywhere (both databases and data services). Use any LLM and use natively in your workflow, including Slack/Excel
+<div style="text-align: center; margin: 20px 0;">
+    <img src="./media/integrations-lg.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+</div>
 
 ## Quick Start
 
 ### Docker (Recommended)
 ```bash
-# Run with SQLite (default)
+# runs with SQLite (default)
 docker run -p 3000:3000 bagofwords/bagofwords
 ```
 
-#### Run with PostgreSQL
+### Or, run with a ready PostgreSQL instance
 ```bash
 docker run -p 3000:3000 \
   -e BOW_DATABASE_URL=postgresql://user:password@localhost:5432/dbname \
@@ -53,6 +66,7 @@ docker run -p 3000:3000 \
 
 #### Custom deployments
 For more advanced deployments, see the [docs](https://docs.bagofwords.com).
+
 
 ---
 ---
