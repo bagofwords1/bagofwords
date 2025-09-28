@@ -6,7 +6,7 @@
 Deploy an agentic AI data tool that can **chat with any data**.  With full observability, deep customizability, and secure self-hosting.
 
 <div style="text-align: center; margin: 20px 0;">
-    <img src="./media/homev2.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+    <img src="./media/hero3.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
 </div>
 
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
