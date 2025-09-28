@@ -40,17 +40,17 @@ Create reports, deep analysis or quick visuals with an AI interface powered by a
     <i></i>
 </div>
 
-### Connect dbt, Tableau, and more for better AI context
-Enrich your AI context with dbt models, Tableau data sources, AGENTS.md and your git repo
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/dbt.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
-    <i></i>
-</div>
-
 ### Create and customize AI instructions and rules
 Manage your AI rules and instructions with review process and control
 <div style="text-align: center; margin: 20px 0;">
     <img src="./media/instructions.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+    <i></i>
+</div>
+
+### Connect dbt, Tableau, and more for better AI context
+Enrich your AI context with dbt models, Tableau data sources, AGENTS.md and your git repo
+<div style="text-align: center; margin: 20px 0;">
+    <img src="./media/dbt.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
     <i></i>
 </div>
 
