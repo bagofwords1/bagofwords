@@ -1,5 +1,13 @@
+<div>
+  <img src="./media/logo-128.png" />
+</div>
+
 # Bag of words
-> Deploy chat-with-your-data AI agents in minutes
+Deploy an agentic AI data tool that can **chat with any data** — with full observability, deep customizability, and secure self-hosting.
+
+<div style="text-align: center; margin: 20px 0;">
+    <img src="./media/homev2.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+</div>
 
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
@@ -10,27 +18,21 @@
 Bag of words is an open-source AI platform that helps data teams deploy and manage chat-with-your-data agents in a controlled, reliable, and self-learning environment.
 
 
-* **Chat**: Create charts, tables, and full dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
-* **Observability**: Capture AI decisions, traces, user feedback, latency; analyze quality and usage in the console.
-* **Self-learning**: Automatically improve AI quality with optimized instructions from feedback and usage patterns.
-* **Data sources**: Snowflake, BigQuery, Postgres, and more. Enrich context with `dbt`, `LookML`, docs, and code.
-* **LLM integration**: Bring your own API key (OpenAI, Anthropic, or any OpenAI-compatible API).
-* **Governance & integrations**: Users and orgs, RBAC, audit logs, SSO (Google), SMTP.
-***Deployment**: Self-host in your VPC via VMs, Docker/Compose, or Kubernetes.
+* ✨ **Chat** : Create charts, tables, and full dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
+
+* 🔍 **Observability**: Capture queries, AI decisions, traces, user feedback, latency; analyze quality and usage in the console.
+
+* 📈 **Self-learning**: Automatically improve AI quality with generated instructions from feedback and usage patterns.
+
+* 🔗 **Data sources**: Snowflake, BigQuery, Postgres, and more. Enrich context with `dbt`, `LookML`, `AGENTS.md`, docs, and code.
+
+* 🤖 **LLM integration**: Bring your own API key (OpenAI, Anthropic, or any OpenAI-compatible API).
+
+* 🛡 **Governance & integrations**: Users and orgs, RBAC, audit logs, SSO (OIDC), SMTP.
+
+* ⚙️ **Deployment**: Self-host in your VPC via VMs, Docker/Compose, or Kubernetes.
 
 Additional integrations to offer an AI Analyst in Slack, Excel, Google Sheets, and more. Get started in minutes, scale to org-wide analytics
-
-<div style="text-align: center; margin: 40px 0;">
-    <img src="./media/home.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
-</div>
-
-<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 40px 0;">
-    <img src="./media/dashboard-split.png" alt="Dashboard Split" style="width: 30%;">
-    <img src="./media/product-dashboard.png" alt="Product Dashboard" style="width: 30%;">
-    <img src="./media/revenue.png" alt="Revenue" style="width: 30%;">
-    <img src="./media/churn-list.png" alt="Churn List" style="width: 30%;">
-    <img src="./media/cloud-spend.png" alt="Cloud Spend" style="width: 30%;">
-</div>
 
 
 
