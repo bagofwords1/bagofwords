@@ -315,7 +315,7 @@ CRITICAL:
         # Success path: format widget data and preview (privacy aware)
         widget_data = streamer.format_df_for_widget(exec_df)
         info = widget_data.get("info", {})
-        allow_llm_see_data = organization_settings.get_config("enable_llm_see_data").value if organization_settings else True
+        allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         if allow_llm_see_data:
             data_preview = {
                 "columns": widget_data.get("columns", []),

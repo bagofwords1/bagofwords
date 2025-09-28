@@ -137,7 +137,7 @@ class AgentV2:
             async with SessionLocal() as session:
                 try:
                     # Use a new Judge instance (stateless) and score from the same planner input
-                    if self.organization_settings.get_config("enable_llm_judgement").value:
+                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value:
                         judge = Judge(model=self.model, organization_settings=self.organization_settings)
                         instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
                     else:
@@ -159,7 +159,7 @@ class AgentV2:
             SessionLocal = create_async_session_factory()
             async with SessionLocal() as session:
                 try:
-                    if self.organization_settings.get_config("enable_llm_judgement").value:
+                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value:
                         judge = Judge(model=self.model, organization_settings=self.organization_settings)
                         original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
                         response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
@@ -1139,7 +1139,7 @@ class AgentV2:
         - B) Within THIS agent_execution, there exists a successful create_widget whose result_json.errors has length >= 1
              (i.e., one or more internal retries/failures before eventual success).
         """
-        if not self.organization_settings.get_config("suggest_instructions").value:
+        if not self.organization_settings.get_config("suggest_instructions") and self.organization_settings.get_config("suggest_instructions").value:
             return {"decision": False, "hint": ""}
         
         hint = ""
