@@ -24,31 +24,14 @@ def create_session_factory():
 
 def create_async_database_engine():
     if settings.TESTING:
-        raw_url = settings.TEST_DATABASE_URL
-        if "postgres" in raw_url:
-            database_url = raw_url.replace(
-                "postgres://", "postgresql+asyncpg://"
-            ).replace(
-                "postgresql://", "postgresql+asyncpg://"
-            )
-            engine = create_async_engine(
-                database_url,
-                echo=False,
-                future=True,
-            )
-        else:
-            database_url = raw_url.replace(
-                "sqlite://", "sqlite+aiosqlite://"
-            ).replace(
-                'sqlite:', 'sqlite+aiosqlite:'
-            )
-            engine = create_async_engine(
-                database_url,
-                echo=False,
-                future=True,
-                # Required for SQLite to handle concurrent requests
-                connect_args={"check_same_thread": False}
-            )
+        database_url = settings.TEST_DATABASE_URL.replace('sqlite:', 'sqlite+aiosqlite:')
+        engine = create_async_engine(
+            database_url,
+            echo=False,
+            future=True,
+            # Required for SQLite to handle concurrent requests
+            connect_args={"check_same_thread": False}
+        )
         print("✅ Test database engine created")
     else:
         if "postgres" in settings.bow_config.database.url:

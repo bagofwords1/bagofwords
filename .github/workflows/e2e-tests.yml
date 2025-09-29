@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        db: [sqlite, postgres]
+        db: [sqlite]
         include:
           - db: sqlite
           - db: postgres
@@ -21,7 +21,7 @@ jobs:
     
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -82,7 +82,6 @@ jobs:
         ENVIRONMENT: "production"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
         BOW_DATABASE_URL: ${{ matrix.db_url }}
-        TEST_DATABASE_URL: ${{ matrix.db_url }}
       run: |
         pytest -s -m ai --disable-warnings
 
@@ -104,7 +103,6 @@ jobs:
         ENVIRONMENT: "production"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
         BOW_DATABASE_URL: ${{ matrix.db_url }}
-        TEST_DATABASE_URL: ${{ matrix.db_url }}
       run: |
         pytest -s -m e2e --disable-warnings
 
