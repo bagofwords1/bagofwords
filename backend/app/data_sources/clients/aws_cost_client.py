@@ -20,8 +20,9 @@ class AwsCostClient(DataSourceClient):
             client = self.session.client("ce")
             yield client
         except Exception as e:
-            yield None
             raise RuntimeError(f"Error connecting to AWS Cost Explorer: {e}")
+        finally:
+            pass
 
     def test_connection(self):
         with self.connect() as connection:

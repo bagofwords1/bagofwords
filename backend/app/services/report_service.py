@@ -26,6 +26,10 @@ import asyncio
 
 from app.core.scheduler import scheduler
 from app.models.dashboard_layout_version import DashboardLayoutVersion
+from app.services.dashboard_layout_service import DashboardLayoutService
+from app.models.visualization import Visualization
+from app.models.query import Query
+from app.models.step import Step
 
 logger = getLogger(__name__)
 
@@ -33,6 +37,7 @@ class ReportService:
 
     def __init__(self):
         self.widget_service = WidgetService()
+        self.layout_service = DashboardLayoutService()
     
     async def _detect_app_version(self, db: AsyncSession, report_id: str) -> str:
         """Detect app version for routing decisions based on agent execution data."""
@@ -183,11 +188,59 @@ class ReportService:
     async def rerun_report_steps(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
         logger.info(f"Executing scheduled report run for report_id: {report_id}")
         report = await self.get_report(db, report_id, current_user, organization)
-        published_widgets = await self.widget_service.get_published_widgets_for_report(db, report_id)
-        for widget in published_widgets:
-            logger.info(f"Running widget {widget.id} for report {report_id}")
-            await self.widget_service.run_widget_step(db, widget, current_user, organization)
-        
+
+        # Prefer visualization/query-based rerun via active dashboard layout
+        try:
+            layout = await self.layout_service.get_or_create_active_layout(db, report_id)
+            blocks = list(layout.blocks or [])
+            viz_blocks = [b for b in blocks if isinstance(b, dict) and b.get('type') == 'visualization']
+        except Exception as e:
+            logger.exception("Failed to load active layout for report %s: %s", report_id, e)
+            viz_blocks = []
+
+        if viz_blocks:
+            for b in viz_blocks:
+                viz_id = b.get('visualization_id')
+                if not viz_id:
+                    continue
+                # Load visualization and its query
+                viz_result = await db.execute(select(Visualization).where(Visualization.id == viz_id))
+                viz = viz_result.scalar_one_or_none()
+                if not viz:
+                    logger.warning("Visualization %s not found for report %s; skipping", viz_id, report_id)
+                    continue
+                if not viz.query_id:
+                    logger.warning("Visualization %s has no query_id; skipping", viz_id)
+                    continue
+                query = await db.get(Query, viz.query_id)
+                if not query:
+                    logger.warning("Query %s not found for visualization %s; skipping", viz.query_id, viz_id)
+                    continue
+
+                # Choose step: prefer default_step, else latest step for query
+                step: Step | None = None
+                if query.default_step_id:
+                    step = await db.get(Step, query.default_step_id)
+                if not step:
+                    step_result = await db.execute(
+                        select(Step).where(Step.query_id == query.id).order_by(Step.created_at.desc()).limit(1)
+                    )
+                    step = step_result.scalar_one_or_none()
+
+                if not step:
+                    raise HTTPException(status_code=400, detail=f"No step found for visualization {viz_id}")
+                if not step.code or not str(step.code).strip():
+                    raise HTTPException(status_code=400, detail=f"Step code is empty for visualization {viz_id}; cannot rerun")
+
+                logger.info(f"Running visualization {viz_id} via step {step.id} for report {report_id}")
+                await self.widget_service.step_service.rerun_step(db, step.id)
+        else:
+            # Legacy fallback: rerun last step for each published widget
+            published_widgets = await self.widget_service.get_published_widgets_for_report(db, report_id)
+            for widget in published_widgets:
+                logger.info(f"Running widget {widget.id} for report {report_id}")
+                await self.widget_service.run_widget_step(db, widget, current_user, organization)
+
         logger.info(f"Completed scheduled report run for report_id: {report_id}")
         return report
 

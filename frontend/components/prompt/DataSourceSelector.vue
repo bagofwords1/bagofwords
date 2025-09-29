@@ -14,7 +14,7 @@
                                 v-for="(ds, index) in internalSelectedDataSources" 
                                 :key="ds.id" 
                                 :type="ds.type" 
-                                :class="`h-4 w-4 ${index > 0 ? 'ml-0.5' : ''}`"
+                                :class="`w-4 ${index > 0 ? 'ml-0.5' : ''}`"
                             />
                         </template>
                     </span>

@@ -4,6 +4,7 @@ backend/uploads/
 backend/db/
 backend/backend_venv/
 backend/branding_uploads/
+backend/tests/integrations/integrations.json
 test_data_sources/
 excel-add-in/hi/node_modules/
 

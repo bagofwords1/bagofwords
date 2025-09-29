@@ -1,0 +1,63 @@
+name: ds-integrations
+
+jobs:
+  ds:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ds: [postgresql, mysql, snowflake, bigquery, clickhouse, mssql, oracledb, salesforce, presto, aws, aws_redshift, aws_athena]
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_versioned.txt
+
+    - name: Restore integrations credentials
+      run: |
+        echo "$INTEGRATIONS_JSON_B64" | base64 -d > backend/tests/integrations/integrations.json
+      env:
+        INTEGRATIONS_JSON_B64: ${{ secrets.INTEGRATIONS_JSON_B64 }}
+
+    - name: Enable only selected data source
+      run: |
+        python - <<'PY'
+        import json
+        p = "backend/tests/integrations/integrations.json"
+        with open(p) as f:
+          data = json.load(f)
+        ds = "${{ matrix.ds }}"
+        for k, v in data.items():
+          if isinstance(v, dict):
+            v["enabled"] = (k == ds)
+        with open(p, "w") as f:
+          json.dump(data, f, indent=2)
+        PY
+
+    # Example of writing extra files for specific providers if needed
+    # - name: Write BigQuery service account file
+    #   if: matrix.ds == 'bigquery'
+    #   run: |
+    #     echo "$BQ_SA_JSON_B64" | base64 -d > backend/tests/integrations/service_account.json
+    #   env:
+    #     BQ_SA_JSON_B64: ${{ secrets.BQ_SA_JSON_B64 }}
+
+    - name: Run data source integration tests
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        pytest -s backend/tests/integrations/test_clients.py --disable-warnings
+
+

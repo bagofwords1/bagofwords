@@ -15,11 +15,14 @@
         <div v-if="fields.config" class="p-3 rounded border">
           <div class="text-sm font-medium text-gray-700 mb-2">Configuration</div>
           <div v-for="field in configFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
-            <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-            <input v-if="field.type === 'string' && field.uiType !== 'textarea' && field.uiType !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
-            <input v-else-if="field.type === 'integer' || field.uiType === 'number'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
-            <textarea v-else-if="field.uiType === 'textarea'" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" :placeholder="field.title || field.field_name" rows="3" />
-            <input v-else-if="field.uiType === 'password' || field.type === 'password'" type="password" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+            <div class="flex justify-between items-baseline mb-1">
+              <label :for="field.field_name" class="text-xs text-gray-700">{{ field.title || field.field_name }}</label>
+              <span class="text-xs text-gray-500">{{ field.description }}</span>
+            </div>
+            <input v-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+            <input v-else-if="field.type === 'integer' || field.type === 'number' || uiType(field) === 'number'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
+            <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" :placeholder="field.title || field.field_name" rows="3" />
+            <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
             <input v-else type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
           </div>
         </div>
@@ -33,7 +36,9 @@
 
           <div v-if="showSystemCredentialFields" v-for="field in credentialFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
             <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-            <input :type="isPasswordField(field.field_name) ? 'password' : (field.uiType === 'number' ? 'number' : 'text')" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+            <input v-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+            <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" rows="3" />
+            <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
           </div>
           <div v-if="showRequireUserAuth && isCreateMode" class="flex items-center gap-2 mb-2 mt-4">
             <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
@@ -83,7 +88,10 @@
 import Spinner from '@/components/Spinner.vue'
 function selectProvider(ds: any) {
   selectedType.value = String(ds?.type || '')
-  name.value = ds?.title || ds?.type || ''
+  if (!name.value) {
+    const title = ds?.title || ds?.type || ''
+    name.value = title ? `My ${title}` : ''
+  }
   handleTypeChange()
 }
 const props = defineProps<{ mode?: 'onboarding'|'create'|'edit', initialType?: string, dataSourceId?: string, initialValues?: any, showTestButton?: boolean, showLLMToggle?: boolean, allowNameEdit?: boolean, forceShowSystemCredentials?: boolean, showRequireUserAuthToggle?: boolean, initialRequireUserAuth?: boolean }>()
@@ -155,6 +163,18 @@ function isPasswordField(fieldName: string) {
   return s.includes('password') || s.includes('secret') || s.includes('token') || s.includes('key')
 }
 
+// Normalize UI type across schema variants: supports `ui:type`, `uiType`, `ui_type`, and `ui`.
+function uiType(field: any): string | undefined {
+  try {
+    const raw: any = (field && (field['ui:type'] ?? field.uiType ?? field.ui_type ?? field.ui))
+    if (raw == null) return undefined
+    const val = String(raw).trim().toLowerCase()
+    return val || undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function fetchAvailable() {
   const res = await useMyFetch('/available_data_sources', { method: 'GET' })
   available_ds.value = (res.data as any)?.value || []
@@ -173,6 +193,11 @@ async function fetchFields() {
     initFormDefaults(preserveOnNextFetch.value)
     preserveOnNextFetch.value = false
     emit('change:type', selectedType.value)
+    // Ensure a friendly default name on initial load if none set
+    if (!name.value) {
+      const title = selectedTitle.value || selectedType.value || ''
+      name.value = title ? `My ${title}` : ''
+    }
     // hydrate initial values in edit mode
     if (isEditMode.value && props.initialValues) {
       try {
@@ -233,13 +258,20 @@ function initFormDefaults(preserveExisting: boolean = false) {
 function handleTypeChange() {
   fields.value = { config: null, credentials: null, auth: null, credentials_by_auth: null }
   selectedAuth.value = undefined
-  name.value = selectedType.value || ''
+  if (!name.value) {
+    const title = selectedTitle.value || selectedType.value || ''
+    name.value = title ? `My ${title}` : ''
+  }
   fetchFields()
 }
 
 function handleAuthChange() {
+  // Preserve config values while resetting credentials for the new auth mode
+  const keepConfig = { ...(formData.config as any) }
   formData.credentials = {} as any
   initFormDefaults(false)
+  // Restore config so only credentials are reset
+  formData.config = keepConfig as any
   emit('change:auth', selectedAuth.value ?? null)
 }
 

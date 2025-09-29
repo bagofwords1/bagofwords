@@ -11,8 +11,8 @@
                     <div class="text-xs uppercase tracking-wide text-gray-400">Description</div>
                     <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">Edit</button>
                 </div>
-                <div class="mt-3 text-sm leading-relaxed text-left text-gray-600" v-if="computedDescription">
-                    {{ computedDescription }}
+                <div class="mt-3 markdown-wrapper text-sm leading-relaxed text-left text-gray-600" v-if="computedDescription">
+                    <MDC :value="computedDescription" class="markdown-content" />
                 </div>
                 <div class="mt-8">
                     <div class="flex items-center gap-2">
@@ -213,19 +213,29 @@ function onCancelDesc() {
 </script>
 
 <style scoped>
-.gradient-glow {
-    background-image: linear-gradient(45deg, #BE93C5, #7BC6CC, #DBE6F6);
-    border-radius: 9999px;
-    filter: blur(60px);
-    height: 160px;
-    left: 50%;
-    pointer-events: none;
-    position: absolute;
-    bottom:-80px;
-    transform: translate(-50%, -50%);
-    transition: all 1s ease;
-    width: 160px;
-    z-index: 1;
+.markdown-wrapper :deep(.markdown-content) {
+	@apply leading-relaxed;
+	font-size: 14px;
+
+	:where(h1, h2, h3, h4, h5, h6) {
+		@apply font-bold mb-4 mt-6;
+	}
+
+	h1 { @apply text-3xl; }
+	h2 { @apply text-2xl; }
+	h3 { @apply text-xl; }
+
+	ul, ol { @apply pl-6 mb-4; }
+	ul { @apply list-disc; }
+	ol { @apply list-decimal; }
+	li { @apply mb-1.5; }
+
+	pre { @apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto; }
+	code { @apply bg-gray-50 px-1 py-0.5 rounded text-sm font-mono; }
+	a { @apply text-blue-600 hover:text-blue-800 underline; }
+	blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; }
+	table { @apply w-full border-collapse mb-4; }
+	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
 }
 </style>
 

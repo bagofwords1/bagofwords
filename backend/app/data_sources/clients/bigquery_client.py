@@ -1,5 +1,7 @@
 from app.data_sources.clients.base import DataSourceClient
 
+import json
+import os
 import pandas as pd
 from google.cloud import bigquery
 from google.oauth2 import service_account
@@ -14,10 +16,27 @@ class BigqueryClient(DataSourceClient):
         self.project_id = project_id
         self.credentials_json = credentials_json
         self.dataset = dataset
-        self.credentials = service_account.Credentials.from_service_account_file(
-            self.credentials_json)
-        self.client = bigquery.Client(
-            project=self.project_id, credentials=self.credentials)
+
+        # Support both raw JSON content and a server-accessible file path
+        self.credentials = None
+        if isinstance(self.credentials_json, str):
+            # Try to parse as JSON content first (preferred & more secure)
+            try:
+                info = json.loads(self.credentials_json)
+                if not isinstance(info, dict):
+                    raise ValueError("Parsed credentials JSON is not an object")
+                self.credentials = service_account.Credentials.from_service_account_info(info)
+            except (json.JSONDecodeError, ValueError):
+                # Fall back to treating the string as a file path on the server
+                if not os.path.isfile(self.credentials_json):
+                    raise ValueError(
+                        "Provided BigQuery credentials are neither valid JSON content nor a readable server file path."
+                    )
+                self.credentials = service_account.Credentials.from_service_account_file(self.credentials_json)
+        else:
+            raise TypeError("credentials_json must be a JSON string or a server file path string")
+
+        self.client = bigquery.Client(project=self.project_id, credentials=self.credentials)
 
     @contextmanager
     def connect(self) -> Generator[bigquery.Client, None, None]:

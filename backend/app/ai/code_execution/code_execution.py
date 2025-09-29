@@ -210,6 +210,7 @@ class StreamingCodeExecutor:
                 try:
                     yield {"type": "progress", "payload": {"stage": "validating_code", "attempt": retries}}
                     validation = await validator_fn(final_code, data_model)
+                    
                     if not validation.get("valid", True):
                         error_msg = validation.get('reasoning', 'Validation failed')
                         if self.logger:

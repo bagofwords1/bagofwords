@@ -128,7 +128,7 @@ class AwsRedshiftClient(DataSourceClient):
         self.role_arn = role_arn
         self.cluster_identifier = cluster_identifier
         self.iam_profile = iam_profile
-        self.ssl_mode = ssl_mode
+        self.ssl_mode = self._normalize_ssl_mode(ssl_mode)
         self.timeout = timeout
         self._connection_name = f"redshift_conn_{hash(f'{host}_{port}_{database}_{user}_{schema}')}"
         self._connected = False
@@ -180,6 +180,34 @@ class AwsRedshiftClient(DataSourceClient):
             return "ROLE"
         else:
             return "PASSWORD"
+
+    @staticmethod
+    def _normalize_ssl_mode(value) -> str:
+        """Normalize ssl_mode to a valid psycopg2 value.
+
+        Accepts booleans and common string synonyms and returns one of:
+        disable, allow, prefer, require, verify-ca, verify-full
+        """
+        valid = {"disable", "allow", "prefer", "require", "verify-ca", "verify-full"}
+
+        if isinstance(value, bool):
+            return "require" if value else "disable"
+        if value is None:
+            return "require"
+
+        s = str(value).strip().lower()
+        if s in ("true", "1", "yes", "on"):
+            return "require"
+        if s in ("false", "0", "no", "off"):
+            return "disable"
+
+        synonyms = {
+            "required": "require",
+            "verify_ca": "verify-ca",
+            "verify_full": "verify-full",
+        }
+        s = synonyms.get(s, s)
+        return s if s in valid else "require"
 
     def _get_iam_credentials(self):
         """Get IAM credentials for Redshift authentication."""

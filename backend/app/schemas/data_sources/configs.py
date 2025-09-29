@@ -37,7 +37,7 @@ class SnowflakeCredentials(BaseModel):
 
 
 class SnowflakeConfig(BaseModel):
-    account: str = Field(..., title="Account", description="For example:", json_schema_extra={"ui:type": "string"})
+    account: str = Field(..., title="Account", description="The unique account identifier. For example: ABCDEF-GHIJKL", json_schema_extra={"ui:type": "string"})
     warehouse: str = Field(..., title="Warehouse", description="", json_schema_extra={"ui:type": "string"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
     schema: str = Field(..., title="Schema", description="", json_schema_extra={"ui:type": "string"})
@@ -224,7 +224,7 @@ class AwsRedshiftConfig(BaseModel):
     schema: str = Field("public", title="Schema", description="", json_schema_extra={"ui:type": "string"})
     region: Optional[str] = Field(None, title="Region", description="", json_schema_extra={"ui:type": "string"})
     cluster_identifier: Optional[str] = Field(None, title="Cluster Identifier", description="", json_schema_extra={"ui:type": "string"})
-    ssl_mode: bool = Field(True, title="SSL Mode", description="", json_schema_extra={"ui:type": "boolean"})
+    ssl_mode: str = Field("require", title="SSL Mode", description="", json_schema_extra={"ui:type": "string"})
     timeout: int = Field(30, ge=1, le=300, title="Timeout", description="", json_schema_extra={"ui:type": "number"})
 
 
