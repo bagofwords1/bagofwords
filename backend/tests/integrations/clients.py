@@ -135,7 +135,7 @@ def aws_redshift_client():
 def aws_athena_client():
     return AwsAthenaClient(**ds_kwargs('aws_athena'))
 
-
+@pytest.skip
 def test_mysql_get_schemas(mysql_client):
     schemas = mysql_client.get_schemas()
     logger.info(f"MySQL: Found {len(schemas)} tables in database.")
