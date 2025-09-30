@@ -2,8 +2,9 @@
   <img src="./media/logo-128.png" style="width:64px;" />
 </div>
 
-# Bag of words
-Deploy an agentic AI data tool that can **chat with any data**.  With full observability, deep customizability, and secure self-hosting.
+# Bag of words 
+
+Connect any LLM to any data source with centralized context (instructions, dbt, code, AGENTS.md) and governance (quality, accuracy), and let users chat with their data to build charts, dashboards, and scheduled reports — all powered by an agentic, observable loop.
 
 <div style="text-align: center; margin: 20px 0;">
     <img src="./media/hero3.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
@@ -15,21 +16,41 @@ Deploy an agentic AI data tool that can **chat with any data**.  With full obser
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
 ---
 
-Bag of words is an open-source AI platform that helps data teams deploy and manage chat-with-your-data agents in a controlled, reliable, and self-learning environment.
+Bag of words is the open-source AI Data Layer — connect any LLM to any data source with centralized context management, trust, observability, and control.
 
-* **Chat:** Create charts, tables, and full dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
 
-*  **Context Management & Self-Learning:** Define terms, KPIs, rules and instructions. Load from external knowledge stores or let AI autogenerate based from usage patterns.
+* **Chat with any data source** 
 
-*  **Observability**: Log and analyze SQL/python queries, AI decisions, traces, user feedback, latency, and instructions; analyze quality and usage in the console.
+  Ask questions in web, Slack, or else. Create charts, tables, and full beautiful reports/dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
 
-*  **Data Sources**: Snowflake, BigQuery, Postgres, and more. Enrich context with `Tableau`, `dbt`, `LookML`, `AGENTS.md`, docs, and code.
+*  **Context-aware & customizable** 
+  
+   Define terms, KPIs, rules and instructions. Ingest from dbt, code, AGENTS.md, and have AI continiously maintain and monitor.
 
-*  **LLM Integration**: Bring your own API key (OpenAI, Anthropic, or any OpenAI-compatible API).
+* **Any LLM, any data**
 
-*  **Governance & Integrations**: Users and orgs, RBAC, audit logs, SSO (OIDC), SMTP.
+   Connect multiple data sources: Snowflake, BigQuery, Redshift, Postgres, dbt, Tableau, and more — then pair with the LLM of your choice (OpenAI, Anthropic, or local models). Swap models/data sources without breaking workflows.
 
-*  **Deployment**: Self-host in your VPC via VMs, Docker/Compose, or Kubernetes.
+*  **Transparency, trust & deployment**
+
+   Track every AI decision, trace, and feedback. Analyze quality and usage in the console. Deploy fully in your VPC with Docker/Compose, VMs, or Kubernetes. Enterprise-ready with RBAC, SSO (OIDC), audit logs, SMTP.
+
+## Quick Start 🚀
+
+```bash
+# runs with SQLite (default)
+docker run -p 3000:3000 bagofwords/bagofwords
+```
+
+### Or, run with a ready PostgreSQL instance
+```bash
+docker run -p 3000:3000 \
+  -e BOW_DATABASE_URL=postgresql://user:password@localhost:5432/dbname \
+  bagofwords/bagofwords
+```
+
+#### Custom deployments
+For more advanced deployments, see the [docs](https://docs.bagofwords.com).
 
 ## Product Overview
 
@@ -60,24 +81,6 @@ Full observability into queries, feedback, and context — powering self-learnin
     <img src="./media/monitoring.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
 </div>
 
-## Quick Start 🚀
-
-### Docker (Recommended)
-```bash
-# runs with SQLite (default)
-docker run -p 3000:3000 bagofwords/bagofwords
-```
-
-### Or, run with a ready PostgreSQL instance
-```bash
-docker run -p 3000:3000 \
-  -e BOW_DATABASE_URL=postgresql://user:password@localhost:5432/dbname \
-  bagofwords/bagofwords
-```
-
-#### Custom deployments
-For more advanced deployments, see the [docs](https://docs.bagofwords.com).
-
 ## Architecture
 
 Bag of words acts as a **context-aware analytics layer** that connects to any database or service, works with any LLM, and enriches queries with docs, BI models, or code.
@@ -88,4 +91,47 @@ The architecture is fully flexible: plug in any data source, any model, and any 
     <img src="./media/arch.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
 </div>
 
----
+## Integrations
+
+### Supported LLM Integrations
+
+Bag of words supports a wide range of LLM providers out of the box. You can bring your own API key for any of the following:
+
+| Provider         | Supported Models / APIs         | Notes                                                                 |
+|------------------|---------------------------------|-----------------------------------------------------------------------|
+| **OpenAI**       | GPT-5, GPT-4.1, o-models, etc.    | Any OpenAI-compatible endpoint (including self-hosted, vLLM, etc.)    |
+| **Azure OpenAI** | GPT-5, GPT-4.1, o-models, etc.            | Azure resource/endpoint support, including model deployment names      |
+| **Google Gemini**| Gemini 2.5, Flash versions, etc.    | Requires Google Cloud API key                                         |
+| **Anthropic**    | Claude, Sonnet, Haiku    |            |
+| **Any OpenAI-compatible** | vLLM, LM Studio, Ollama, etc. | Just provide the base URL and API key                                 |
+
+> **Tip:** You can configure multiple providers and models, set defaults, and more.
+
+### Data Sources
+
+
+#### Supported Data Sources
+
+Below is a list of all data sources supported by Bag of words, as defined in the data source registry. Each entry is marked as either a **Database/Warehouse** or a **Service**.
+
+| Title                    | Kind                |
+|--------------------------|---------------------|
+| PostgreSQL               | Database/Warehouse  |
+| Snowflake                | Database/Warehouse  |
+| Google BigQuery          | Database/Warehouse  |
+| NetSuite                 | Service             |
+| MySQL                    | Database/Warehouse  |
+| AWS Athena               | Database/Warehouse  |
+| MariaDB                  | Database/Warehouse  |
+| Salesforce               | Service             |
+| Microsoft SQL Server     | Database/Warehouse  |
+| ClickHouse               | Database/Warehouse  |
+| AWS Cost Explorer        | Service             |
+| Vertica                  | Database/Warehouse  |
+| AWS Redshift             | Database/Warehouse  |
+| Tableau                  | Service             |
+| Presto                   | Database/Warehouse  |
+| Google Analytics         | Service             |
+| Google Cloud Platform    | Service             |
+
+> **Note:** Some data sources (like NetSuite) may be marked as inactive or beta in the registry. "Service" refers to APIs or SaaS platforms, while "Database/Warehouse" refers to systems that store and query structured data.
