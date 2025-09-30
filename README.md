@@ -102,7 +102,7 @@ Bag of words supports a wide range of LLM providers out of the box. You can brin
 | **OpenAI**       | GPT-5, GPT-4.1, o-models, etc.    | Any OpenAI-compatible endpoint (including self-hosted, vLLM, etc.)    |
 | **Azure OpenAI** | GPT-5, GPT-4.1, o-models, etc.            | Azure resource/endpoint support, including model deployment names      |
 | **Google Gemini**| Gemini 2.5, Flash versions, etc.    | Requires Google Cloud API key                                         |
-| **Anthropic**    | Claude, Sonnet, Haiku    |            |
+| **Anthropic**    | Claude, Sonnet, Haiku    | Just provide the API key          |
 | **Any OpenAI-compatible** | vLLM, LM Studio, Ollama, etc. | Just provide the base URL and API key                                 |
 
 > **Tip:** You can configure multiple providers and models, set defaults, and more.
