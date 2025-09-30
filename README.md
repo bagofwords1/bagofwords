@@ -4,7 +4,7 @@
 
 # Bag of words 
 
-Connect any LLM to any data source with centralized context (instructions, dbt, code, AGENTS.md) and governance (quality, accuracy), and let users chat with their data to build charts, dashboards, and scheduled reports — all powered by an agentic, observable loop.
+Connect any LLM to any data source with centralized context (instructions, dbt, code, AGENTS.md, tableau) and governance (quality, accuracy), and let users chat with their data to build charts, dashboards, and scheduled reports — all powered by an agentic, observable loop.
 
 <div style="text-align: center; margin: 20px 0;">
     <img src="./media/hero3.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
@@ -25,7 +25,7 @@ Bag of words is the open-source AI Data Layer — connect any LLM to any data so
 
 *  **Context-aware & customizable** 
   
-   Define terms, KPIs, rules and instructions. Ingest from dbt, code, AGENTS.md, and have AI continiously maintain and monitor.
+   Define terms, KPIs, rules and instructions. Ingest from dbt, Tableau, code, AGENTS.md, and have AI continiously maintain and monitor.
 
 * **Any LLM, any data**
 
