@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.201 (October 8th, 2025)
+- Added DuckDB support for object store files (aws, gcs, azure)
+- Added Claude Sonnet 4.5 support
+
 ## Version 0.0.200 (September 27, 2025)
 - Enhanced data source setup experience for new users
 - Redesigned user interface for data source management

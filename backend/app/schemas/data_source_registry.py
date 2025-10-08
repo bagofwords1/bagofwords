@@ -21,6 +21,12 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftConfig,
     TableauConfig,
     SalesforceConfig,
+    # DuckDB
+    DuckDBConfig,
+    DuckDBNoAuthCredentials,
+    DuckDBAwsCredentials,
+    DuckDBGcpCredentials,
+    DuckDBAzureCredentials,
     # Credentials
     PostgreSQLCredentials,
     SnowflakeCredentials,
@@ -226,6 +232,19 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "pat": AuthVariant(title="Personal Access Token", schema=TableauPATCredentials, scopes=["system", "user"])  
         }),
         client_path="app.data_sources.clients.tableau_client.TableauClient",
+    ),
+    "duckdb": DataSourceRegistryEntry(
+        type="duckdb",
+        title="DuckDB",
+        description="Query parquet/csv from S3/GCS/Azure/local via DuckDB views.",
+        config_schema=DuckDBConfig,
+        credentials_auth=AuthOptions(default="none", by_auth={
+            "none": AuthVariant(title="No Auth (public/local)", schema=DuckDBNoAuthCredentials, scopes=["system"]),
+            "aws": AuthVariant(title="AWS Keys", schema=DuckDBAwsCredentials, scopes=["system"]),
+            "gcp": AuthVariant(title="GCP Service Account", schema=DuckDBGcpCredentials, scopes=["system"]),
+            "azure": AuthVariant(title="Azure Connection String", schema=DuckDBAzureCredentials, scopes=["system"])  
+        }),
+        client_path="app.data_sources.clients.duckdb_client.DuckDBClient",
     ),
 }
 

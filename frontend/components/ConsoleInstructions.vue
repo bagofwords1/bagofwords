@@ -128,7 +128,7 @@
                                             v-for="dataSource in instruction.data_sources.slice(0, 3)"
                                             :key="dataSource.id"
                                             :type="dataSource.type"
-                                            class="w-5 h-5"
+                                            class="h-5"
                                             :title="dataSource.name"
                                         />
                                         <span v-if="instruction.data_sources.length > 3" class="text-xs text-gray-500">

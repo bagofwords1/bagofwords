@@ -123,6 +123,7 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | MySQL                    | Database/Warehouse  |
 | AWS Athena               | Database/Warehouse  |
 | MariaDB                  | Database/Warehouse  |
+| DuckDB                   | Database/Warehouse  |
 | Salesforce               | Service             |
 | Microsoft SQL Server     | Database/Warehouse  |
 | ClickHouse               | Database/Warehouse  |

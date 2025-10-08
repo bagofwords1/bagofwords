@@ -44,7 +44,7 @@
                                 <div class="flex items-center flex-wrap gap-1">
                                     <span v-if="isAllDataSourcesSelected" class="flex items-center">
                                         <div class="flex -space-x-1 mr-2">
-                                            <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 w-3 border border-white rounded" />
+                                            <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 border border-white rounded" />
                                             <div v-if="availableDataSources.length > 3" class="h-3 w-3 bg-gray-400 text-white text-[10px] rounded flex items-center justify-center border border-white">+{{ availableDataSources.length - 3 }}</div>
                                         </div>
                                         All Data Sources

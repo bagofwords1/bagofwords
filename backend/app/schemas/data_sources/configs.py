@@ -244,6 +244,36 @@ class TableauConfig(BaseModel):
     #include_datasource_ids: Optional[List[str]] = None
 
 
+# DuckDB (files via object stores or local)
+class DuckDBNoAuthCredentials(BaseModel):
+    # Allow extra so creds provided without auth_type (e.g., aws keys) are preserved during validation
+    class Config:
+        extra = 'allow'
+
+
+class DuckDBAwsCredentials(BaseModel):
+    access_key: str = Field(..., title="AWS Access Key", description="", json_schema_extra={"ui:type": "string"})
+    secret_key: str = Field(..., title="AWS Secret Key", description="", json_schema_extra={"ui:type": "password"})
+    region: Optional[str] = Field(None, title="Region", description="", json_schema_extra={"ui:type": "string"})
+    session_token: Optional[str] = Field(None, title="Session Token (optional)", description="For temporary credentials", json_schema_extra={"ui:type": "password"})
+
+
+class DuckDBGcpCredentials(BaseModel):
+    service_account_json: str = Field(..., title="GCP Service Account JSON", description="", json_schema_extra={"ui:type": "textarea"})
+
+
+class DuckDBAzureCredentials(BaseModel):
+    connection_string: str = Field(..., title="Azure Connection String", description="SAS or account key connection string", json_schema_extra={"ui:type": "string"})
+
+
+class DuckDBConfig(BaseModel):
+    uris: str = Field(
+        ...,
+        title="URIs",
+        description="One URI pattern per line for parquet/csv files. Supports wildcards. Examples: s3://bucket/path/*.parquet",
+        json_schema_extra={"ui:type": "textarea"}
+    )
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -259,6 +289,11 @@ __all__ = [
     "VerticaConfig",
     "AwsRedshiftConfig",
     "TableauConfig",
+    "DuckDBConfig",
+    "DuckDBNoAuthCredentials",
+    "DuckDBAwsCredentials",
+    "DuckDBGcpCredentials",
+    "DuckDBAzureCredentials",
     # Credentials
     "PostgreSQLCredentials",
     "SnowflakeCredentials",
@@ -273,6 +308,10 @@ __all__ = [
     "VerticaCredentials",
     "AwsRedshiftCredentials",
     "TableauCredentials",
+    "DuckDBNoAuthCredentials",
+    "DuckDBAwsCredentials",
+    "DuckDBGcpCredentials",
+    "DuckDBAzureCredentials"
 ]
 
 

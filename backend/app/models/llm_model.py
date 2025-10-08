@@ -27,6 +27,14 @@ LLM_MODEL_DETAILS = [
         "is_enabled": True,
         "is_default": False
     },
+    {
+        "name": "Claude 4.5 Sonnet",
+        "model_id": "claude-sonnet-4-5-20250929",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True
+    },
 
     {
         "name": "Claude 4 Sonnet",
@@ -39,13 +47,6 @@ LLM_MODEL_DETAILS = [
     {
         "name": "Claude 4 Opus",
         "model_id": "claude-opus-4-20250514",
-        "provider_type": "anthropic",
-        "is_preset": True,
-        "is_enabled": True
-    },
-    {
-        "name": "Claude 3.7 Sonnet",
-        "model_id": "claude-3-7-sonnet-20250219",
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True

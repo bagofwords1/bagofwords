@@ -5,7 +5,7 @@
                 <div>
                     <div class="flex items-start justify-between">
                         <h1 class="text-lg font-semibold flex items-center">
-                            <DataSourceIcon v-if="integration" :type="integration?.type" class="w-6 h-6 mr-2" />
+                            <DataSourceIcon v-if="integration" :type="integration?.type" class="h-6 mr-2" />
                             <span>{{ integration?.name || 'Integration' }}</span>
                         </h1>
                         <div class="flex items-center gap-2">
