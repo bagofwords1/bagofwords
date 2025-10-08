@@ -2,7 +2,7 @@
   <img src="./media/logo-128.png" style="width:64px;" />
 </div>
 
-# Bag of words 
+# Bag of words — deploy an AI Analyst in minutes
 
 Connect any LLM to any data source with centralized context (instructions, dbt, code, AGENTS.md, tableau) and governance (quality, accuracy), and let users chat with their data to build charts, dashboards, and scheduled reports — all powered by an agentic, observable loop.
 
