@@ -6,6 +6,8 @@
 
 Connect any LLM to any data source with centralized context (instructions, dbt, code, AGENTS.md, tableau) and governance (quality, accuracy), and let users chat with their data to build charts, dashboards, and scheduled reports — all powered by an agentic, observable loop.
 
+### [Docs: Deploy in less than 2 minutes](https://docs.bagofwords.com)
+
 <div style="text-align: center; margin: 20px 0;">
     <img src="./media/hero3.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
 </div>
