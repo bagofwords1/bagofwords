@@ -5,6 +5,7 @@ import pandas as pd
 from contextlib import contextmanager
 from typing import Generator, List
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
+import urllib.parse
 
 
 class DuckDBClient(DataSourceClient):
@@ -47,6 +48,14 @@ class DuckDBClient(DataSourceClient):
         # Prefer path-style addressing to avoid some bucket policy issues
         con.execute("SET s3_url_style='path';")
         con.execute("SET s3_use_ssl=true;")
+        # Azure support (ADLS/Blob)
+        try:
+            con.execute("INSTALL azure;")
+            con.execute("LOAD azure;")
+            con.execute("SET azure_transport_option_type='curl';")
+        except Exception:
+            # Ignore if azure extension is unavailable in this build
+            pass
 
         # AWS
         if self.access_key and self.secret_key:
@@ -67,6 +76,14 @@ class DuckDBClient(DataSourceClient):
             # DuckDB supports Azure via connection string (SAS/account key)
             con.execute(f"SET azure_storage_connection_string={self._sql_literal(self.connection_string)};")
 
+    def _normalize_uri(self, pattern: str) -> str:
+        """Trust user-supplied URIs.
+
+        Pass-through schemes like s3://, gs://, file:/, abfss://, wasbs://, https://, and az://.
+        DuckDB's Azure extension supports az:// directly, so no rewriting here.
+        """
+        return pattern
+
     def _safe_view_name(self, base: str, used: set[str]) -> str:
         import re
         name = re.sub(r"[^a-zA-Z0-9_]+", "_", base).strip("_") or "t"
@@ -83,8 +100,9 @@ class DuckDBClient(DataSourceClient):
         used: set[str] = set()
         import os
         for pattern in self.uri_patterns:
+            normalized = self._normalize_uri(pattern)
             # derive a friendly name from the last path segment (filename without extension)
-            last = pattern.rstrip("/")
+            last = normalized.rstrip("/")
             last_segment = last.split("/")[-1] if "/" in last else last
             # if wildcard, fall back to parent directory name
             if "*" in last_segment or last_segment == "":
@@ -96,12 +114,12 @@ class DuckDBClient(DataSourceClient):
                 # strip extension
                 candidate = last_segment.rsplit(".", 1)[0]
             view = self._safe_view_name(candidate, used)
-            lower = pattern.lower()
+            lower = normalized.lower()
             if lower.endswith(".parquet") or ".parquet" in lower:
-                con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_parquet({self._sql_literal(pattern)})")
+                con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_parquet({self._sql_literal(normalized)})")
             else:
                 # default to CSV auto
-                con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_csv_auto({self._sql_literal(pattern)})")
+                con.execute(f"CREATE OR REPLACE VIEW {view} AS SELECT * FROM read_csv_auto({self._sql_literal(normalized)})")
             created.append(view)
         return created
 

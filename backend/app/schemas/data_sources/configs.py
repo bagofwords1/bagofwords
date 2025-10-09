@@ -270,7 +270,7 @@ class DuckDBConfig(BaseModel):
     uris: str = Field(
         ...,
         title="URIs",
-        description="One URI pattern per line for parquet/csv files. Supports wildcards. Examples: s3://bucket/path/*.parquet",
+        description="One URI pattern per line for parquet/csv files. Supports wildcards. Examples: s3:// or az://",
         json_schema_extra={"ui:type": "textarea"}
     )
 
