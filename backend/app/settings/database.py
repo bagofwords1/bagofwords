@@ -11,7 +11,11 @@ def create_database_engine():
         if "postgres" in settings.bow_config.database.url:
             database_url = settings.bow_config.database.url.replace("postgres://", "postgresql://")
         elif "sqlite" in settings.bow_config.database.url:
-            database_url = settings.bow_config.database.url
+            # For synchronous engine, use regular sqlite://
+            if "aiosqlite" in settings.bow_config.database.url:
+                database_url = settings.bow_config.database.url.replace("sqlite+aiosqlite://", "sqlite://")
+            else:
+                database_url = settings.bow_config.database.url
         else:
             database_url = "sqlite:///./app.db"  # Default fallback
     engine = create_engine(database_url)
@@ -42,9 +46,12 @@ def create_async_database_engine():
             )
             print(f"🔍 Using PostgreSQL database: {database_url}")
         elif "sqlite" in settings.bow_config.database.url:
-            database_url = settings.bow_config.database.url.replace(
-                "sqlite://", "sqlite+aiosqlite://"
-            )
+            if "aiosqlite" not in settings.bow_config.database.url:
+                database_url = settings.bow_config.database.url.replace(
+                    "sqlite://", "sqlite+aiosqlite://"
+                )
+            else:
+                database_url = settings.bow_config.database.url
             print(f"🔍 Using SQLite database: {database_url}")
         else:
             database_url = "sqlite+aiosqlite:///./app.db"

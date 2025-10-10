@@ -9,7 +9,7 @@ database:
   url: ${BOW_DATABASE_URL}
   
 features:
-  allow_uninvited_signups: false
+  allow_uninvited_signups: true
   allow_multiple_organizations: false
   verify_emails: false
 

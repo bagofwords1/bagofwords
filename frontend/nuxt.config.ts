@@ -3,6 +3,10 @@ import { defineNuxtConfig } from "nuxt/config"
 export default defineNuxtConfig({
   devtools: { enabled: true },
   ssr: false,
+  
+  devServer: {
+    port: 7001
+  },
 
   modules: [
     "@nuxt/ui",
@@ -82,7 +86,7 @@ export default defineNuxtConfig({
     },
     proxies: {
         '/ws/api': {
-            target: 'ws://127.0.0.1:8000',
+            target: 'ws://127.0.0.1:6001',
             ws: true,
             changeOrigin: true,
             secure: false,
@@ -93,7 +97,7 @@ export default defineNuxtConfig({
             }
         },
         '/api': {
-            target: 'http://127.0.0.1:8000',
+            target: 'http://127.0.0.1:6001',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => path
