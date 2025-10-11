@@ -16,8 +16,10 @@ Let users run analysis, build beautiful dashboards, or schedule reports — all 
 
 <div style="text-align: center; margin: 20px 0;">
     <img src="./media/hero3.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+
 </div>
 
+[![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
 
 
 Bag of words is the open-source AI data layer — connect any LLM to any data source with centralized context management, trust, observability, and control.
