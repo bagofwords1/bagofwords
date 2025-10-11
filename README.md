@@ -14,11 +14,6 @@ Let users run analysis, build beautiful dashboards, or schedule reports — all 
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
 ---
 
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/hero3.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
-
-</div>
-
 [![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
 
 
