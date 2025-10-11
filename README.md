@@ -3,22 +3,24 @@
 </div>
 
 # Bag of words — deploy an AI Analyst in minutes
+Connect any LLM to any data source with centralized context management (instructions, dbt, code, docs, BI metadata) and full observability and governance.
 
-Connect any LLM to any data source with centralized context (instructions, dbt, code, AGENTS.md, tableau) and governance (quality, accuracy), and let users chat with their data to build charts, dashboards, and scheduled reports — all powered by an agentic, observable loop.
+Let users run analysis, build beautiful dashboards, or schedule reports — all executed through an agentic analytics-oriented loop.
 
 ### [Docs: Deploy in less than 2 minutes](https://docs.bagofwords.com)
-
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/hero3.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
-</div>
-
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/bagofwords/bagofwords)
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
 ---
 
-Bag of words is the open-source AI Data Layer — connect any LLM to any data source with centralized context management, trust, observability, and control.
+<div style="text-align: center; margin: 20px 0;">
+    <img src="./media/hero3.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+</div>
+
+
+
+Bag of words is the open-source AI data layer — connect any LLM to any data source with centralized context management, trust, observability, and control.
 
 
 * **Chat with any data source** 
