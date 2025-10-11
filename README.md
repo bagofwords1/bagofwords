@@ -17,7 +17,7 @@ Let users run analysis, build beautiful dashboards, or schedule reports — all 
 [![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
 
 
-Bag of words is the open-source AI data layer — connect any LLM to any data source with centralized context management, trust, observability, and control.
+Bag of words is an open-source AI data layer — connect any LLM to any data source with centralized context management, trust, observability, and control.
 
 
 * **Chat with any data source** 
