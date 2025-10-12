@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  repository_dispatch:
+    types: [e2e-tests-passed]
+  workflow_dispatch:
+
+jobs:
+  create_release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Read version
+      id: ver
+      run: |
+        VERSION=$(tr -d ' \n' < VERSION)
+        if [ -z "$VERSION" ]; then
+          echo "VERSION file is empty"; exit 1
+        fi
+        echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+    - name: Compute tag
+      id: tag
+      run: |
+        echo "tag=v${{ steps.ver.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+    - name: Extract release notes section
+      run: |
+        awk -v ver="${{ steps.ver.outputs.version }}" '
+          $0 ~ "^## Version " ver {
+            print_section=1; print; next
+          }
+          print_section && /^## Version / { exit }
+          print_section { print }
+        ' release_notes.md > RELEASE_BODY.md
+        if [ ! -s RELEASE_BODY.md ]; then
+          echo "No specific section found; using full release_notes.md"
+          cp release_notes.md RELEASE_BODY.md
+        fi
+
+    - name: Check if tag exists
+      id: checktag
+      run: |
+        if git rev-parse "${{ steps.tag.outputs.tag }}" >/dev/null 2>&1; then
+          echo "exists=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Create and push tag
+      if: steps.checktag.outputs.exists == 'false'
+      run: |
+        git tag -a "${{ steps.tag.outputs.tag }}" -m "Release ${{ steps.tag.outputs.tag }}"
+        git push origin "${{ steps.tag.outputs.tag }}"
+
+    - name: Create GitHub Release
+      if: steps.checktag.outputs.exists == 'false'
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag.outputs.tag }}
+        name: ${{ steps.tag.outputs.tag }}
+        body_path: RELEASE_BODY.md
+        make_latest: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+

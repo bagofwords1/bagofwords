@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.203 (October 12, 2025)
+- Added thinking level for prompts
+- Improved CI/CD with github releases
+
 ## Version 0.0.202 (October 8th, 2025)
 - Added DuckDB support for object store files (aws, gcs, azure)
 - Added Claude Sonnet 4.5 support
