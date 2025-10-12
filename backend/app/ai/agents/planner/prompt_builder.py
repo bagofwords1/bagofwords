@@ -48,6 +48,7 @@ Do not rely on any external parameter; decide the final reasoning level in real 
 
 Deep Analytics mode: If selected, you are expected to perform heavier planning, run multiple iterations of widgets/observations, and end with a create_dashboard call to present findings. Acknowledge deep mode in both reasoning_message and assistant_message.
 """
+
         return f"""
 SYSTEM
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
@@ -72,7 +73,7 @@ AGENT LOOP (single-cycle planning; one tool per iteration)
 5) Stop and output: return JSON matching the strict schema below.
 
 PLAN TYPE DECISION FRAMEWORK
-- You must inspect schemas or gather context first
+- You must review user message, the chat's previous messages and activity, inspect schemas or gather context first
 - If the user's message is a greeting/thanks/farewell, do not call any tool; respond briefly.
 - If schemas are empty/insufficient, use the clarify tool to ask targeted clarifying questions via assistant_message.
 - If the user's request is ambiguous, trigger the clarify tool.
@@ -144,7 +145,7 @@ INPUT ENVELOPE
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.resources_context if planner_input.resources_context else 'No metadata resources available'}
   {planner_input.history_summary}
-  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}</messages>
+  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
   <past_observations>{json.dumps(planner_input.past_observations) if planner_input.past_observations else '[]'}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
   <error_guidance>
@@ -160,7 +161,7 @@ INPUT ENVELOPE
 EXPECTED JSON OUTPUT (strict):
 {{
   "analysis_complete": boolean,
-  "plan_type": "action" | "research" | null,
+  "plan_type": "action" | null,
   "reasoning_message": string | null,
   "assistant_message": string | null,
   "action": {{

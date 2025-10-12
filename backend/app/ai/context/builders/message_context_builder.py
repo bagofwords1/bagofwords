@@ -2,7 +2,6 @@
 Message Context Builder - Ports proven logic from agent._build_messages_context()
 """
 import json
-import pandas as pd
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -131,54 +130,37 @@ class MessageContextBuilder:
                 
                             # Add widget/step information and data based on tool execution result
                             if tool_execution.status == 'success':
-                                # Check if this is a create_and_execute_code tool with data
-                                if tool_execution.tool_name == 'create_and_execute_code' and tool_execution.result_json:
-                                    result_json = tool_execution.result_json
-                                    
-                                    # Get widget info
-                                    widget_id = tool_execution.created_widget_id or result_json.get('widget_id')
-                                    step_id = tool_execution.created_step_id or result_json.get('step_id')
-                                    
-                                    if widget_id:
-                                        widget_result = await self.db.execute(
-                                            select(Widget).filter(Widget.id == widget_id)
-                                        )
-                                        widget = widget_result.scalars().first()
-                                        widget_title = widget.title if widget else "Unknown Widget"
-                                        tool_info += f" - Widget: '{widget_title}'"
-                                    
-                                    # Get data info from result_json
-                                    data_preview = result_json.get('data_preview', {})
-                                    stats = result_json.get('stats', {})
-                                    
-                                    if data_preview and stats:
-                                        total_rows = stats.get('total_rows', 0)
-                                        
-                                        if allow_llm_see_data and total_rows > 0:
-                                            # Use DataFrame approach like old agent.py
-                                            rows = data_preview.get('rows', [])
-                                            columns = data_preview.get('columns', [])
-                                            
-                                            if rows and columns:
-                                                # Create DataFrame like in old agent.py - use ALL columns
-                                                df_cols = [col.get('field', col.get('headerName', '')) for col in columns]
-                                                df = pd.DataFrame(rows, columns=df_cols)
-                                                
-                                                # Get random 2 rows using sample (or first 2 if less than 2 rows)
-                                                if len(df) >= 2:
-                                                    sample_df = df.sample(n=2, random_state=42)  # Fixed seed for consistency
-                                                else:
-                                                    sample_df = df.head()
-                                                
-                                                # Convert to dict like old agent.py does: df.to_dict(orient='records')
-                                                data_sample = sample_df.to_dict(orient='records')
-                                                tool_info += f" ({total_rows} rows, data sample: {data_sample})"
-                                            else:
-                                                tool_info += f" ({total_rows} rows)"
-                                        else:
-                                            # Just show row count without data
-                                            tool_info += f" ({total_rows} rows)"
-                                    
+                                # Digest for create_widget results
+                                if tool_execution.tool_name == 'create_widget' and tool_execution.result_json:
+                                    result_json = tool_execution.result_json or {}
+                                    widget_data = result_json.get('widget_data', {}) or {}
+                                    columns = widget_data.get('columns', []) or []
+                                    rows = widget_data.get('rows', []) or []
+                                    col_names = [c.get('field') or c.get('headerName') for c in columns if (c.get('field') or c.get('headerName'))]
+                                    row_count = len(rows)
+                                    sample_row = None
+                                    if allow_llm_see_data:
+                                        preview = result_json.get('data_preview', {}) or {}
+                                        preview_rows = preview.get('rows') or []
+                                        if preview_rows:
+                                            sample_row = preview_rows[0]
+                                        elif rows:
+                                            sample_row = rows[0]
+                                    digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
+                                    if col_names:
+                                        head_cols = ", ".join(col_names[:3])
+                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                    if sample_row:
+                                        try:
+                                            digest_parts.append(f"top row: {json.dumps(sample_row)}")
+                                        except Exception:
+                                            pass
+                                    tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'answer_question' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    answer_text = rj.get('answer') or ((rj.get('output') or {}).get('answer') if isinstance(rj.get('output'), dict) else None)
+                                    if answer_text:
+                                        tool_info += f" - AI answer: {answer_text}"
                                 elif tool_execution.created_widget_id:
                                     # Get widget details for other tools
                                     widget_result = await self.db.execute(
@@ -308,26 +290,32 @@ class MessageContextBuilder:
                             if tool_execution.tool_action:
                                 tool_info += f" → {tool_execution.tool_action}"
                             tool_info += f" ({tool_execution.status})"
-                            if tool_execution.status == 'success' and tool_execution.tool_name == 'create_and_execute_code' and tool_execution.result_json:
-                                result_json = tool_execution.result_json
-                                data_preview = result_json.get('data_preview', {})
-                                stats = result_json.get('stats', {})
-                                if data_preview and stats:
-                                    total_rows = stats.get('total_rows', 0)
-                                    if allow_llm_see_data and total_rows > 0:
-                                        rows = data_preview.get('rows', [])
-                                        columns = data_preview.get('columns', [])
-                                        if rows and columns:
-                                            df_cols = [col.get('field', col.get('headerName', '')) for col in columns]
-                                            import pandas as pd
-                                            df = pd.DataFrame(rows, columns=df_cols)
-                                            sample_df = df.sample(n=2, random_state=42) if len(df) >= 2 else df.head()
-                                            data_sample = sample_df.to_dict(orient='records')
-                                            tool_info += f" ({total_rows} rows, data sample: {data_sample})"
-                                        else:
-                                            tool_info += f" ({total_rows} rows)"
-                                    else:
-                                        tool_info += f" ({total_rows} rows)"
+                            if tool_execution.status == 'success' and tool_execution.tool_name == 'create_widget' and tool_execution.result_json:
+                                result_json = tool_execution.result_json or {}
+                                widget_data = result_json.get('widget_data', {}) or {}
+                                columns = widget_data.get('columns', []) or []
+                                rows = widget_data.get('rows', []) or []
+                                col_names = [c.get('field') or c.get('headerName') for c in columns if (c.get('field') or c.get('headerName'))]
+                                row_count = len(rows)
+                                digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
+                                if col_names:
+                                    head_cols = ", ".join(col_names[:3])
+                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                if allow_llm_see_data:
+                                    preview = result_json.get('data_preview', {}) or {}
+                                    preview_rows = preview.get('rows') or []
+                                    sample_row = preview_rows[0] if preview_rows else (rows[0] if rows else None)
+                                    if sample_row:
+                                        try:
+                                            digest_parts.append(f"top row: {json.dumps(sample_row)}")
+                                        except Exception:
+                                            pass
+                                tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'answer_question' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                answer_text = rj.get('answer') or ((rj.get('output') or {}).get('answer') if isinstance(rj.get('output'), dict) else None)
+                                if answer_text:
+                                    tool_info += f" - AI answer: {answer_text}"
                             elif tool_execution.status == 'error' and tool_execution.error_message:
                                 error = tool_execution.error_message
                                 if len(error) > 50:
