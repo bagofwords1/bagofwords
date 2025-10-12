@@ -1,8 +1,10 @@
 # Release Notes
 
 ## Version 0.0.203 (October 12, 2025)
-- Added thinking level for prompts
-- Improved CI/CD with github releases
+- Enhanced the chat interaction and conversation flow with the AI agent
+  - Improved prompt capabilities by auto setting thinking levels
+  - Enhanced message context with processed data and answer metadata for better LLM interactions
+- Optimized CI/CD workflows by integrating GitHub Release automation
 
 ## Version 0.0.202 (October 8th, 2025)
 - Added DuckDB support for object store files (aws, gcs, azure)
