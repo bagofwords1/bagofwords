@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.204 (October 16, 2025)
+- Fixed permission issue in Docker when uploading files
+- Fixed instructions not showing creator in instruction list
+
 ## Version 0.0.203 (October 12, 2025)
 - Enhanced the chat interaction and conversation flow with the AI agent
   - Improved prompt capabilities by auto setting thinking levels

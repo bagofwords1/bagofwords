@@ -22,6 +22,8 @@ from app.schemas.instruction_schema import (
     InstructionSchema,
     InstructionListSchema,
 )
+from app.schemas.user_schema import UserSchema
+
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema
 from app.services.instruction_reference_service import InstructionReferenceService
 
@@ -686,6 +688,7 @@ class InstructionService:
                     status=inst.status,
                     category=inst.category,
                     user_id=inst.user_id,
+                    user=UserSchema.from_orm(inst.user),
                     organization_id=inst.organization_id,
                     private_status=inst.private_status,
                     global_status=inst.global_status,

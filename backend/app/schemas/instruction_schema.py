@@ -96,6 +96,7 @@ class InstructionListSchema(BaseModel):
     status: str
     category: str
     user_id: Optional[str] = None
+    user: Optional[UserSchema] = None
     organization_id: str
     
     # Dual-status lifecycle fields
