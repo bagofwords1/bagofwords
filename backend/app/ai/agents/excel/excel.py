@@ -38,7 +38,10 @@ class ExcelAgent:
         prompt = f"""
 
         excel_name:
-        {self.excel_file}
+        {self.excel_file.filename}
+
+        excel_file_path:
+        {self.excel_file.path}
 
         sheet name:
         {sheet_name}
