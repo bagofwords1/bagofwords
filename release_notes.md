@@ -1,7 +1,8 @@
 # Release Notes
 
 ## Version 0.0.205 (October 17, 2025)
-- For Snowflake, support multiple schemas
+- Added support for multiple schemas in Snowflake
+- Added `MSSQL` driver into Dockerfile 
 
 ## Version 0.0.204 (October 16, 2025)
 - Fixed permission issue in Docker when uploading files

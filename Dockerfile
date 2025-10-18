@@ -12,6 +12,7 @@ RUN apt-get update && \
       build-essential \
       libpq-dev \
       gcc \
+      unixodbc-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container for the backend
@@ -75,6 +76,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client python3 python3-venv tini libpq5 && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -sSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg && \
+    curl -sSL https://packages.microsoft.com/config/ubuntu/24.04/prod.list -o /etc/apt/sources.list.d/microsoft-prod.list && \
+    apt-get update && \
+    ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 mssql-tools18 unixodbc && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

@@ -177,3 +177,4 @@ XlsxWriter==3.2.0
 zeep==4.3.1
 zstandard==0.23.0
 duckdb==1.4.1
+pyodbc==5.3.0
