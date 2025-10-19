@@ -9,18 +9,17 @@ A user can create a new LLM provider (that holds the credentials to the LLM prov
 The supported LLM providers are:
 - OpenAI
 - Anthropic
+- Google
+- Azure OpenAI
 
 The supported LLM models are:
-- OpenAI: GPT-4o, GPT-4o Mini
-- Anthropic: Claude 3 variants
+- OpenAI: GPT-5, GPT-4.1, GPT-4.1 Mini
+- Anthropic: Claude 4.5 Sonnet, Claude 4 Sonnet, Claude 4 Opus
+- Google: Gemini 2.5 Pro, Gemini 2.5 Flash
 
 **Add LLM Provider:** To add an LLM provider, you need to add the provider type to the `LLM_PROVIDER_DETAILS` list in the `llm_provider.py` file.
 
 **Add LLM Model:** To add an LLM model, you need to add the model type to the `LLM_MODEL_DETAILS` list in the `llm_model.py` file.
-
-**Note2:** BOW Small is the default model for Bag of words SaaS deployments, and it is an abstraction of the OpenAI-4o-mini integration.
-
-
 
 ```mermaid
 graph TD
@@ -50,9 +49,9 @@ graph TD
 #### LLM Model (`llm_model.py`) 
 - Database model for specific language models
 - Predefined models per provider:
-  - OpenAI: GPT-4o, GPT-4o Mini
-  - Anthropic: Claude 3 variants
-  - Google: Gemini models
+  - OpenAI: GPT-5, GPT-4.1, GPT-4.1 Mini
+  - Anthropic: Claude 4.5 Sonnet, Claude 4 Sonnet, Claude 4 Opus
+  - Google: Gemini 2.5 Pro, Gemini 2.5 Flash
   - BOW: BOW Small
 - Links to provider and organization
 
@@ -68,11 +67,10 @@ graph TD
 
 ### Relationships
 ```mermaid
-mermaid
 graph TD
-A[LLMProvider] --> B[Organization]
-A --> C[LLMModel]
-C --> B
-D[LLM Client] --> C
-D --> A
+  A[LLMProvider] --> B[Organization]
+  A --> C[LLMModel]
+  C --> B
+  D[LLM Client] --> C
+  D --> A
 ```

@@ -1,4 +1,4 @@
-# Docker Installation Guide
+# Docker Installation Details
 
 ## Quick Start
 ```bash
@@ -6,29 +6,34 @@
 docker build -t bow .
 
 # Run the container
-docker run -p 80:80 bow 
+docker run -p 3000:3000 bow 
 ```
 ## Dockerfile Overview
 
 This multi-stage Dockerfile builds a full-stack application:
 
 ### 1. Backend Stage
-- Base: Python 3.12.2-slim
-- Creates Python virtual environment
-- Installs PostgreSQL dependencies
-- Copies and installs backend requirements
+- Base: Ubuntu 24.04
+- Installs Python 3, build tools, and unixODBC dev headers
+- Creates a Python virtual environment (`/opt/venv`)
+- Copies backend and installs `backend/requirements_versioned.txt`
 
 ### 2. Frontend Stage  
-- Base: Node 22
-- Uses Yarn for package management
-- Builds frontend application
+- Base: Ubuntu 24.04
+- Installs Node.js 22 and Yarn
+- Builds the Nuxt frontend (`frontend/.output`)
 
 ### 3. Final Stage
-- Combines backend and frontend
-- Installs Nginx web server
-- Sets up environment variables
-- Exposes port 80
-- Runs via start.sh script
+- Base: Ubuntu 24.04
+- Installs Python runtime, Node.js 22 (runtime), and ODBC components
+  - Microsoft ODBC Driver 18 for SQL Server (`msodbcsql18`)
+  - SQL Server tools (`mssql-tools18`)
+  - `unixodbc`
+- Copies Python venv and backend app code
+- Copies built Nuxt output to serve the frontend
+- Sets environment variables and uses `tini` as entrypoint
+- Exposes port 3000
+- Runs via `start.sh`
 
 ## Requirements
 - Docker installed on your system
@@ -36,9 +41,14 @@ This multi-stage Dockerfile builds a full-stack application:
   - ./bow-config.yaml
   - ./backend/
   - ./frontend/
-  - ./nginx.conf
   - ./VERSION
   - ./start.sh
+
+Optional verifications inside the running container:
+```bash
+python -c "import pyodbc; print(pyodbc.version)"
+odbcinst -q -d -n "ODBC Driver 18 for SQL Server"
+```
 
 ```yaml
   ## Bow Config:

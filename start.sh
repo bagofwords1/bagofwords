@@ -19,7 +19,7 @@ done
 # Start the backend service
 uvicorn main:app --host 0.0.0.0 --port 8000 --ws websockets --log-level debug &
 
-# Wait a moment for the backend to start
+# Wait 5s for the backend to start
 sleep 5
 
 # Start the frontend service

@@ -1,4 +1,4 @@
-# Data Sources
+# Data Sources (old)
 
 User can integrate to third-party data sources, such as databases, services, and files. The list of supported data sources is defined in the `DATA_SOURCE_DETAILS` list in the `models/data_source.py` file.
 
