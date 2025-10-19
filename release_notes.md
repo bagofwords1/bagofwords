@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.206 (October 19, 2025)
+- Bug fix reloading tables in schema
+
 ## Version 0.0.205 (October 17, 2025)
 - Added support for multiple schemas in Snowflake
 - Added `MSSQL` driver into Dockerfile 
