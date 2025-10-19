@@ -14,6 +14,7 @@ from app.schemas.entity_schema import (
     EntityUpdate,
     EntitySchema,
     EntityListSchema,
+    EntityFromStepCreate,
 )
 from app.services.entity_service import EntityService
 
@@ -100,5 +101,46 @@ async def delete_entity(
     if not ok:
         raise HTTPException(status_code=404, detail="Entity not found")
     return {"message": "Entity deleted successfully"}
+
+
+@router.post("/from_step/{step_id}", response_model=EntitySchema)
+@requires_permission('create_entities')
+async def create_entity_from_step(
+    step_id: str,
+    payload: EntityFromStepCreate,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+):
+    try:
+        entity = await service.create_entity_from_step(
+            db,
+            step_id,
+            current_user,
+            organization,
+            type_override=payload.type,
+            title_override=payload.title,
+            slug_override=payload.slug,
+            description_override=payload.description,
+            publish=bool(payload.publish or False),
+        )
+        return EntitySchema.model_validate(entity)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/{entity_id}/run", response_model=EntitySchema)
+@requires_permission('update_entities', model=Entity)
+async def run_entity(
+    entity_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+):
+    try:
+        entity = await service.run_entity(db, entity_id, organization)
+        return EntitySchema.model_validate(entity)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 

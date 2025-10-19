@@ -117,11 +117,30 @@
               <Icon name="heroicons-check" class="w-3.5 h-3.5 mr-1 text-green-500" />
               Added to dashboard</span>
           </div>
-          
+          <div class="flex items-center space-x-2">
+            <button
+              class="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+              @click.stop="openEntityModal = true"
+            >
+              Save
+            </button>
+          </div>
         </div>
 
       </div>
     </Transition>
+    <!-- Save as Entity Modal -->
+    <EntityCreateModal
+      :visible="openEntityModal"
+      :initialTitle="widgetTitle"
+    :initialCode="effectiveStep?.code || ''"
+    :initialView="visualization?.view || (effectiveStep?.view || null)"
+    :initialData="effectiveStep?.data || null"
+    :dataModel="effectiveStep?.data_model || null"
+    :stepId="effectiveStep?.id || null"
+      @close="openEntityModal = false"
+      @saved="() => { openEntityModal = false }"
+    />
   </div>
 </template>
 
@@ -132,6 +151,7 @@ import { useMyFetch } from '~/composables/useMyFetch'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
+import EntityCreateModal from './EntityCreateModal.vue'
 
 interface ToolExecution {
   id: string
@@ -156,6 +176,7 @@ const route = useRoute()
 const reportId = computed(() => String(route.params.id || ''))
 const reportThemeName = ref<string | null>(null)
 const reportOverrides = ref<Record<string, any> | null>(null)
+const openEntityModal = ref(false)
 
 // Tab state - default to chart if available, otherwise table
 const activeTab = ref<'chart' | 'table'>('chart')
@@ -571,6 +592,15 @@ onMounted(() => {
   hydrateVisualizationIfNeeded()
 })
 </script>
+
+<EntityCreateModal
+  :visible="openEntityModal"
+  :initialTitle="widgetTitle"
+  :initialCode="effectiveStep?.code || ''"
+  :initialView="visualization?.view || null"
+  @close="openEntityModal = false"
+  @saved="() => { openEntityModal = false }"
+/>
 
 <style scoped>
 .widget-container {

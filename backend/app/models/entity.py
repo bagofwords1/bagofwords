@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, JSON, DateTime, ForeignKey, Table, UniqueConstraint
+from sqlalchemy import Column, String, Text, JSON, DateTime, ForeignKey, Table, UniqueConstraint, Boolean, Integer
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
@@ -34,7 +34,13 @@ class Entity(BaseSchema):
 
     status = Column(String, nullable=False, default="draft")  # 'draft' | 'published'
     published_at = Column(DateTime, nullable=True)
+    pinned = Column(Boolean, nullable=False, default=False)
+
+
     last_refreshed_at = Column(DateTime, nullable=True)
+    auto_refresh_enabled = Column(Boolean, nullable=False, default=False)
+    auto_refresh_interval = Column(Integer, nullable=True)
+    auto_refresh_interval_unit = Column(String, nullable=True)
 
     # Relationships
     organization = relationship("Organization", back_populates="entities")

@@ -41,7 +41,10 @@ MEMBER_PERMISSIONS = {
     'delete_private_instructions',
     'view_global_instructions',
     'view_private_instructions',
-    'create_completion_feedback'
+    'create_completion_feedback',
+    'view_entities',
+    'refresh_entities'
+
 }
 
 ADMIN_PERMISSIONS = {
@@ -64,7 +67,11 @@ ADMIN_PERMISSIONS = {
     'delete_instructions',
     'view_hidden_instructions',
     'view_all_completion_feedbacks',
-    'manage_data_source_memberships'
+    'manage_data_source_memberships',
+    'view_entities',
+    'create_entities',
+    'update_entities',
+    'delete_entities',
 }
 
 # Combine permissions for roles
