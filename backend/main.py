@@ -39,6 +39,7 @@ from app.routes import (
     widget,
     query,
     visualization,
+    entity,
     completion,
     completion_feedback,
     file,
@@ -160,6 +161,7 @@ app.include_router(report.router, prefix="/api")
 app.include_router(widget.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(visualization.router, prefix="/api")
+app.include_router(entity.router, prefix="/api")
 app.include_router(completion.router)
 app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")

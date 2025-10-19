@@ -76,6 +76,12 @@ class DataSource(BaseSchema):
     secondary="instruction_data_source_association", 
     back_populates="data_sources",
     lazy="selectin")
+    entities = relationship(
+        "Entity",
+        secondary="entity_data_source_association",
+        back_populates="data_sources",
+        lazy="selectin"
+    )
     
     def get_client(self):
         try:

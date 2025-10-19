@@ -35,6 +35,7 @@ class Organization(BaseSchema):
 
     instructions = relationship("Instruction", back_populates="organization")
     queries = relationship("Query", back_populates="organization")
+    entities = relationship("Entity", back_populates="organization")
 
     async def get_default_llm_model(self, db):
         """Get the default LLM model for the organization.
