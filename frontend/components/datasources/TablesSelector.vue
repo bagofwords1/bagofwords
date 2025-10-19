@@ -165,7 +165,21 @@ async function onSave() {
 
 async function onRefresh() {
   if (loading.value || refreshing.value) return
-  await fetchTables()
+  // Show spinner on the button immediately and disable it during the entire refresh flow
+  refreshing.value = true
+  try {
+    // For admin/system views (full schema), trigger a live backend refresh first
+    if (endpointForSchema() === 'full_schema') {
+      await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
+    }
+    // Then reload the current schema view
+    await fetchTables()
+  } catch (e) {
+    // Swallow refresh errors; we'll still attempt to re-fetch the current schema view above
+  } finally {
+    // In case fetchTables didn't reset it (or errored early), ensure the spinner stops
+    refreshing.value = false
+  }
 }
 
 watch(() => [props.dsId, props.schema], () => { if (props.dsId) fetchTables() }, { immediate: true })
