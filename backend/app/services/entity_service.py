@@ -35,6 +35,7 @@ class EntityService:
         slug_override: Optional[str] = None,
         description_override: Optional[str] = None,
         publish: bool = False,
+        data_source_ids_override: Optional[List[str]] = None,
     ) -> Entity:
         """Create an Entity from a successful Step. Copies data/code as-is."""
         # Load step with query -> report (for data sources)
@@ -75,6 +76,10 @@ class EntityService:
         description = description_override if description_override is not None else (step.description or None)
         ent_type = (type_override or ("metric" if (chosen_view or {}).get("type") == "count" else "model"))
 
+        # Check if user is admin (has create_entities permission)
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+        is_admin = self._is_admin_permissions(user_permissions)
+
         entity = Entity(
             organization_id=str(organization.id),
             owner_id=str(current_user.id),
@@ -86,23 +91,46 @@ class EntityService:
             code=step.code or "",
             data=step.data or {},
             view=(chosen_view or getattr(step, "view", None) or {"type": "table"}),
-            status=("published" if publish else "draft"),
-            published_at=(datetime.utcnow() if publish else None),
             last_refreshed_at=step.updated_at,
+            source_step_id=str(step_id),  # Link back to source step
         )
 
+        # Apply dual-status workflow based on user role
+        if is_admin:
+            # Admin can create global entities - respect their publish choice
+            entity.private_status = None
+            entity.global_status = "approved"
+            entity.status = "published" if publish else "draft"
+            entity.published_at = datetime.utcnow() if publish else None
+        else:
+            # Regular users create suggested entities (pending admin approval)
+            entity.private_status = "published"
+            entity.global_status = "suggested"
+            entity.status = "draft"
+            entity.published_at = None
+
         db.add(entity)
-        # Link report data sources
+        # Link data sources - use override if provided, otherwise use report data sources
         try:
-            report_ds = list((step.query.report.data_sources or []))
-            if report_ds:
-                entity.data_sources = report_ds
+            if data_source_ids_override is not None and len(data_source_ids_override) > 0:
+                # Use explicitly provided data source IDs
+                result = await db.execute(select(DataSource).where(DataSource.id.in_(data_source_ids_override)))
+                entity.data_sources = list(result.scalars().all())
+            else:
+                # Fall back to report data sources
+                report_ds = list((step.query.report.data_sources or []))
+                if report_ds:
+                    entity.data_sources = report_ds
         except Exception:
             pass
 
         await db.flush()
         await db.commit()
         await db.refresh(entity)
+        
+        # Bidirectional relationship is automatically maintained by SQLAlchemy
+        # through entity.source_step_id - no need to manually set step.created_entity_id
+        
         return entity
 
 
@@ -137,65 +165,11 @@ class EntityService:
         await db.refresh(entity)
         return entity
 
-    async def run_entity(
-        self,
-        db: AsyncSession,
-        entity_id: str,
-        organization: Organization,
-    ) -> Entity:
-        """Execute the entity's code and update its data in place (no steps created)."""
-        # Load entity and ensure org
-        res = await db.execute(select(Entity).where(Entity.id == str(entity_id)))
-        entity = res.scalar_one_or_none()
-        if not entity:
-            raise ValueError("Entity not found")
-        # Optional org check if present on entity
-        if getattr(entity, "organization_id", None) and str(entity.organization_id) != str(organization.id):
-            raise ValueError("Entity does not belong to this organization")
-
-        # Gather data source clients from associated data sources (if any)
-        ds_clients = {}
-        try:
-            # Ensure data_sources is loaded minimally
-            await db.refresh(entity, attribute_names=["data_sources"])  # safe with AsyncSession
-            for ds in (entity.data_sources or []):
-                try:
-                    client = ds.get_client()
-                    ds_clients[ds.name] = client
-                except Exception:
-                    # Best-effort: skip faulty client
-                    continue
-        except Exception:
-            pass
-
-        # Execute code
-        from app.ai.code_execution.code_execution import StreamingCodeExecutor
-        executor = StreamingCodeExecutor()
-        try:
-            exec_df, execution_log = executor.execute_code(
-                code=entity.code or "",
-                ds_clients=ds_clients,
-                excel_files=[],  # per request: no excel files for now
-            )
-            df = executor.format_df_for_widget(exec_df)
-            entity.data = df
-            entity.last_refreshed_at = datetime.utcnow()
-        except Exception as e:
-            # Persist error info as status_reason-like in data for transparency
-            try:
-                entity.data = {"error": str(e)}
-            except Exception:
-                pass
-        finally:
-            db.add(entity)
-            await db.commit()
-            await db.refresh(entity)
-        return entity
-
     async def list_entities(
         self,
         db: AsyncSession,
         organization: Organization,
+        current_user: User,
         *,
         q: Optional[str] = None,
         type: Optional[str] = None,
@@ -204,7 +178,48 @@ class EntityService:
         skip: int = 0,
         limit: int = 100,
     ) -> List[Entity]:
-        stmt = select(Entity).where(Entity.organization_id == str(organization.id))
+        # Get user's accessible data sources
+        from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
+        from sqlalchemy import exists, and_
+        
+        accessible_ds_subquery = (
+            select(DataSource.id)
+            .filter(DataSource.organization_id == organization.id)
+            .filter(
+                or_(
+                    DataSource.is_public == True,  # Public data sources
+                    DataSource.id.in_(
+                        select(DataSourceMembership.data_source_id)
+                        .filter(
+                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                            DataSourceMembership.principal_id == current_user.id
+                        )
+                    )  # User has explicit membership
+                )
+            )
+        )
+        
+        # Subquery to check if entity has any inaccessible data sources
+        has_inaccessible_ds = exists(
+            select(1)
+            .select_from(entity_data_source_association)
+            .where(
+                and_(
+                    entity_data_source_association.c.entity_id == Entity.id,
+                    entity_data_source_association.c.data_source_id.notin_(accessible_ds_subquery)
+                )
+            )
+        )
+        
+        # Base query: show entities where user has access to ALL data sources
+        # (i.e., entities that don't have any inaccessible data sources)
+        stmt = (
+            select(Entity)
+            .where(Entity.organization_id == str(organization.id))
+            .where(Entity.deleted_at == None)
+            .where(~has_inaccessible_ds)  # Exclude entities with any inaccessible data sources
+        )
+        
         if type:
             stmt = stmt.where(Entity.type == type)
         if owner_id:
@@ -213,8 +228,20 @@ class EntityService:
             like = f"%{q}%"
             stmt = stmt.where(or_(Entity.title.ilike(like), Entity.slug.ilike(like)))
         if data_source_id:
-            stmt = stmt.join(entity_data_source_association, entity_data_source_association.c.entity_id == Entity.id)
-            stmt = stmt.where(entity_data_source_association.c.data_source_id == data_source_id)
+            # Filter to entities that have this specific data source
+            stmt = stmt.where(
+                exists(
+                    select(1)
+                    .select_from(entity_data_source_association)
+                    .where(
+                        and_(
+                            entity_data_source_association.c.entity_id == Entity.id,
+                            entity_data_source_association.c.data_source_id == data_source_id
+                        )
+                    )
+                )
+            )
+        
         stmt = stmt.order_by(Entity.updated_at.desc()).offset(skip).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
@@ -224,13 +251,38 @@ class EntityService:
         db: AsyncSession,
         entity_id: str,
         organization: Organization,
+        current_user: Optional[User] = None,
     ) -> Optional[Entity]:
         result = await db.execute(
             select(Entity)
             .options(selectinload(Entity.data_sources))
             .where(Entity.id == entity_id, Entity.organization_id == str(organization.id))
         )
-        return result.scalar_one_or_none()
+        entity = result.scalar_one_or_none()
+        
+        if not entity or not current_user:
+            return entity
+        
+        # Check if user has access to all data sources of this entity
+        if entity.data_sources:
+            from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
+            
+            for ds in entity.data_sources:
+                # Check if data source is public or user has membership
+                if not ds.is_public:
+                    has_membership = await db.execute(
+                        select(DataSourceMembership)
+                        .where(
+                            DataSourceMembership.data_source_id == ds.id,
+                            DataSourceMembership.principal_type == PRINCIPAL_TYPE_USER,
+                            DataSourceMembership.principal_id == current_user.id
+                        )
+                    )
+                    if not has_membership.scalar_one_or_none():
+                        # User doesn't have access to this data source
+                        return None
+        
+        return entity
 
     async def update_entity(
         self,
@@ -238,18 +290,34 @@ class EntityService:
         entity_id: str,
         payload: EntityUpdate,
         organization: Organization,
+        current_user: User,
     ) -> Optional[Entity]:
         result = await db.execute(select(Entity).where(Entity.id == entity_id, Entity.organization_id == str(organization.id)))
         entity = result.scalar_one_or_none()
         if not entity:
             return None
 
-        for field in ["type", "title", "slug", "description", "tags", "code", "data", "status", "published_at", "last_refreshed_at"]:
-            value = getattr(payload, field, None)
-            if value is not None:
-                setattr(entity, field, value)
-        if payload.view is not None:
-            entity.view = payload.view.model_dump()
+        # Get user permissions
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+        from fastapi import HTTPException
+        if not user_permissions:
+            raise HTTPException(status_code=403, detail="Permission denied: not an organization member")
+        
+        # Determine what type of update this is and check permissions
+        from app.models.entity import Entity as EntityModel
+        update_type = self._determine_update_type(entity, payload, current_user, user_permissions)
+        
+        # Handle the update based on type
+        if update_type == "admin_review":
+            await self._handle_admin_review(entity, payload, current_user)
+        elif update_type == "admin_edit":
+            await self._handle_admin_edit(entity, payload, current_user)
+        elif update_type == "owner_edit":
+            await self._handle_owner_edit(entity, payload)
+        else:
+            raise HTTPException(status_code=403, detail="Permission denied")
+
+        # Handle data source associations
         if payload.data_source_ids is not None:
             if payload.data_source_ids:
                 result = await db.execute(select(DataSource).where(DataSource.id.in_(payload.data_source_ids)))
@@ -275,5 +343,102 @@ class EntityService:
         await db.delete(entity)
         await db.commit()
         return True
+
+    def _is_admin_permissions(self, user_permissions: set) -> bool:
+        """Check if permissions set corresponds to an admin in org"""
+        return 'update_entities' in user_permissions or 'create_entities' in user_permissions or 'delete_entities' in user_permissions
+
+    async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
+        """Get user's permissions in the organization"""
+        from app.models.membership import Membership, ROLES_PERMISSIONS
+        
+        stmt = select(Membership).where(
+            Membership.user_id == user.id,
+            Membership.organization_id == organization.id
+        )
+        result = await db.execute(stmt)
+        membership = result.scalar_one_or_none()
+        
+        return ROLES_PERMISSIONS.get(membership.role, set()) if membership else set()
+
+    def _determine_update_type(self, entity: Entity, payload: EntityUpdate, current_user: User, user_permissions: set) -> str:
+        """Determine what type of update this is based on permissions and changes"""
+        is_admin = self._is_admin_permissions(user_permissions)
+        is_owner = entity.owner_id == current_user.id
+        is_suggested = entity.global_status == "suggested"
+        has_status_change = payload.status and payload.status != entity.status
+        
+        # Admin reviewing a suggested entity (approve or reject)
+        if is_admin and is_suggested and has_status_change:
+            if payload.status in ["published", "archived"]:
+                return "admin_review"
+        
+        # Admin editing any entity (not review)
+        elif is_admin:
+            return "admin_edit"
+        
+        # Owner editing their own entity when not globally approved (suggested or private)
+        elif is_owner and (entity.global_status != "approved") and user_permissions:
+            return "owner_edit"
+        
+        # No permission
+        else:
+            return "no_permission"
+
+    async def _handle_admin_review(self, entity: Entity, payload: EntityUpdate, admin_user: User):
+        """Handle admin reviewing a suggested entity (approve or reject)"""
+        if payload.status == "published":
+            # APPROVAL: Suggested -> Global Published
+            # From: published, suggested, draft
+            # To: null, approved, published
+            entity.private_status = None
+            entity.global_status = "approved"
+            entity.status = "published"
+            entity.reviewed_by_user_id = admin_user.id
+            
+        elif payload.status == "archived":
+            # REJECTION: Suggested -> Private Archived
+            # From: published, suggested, draft
+            # To: published, rejected, archived
+            entity.private_status = "published"
+            entity.global_status = "rejected"
+            entity.status = "archived"
+            entity.reviewed_by_user_id = admin_user.id
+        
+        # Apply other changes from the form
+        allowed_fields = ['title', 'description', 'type', 'code', 'tags']
+        for field in allowed_fields:
+            if hasattr(payload, field) and getattr(payload, field) is not None:
+                setattr(entity, field, getattr(payload, field))
+        
+        if payload.view is not None:
+            entity.view = payload.view.model_dump()
+
+    async def _handle_admin_edit(self, entity: Entity, payload: EntityUpdate, admin_user: User):
+        """Handle admin editing any entity (not review)"""
+        # Admin can change status and gets credited as reviewer for status changes
+        if payload.status and payload.status != entity.status:
+            if payload.status in ["published", "archived"]:
+                entity.reviewed_by_user_id = admin_user.id
+        
+        # Apply all changes (admin has full control)
+        update_data = payload.model_dump(exclude_unset=True, exclude={'data_source_ids'})
+        for field, value in update_data.items():
+            if field == 'view' and value is not None:
+                entity.view = value.model_dump() if hasattr(value, 'model_dump') else value
+            else:
+                setattr(entity, field, value)
+
+    async def _handle_owner_edit(self, entity: Entity, payload: EntityUpdate):
+        """Handle owner editing their own private entity"""
+        # Owner can edit most fields except status changes
+        allowed_fields = ['title', 'description', 'type', 'code', 'tags', 'data']
+        
+        for field in allowed_fields:
+            if hasattr(payload, field) and getattr(payload, field) is not None:
+                setattr(entity, field, getattr(payload, field))
+        
+        if payload.view is not None:
+            entity.view = payload.view.model_dump() if hasattr(payload.view, 'model_dump') else payload.view
 
 

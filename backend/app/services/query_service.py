@@ -13,6 +13,13 @@ from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from sqlalchemy import and_
 
 
+def _enrich_step_schema(step_orm, step_schema: StepSchema) -> StepSchema:
+    """Enrich StepSchema with relationship data from ORM"""
+    if hasattr(step_orm, 'created_entity') and step_orm.created_entity:
+        step_schema.created_entity_id = str(step_orm.created_entity.id)
+    return step_schema
+
+
 class QueryService:
 
     def __init__(self) -> None:
@@ -216,7 +223,7 @@ class QueryService:
                 # If we fail to update default step, do not block the main response
                 pass
 
-        step_schema = StepSchema.from_orm(step)
+        step_schema = _enrich_step_schema(step, StepSchema.from_orm(step))
         return (QuerySchema.model_validate(q).model_dump(), step_schema.model_dump() if hasattr(step_schema, 'model_dump') else step_schema.dict())
 
     async def get_default_step_for_query(self, db: AsyncSession, query_id: str) -> Optional[StepSchema]:
@@ -238,7 +245,7 @@ class QueryService:
             stmt = select(Step).where(Step.id == str(q.default_step_id))
             res = await db.execute(stmt)
             step = res.scalar_one_or_none()
-            return StepSchema.from_orm(step) if step else None
+            return _enrich_step_schema(step, StepSchema.from_orm(step)) if step else None
 
         # Latest successful step for the widget
         stmt_success = (
@@ -249,7 +256,7 @@ class QueryService:
         res_success = await db.execute(stmt_success)
         step_success = res_success.scalars().first()
         if step_success:
-            return StepSchema.from_orm(step_success)
+            return _enrich_step_schema(step_success, StepSchema.from_orm(step_success))
 
         # Fallback: latest step
         stmt_latest = (
@@ -259,7 +266,7 @@ class QueryService:
         )
         res_latest = await db.execute(stmt_latest)
         step_latest = res_latest.scalars().first()
-        return StepSchema.from_orm(step_latest) if step_latest else None
+        return _enrich_step_schema(step_latest, StepSchema.from_orm(step_latest)) if step_latest else None
 
     async def preview_query_code(
         self,

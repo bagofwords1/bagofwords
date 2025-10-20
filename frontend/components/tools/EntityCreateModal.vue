@@ -1,44 +1,51 @@
 <template>
-  <UModal v-model="open" :ui="{ width: 'sm:max-w-4xl', height: 'sm:h-[70vh]' }">
-    <div class="h-full flex flex-col">
+  <UModal v-model="open" :ui="{ width: 'sm:max-w-2xl', height: 'sm:h-[80vh]' }">
+    <div class="h-full flex flex-col bg-gray-50">
       <!-- Header -->
-      <div class="px-4 py-3 border-b flex items-center justify-between flex-shrink-0">
-        <div class="text-sm font-medium text-gray-800">Save as Catalog Entity</div>
-        <button class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50" @click="open = false">Close</button>
+      <div class="px-4 py-3 bg-white border-b flex items-center justify-between flex-shrink-0">
+        <div class="text-sm font-medium text-gray-800">
+          {{ canCreateEntities ? 'Save to Catalog' : 'Suggest to Catalog' }}
+        </div>
+        <button class="text-xs text-gray-500 hover:text-gray-700" @click="open = false">Close</button>
       </div>
 
       <div class="flex-1 flex overflow-hidden min-h-0">
         <!-- Single-pane content -->
         <section class="flex-1 flex flex-col overflow-hidden min-h-0">
-          <div class="flex-1 p-4 overflow-auto">
-            <div class="grid grid-cols-2 gap-4">
-              <div class="col-span-2">
-                <label class="block text-xs font-medium text-gray-700 mb-1">Title</label>
-                <input v-model="form.title" type="text" class="w-full text-sm border rounded px-2 py-1.5" placeholder="Revenue by month" />
+          <div class="flex-1 overflow-auto">
+            <div class="bg-white rounded-lg p-3">
+              <!-- Info message for non-admins (suggestions) -->
+              <div v-if="!canCreateEntities && canSuggestEntities" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+                <div class="font-medium mb-1">Suggest Entity for Review</div>
+                <div>Your entity will be submitted for admin approval before being published to the global catalog.</div>
               </div>
-
-              <div class="col-span-2">
-                <label class="block text-xs font-medium text-gray-700 mb-1">Description</label>
-                <textarea v-model="form.description" rows="6" class="w-full text-sm border rounded px-2 py-2 min-h-[160px]" placeholder="Short description" />
+              
+              <!-- Info message for admins -->
+              <div v-if="canCreateEntities" class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
+                <div class="font-medium mb-1">Create Global Entity</div>
+                <div>As an admin, your entity will be published directly to the global catalog.</div>
               </div>
-
-              <div class="col-span-2">
-                <label class="block text-xs font-medium text-gray-700 mb-1">Status</label>
-                <USelectMenu size="xs" v-model="form.status" :options="statusOptions" option-attribute="label" value-attribute="value" class="w-full text-xs">
-                  <template #label>
-                    <span class="text-xs">{{ form.status }}</span>
-                  </template>
-                </USelectMenu>
+              
+              <!-- Error message for no permissions -->
+              <div v-if="!canCreateEntities && !canSuggestEntities" class="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
+                <div class="font-medium mb-1">No Permission</div>
+                <div>You don't have permission to create or suggest entities.</div>
               </div>
+              <EntityForm v-model="form" :show-status="canCreateEntities" />
             </div>
           </div>
 
           <!-- Footer Actions -->
-          <div class="px-4 py-3 border-t flex items-center justify-end gap-2 flex-shrink-0">
-            <button class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50" @click="open = false">Cancel</button>
-            <button class="px-3 py-1.5 text-xs rounded bg-gray-800 text-white hover:bg-gray-700 disabled:opacity-60" :disabled="saving || !canSave" @click="onSave">
-              <span v-if="saving">Saving…</span>
-              <span v-else>Save Entity</span>
+          <div class="px-4 py-3 bg-white border-t flex items-center justify-end gap-2 flex-shrink-0">
+            <button class="bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-xs hover:bg-gray-50" @click="open = false">Cancel</button>
+            <button 
+              class="text-white text-xs font-medium py-1.5 px-3 rounded-lg disabled:opacity-50" 
+              :class="canCreateEntities ? 'bg-blue-500 hover:bg-blue-600' : 'bg-amber-500 hover:bg-amber-600'"
+              :disabled="saving || !canSave" 
+              @click="onSave"
+            >
+              <span v-if="saving">{{ canCreateEntities ? 'Saving...' : 'Submitting...' }}</span>
+              <span v-else>{{ canCreateEntities ? 'Save Entity' : 'Suggest Entity' }}</span>
             </button>
           </div>
         </section>
@@ -49,8 +56,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useMyFetch } from '~/composables/useMyFetch'
+import { useCan } from '~/composables/usePermissions'
+import EntityForm from './EntityForm.vue'
 
 interface Props {
   visible: boolean
@@ -61,6 +70,7 @@ interface Props {
   dataModel?: any
   initialCode?: string
   editorLang?: string
+  initialDataSourceIds?: string[]
 }
 
 const props = defineProps<Props>()
@@ -71,6 +81,8 @@ const open = computed({
   set: (v: boolean) => { if (!v) emit('close') }
 })
 
+const canCreateEntities = computed(() => useCan('create_entities'))
+const canSuggestEntities = computed(() => useCan('suggest_entities'))
 const errorMsg = ref('')
 const saving = ref(false)
 const viewType = computed(() => String((props.initialView && props.initialView.type) || ''))
@@ -79,24 +91,29 @@ const form = ref<{
   type: string
   title: string
   description: string | null
-  code: string
-  data: Record<string, any>
-  view: Record<string, any> | null
   status: string
+  data_source_ids?: string[]
 }>({
   type: (viewType.value === 'count' ? 'metric' : 'model'),
   title: props.initialTitle || '',
   description: null,
-  code: props.initialCode || '',
-  data: props.initialData || {},
-  view: props.initialView ? JSON.parse(JSON.stringify(props.initialView)) : null,
   status: 'draft',
+  data_source_ids: props.initialDataSourceIds || [],
 })
 
-const statusOptions = [
-  { label: 'draft', value: 'draft' },
-  { label: 'published', value: 'published' },
-]
+// Watch for modal opening and update form with latest props
+watch(() => props.visible, (isVisible) => {
+  if (isVisible) {
+    // Reset/update form when modal opens
+    form.value = {
+      type: (viewType.value === 'count' ? 'metric' : 'model'),
+      title: props.initialTitle || '',
+      description: null,
+      status: 'draft',
+      data_source_ids: props.initialDataSourceIds || [],
+    }
+  }
+})
 
 // No preview; backend uses the step to get code/data
 
@@ -109,19 +126,26 @@ function slugify(s: string): string {
     .replace(/-+/g, '-')
 }
 
-const canSave = computed(() => !!props.stepId)
+const canSave = computed(() => !!props.stepId && (canCreateEntities.value || canSuggestEntities.value))
 
 async function onSave() {
   saving.value = true
   errorMsg.value = ''
   try {
     if (!props.stepId) throw new Error('Step is required to save')
-    const publish = form.value.status === 'published'
+    
+    // If user can create entities, respect their status choice
+    // If user can only suggest, force it to be a suggestion (draft)
+    const publish = canCreateEntities.value ? (form.value.status === 'published') : false
+    
     const body: any = {
+      type: form.value.type || 'model',
       title: form.value.title || '',
       description: form.value.description || null,
       publish,
+      data_source_ids: form.value.data_source_ids || [],
     }
+    
     const { data, error } = await useMyFetch(`/api/entities/from_step/${props.stepId}`, { method: 'POST', body })
     if (error.value) throw error.value
     emit('saved', data.value)

@@ -119,11 +119,16 @@
           </div>
           <div class="flex items-center space-x-2">
             <button
+              v-if="!effectiveStep?.created_entity_id"
               class="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
               @click.stop="openEntityModal = true"
             >
               Save
             </button>
+            <span v-else class="text-xs flex items-center">
+              <Icon name="heroicons-check-badge" class="w-3.5 h-3.5 mr-1 text-green-500" />
+              Saved
+            </span>
           </div>
         </div>
 
@@ -133,13 +138,14 @@
     <EntityCreateModal
       :visible="openEntityModal"
       :initialTitle="widgetTitle"
-    :initialCode="effectiveStep?.code || ''"
-    :initialView="visualization?.view || (effectiveStep?.view || null)"
-    :initialData="effectiveStep?.data || null"
-    :dataModel="effectiveStep?.data_model || null"
-    :stepId="effectiveStep?.id || null"
+      :initialCode="effectiveStep?.code || ''"
+      :initialView="visualization?.view || (effectiveStep?.view || null)"
+      :initialData="effectiveStep?.data || null"
+      :dataModel="effectiveStep?.data_model || null"
+      :stepId="effectiveStep?.id || null"
+      :initialDataSourceIds="reportDataSources"
       @close="openEntityModal = false"
-      @saved="() => { openEntityModal = false }"
+      @saved="handleEntitySaved"
     />
   </div>
 </template>
@@ -176,6 +182,7 @@ const route = useRoute()
 const reportId = computed(() => String(route.params.id || ''))
 const reportThemeName = ref<string | null>(null)
 const reportOverrides = ref<Record<string, any> | null>(null)
+const reportDataSources = ref<string[]>([])
 const openEntityModal = ref(false)
 
 // Tab state - default to chart if available, otherwise table
@@ -413,7 +420,7 @@ onMounted(() => {
   window.addEventListener('visualization:updated', handleVizUpdated as any)
   // Store removers on instance for cleanup
   ;(window as any).__tw_preview_handlers__ = { handleLayoutChanged, handleVizUpdated }
-  // Load report theme so preview uses same styling as dashboard
+  // Load report theme and data sources so preview uses same styling as dashboard
   ;(async () => {
     try {
       if (!reportId.value) return
@@ -422,6 +429,10 @@ onMounted(() => {
       const r: any = data.value
       reportThemeName.value = r?.report_theme_name || r?.theme_name || null
       reportOverrides.value = r?.theme_overrides || null
+      // Extract data source IDs from the report
+      if (r?.data_sources && Array.isArray(r.data_sources)) {
+        reportDataSources.value = r.data_sources.map((ds: any) => String(ds.id))
+      }
     } catch {}
   })()
   // Live theme updates from dashboard
@@ -587,20 +598,31 @@ function onEditClick() {
   })
 }
 
+async function handleEntitySaved() {
+  openEntityModal.value = false
+  
+  // Refresh the step to get the updated created_entity_id
+  try {
+    const qid = queryId.value
+    if (qid) {
+      const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
+      if (!error.value) {
+        const fetched = ((data.value as any) || {}).step || null
+        if (fetched) {
+          stepOverride.value = JSON.parse(JSON.stringify(fetched))
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Error refreshing step after entity save:', e)
+  }
+}
+
 onMounted(() => {
   refreshMembership()
   hydrateVisualizationIfNeeded()
 })
 </script>
-
-<EntityCreateModal
-  :visible="openEntityModal"
-  :initialTitle="widgetTitle"
-  :initialCode="effectiveStep?.code || ''"
-  :initialView="visualization?.view || null"
-  @close="openEntityModal = false"
-  @saved="() => { openEntityModal = false }"
-/>
 
 <style scoped>
 .widget-container {

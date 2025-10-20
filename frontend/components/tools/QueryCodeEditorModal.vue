@@ -214,7 +214,6 @@ const open = computed({
 })
 
 const { canEditCode } = useOrgSettings()
-debugger
 
 const activeTab = ref<'code' | 'visuals'>(canEditCode.value ? 'code' : 'visuals')
 

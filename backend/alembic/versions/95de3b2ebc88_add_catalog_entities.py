@@ -38,12 +38,20 @@ def upgrade() -> None:
     sa.Column('auto_refresh_enabled', sa.Boolean(), nullable=False),
     sa.Column('auto_refresh_interval', sa.Integer(), nullable=True),
     sa.Column('auto_refresh_interval_unit', sa.String(), nullable=True),
+    sa.Column('private_status', sa.String(length=50), nullable=True),
+    sa.Column('global_status', sa.String(length=50), nullable=True),
+    sa.Column('reviewed_by_user_id', sa.String(length=36), nullable=True),
+    sa.Column('source_step_id', sa.String(length=36), nullable=True),
+    sa.Column('trigger_reason', sa.String(length=255), nullable=True),
+    sa.Column('ai_source', sa.String(length=50), nullable=True),
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.Column('deleted_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['organization_id'], ['organizations.id'], ),
     sa.ForeignKeyConstraint(['owner_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['reviewed_by_user_id'], ['users.id'], ),
+    sa.ForeignKeyConstraint(['source_step_id'], ['steps.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
     with op.batch_alter_table('entities', schema=None) as batch_op:
@@ -59,7 +67,6 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('entity_id', 'data_source_id'),
     sa.UniqueConstraint('entity_id', 'data_source_id', name='uq_entity_data_source')
     )
-   
 
     # ### end Alembic commands ###
 

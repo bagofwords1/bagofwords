@@ -43,7 +43,10 @@ MEMBER_PERMISSIONS = {
     'view_private_instructions',
     'create_completion_feedback',
     'view_entities',
-    'refresh_entities'
+    'refresh_entities',
+    'suggest_entities',
+    'withdraw_entities'
+
 
 }
 
@@ -72,6 +75,8 @@ ADMIN_PERMISSIONS = {
     'create_entities',
     'update_entities',
     'delete_entities',
+    'approve_entities',
+    'reject_entities'
 }
 
 # Combine permissions for roles

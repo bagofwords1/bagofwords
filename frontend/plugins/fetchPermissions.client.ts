@@ -101,7 +101,14 @@ function getPermissionsForRole(role: string): string[] {
       'delete_instructions',
       'view_hidden_instructions',
       'manage_data_source_memberships',
-      'modify_settings'
+      'modify_settings',
+      'create_entities',
+      'update_entities',
+      'delete_entities',
+      'view_entities',
+      'refresh_entities',
+      'approve_entities',
+      'reject_entities'
     ],
     member: [
       'view_data_source',
@@ -132,7 +139,11 @@ function getPermissionsForRole(role: string): string[] {
       'view_organization_members',
       'view_instructions',
       'create_private_instructions',
-      'create_completion_feedback'
+      'create_completion_feedback',
+      'view_entities',
+      'refresh_entities',
+      'suggest_entities',
+      'withdraw_entities'
     ],
     // Add more roles and permissions as needed
   }

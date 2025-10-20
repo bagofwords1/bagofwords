@@ -21,6 +21,7 @@ class StepSchema(StepBase):
     data: dict = Field(default_factory=dict)
     data_model: dict = Field(default_factory=dict)
     view: Optional[ViewSchema] = Field(default_factory=ViewSchema)
+    created_entity_id: Optional[str] = None  # ID of entity created from this step
 
     class Config:
         from_attributes = True

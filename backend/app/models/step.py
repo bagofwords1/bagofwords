@@ -33,6 +33,16 @@ class Step(BaseSchema):
     completions = relationship("Completion", back_populates="step")
 
     memories = relationship("Memory", back_populates="step")
+    
+    # Bidirectional relationship: Step can see which Entity was created from it
+    # This uses Entity.source_step_id as the foreign key (no FK on this side)
+    created_entity = relationship(
+        "Entity",
+        foreign_keys="Entity.source_step_id",
+        back_populates="source_step",
+        uselist=False,
+        lazy="selectin"
+    )
 
 def after_update_step(mapper, connection, target):
     try:
