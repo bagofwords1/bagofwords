@@ -65,6 +65,10 @@ class PlannerInput(BaseModel):
     messages_context: Optional[str] = None
     # Resources context from metadata resources (git repos, documentation, etc.)
     resources_context: Optional[str] = None
+    # Mentions context rendered from the current user turn mentions
+    mentions_context: Optional[str] = None
+    # Entities context rendered from catalog search
+    entities_context: Optional[str] = None
     # A compact dictionary describing the most recent tool observation (if any)
     last_observation: Optional[Dict[str, Any]] = None
     # Full list of recorded tool observations in execution order

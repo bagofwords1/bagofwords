@@ -15,16 +15,14 @@
         <div class="border border-gray-200 rounded-xl bg-white focus-within:border-gray-300 transition-colors">
             <!-- Input -->
             <div class="p-3">
-                <textarea
-                    ref="textareaRef"
+                <MentionInput
                     v-model="text"
-                    class="w-full resize-none bg-transparent outline-none text-sm text-gray-900 placeholder-gray-400"
-                    rows="2"
+                    @update:mentions="handleMentionsUpdate"
+                    @submit="submit"
                     :placeholder="placeholder"
-                    @keydown.enter.exact.prevent="handleEnter"
-                    @keydown.enter.shift.stop
-                    @input="autoGrow"
-                ></textarea>
+                    :rows="2"
+                    :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
+                />
             </div>
 
             <!-- Bottom controls -->
@@ -124,6 +122,7 @@ import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
 import InstructionsListModalComponent from '@/components/InstructionsListModalComponent.vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
+import MentionInput from '@/components/prompt/MentionInput.vue'
 
 const props = defineProps({
     report_id: String,
@@ -143,6 +142,7 @@ const mode = ref<'chat' | 'deep'>('chat')
 const selectedDataSources = ref<any[]>([])
 const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
+const inlineMentions = ref<any[]>([])
 
 // Popover state
 const showModeMenu = ref(false)
@@ -205,30 +205,33 @@ function selectModelAndClose(modelId: string) {
     showModelMenu.value = false
 }
 
-const textareaRef = ref<HTMLTextAreaElement | null>(null)
-function autoGrow() {
-    const ta = textareaRef.value
-    if (!ta) return
-    ta.style.height = 'auto'
-    ta.style.height = Math.min(200, ta.scrollHeight) + 'px'
+function handleMentionsUpdate(mentions: any[]) {
+    inlineMentions.value = mentions
 }
 
 function onInput() {
     emit('update:modelValue', text.value)
-    autoGrow()
 }
 
 const canSubmit = computed(() => text.value.trim().length > 0 && !props.latestInProgressCompletion)
 
-function handleEnter() {
-    if (canSubmit.value) submit()
-}
-
 function submit() {
+    if (!canSubmit.value) return
+    
+    // Organize inline mentions by type
+    const mentionsByType = {
+        data_sources: inlineMentions.value.filter(m => m.type === 'data_source'),
+        tables: inlineMentions.value.filter(m => m.type === 'datasource_table'),
+        files: inlineMentions.value.filter(m => m.type === 'file'),
+        entities: inlineMentions.value.filter(m => m.type === 'entity')
+    }
     const payload = {
         text: text.value,
         mentions: [
-            { name: 'DATA SOURCES', items: selectedDataSources.value },
+            { name: 'DATA SOURCES', items: mentionsByType.data_sources },
+            { name: 'TABLES', items: mentionsByType.tables },
+            { name: 'FILES', items: mentionsByType.files },
+            { name: 'ENTITIES', items: mentionsByType.entities }
         ],
         mode: mode.value,                 // 'chat' | 'deep'
         model_id: selectedModel.value     // backend model id from selector
@@ -237,7 +240,6 @@ function submit() {
         // In-report behavior: emit to parent stream
         emit('submitCompletion', payload)
         text.value = ''
-        nextTick(autoGrow)
     } else {
         // Landing page behavior: create a new report
         createReport()
@@ -251,11 +253,8 @@ function onFilesUploaded(files: any[]) {
 const instructionsListModalRef = ref<any | null>(null)
 function openInstructions() { instructionsListModalRef.value?.openModal?.() }
 
-const helperText = computed(() => mode.value === 'deep' ? 'Deep Analysis may take longer' : 'Enter to send • Shift+Enter for new line')
-
 onMounted(async () => {
     await loadModels()
-    nextTick(autoGrow)
     // Hydrate selected data sources from report when in a report context
     try {
         if (props.report_id) {
@@ -281,7 +280,6 @@ onMounted(async () => {
 watch(() => props.textareaContent, (newVal) => {
     if (typeof newVal === 'string' && newVal !== text.value) {
         text.value = newVal
-        nextTick(autoGrow)
     }
 }, { immediate: true })
 
@@ -318,7 +316,20 @@ async function createReport() {
         }
         const data = (response as any)?.data?.value as any
         if (data?.id) {
-            const mentions = [ { name: 'DATA SOURCES', items: selectedDataSources.value || [] } ]
+            // Build mentions from inlineMentions only (no automatic data sources)
+            const mentionsByType = {
+                data_sources: inlineMentions.value.filter((m: any) => m.type === 'data_source'),
+                tables: inlineMentions.value.filter((m: any) => m.type === 'datasource_table'),
+                files: inlineMentions.value.filter((m: any) => m.type === 'file'),
+                entities: inlineMentions.value.filter((m: any) => m.type === 'entity')
+            }
+            const mentions = [
+                { name: 'DATA SOURCES', items: mentionsByType.data_sources },
+                { name: 'TABLES', items: mentionsByType.tables },
+                { name: 'FILES', items: mentionsByType.files },
+                { name: 'ENTITIES', items: mentionsByType.entities }
+            ]
+
             router.push({ 
                 path: `/reports/${data.id}`, 
                 query: { 
@@ -330,7 +341,6 @@ async function createReport() {
             })
         }
         text.value = ''
-        nextTick(autoGrow)
     } catch (error) {
         console.error('Failed to create report:', error)
     }

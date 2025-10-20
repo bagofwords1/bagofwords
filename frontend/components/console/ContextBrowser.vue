@@ -227,6 +227,120 @@
       </Transition>
     </div>
 
+    <!-- Mentions Section (object-based from warm context) -->
+    <div v-if="mentions && (mentions.files?.length || mentions.data_sources?.length || mentions.tables?.length || mentions.entities?.length)">
+      <div 
+        class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
+        @click="toggleSection('mentions')"
+      >
+        <Icon :name="expandedSections.has('mentions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        Mentions
+      </div>
+      <Transition name="fade">
+        <div v-if="expandedSections.has('mentions')" class="ml-4 space-y-3">
+          <!-- Files -->
+          <div v-if="mentions.files?.length">
+            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Files</div>
+            <div class="space-y-1">
+              <div v-for="f in mentions.files" :key="f.id" class="text-xs text-gray-800">
+                <span class="font-mono">{{ f.filename || f.id }}</span>
+                <span v-if="f.content_type" class="text-gray-500"> ({{ f.content_type }})</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Data Sources -->
+          <div v-if="mentions.data_sources?.length">
+            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Data Sources</div>
+            <div class="space-y-1">
+              <div v-for="ds in mentions.data_sources" :key="ds.id" class="text-xs text-gray-800">
+                <span class="font-mono">{{ ds.name || ds.id }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tables -->
+          <div v-if="mentions.tables?.length">
+            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Tables</div>
+            <div class="space-y-1">
+              <div v-for="t in mentions.tables" :key="t.id" class="text-xs text-gray-800">
+                <div>
+                  <span class="font-mono">{{ (t.data_source_name ? (t.data_source_name + '.') : '') + (t.table_name || '') }}</span>
+                </div>
+                <div v-if="t.columns_preview?.length" class="text-[11px] text-gray-600 ml-2">
+                  columns: {{ t.columns_preview.join(', ') }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Entities -->
+          <div v-if="mentions.entities?.length">
+            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Entities</div>
+            <div class="space-y-2">
+              <div v-for="e in mentions.entities" :key="e.id" class="text-xs text-gray-800">
+                <div class="flex items-center flex-wrap gap-2">
+                  <span class="font-medium">{{ e.title || e.id }}</span>
+                  <span v-if="e.entity_type" class="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">{{ e.entity_type }}</span>
+                  <span v-if="e.status" class="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">{{ e.status }}</span>
+                </div>
+                <div v-if="e.description" class="text-[11px] text-gray-600 mt-0.5">{{ (e.description || '').slice(0, 200) }}<span v-if="(e.description || '').length > 200">…</span></div>
+                <div v-if="e.columns?.length" class="text-[11px] text-gray-600 mt-0.5">columns: {{ e.columns.join(', ') }}</div>
+                <div v-if="e.sample_rows?.length" class="text-[11px] text-gray-600 mt-0.5">
+                  sample rows:
+                  <div class="ml-2">
+                    <div v-for="(row, idx) in e.sample_rows.slice(0, 2)" :key="idx" class="text-[11px] text-gray-700">
+                      {{ Object.entries(row).slice(0,6).map(([k,v]) => `${k}=${String(v).length > 100 ? String(v).slice(0,100)+'…' : v}`).join(', ') }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </div>
+
+    <!-- Entities Section (object-based from warm context) -->
+    <div v-if="entities && (entities.items?.length)">
+      <div 
+        class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
+        @click="toggleSection('entities')"
+      >
+        <Icon :name="expandedSections.has('entities') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+        Entities
+      </div>
+      <Transition name="fade">
+        <div v-if="expandedSections.has('entities')" class="ml-4 space-y-2">
+          <div v-for="e in (entities.items || [])" :key="e.id" class="text-xs text-gray-800 border rounded-md p-2">
+            <div class="flex items-center flex-wrap gap-2">
+              <span class="font-medium">{{ e.title || e.id }}</span>
+              <span v-if="e.type" class="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">{{ e.type }}</span>
+            </div>
+            <div v-if="e.description" class="text-[11px] text-gray-600 mt-0.5">
+              {{ (e.description || '').slice(0, 200) }}<span v-if="(e.description || '').length > 200">…</span>
+            </div>
+            <div v-if="e.ds_names?.length" class="mt-1 flex flex-wrap gap-2">
+              <div class="flex items-center gap-1">
+                <span class="text-[11px] uppercase tracking-wide text-gray-500">ds:</span>
+                <div class="flex items-center gap-1">
+                  <span v-for="d in e.ds_names" :key="d" class="text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600">{{ d }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="e.code" class="mt-2">
+              <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Code</div>
+              <pre class="text-[11px] text-gray-900 whitespace-pre-wrap bg-gray-50 rounded p-2 overflow-x-auto">{{ (e.code || '').slice(0, 2000) }}</pre>
+            </div>
+            <div v-if="e.data_model" class="mt-2">
+              <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Data Model</div>
+              <pre class="text-[11px] text-gray-900 whitespace-pre-wrap bg-gray-50 rounded p-2 overflow-x-auto">{{ formatJson(e.data_model) }}</pre>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </div>
+
     <!-- Metadata Section (generalized key-value) -->
     <div v-if="metadata && Object.keys(metadata).length > 0">
       <div 
@@ -345,6 +459,10 @@ const resourcesContent = computed(() => props.contextData?.static?.resources?.co
 const metadataResources = computed(() => [])
 
 const observations = computed(() => props.contextData?.warm?.observations || '')
+
+const mentions = computed(() => props.contextData?.warm?.mentions || null)
+
+const entities = computed(() => props.contextData?.warm?.entities || null)
 
 const metadata = computed(() => {
   const meta = props.contextData?.meta || {}

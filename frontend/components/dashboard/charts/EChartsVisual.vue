@@ -328,6 +328,46 @@ function buildRadarOptions(rows: any[], dm: any): EChartsOption {
   }
 }
 
+// Heuristic: infer a minimal series mapping from data when encoding is absent
+function inferDefaultSeries(type: string, data: any): any[] | null {
+  try {
+    const rows: any[] = Array.isArray(data?.rows) ? data.rows : []
+    const columns: any[] = Array.isArray(data?.columns) ? data.columns : []
+    if (!rows.length && !columns.length) return null
+    const sample = rows[0] || {}
+    const keys = columns.length ? columns.map((c: any) => c.field || c.colId || c.headerName).filter(Boolean) : Object.keys(sample)
+    if (!Array.isArray(keys) || !keys.length) return null
+    const lower = (s: any) => String(s || '').toLowerCase()
+    const isNumeric = (v: any) => v != null && !Number.isNaN(Number(v))
+    // Prefer a string/categorical key and a numeric value
+    let keyField: string | null = null
+    let valueField: string | null = null
+    // Try common names first
+    const commonKeyNames = ['label', 'name', 'category', 'genre', 'type']
+    const commonValNames = ['value', 'count', 'total', 'amount', 'revenue']
+    keyField = keys.find(k => commonKeyNames.includes(lower(k))) || null
+    valueField = keys.find(k => commonValNames.includes(lower(k))) || null
+    // Fallbacks from data content
+    if (!keyField) {
+      keyField = keys.find(k => typeof sample[k] === 'string') || keys.find(k => !isNumeric(sample[k])) || keys[0] || null
+    }
+    if (!valueField) {
+      valueField = keys.find(k => isNumeric(sample[k])) || (keys.length > 1 ? keys[1] : null)
+    }
+    if (!keyField || !valueField) return null
+    // Build minimal single-series mapping
+    if (type === 'pie_chart') {
+      return [{ name: 'Series', key: keyField, value: valueField }]
+    }
+    if (type === 'bar_chart' || type === 'line_chart' || type === 'area_chart') {
+      return [{ name: 'Series', key: keyField, value: valueField }]
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 function resolveColorInput(input: any): any {
   // Normalize theme palette entries to ECharts LinearGradient or solid color
   if (!input) return undefined
@@ -391,7 +431,7 @@ function buildOptions() {
   isLoading.value = true
   chartOptions.value = {}
   // Merge view.encoding into data_model (do not mutate props)
-  const dm = (() => {
+  let dm = (() => {
     const base = props.data_model || {}
     const enc: any = (props.view as any)?.encoding || null
     if (!enc) return base
@@ -438,6 +478,14 @@ function buildOptions() {
     }
     return out
   })()
+  // If no series mapping is available, attempt to infer sensible defaults
+  if (!dm || !Array.isArray(dm.series) || dm.series.length === 0) {
+    const t = normalizeType((props.view as any)?.type || (dm as any)?.type)
+    const inferred = inferDefaultSeries(t, props.data)
+    if (inferred && inferred.length) {
+      dm = { ...(dm || {}), type: t, series: inferred }
+    }
+  }
   const rows = normalizeRows(props.data?.rows)
   // For table type, allow empty or any rows; table is rendered outside of this component
   if (!dm || (!rows.length && normalizeType((props.view as any)?.type || dm.type) !== 'table')) {

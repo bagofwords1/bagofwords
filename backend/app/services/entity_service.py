@@ -14,6 +14,7 @@ from app.services.step_service import StepService
 from app.services.query_service import QueryService
 from app.schemas.entity_schema import EntityCreate, EntityUpdate
 from datetime import datetime
+from app.schemas.entity_schema import EntityRunPayload
 
 
 class EntityService:
@@ -90,6 +91,7 @@ class EntityService:
             tags=[],
             code=step.code or "",
             data=step.data or {},
+            original_data_model=step.data_model or {},
             view=(chosen_view or getattr(step, "view", None) or {"type": "table"}),
             last_refreshed_at=step.updated_at,
             source_step_id=str(step_id),  # Link back to source step
@@ -111,18 +113,26 @@ class EntityService:
 
         db.add(entity)
         # Link data sources - use override if provided, otherwise use report data sources
-        try:
-            if data_source_ids_override is not None and len(data_source_ids_override) > 0:
-                # Use explicitly provided data source IDs
-                result = await db.execute(select(DataSource).where(DataSource.id.in_(data_source_ids_override)))
-                entity.data_sources = list(result.scalars().all())
-            else:
-                # Fall back to report data sources
-                report_ds = list((step.query.report.data_sources or []))
-                if report_ds:
-                    entity.data_sources = report_ds
-        except Exception:
-            pass
+        ds_ids: list[str] = []
+        if data_source_ids_override is not None and len(data_source_ids_override) > 0:
+            ds_ids = list({str(i) for i in data_source_ids_override})
+        else:
+            # Fall back to report data sources
+            report_ds = list((step.query.report.data_sources or []))
+            if report_ds:
+                ds_ids = list({str(ds.id) for ds in report_ds})
+
+        if ds_ids:
+            # Insert association rows explicitly to avoid async lazy-load on relationship set
+            from sqlalchemy import insert
+            # Ensure the entity has an ID before inserting into association table
+            await db.flush()
+            rows = [
+                {"entity_id": str(entity.id), "data_source_id": ds_id}
+                for ds_id in ds_ids
+            ]
+            if rows:
+                await db.execute(insert(entity_data_source_association), rows)
 
         await db.flush()
         await db.commit()
@@ -343,6 +353,93 @@ class EntityService:
         await db.delete(entity)
         await db.commit()
         return True
+
+    async def run_entity_with_update(
+        self,
+        db: AsyncSession,
+        entity_id: str,
+        payload: EntityRunPayload,
+        organization: Organization,
+    ) -> Entity:
+        """Execute the entity's code, update its data/view/metadata, and persist."""
+        # Load entity scoped to organization
+        result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
+        entity = result.scalar_one_or_none()
+        if not entity:
+            raise ValueError("Entity not found")
+
+        # Determine code to run (payload override or stored)
+        code_to_run = (payload.code if (payload and getattr(payload, "code", None) is not None) else entity.code) or ""
+
+        # Resolve report/data sources context via any linked data sources on the entity
+        # When entities are not tied to a report, we execute with all entity data sources
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+        ds_clients = {ds.name: ds.get_client() for ds in (entity.data_sources or [])}
+        excel_files = []
+
+        executor = StreamingCodeExecutor()
+        try:
+            exec_df, execution_log = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
+            df = executor.format_df_for_widget(exec_df)
+            # Persist execution results
+            entity.data = df
+            entity.last_refreshed_at = datetime.utcnow()
+
+            # Apply optional payload updates
+            if payload:
+                if getattr(payload, "title", None) is not None:
+                    entity.title = payload.title  # type: ignore
+                if getattr(payload, "description", None) is not None:
+                    entity.description = payload.description  # type: ignore
+                if getattr(payload, "type", None) is not None:
+                    entity.type = payload.type  # type: ignore
+                if getattr(payload, "code", None) is not None:
+                    entity.code = payload.code  # type: ignore
+                if getattr(payload, "view", None) is not None:
+                    # view is a Pydantic model; store as dict
+                    v = payload.view
+                    entity.view = v.model_dump() if hasattr(v, "model_dump") else v  # type: ignore
+                if getattr(payload, "status", None) is not None:
+                    entity.status = payload.status  # type: ignore
+
+            await db.flush()
+            await db.commit()
+            await db.refresh(entity)
+            return entity
+        except Exception as e:
+            # Persist last_refreshed_at but do not overwrite existing data on failure
+            entity.last_refreshed_at = datetime.utcnow()
+            await db.flush()
+            await db.commit()
+            # Re-raise as ValueError for route to map to 404/400 as designed
+            raise ValueError(str(e))
+
+    async def preview_entity(
+        self,
+        db: AsyncSession,
+        entity_id: str,
+        payload,
+        organization: Organization,
+    ) -> dict:
+        """Execute provided code (or entity code) without persisting, return preview/result or error."""
+        result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
+        entity = result.scalar_one_or_none()
+        if not entity:
+            raise ValueError("Entity not found")
+
+        code_to_run = (getattr(payload, "code", None) if payload else None) or entity.code or ""
+
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+        ds_clients = {ds.name: ds.get_client() for ds in (entity.data_sources or [])}
+        excel_files = []
+
+        executor = StreamingCodeExecutor()
+        try:
+            exec_df, execution_log = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
+            df = executor.format_df_for_widget(exec_df)
+            return {"data": df, "execution_log": execution_log}
+        except Exception as e:
+            return {"data": None, "error": str(e)}
 
     def _is_admin_permissions(self, user_permissions: set) -> bool:
         """Check if permissions set corresponds to an admin in org"""

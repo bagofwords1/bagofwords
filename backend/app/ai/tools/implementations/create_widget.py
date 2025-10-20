@@ -65,6 +65,12 @@ class CreateWidgetTool(Tool):
         # Messages
         _messages_section_obj = getattr(context_view.warm, "messages", None) if context_view else None
         messages_context = _messages_section_obj.render() if _messages_section_obj else ""
+        # Mentions
+        _mentions_section_obj = getattr(context_view.static, "mentions", None) if context_view else None
+        mentions_context = _mentions_section_obj.render() if _mentions_section_obj else "<mentions>No mentions for this turn</mentions>"
+        # Entities (warm)
+        _entities_section_obj = getattr(context_view.warm, "entities", None) if context_view else None
+        entities_context = _entities_section_obj.render() if _entities_section_obj else ""
         # Platform
         platform = (getattr(context_view, "meta", {}) or {}).get("external_platform") if context_view else None
         # Observations and history
@@ -101,6 +107,8 @@ INPUT ENVELOPE
   {instructions_context}
   {schemas_excerpt}
   {files_context}
+  {mentions_context}
+  {entities_context}
   {resources_context if resources_context else 'No metadata resources available'}
   {history_summary}
   {messages_context if messages_context else 'No detailed conversation history available'}
@@ -144,6 +152,7 @@ CRITICAL:
 - ALWAYS extract the data source ID from the <data_source_id> tags in the schema context above
 - Every column MUST have the same source_data_source_id value from the schema context
 - If multiple data sources exist, use the appropriate data_source_id for each column based on which schema it comes from
+ - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 """
         prompt = header + "\n" + skeleton + "\n" + critical
 

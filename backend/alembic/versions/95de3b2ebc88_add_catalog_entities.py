@@ -30,6 +30,7 @@ def upgrade() -> None:
     sa.Column('tags', sa.JSON(), nullable=True),
     sa.Column('code', sa.Text(), nullable=False),
     sa.Column('data', sa.JSON(), nullable=True),
+    sa.Column('original_data_model', sa.JSON(), nullable=True),
     sa.Column('view', sa.JSON(), nullable=True),
     sa.Column('status', sa.String(), nullable=False),
     sa.Column('published_at', sa.DateTime(), nullable=True),

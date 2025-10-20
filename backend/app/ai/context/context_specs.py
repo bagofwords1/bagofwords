@@ -43,6 +43,7 @@ class ContextMetadata(BaseModel):
     widgets_count: int = 0
     queries_count: int = 0
     memories_count: int = 0
+    entities_count: int = 0
     metadata_resources_count: int = 0
     
     # External context
@@ -64,6 +65,7 @@ class ContextSnapshot(BaseModel):
     widgets_context: str = ""
     queries_context: str = ""
     instructions_context: str = ""
+    entities_context: str = ""
     code_context: str = ""
     resource_context: str = ""
     
@@ -92,6 +94,7 @@ class ContextObjectsSnapshot(BaseModel):
     code: Any | None = None
     resources: Any | None = None
     observations: Any | None = None
+    entities: Any | None = None
     
     # Metadata
     metadata: ContextMetadata
@@ -144,6 +147,15 @@ class ResourceContextConfig(BaseModel):
     pass
 
 
+class EntitiesContextConfig(BaseModel):
+    """Configuration for entities context building."""
+
+    keywords: List[str] = []
+    types: Optional[List[str]] = None
+    top_k: int = 10
+    require_data_source_association: bool = True
+
+
 class CodeContextConfig(BaseModel):
     """Configuration for code context building."""
     
@@ -169,6 +181,7 @@ class ContextBuildSpec(BaseModel):
     include_memories: bool = True
     include_widgets: bool = True
     include_instructions: bool = True
+    include_entities: bool = True
     include_code: bool = False
     include_resource: bool = False
     include_research_context: bool = True
@@ -180,6 +193,7 @@ class ContextBuildSpec(BaseModel):
     memory_config: Optional[MemoryContextConfig] = None
     widget_config: Optional[WidgetContextConfig] = None
     resource_config: Optional[ResourceContextConfig] = None
+    entities_config: Optional[EntitiesContextConfig] = None
     code_config: Optional[CodeContextConfig] = None
     research_config: Optional[ResearchContextConfig] = None
     

@@ -2,15 +2,21 @@
 Message Context Builder - Ports proven logic from agent._build_messages_context()
 """
 import json
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy import and_
 
 from app.models.completion import Completion
 from app.models.widget import Widget
 from app.models.step import Step
 from app.models.organization import Organization
 from app.ai.context.sections.messages_section import MessagesSection, MessageItem
+from app.models.entity import Entity
+from app.models.mention import Mention, MentionType
+from app.models.file import File
+from app.models.data_source import DataSource
+from app.models.datasource_table import DataSourceTable
 
 
 class MessageContextBuilder:
@@ -259,12 +265,159 @@ class MessageContextBuilder:
 
         completions_to_process = completions_to_process[-max_messages:]
 
+        # =========================
+        # Batch-load mentions for all user messages to avoid N+1 queries
+        # =========================
+        user_completion_ids: List[str] = [str(c.id) for c in completions_to_process if c.role == 'user']
+        mentions_by_completion: Dict[str, List[Mention]] = {}
+        file_ids: set[str] = set()
+        ds_ids: set[str] = set()
+        tbl_ids: set[str] = set()
+        ent_ids: set[str] = set()
+
+        if user_completion_ids:
+            mentions_q = await self.db.execute(
+                select(Mention).where(Mention.completion_id.in_(user_completion_ids))
+            )
+            all_mentions: List[Mention] = mentions_q.scalars().all()
+            for m in all_mentions:
+                cid = str(getattr(m, 'completion_id', ''))
+                mentions_by_completion.setdefault(cid, []).append(m)
+                try:
+                    if m.type == MentionType.FILE:
+                        file_ids.add(str(m.object_id))
+                    elif m.type == MentionType.DATA_SOURCE:
+                        ds_ids.add(str(m.object_id))
+                    elif m.type == MentionType.TABLE:
+                        tbl_ids.add(str(m.object_id))
+                    elif m.type == MentionType.ENTITY:
+                        ent_ids.add(str(m.object_id))
+                except Exception:
+                    continue
+
+        # Batch-load referenced objects by type (up to 4 queries)
+        file_map: Dict[str, Any] = {}
+        ds_map: Dict[str, Any] = {}
+        tbl_map: Dict[str, Any] = {}
+        ent_map: Dict[str, Any] = {}
+
+        if file_ids:
+            try:
+                rows = await self.db.execute(select(File).where(File.id.in_(list(file_ids))))
+                for f in rows.scalars().all():
+                    file_map[str(getattr(f, 'id', ''))] = f
+            except Exception:
+                pass
+        if ds_ids:
+            try:
+                rows = await self.db.execute(select(DataSource).where(DataSource.id.in_(list(ds_ids))))
+                for ds in rows.scalars().all():
+                    ds_map[str(getattr(ds, 'id', ''))] = ds
+            except Exception:
+                pass
+        if tbl_ids:
+            try:
+                rows = await self.db.execute(select(DataSourceTable).where(DataSourceTable.id.in_(list(tbl_ids))))
+                for t in rows.scalars().all():
+                    tbl_map[str(getattr(t, 'id', ''))] = t
+                    try:
+                        # Opportunistically collect data source ids from tables to show DS name
+                        ds_id = str(getattr(t, 'data_source_id', '') or '')
+                        if ds_id:
+                            ds_ids.add(ds_id)
+                    except Exception:
+                        pass
+                # If we discovered new ds_ids from tables, try to fill missing ones
+                missing_ds = [x for x in ds_ids if x not in ds_map]
+                if missing_ds:
+                    rows2 = await self.db.execute(select(DataSource).where(DataSource.id.in_(missing_ds)))
+                    for ds in rows2.scalars().all():
+                        ds_map[str(getattr(ds, 'id', ''))] = ds
+            except Exception:
+                pass
+        if ent_ids:
+            try:
+                rows = await self.db.execute(select(Entity).where(Entity.id.in_(list(ent_ids))))
+                for e in rows.scalars().all():
+                    ent_map[str(getattr(e, 'id', ''))] = e
+            except Exception:
+                pass
+
         for completion in completions_to_process:
             ts = completion.created_at.strftime("%H:%M") if getattr(completion, 'created_at', None) else None
             if completion.role == 'user':
                 content = completion.prompt.get('content', '') if completion.prompt else ''
                 if content and content.strip():
-                    items.append(MessageItem(role="user", timestamp=ts, text=content.strip()))
+                    # Prefer persisted mentions over prompt payload for display
+                    mentions_str = None
+                    try:
+                        cid = str(getattr(completion, 'id', ''))
+                        mlist = mentions_by_completion.get(cid, [])
+                        if mlist:
+                            parts: List[str] = []
+                            for m in mlist:
+                                try:
+                                    if m.type == MentionType.DATA_SOURCE:
+                                        ds = ds_map.get(str(m.object_id))
+                                        name = getattr(ds, 'name', None) or m.mention_content
+                                        parts.append(str(name))
+                                    elif m.type == MentionType.TABLE:
+                                        t = tbl_map.get(str(m.object_id))
+                                        if t:
+                                            ds_name = None
+                                            try:
+                                                ds_name = getattr(ds_map.get(str(getattr(t, 'data_source_id', ''))), 'name', None)
+                                            except Exception:
+                                                ds_name = None
+                                            tname = getattr(t, 'name', None) or m.mention_content
+                                            if ds_name:
+                                                parts.append(f"{tname} (Table in Data Source: {ds_name})")
+                                            else:
+                                                parts.append(f"{tname} (Table)")
+                                        else:
+                                            parts.append(m.mention_content)
+                                    elif m.type == MentionType.ENTITY:
+                                        e = ent_map.get(str(m.object_id))
+                                        title = getattr(e, 'title', None) or m.mention_content
+                                        cols_preview: List[str] = []
+                                        rows_count: Optional[int] = None
+                                        try:
+                                            data_json = getattr(e, 'data', None) or {}
+                                            if isinstance(data_json, dict):
+                                                cols = data_json.get('columns')
+                                                if isinstance(cols, list):
+                                                    for c in cols:
+                                                        if isinstance(c, dict):
+                                                            n = c.get('field') or c.get('headerName') or c.get('name')
+                                                            if n:
+                                                                cols_preview.append(str(n))
+                                                        else:
+                                                            cols_preview.append(str(c))
+                                                info = data_json.get('info')
+                                                rows = data_json.get('rows')
+                                                if isinstance(info, dict) and isinstance(info.get('total_rows'), int):
+                                                    rows_count = info.get('total_rows')
+                                                elif isinstance(rows, list):
+                                                    rows_count = len(rows)
+                                        except Exception:
+                                            pass
+                                        extras: List[str] = ["Entity from Catalog"]
+                                        if cols_preview:
+                                            extras.append(f"cols: {','.join(cols_preview[:3])}")
+                                        if rows_count is not None:
+                                            extras.append(f"rows: {rows_count}")
+                                        parts.append(f"{title} (" + ", ".join(extras) + ")")
+                                    elif m.type == MentionType.FILE:
+                                        fobj = file_map.get(str(m.object_id))
+                                        fname = getattr(fobj, 'filename', None) or m.mention_content
+                                        parts.append(str(fname))
+                                except Exception:
+                                    continue
+                            if parts:
+                                mentions_str = ", ".join(parts[:8]) + ("…" if len(parts) > 8 else "")
+                    except Exception:
+                        mentions_str = None
+                    items.append(MessageItem(role="user", timestamp=ts, text=content.strip(), mentions=mentions_str))
             elif completion.role == 'system':
                 # Aggregate blocks like build_context
                 blocks_result = await self.db.execute(

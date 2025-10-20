@@ -177,12 +177,24 @@ class CreateDashboardTool(Tool):
         except Exception:
             visualizations = []
         instructions_context = ""
+        mentions_context = "<mentions>No mentions for this turn</mentions>"
+        entities_context = ""
         try:
             if instruction_context_builder is not None:
                 inst_section = await instruction_context_builder.build()
                 instructions_context = inst_section.render() or ""
+            # Resolve mentions from static view when available
+            if context_hub is not None:
+                view = context_hub.get_view()
+                msec = getattr(getattr(view, 'static', None), 'mentions', None)
+                if msec:
+                    mentions_context = msec.render() or mentions_context
+                esec = getattr(getattr(view, 'warm', None), 'entities', None)
+                if esec:
+                    entities_context = esec.render() or entities_context
         except Exception:
             instructions_context = ""
+            # keep default mentions_context
 
         # Build designer prompt inline (deprecate dashboard_designer)
         def build_prompt() -> str:
@@ -209,9 +221,11 @@ You are a world-class dashboard and research report designer. Create a STUNNING,
 GENERAL ORGANIZATION INSTRUCTIONS (MUST FOLLOW):
 {instructions_context}
 
-CONTEXT
+        CONTEXT
 - Report title (optional): {data.report_title or ''}
 - User prompt: {data.prompt}
+        {mentions_context}
+{entities_context}
 - Previous messages:
 {previous_messages}
 - Available queries:
@@ -242,6 +256,7 @@ GUIDELINES
   - For text blocks, set view_overrides.variant to one of: "title" | "subtitle" | "paragraph" | "summary" when appropriate.
   - For data visualizations, set view_overrides with any of: variant (e.g., "area" or "smooth"), legendVisible, xAxisVisible, yAxisVisible, and style (colors, axis styles, title styles). Use integers/booleans/strings appropriately.
   - Prefer minimal, meaningful overrides that improve readability and visual balance.
+ - Prefer visuals grounded in sources referenced in <mentions> where applicable.
 
 EXPECTED JSON OUTPUT (strict):
 {{

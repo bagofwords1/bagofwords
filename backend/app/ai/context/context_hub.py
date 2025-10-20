@@ -29,6 +29,8 @@ from .sections.widgets_section import WidgetsSection
 from .sections.observations_section import ObservationsSection
 from .sections.resources_section import ResourcesSection
 from .sections.code_section import CodeSection
+from .builders.mention_context_builder import MentionContextBuilder
+from .builders.entity_context_builder import EntityContextBuilder
 
 
 class ContextHub:
@@ -91,6 +93,8 @@ class ContextHub:
         self.memory_builder = MemoryContextBuilder(self.db, self.organization, self.user, self.head_completion)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)
+        self.mention_builder = MentionContextBuilder(self.db, self.organization, self.report, self.head_completion)
+        self.entity_builder = EntityContextBuilder(self.db, self.organization, self.report)
         
         # Observation context builder (tracks tool execution results)
         self.observation_builder = ObservationContextBuilder()
@@ -227,6 +231,28 @@ class ContextHub:
         if getattr(spec, 'include_files', True):
             files_section = await self.files_builder.build()
             # We do not attach to ContextSnapshot directly; kept for future
+
+        # Entities section (delegated to builder; no inline heuristics)
+        try:
+            if getattr(spec, 'include_entities', False):
+                ent_cfg = getattr(spec, 'entities_config', None)
+                ent_section = await self.entity_builder.build_for_turn(
+                    types=(getattr(ent_cfg, 'types', None) if ent_cfg else None),
+                    top_k=(getattr(ent_cfg, 'top_k', 10) if ent_cfg else 10),
+                    require_source_assoc=(getattr(ent_cfg, 'require_data_source_association', True) if ent_cfg else True),
+                    keywords=(getattr(ent_cfg, 'keywords', None) if ent_cfg else None),
+                    user_text=(self.prompt_content.get("content") if isinstance(self.prompt_content, dict) else str(self.prompt_content or "")),
+                )
+                if ent_section:
+                    context.entities_context = ent_section.render()
+                    self._warm_cache["entities"] = ent_section
+                    try:
+                        self.metadata.entities_count = len(getattr(ent_section, 'items', []) or [])
+                    except Exception:
+                        pass
+                    section_sizes['entities'] = len(context.entities_context or '')
+        except Exception:
+            pass
         
         # Research context
         if spec.include_research_context and research_context:
@@ -259,6 +285,25 @@ class ContextHub:
             # Add queries section size for total_tokens calculation
             queries_text = queries_section.render() if queries_section else ""
             section_sizes['queries'] = len(queries_text)
+        
+        # Mentions section counts (mirror pattern used above)
+        mentions_section = self._warm_cache.get("mentions", None)
+        if mentions_section is not None:
+            try:
+                files_len = len(getattr(mentions_section, 'files', []) or [])
+                ds_len = len(getattr(mentions_section, 'data_sources', []) or [])
+                tables_len = len(getattr(mentions_section, 'tables', []) or [])
+                entities_len = len(getattr(mentions_section, 'entities', []) or [])
+                # Expose a total mentions count in metadata for diagnostics
+                self.metadata.__dict__["mentions_count"] = files_len + ds_len + tables_len + entities_len
+            except Exception:
+                pass
+            # Add mentions section size for total_tokens calculation
+            try:
+                mentions_text = mentions_section.render()
+                section_sizes['mentions'] = len(mentions_text or '')
+            except Exception:
+                pass
         
         # Expose section sizes for UI diagnostics and calculate total_tokens as sum
         try:
@@ -322,14 +367,25 @@ class ContextHub:
         # Deprecate widgets from warm context: keep for backward compatibility but do not rebuild aggressively
         widgets = None
 
+        # include_data_preview is computed below from org settings; use a safe default first
         queries = await self.query_builder.build(max_queries=5)
 
         observations = self.observation_builder.build()
+        # Decide mentions data preview from org settings
+        include_data_preview = True
+        try:
+            org_settings = await self.organization.get_settings(self.db)
+            cfg = org_settings.get_config("allow_llm_see_data") if org_settings else None
+            include_data_preview = bool(cfg.value) if cfg is not None else True
+        except Exception:
+            include_data_preview = True
         self._warm_cache.update({
             "messages": messages,
             "widgets": widgets,
-            "queries": queries,
+            # Rebuild queries with include_data_preview honoring org settings
+            "queries": await self.query_builder.build(max_queries=5, include_data_preview=include_data_preview),
             "observations": observations,
+            "mentions": await self.mention_builder.build(),
         })
 
     def get_view(self) -> ContextView:
@@ -346,6 +402,8 @@ class ContextHub:
             observations=self._warm_cache.get("observations", None),
             widgets=self._warm_cache.get("widgets", None),
             queries=self._warm_cache.get("queries", None),
+            mentions=self._warm_cache.get("mentions", None),
+            entities=self._warm_cache.get("entities", None),
         )
         meta = self.metadata.model_dump()
         return ContextView(static=static, warm=warm, meta=meta)

@@ -18,6 +18,7 @@ from .builders import (
     CodeContextBuilder,
     ResourceContextBuilder,
     ObservationContextBuilder,
+    MentionContextBuilder
 )
 
 __all__ = [
@@ -44,4 +45,5 @@ __all__ = [
     "CodeContextBuilder",
     "ResourceContextBuilder",
     "ObservationContextBuilder",
+    "MentionContextBuilder"
 ]

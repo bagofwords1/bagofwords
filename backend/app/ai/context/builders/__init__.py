@@ -9,6 +9,7 @@ from .instruction_context_builder import InstructionContextBuilder
 from .code_context_builder import CodeContextBuilder
 from .resource_context_builder import ResourceContextBuilder
 from .observation_context_builder import ObservationContextBuilder
+from .mention_context_builder import MentionContextBuilder
 
 __all__ = [
     "SchemaContextBuilder", 
@@ -18,5 +19,6 @@ __all__ = [
     "InstructionContextBuilder",
     "CodeContextBuilder",
     "ResourceContextBuilder",
-    "ObservationContextBuilder"
+    "ObservationContextBuilder",
+    "MentionContextBuilder"
 ]

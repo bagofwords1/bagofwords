@@ -323,6 +323,10 @@ class AgentV2:
                     resources_context = resources_section.render()
                     # Files context (uploaded files schemas/metadata)
                     files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
+                    # Mentions context (current user turn mentions)
+                    mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
+                    # Entities context (catalog entities relevant to this turn)
+                    entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
 
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
@@ -331,6 +335,8 @@ class AgentV2:
                         user_message=self.head_completion.prompt["content"],
                         schemas_excerpt=schemas_excerpt,
                         files_context=files_context,
+                        mentions_context=mentions_context,
+                        entities_context=entities_context,
                         history_summary=history_summary,
                         messages_context=messages_context,
                         resources_context=resources_context,

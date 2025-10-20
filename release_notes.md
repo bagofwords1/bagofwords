@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.210 (October 20, 2025)
+- Add Mention component and capabilitiy into prompts
+- Adding mentions to context across tools and agents
+- REleased: Catalog
+
+
 ## Version 0.0.205 (October 17, 2025)
 - Added support for multiple schemas in Snowflake
 - Added `MSSQL` driver into Dockerfile 

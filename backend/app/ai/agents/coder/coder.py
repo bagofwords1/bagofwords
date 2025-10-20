@@ -38,13 +38,21 @@ class Coder:
             return "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame()"
         # Resolve instructions from context hub when available; otherwise fallback to legacy builder
         instructions_context = ""
+        mentions_context = "<mentions>No mentions for this turn</mentions>"
+        entities_context = ""
         if self.context_hub is not None:
             try:
                 view = self.context_hub.get_view()
                 inst_obj = getattr(view.static, "instructions", None)
                 instructions_context = inst_obj.render() if inst_obj else ""
+                mentions_obj = getattr(view.static, "mentions", None)
+                mentions_context = mentions_obj.render() if mentions_obj else mentions_context
+                entities_obj = getattr(view.warm, "entities", None)
+                entities_context = entities_obj.render() if entities_obj else entities_context
             except Exception:
                 instructions_context = ""
+                mentions_context = mentions_context
+                entities_context = entities_context
         elif self.instruction_context_builder is not None:
             # Legacy compatibility
             if hasattr(self.instruction_context_builder, "get_instructions_context"):
@@ -129,6 +137,12 @@ class Coder:
         {schemas}
         </ground_truth_schemas>
 
+        - Mentions:
+        {mentions_context}
+
+        - Entities:
+        {entities_context}
+
         - Previous Messages:
         <previous_messages>
         {previous_messages}
@@ -191,6 +205,7 @@ class Coder:
              * Print the dict/df preview to help the LLM ensure indices and positions are correct.
            - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Preview:", {data_preview_instruction})
            - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
+           - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
         3. **Schema and Data Model Adherence**:
            - Use only columns and relationships that exist in the provided schemas.

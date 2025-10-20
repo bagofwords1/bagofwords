@@ -30,6 +30,7 @@ class Entity(BaseSchema):
     # Execution and preview
     code = Column(Text, nullable=False)  # single source of truth (SQL or expression)
     data = Column(JSON, nullable=True, default=dict)
+    original_data_model = Column(JSON, nullable=True, default=dict)
     view = Column(JSON, nullable=True, default=dict)
 
     status = Column(String, nullable=False, default="draft")  # 'draft' | 'published'

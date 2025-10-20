@@ -235,6 +235,12 @@ class CompletionService:
                 await db.rollback()
                 raise HTTPException(status_code=500, detail=f"Failed to save user completion: {str(e)}")
 
+            # Store mentions associated with the user head completion (best-effort)
+            try:
+                await self.mention_service.create_completion_mentions(db, head_completion)
+            except Exception as e:
+                logging.error(f"Failed to create mentions for completion {head_completion.id}: {e}")
+
             # Create system completion to populate with results
             system_completion = Completion(
                 prompt=None,
@@ -860,6 +866,12 @@ class CompletionService:
                     status_code=500,
                     detail=f"Failed to save user completion: {str(e)}"
                 )
+
+            # Store mentions associated with the user completion (best-effort)
+            try:
+                await self.mention_service.create_completion_mentions(db, completion)
+            except Exception as e:
+                logging.error(f"Failed to create mentions for completion {completion.id}: {e}")
 
             # Create system completion
             system_completion = Completion(

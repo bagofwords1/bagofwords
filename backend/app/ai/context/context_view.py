@@ -15,6 +15,8 @@ from app.ai.context.sections.queries_section import QueriesSection
 from app.ai.context.sections.observations_section import ObservationsSection
 from app.ai.context.sections.resources_section import ResourcesSection
 from app.ai.context.sections.code_section import CodeSection
+from app.ai.context.sections.mentions_section import MentionsSection
+from app.ai.context.sections.entities_section import EntitiesSection
 
 
 class StaticSections(BaseModel):
@@ -30,6 +32,8 @@ class WarmSections(BaseModel):
     observations: Optional[ObservationsSection] = None
     widgets: Optional[WidgetsSection] = None
     queries: Optional[QueriesSection] = None
+    mentions: Optional[MentionsSection] = None
+    entities: Optional[EntitiesSection] = None
 
 
 class ContextView(BaseModel):

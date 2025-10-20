@@ -483,7 +483,7 @@ async function refreshEntity() {
   if (refreshing.value) return
   refreshing.value = true
   try {
-    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST' })
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: {} })
     if (error.value) throw error.value
     detail.value = data.value as any
   } catch {}

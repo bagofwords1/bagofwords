@@ -7,6 +7,7 @@ class MessageItem(BaseModel):
     role: str
     timestamp: Optional[str] = None
     text: str
+    mentions: Optional[str] = None
 
 
 class MessagesSection(ContextSection):
@@ -21,7 +22,8 @@ class MessagesSection(ContextSection):
         for m in self.items:
             who = "User" if m.role == "user" else "Assistant"
             ts = f" ({m.timestamp})" if m.timestamp else ""
-            lines.append(f"{who}{ts}: {xml_escape(m.text.strip())}")
+            suffix = f" | mentions: {xml_escape(m.mentions)}" if m.mentions else ""
+            lines.append(f"{who}{ts}: {xml_escape(m.text.strip())}{suffix}")
         return xml_tag(self.tag_name, "\n".join(lines))
 
 

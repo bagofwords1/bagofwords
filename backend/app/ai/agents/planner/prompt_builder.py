@@ -48,7 +48,6 @@ Do not rely on any external parameter; decide the final reasoning level in real 
 
 Deep Analytics mode: If selected, you are expected to perform heavier planning, run multiple iterations of widgets/observations, and end with a create_dashboard call to present findings. Acknowledge deep mode in both reasoning_message and assistant_message.
 """
-
         return f"""
 SYSTEM
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
@@ -97,6 +96,7 @@ ANALYTICS & RELIABILITY
 - If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_dashboard tool immediately.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), use the clarify tool and set assistant_message to the response.
 - If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, you may use the answer_question tool. Prefer a short reasoning_message (or null). It streams the final user-facing answer.
+ - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. Treat them as high-confidence anchors for this turn. If you select an unmentioned source, briefly explain why.
 
 COMMUNICATION
 - reasoning_message (scaled by reasoning level):
@@ -143,6 +143,7 @@ INPUT ENVELOPE
   {planner_input.instructions}
   {planner_input.schemas_excerpt}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
+  {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.resources_context if planner_input.resources_context else 'No metadata resources available'}
   {planner_input.history_summary}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
