@@ -16,7 +16,7 @@ class EntityItem(BaseModel):
 
 
 class EntitiesSection(ContextSection):
-    tag_name: ClassVar[str] = "entities"
+    tag_name: ClassVar[str] = "catalog_entities"
 
     items: List[EntityItem] = []
 

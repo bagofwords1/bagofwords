@@ -144,6 +144,7 @@ INPUT ENVELOPE
   {planner_input.schemas_excerpt}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
+  {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
   {planner_input.resources_context if planner_input.resources_context else 'No metadata resources available'}
   {planner_input.history_summary}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
