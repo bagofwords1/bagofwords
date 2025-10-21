@@ -135,7 +135,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 
-import PromptBoxExcel from '@/components/excel/PromptBoxExcel.vue';
 import GoBackChevron from '@/components/excel/GoBackChevron.vue';
 import DashboardComponent from '~/components/DashboardComponent.vue';
 
