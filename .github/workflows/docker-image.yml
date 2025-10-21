@@ -41,6 +41,7 @@ jobs:
         with:
           context: .
           load: true
+          platforms: linux/amd64
           tags: bagofwords/bagofwords:${{ env.version_tag }}
 
       - name: Trivy scan summary (stdout)

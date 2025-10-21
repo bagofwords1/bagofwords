@@ -3,7 +3,8 @@
 ## Version 0.0.210 (October 20, 2025)
 - Integrate Mentions component and enhance prompt capabilities
 - Implement mentions context integration in tools and agents
-- Released: Catalog feature for efficient management and discovery of models, metrics, visualizations, and queries. Enables reusable components and enhances AI analyst intelligence.
+- Released: Catalog feature for efficient management and discovery of models, metrics, visualizations, and queries. Enables reusable components and enhances AI analyst intelligence
+- Fix yarn cache issue in docker image
 
 ## Version 0.0.206 (October 19, 2025)
 - Bug fix reloading tables in schema

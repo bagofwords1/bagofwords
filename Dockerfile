@@ -58,7 +58,7 @@ COPY ./frontend /app/frontend
 WORKDIR /app/frontend
 
 # Install frontend dependencies and build the project
-RUN yarn install
+RUN yarn install --frozen-lockfile --ignore-optional
 RUN yarn build
 
 FROM ubuntu:24.04
