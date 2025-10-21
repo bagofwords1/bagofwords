@@ -157,7 +157,7 @@ import { useMyFetch } from '~/composables/useMyFetch'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
-import EntityCreateModal from './EntityCreateModal.vue'
+import EntityCreateModal from '../entity/EntityCreateModal.vue'
 
 interface ToolExecution {
   id: string
