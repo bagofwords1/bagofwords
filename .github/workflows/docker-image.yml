@@ -45,6 +45,7 @@ jobs:
           tags: bagofwords/bagofwords:${{ env.version_tag }}
 
       - name: Trivy scan summary (stdout)
+        if: ${{ success() }}
         uses: aquasecurity/trivy-action@0.32.0
         with:
           scan-type: image
@@ -54,6 +55,7 @@ jobs:
           exit-code: 0
 
       - name: Scan image with Trivy
+        if: ${{ success() }}
         uses: aquasecurity/trivy-action@0.32.0
 
         with:
@@ -65,7 +67,7 @@ jobs:
           output: trivy-results.sarif
 
       - name: Upload Trivy scan results to GitHub Security tab
-        if: ${{ always() }}
+        if: ${{ always() && hashFiles('trivy-results.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
@@ -76,6 +78,7 @@ jobs:
         with:
           context: .
           push: true
+          no-cache: true
           platforms: linux/amd64,linux/arm64
           tags: |
             bagofwords/bagofwords:${{ env.version_tag }}

@@ -41,7 +41,7 @@ RUN apt-get update && \
     mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y --no-install-recommends nodejs git && \
-    npm install --global yarn@latest && \
+    npm install --global yarn@1.22.22 && \
     rm -rf /var/lib/apt/lists/*
 
 # Set the working directory in the container for the frontend
@@ -58,7 +58,7 @@ COPY ./frontend /app/frontend
 WORKDIR /app/frontend
 
 # Install frontend dependencies and build the project
-RUN yarn install --frozen-lockfile --ignore-optional
+RUN yarn install --frozen-lockfile
 RUN yarn build
 
 FROM ubuntu:24.04
