@@ -26,7 +26,7 @@ Bag of words is an open-source AI data layer — connect any LLM to any data sou
 
 *  **Context-aware & customizable** 
   
-   Define terms, KPIs, rules and instructions. Ingest from dbt, Tableau, code, AGENTS.md, and have AI continiously maintain and monitor.
+   Define terms, tables, KPIs, rules and instructions. Ingest from dbt, Tableau, code, AGENTS.md, and have AI continiously maintain and monitor.
 
 * **Any LLM, any data**
 
@@ -76,11 +76,18 @@ Enrich your AI context with dbt models, Tableau data sources, AGENTS.md and your
     <i></i>
 </div>
 
+### Save data and queries to the Catalog
+Leverage the catalog to store, share, and explore reusable queries and datasets. This feature also improves discoverability and searchability for AI, contributing to smarter AI decisions.
+<div style="text-align: center; margin: 20px 0;">
+    <img src="./media/catalog.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+</div>
+
 ### Monitor AI and data operations
 Full observability into queries, feedback, and context — powering self-learning and high quality AI results
 <div style="text-align: center; margin: 20px 0;">
     <img src="./media/monitoring.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
 </div>
+
 
 ## Architecture
 
