@@ -23,7 +23,9 @@ from tests.fixtures.report import create_report, get_reports, get_report, update
 from tests.fixtures.completion import create_completion, get_completions, create_completion_stream
 from tests.fixtures.data_source import create_data_source, get_data_sources, test_connection
 from tests.fixtures.instruction import create_instruction, create_global_instruction, get_instructions, get_instruction, update_instruction, delete_instruction, get_instructions_for_data_source, get_instruction_categories, get_instruction_statuses
+from tests.fixtures.entity import get_entities, get_entity, create_global_entity
 from tests.fixtures.console_metrics import get_console_metrics, get_console_metrics_comparison, get_timeseries_metrics, get_table_usage_metrics, get_top_users_metrics, get_recent_negative_feedback, get_diagnosis_dashboard_metrics, get_agent_execution_summaries, create_test_data_for_console, get_tool_usage_metrics
+from tests.fixtures.mention import get_available_mentions
 
 from main import app
 
