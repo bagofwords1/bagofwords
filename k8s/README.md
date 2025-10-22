@@ -1,6 +1,5 @@
 ## Install with Kubernetes
 ---
-
 You can install Bag of words on a Kubernetes cluster. The following deployment will deploy the Bagofwords container alongside a postgres instance.
 
 ### 1. Add the Helm Repository
