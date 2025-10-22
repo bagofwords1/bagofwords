@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.210 (October 20, 2025)
+## Version 0.0.212 (October 20, 2025)
 - Integrate Mentions component and enhance prompt capabilities
 - Implement mentions context integration in tools and agents
 - Released: Catalog feature for efficient management and discovery of models, metrics, visualizations, and queries. Enables reusable components and enhances AI analyst intelligence
