@@ -1,0 +1,88 @@
+name: Publish Helm chart
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'k8s/**'
+  pull_request:
+    paths:
+      - 'k8s/**'
+  workflow_dispatch:
+
+concurrency:
+  group: helm-publish
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Lint and package chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Lint chart
+        run: helm lint k8s/chart
+
+      - name: Package chart
+        run: |
+          mkdir -p dist
+          helm package k8s/chart --destination dist
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-dist
+          path: dist
+
+  publish:
+    name: Update repo index and upload to S3
+    needs: package
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      HELM_REPO_URL: https://helm.bagofwords.com
+      S3_BUCKET: helm.bagofwords.com
+      AWS_REGION: us-east-1
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: helm-dist
+          path: dist
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.4
+
+      - name: Configure AWS credentials (static keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Download existing index.yaml (if any)
+        run: aws s3 cp s3://${{ env.S3_BUCKET }}/index.yaml dist/prev-index.yaml || true
+
+      - name: Build/merge Helm repo index
+        run: |
+          if [ -f dist/prev-index.yaml ]; then
+            helm repo index dist --url "${HELM_REPO_URL}" --merge dist/prev-index.yaml
+          else
+            helm repo index dist --url "${HELM_REPO_URL}"
+          fi
+
+      - name: Upload charts and index to S3
+        run: |
+          aws s3 cp dist s3://${{ env.S3_BUCKET }} --recursive --exclude "*" --include "*.tgz" --acl public-read --cache-control max-age=31536000
+          aws s3 cp dist/index.yaml s3://${{ env.S3_BUCKET }}/index.yaml --acl public-read --cache-control max-age=60
+
+

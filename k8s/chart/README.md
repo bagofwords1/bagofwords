@@ -9,7 +9,7 @@ You can install Bag of words on a Kubernetes cluster. The following deployment w
 ### 1. Add the Helm Repository
 
 ```bash
-helm repo add bow https://bagofwords.com/helm
+helm repo add bow https://helm.bagofwords.com
 helm repo update
 ```
 

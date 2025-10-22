@@ -49,7 +49,7 @@ Concise overview of `@k8s/` with emphasis on the Helm chart layout, how values m
 
 ### Install and upgrade (helm)
 - Add repo and update:
-  - `helm repo add bow https://bagofwords.com/helm`
+  - `helm repo add bow https://helm.bagofwords.com`
   - `helm repo update`
 - Install with managed PostgreSQL:
   - `helm upgrade -i -n <namespace> <release> bow/bagofwords --set postgresql.auth.username=<PG-USER> --set postgresql.auth.password=<PG-PASS> --set postgresql.auth.database=<PG-DB>`
