@@ -35,14 +35,25 @@ jobs:
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      
-      - name: Build image (load locally)
+
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet || true
+          docker system prune -af --volumes || true
+          docker buildx prune -af || true
+          df -h
+
+      - name: Push Docker images
+        if: success()
         uses: docker/build-push-action@v5
         with:
           context: .
-          load: true
-          platforms: linux/amd64
-          tags: bagofwords/bagofwords:${{ env.version_tag }}
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            bagofwords/bagofwords:${{ env.version_tag }}
+            bagofwords/bagofwords:latest
 
       - name: Trivy scan summary (stdout)
         if: ${{ success() }}
@@ -57,7 +68,6 @@ jobs:
       - name: Scan image with Trivy
         if: ${{ success() }}
         uses: aquasecurity/trivy-action@0.32.0
-
         with:
           scan-type: image
           image-ref: bagofwords/bagofwords:${{ env.version_tag }}
@@ -71,15 +81,3 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-results.sarif
-
-      - name: Push Docker images
-        if: success()
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          no-cache: true
-          platforms: linux/amd64,linux/arm64
-          tags: |
-            bagofwords/bagofwords:${{ env.version_tag }}
-            bagofwords/bagofwords:latest
