@@ -21,6 +21,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftConfig,
     TableauConfig,
     SalesforceConfig,
+    ClickhouseConfig,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -184,7 +185,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         type="clickhouse",
         title="ClickHouse",
         description="ClickHouse is a fast, open-source columnar database for real-time analytics.",
-        config_schema=SQLConfig,
+        config_schema=ClickhouseConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),

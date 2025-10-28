@@ -9,18 +9,15 @@ from contextlib import contextmanager
 
 
 class ClickhouseClient(DataSourceClient):
-    def __init__(self, host, user, password, database, secure=True):
+    def __init__(self, host, port, user, password, database, secure=True):
         self.host = host
+        self.port = port
         self.user = user
         self.password = password
         self.database = database
         self.secure = secure
-        self.client = clickhouse_connect.get_client(
-            host=self.host,
-            user=self.user,
-            password=self.password,
-            secure=self.secure
-        )
+
+        self.client = clickhouse_connect.get_client(host=self.host, port=self.port, username=self.user, password=self.password, database=self.database, secure=self.secure, verify=not self.secure)
 
     @contextmanager
     def connect(self) -> Generator[clickhouse_connect.driver.Client, None, None]:
@@ -46,12 +43,18 @@ class ClickhouseClient(DataSourceClient):
         """Get all tables and their columns in the specified database."""
         try:
             with self.connect() as conn:
-                sql = """
-                    SELECT table_name, column_name, data_type
-                    FROM information_schema.columns
-                    WHERE table_catalog = '{database}'
-                    ORDER BY table_name, ordinal_position
-                """.format(database=self.database)
+                rows = conn.query("SELECT currentDatabase()").result_rows
+
+                sql = f"""
+                    SELECT
+                        table AS table_name,
+                        name AS column_name,
+                        type AS data_type
+                    FROM system.columns
+                    WHERE database = '{self.database}'
+                    ORDER BY table_name, position
+                """
+
                 result = conn.query(sql).result_rows
 
                 tables = {}

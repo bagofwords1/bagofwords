@@ -74,7 +74,10 @@ class ClickhouseCredentials(BaseModel):
 
 class ClickhouseConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
+    port: int = Field(8123, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+
+    secure: bool = Field(True, title="Secure", description="", json_schema_extra={"ui:type": "boolean"})
 
 
 # ADP - all fields are sensitive
@@ -97,8 +100,8 @@ class SalesforceCredentials(BaseModel):
 
 
 class SalesforceConfig(BaseModel):
-    sandbox: bool = False
-    domain: str = "login"
+    sandbox: bool = Field(False, title="Sandbox", description="", json_schema_extra={"ui:type": "boolean"})
+    domain: str = Field("login", title="Domain", description="", json_schema_extra={"ui:type": "string"})
 
 
 # Service Demo
