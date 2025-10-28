@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.213 (October 28, 2025)
+- Clickhouse fix
+- Better rendering of booleans in connection form
+
 ## Version 0.0.212 (October 20, 2025)
 - Integrate Mentions component and enhance prompt capabilities
 - Implement mentions context integration in tools and agents
