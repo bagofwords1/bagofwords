@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.214 (October 30, 2025)
+- Support multi-db connection for ClickHouse
+
 ## Version 0.0.213 (October 28, 2025)
 - Clickhouse fix
 - Better rendering of booleans in connection form
