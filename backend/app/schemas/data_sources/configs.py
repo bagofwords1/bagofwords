@@ -75,7 +75,12 @@ class ClickhouseCredentials(BaseModel):
 class ClickhouseConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
     port: int = Field(8123, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
-    database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+    database: Optional[str] = Field(
+        None,
+        title="Database",
+        description="Can be a comma-separated list of databases. If not provided, will use all databases.",
+        json_schema_extra={"ui:type": "string"}
+    )
 
     secure: bool = Field(True, title="Secure", description="", json_schema_extra={"ui:type": "boolean"})
 

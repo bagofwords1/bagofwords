@@ -14,10 +14,32 @@ class ClickhouseClient(DataSourceClient):
         self.port = port
         self.user = user
         self.password = password
+        # Accept comma-separated databases; use the first as the default
         self.database = database
+        self._databases = []
+        if isinstance(self.database, str) and self.database.strip():
+            parts = [d.strip() for d in self.database.split(",") if d.strip()]
+            seen = set()
+            for d in parts:
+                if d not in seen:
+                    seen.add(d)
+                    self._databases.append(d)
+        # Primary database for the connection/session
+        self._primary_database = self._databases[0] if self._databases else self.database
         self.secure = secure
 
-        self.client = clickhouse_connect.get_client(host=self.host, port=self.port, username=self.user, password=self.password, database=self.database, secure=self.secure, verify=not self.secure)
+        client_kwargs = {
+            "host": self.host,
+            "port": self.port,
+            "username": self.user,
+            "password": self.password,
+            "secure": self.secure,
+            "verify": not self.secure,
+        }
+        # Only include database if provided; otherwise let server default apply
+        if self._primary_database:
+            client_kwargs["database"] = self._primary_database
+        self.client = clickhouse_connect.get_client(**client_kwargs)
 
     @contextmanager
     def connect(self) -> Generator[clickhouse_connect.driver.Client, None, None]:
@@ -40,31 +62,45 @@ class ClickhouseClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns in the specified database."""
+        """Get all tables and their columns across one or more databases.
+        - Supports comma-separated databases via the existing `database` config field.
+        - Emits fully qualified table names: database.table
+        """
         try:
             with self.connect() as conn:
-                rows = conn.query("SELECT currentDatabase()").result_rows
+                # Build WHERE clause for single vs multi database
+                if self._databases:
+                    quoted = ", ".join([f"'{d.replace("'", "''")}'" for d in self._databases])
+                    where_sql = f"WHERE database IN ({quoted})"
+                else:
+                    # Fall back to the primary database if provided
+                    if self._primary_database:
+                        where_sql = f"WHERE database = '{self._primary_database.replace("'", "''")}'"
+                    else:
+                        where_sql = ""
 
                 sql = f"""
                     SELECT
+                        database,
                         table AS table_name,
                         name AS column_name,
                         type AS data_type
                     FROM system.columns
-                    WHERE database = '{self.database}'
-                    ORDER BY table_name, position
+                    {where_sql}
+                    ORDER BY database, table_name, position
                 """
 
                 result = conn.query(sql).result_rows
 
                 tables = {}
                 for row in result:
-                    table_name, column_name, data_type = row
+                    database_name, table_name, column_name, data_type = row
+                    fqn = f"{database_name}.{table_name}"
 
-                    if table_name not in tables:
-                        tables[table_name] = Table(
-                            name=table_name, columns=[], pks=None, fks=None)
-                    tables[table_name].columns.append(
+                    if fqn not in tables:
+                        tables[fqn] = Table(
+                            name=fqn, columns=[], pks=None, fks=None)
+                    tables[fqn].columns.append(
                         TableColumn(name=column_name, dtype=data_type))
 
                 return list(tables.values())
@@ -102,5 +138,11 @@ class ClickhouseClient(DataSourceClient):
 
     @property
     def description(self):
-        description = f"ClickHouse database '{self.database}' at {self.host}"
+        if self._databases:
+            databases = ", ".join(self._databases)
+            description = f"ClickHouse database(s) '{databases}' at {self.host}"
+        elif self._primary_database:
+            description = f"ClickHouse database '{self._primary_database}' at {self.host}"
+        else:
+            description = f"ClickHouse (all accessible databases) at {self.host}"
         return description
