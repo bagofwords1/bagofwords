@@ -49,4 +49,4 @@ intercom:
   enabled: true
 
 telemetry:
-  enabled: true
+  enabled: false
