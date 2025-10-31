@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.216 (October 31, 2025)
+- Basic telemetry (configurable in bow-config)
+
+
 ## Version 0.0.215 (October 31, 2025)
 - Support multi schema for Postgres client
 
