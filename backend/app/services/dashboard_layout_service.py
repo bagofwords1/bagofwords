@@ -16,6 +16,9 @@ from app.schemas.dashboard_layout_version_schema import (
     FilterBlock,
     ContainerBlock,
 )
+from app.core.telemetry import telemetry
+from app.models.user import User
+from app.models.organization import Organization
 
 
 class DashboardLayoutService:
@@ -142,7 +145,7 @@ class DashboardLayoutService:
         await db.refresh(layout)
         return DashboardLayoutVersionSchema.from_orm(layout)
 
-    async def update_layout(self, db: AsyncSession, layout_id: str, payload: DashboardLayoutVersionUpdate) -> DashboardLayoutVersionSchema:
+    async def update_layout(self, db: AsyncSession, layout_id: str, payload: DashboardLayoutVersionUpdate, current_user: User = None, organization: Organization = None) -> DashboardLayoutVersionSchema:
         layout = await self.get_layout(db, layout_id)
 
         if payload.name is not None:
@@ -158,6 +161,20 @@ class DashboardLayoutService:
 
         await db.commit()
         await db.refresh(layout)
+        # Telemetry: dashboard layout updated
+        try:
+            await telemetry.capture(
+                "dashboard_layout_updated",
+                {
+                    "layout_id": str(layout.id),
+                    "report_id": str(layout.report_id),
+                    "blocks_count": len(layout.blocks or [])
+                },
+                user_id=current_user.id if current_user else None,
+                org_id=organization.id if organization else None,
+            )
+        except Exception:
+            pass
         return DashboardLayoutVersionSchema.from_orm(layout)
 
     async def set_active_layout(self, db: AsyncSession, report_id: str, layout_id: str) -> DashboardLayoutVersionSchema:
@@ -209,7 +226,7 @@ class DashboardLayoutService:
         layout = result.scalar_one()
         return layout
 
-    async def patch_layout_blocks(self, db: AsyncSession, report_id: str, layout_id: str, payload: DashboardLayoutBlocksPatch) -> DashboardLayoutVersionSchema:
+    async def patch_layout_blocks(self, db: AsyncSession, report_id: str, layout_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = None, organization: Organization = None) -> DashboardLayoutVersionSchema:
         layout = await self.get_layout(db, layout_id)
         if layout.report_id != report_id:
             raise HTTPException(status_code=404, detail="Layout not found for report")
@@ -274,11 +291,25 @@ class DashboardLayoutService:
         # Reload fresh instance
         result = await db.execute(select(DashboardLayoutVersion).where(DashboardLayoutVersion.id == layout_id))
         layout = result.scalar_one()
+        # Telemetry: dashboard layout blocks patched
+        try:
+            await telemetry.capture(
+                "dashboard_layout_blocks_patched",
+                {
+                    "layout_id": str(layout.id),
+                    "report_id": str(report_id),
+                    "blocks_count": len(layout.blocks or [])
+                },
+                user_id=current_user.id if current_user else None,
+                org_id=organization.id if organization else None,
+            )
+        except Exception:
+            pass
         return DashboardLayoutVersionSchema.from_orm(layout)
 
-    async def patch_active_layout_blocks(self, db: AsyncSession, report_id: str, payload: DashboardLayoutBlocksPatch) -> DashboardLayoutVersionSchema:
+    async def patch_active_layout_blocks(self, db: AsyncSession, report_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = None, organization: Organization = None) -> DashboardLayoutVersionSchema:
         active_layout = await self.get_or_create_active_layout(db, report_id)
-        return await self.patch_layout_blocks(db, report_id, active_layout.id, payload)
+        return await self.patch_layout_blocks(db, report_id, active_layout.id, payload, current_user, organization)
 
 
     async def remove_blocks_for_text_widget(self, db: AsyncSession, report_id: str, text_widget_id: str) -> None:

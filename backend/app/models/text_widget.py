@@ -42,7 +42,7 @@ def after_insert_text_widget(mapper, connection, target):
             "report_id": str(target.report_id)
         }
         
-        print(f"Triggered after_insert_text_widget with data: {data}")
+        #print(f"Triggered after_insert_text_widget with data: {data}")
         asyncio.create_task(broadcast_event(data))
 
     except Exception as e:

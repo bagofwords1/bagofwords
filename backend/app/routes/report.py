@@ -109,18 +109,18 @@ async def update_layout(report_id: str, layout_id: str, payload: DashboardLayout
     layout = await layout_service.get_layout(db, layout_id)
     if layout.report_id != report_id:
         raise HTTPException(status_code=404, detail="Layout not found for report")
-    return await layout_service.update_layout(db, layout_id, payload)
+    return await layout_service.update_layout(db, layout_id, payload, current_user, organization)
 
 @router.patch("/reports/{report_id}/layouts/active/blocks", response_model=DashboardLayoutVersionSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
 async def patch_active_layout_blocks(report_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.patch_active_layout_blocks(db, report_id, payload)
+    return await layout_service.patch_active_layout_blocks(db, report_id, payload, current_user, organization)
 
 
 @router.patch("/reports/{report_id}/layouts/{layout_id}/blocks", response_model=DashboardLayoutVersionSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
 async def patch_layout_blocks(report_id: str, layout_id: str, payload: DashboardLayoutBlocksPatch, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await layout_service.patch_layout_blocks(db, report_id, layout_id, payload)
+    return await layout_service.patch_layout_blocks(db, report_id, layout_id, payload, current_user, organization)
 
 @router.post("/reports/{report_id}/layouts/{layout_id}/activate", response_model=DashboardLayoutVersionSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
