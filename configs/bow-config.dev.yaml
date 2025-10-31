@@ -46,4 +46,7 @@ smtp_settings:
 encryption_key: ${BOW_ENCRYPTION_KEY}
 
 intercom:
-  enabled: false
+  enabled: true
+
+telemetry:
+  enabled: true

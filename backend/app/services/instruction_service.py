@@ -26,6 +26,7 @@ from app.schemas.user_schema import UserSchema
 
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema
 from app.services.instruction_reference_service import InstructionReferenceService
+from app.core.telemetry import telemetry
 
 class InstructionService:
     def __init__(self):
@@ -84,6 +85,29 @@ class InstructionService:
             await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, ds_ids)
             await db.commit()  # Commit the references
         
+        # Telemetry: emit minimal, non-PII metadata using existing fields only
+        try:
+            refs = getattr(instruction_data, "references", None) or []
+            await telemetry.capture(
+                "instruction_created",
+                {
+                    "instruction_id": str(instruction.id),
+                    "status": instruction.status,
+                    "category": getattr(instruction, "category", None),
+                    "is_seen": bool(getattr(instruction, "is_seen", False)),
+                    "private_status": getattr(instruction, "private_status", None),
+                    "global_status": getattr(instruction, "global_status", None),
+                    "text_words_length": len((instruction.text.split() or [])),
+                    "num_data_sources": len(instruction_data.data_source_ids or []),
+                    "num_references_total": len(refs),
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            # Never fail the request due to telemetry
+            pass
+
         # Load relationships and return
         await db.refresh(instruction)
         # Re-fetch instruction with proper eager loading to avoid lazy loading issues

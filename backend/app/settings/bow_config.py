@@ -22,6 +22,10 @@ class Intercom(BaseModel):
     enabled: bool = False
 
 
+class Telemetry(BaseModel):
+    enabled: bool = True
+
+
 class DeploymentConfig(BaseModel):
     type: str = "self_hosted"
 
@@ -109,6 +113,7 @@ class BowConfig(BaseModel):
     stripe: Stripe = Stripe()
     database: Database = Database()
     intercom: Intercom = Intercom()
+    telemetry: Telemetry = Telemetry()
 
     @validator('encryption_key')
     def validate_encryption_key(cls, v):
