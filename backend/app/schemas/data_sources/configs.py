@@ -16,6 +16,12 @@ class PostgreSQLConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
     port: int = Field(5432, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas",
+        json_schema_extra={"ui:type": "string"}
+    )
 
 
 # MySQL/MariaDB/MSSQL - Combined since they share the same structure

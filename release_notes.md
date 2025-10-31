@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.215 (October 31, 2025)
+- Support multi schema for Postgres client
+
 ## Version 0.0.214 (October 30, 2025)
 - Support multi-db connection for ClickHouse
 

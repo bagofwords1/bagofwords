@@ -86,3 +86,4 @@ jobs:
           aws s3 cp dist/index.yaml s3://${{ env.S3_BUCKET }}/index.yaml --cache-control max-age=60
 
 
+

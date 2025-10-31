@@ -11,12 +11,24 @@ from functools import cached_property
 
 
 class PostgresqlClient(DataSourceClient):
-    def __init__(self, host, port, database, user, password=""):
+    def __init__(self, host, port, database, user, password="", schema=None):
         self.host = host
         self.port = port
         self.database = database
         self.user = user
         self.password = password
+        # Optional schema or comma-separated list of schemas
+        self.schema = schema
+        self._schemas = []
+        if isinstance(self.schema, str) and self.schema.strip():
+            parts = [s.strip() for s in self.schema.split(",") if s.strip()]
+            # Dedupe while preserving order
+            seen = set()
+            for p in parts:
+                low = p  # keep case as provided; Postgres lowercases unquoted names
+                if low not in seen:
+                    seen.add(low)
+                    self._schemas.append(low)
 
     @cached_property
     def pg_uri(self):
@@ -35,6 +47,13 @@ class PostgresqlClient(DataSourceClient):
         try:
             engine = sqlalchemy.create_engine(self.pg_uri)
             conn = engine.connect()
+            # Set search_path if schemas are provided
+            if self._schemas:
+                search_path = ", ".join(self._schemas)
+                try:
+                    conn.execute(text(f"SET search_path TO {search_path}"))
+                except Exception:
+                    pass
             yield conn
         except Exception as e:
             raise RuntimeError(f"{e}")
@@ -55,28 +74,45 @@ class PostgresqlClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns in the specified database."""
+        """Get all tables and their columns in the specified database.
+        - Emits fully-qualified names: schema.table
+        - If `schema` is configured, limits discovery to those schemas
+        """
         try:
             with self.connect() as conn:
-                sql = """
-                    SELECT table_name, column_name, data_type
+                # Build optional schema filter
+                params = {"database": self.database}
+                where_clauses = [
+                    "table_catalog = :database",
+                    "table_schema NOT IN ('information_schema', 'pg_catalog')",
+                ]
+                if self._schemas:
+                    in_keys = []
+                    for idx, sch in enumerate(self._schemas):
+                        key = f"s{idx}"
+                        params[key] = sch
+                        in_keys.append(f":{key}")
+                    where_clauses.append(f"table_schema IN ({', '.join(in_keys)})")
+
+                where_sql = " WHERE " + " AND ".join(where_clauses)
+                sql = text(f"""
+                    SELECT table_schema, table_name, column_name, data_type
                     FROM information_schema.columns
-                    WHERE table_catalog = :database
-                    AND table_schema NOT IN ('information_schema', 'pg_catalog')
-                    ORDER BY table_name, ordinal_position
-                """
-                result = conn.execute(
-                    text(sql), {'database': self.database}).fetchall()
+                    {where_sql}
+                    ORDER BY table_schema, table_name, ordinal_position
+                """)
+                result = conn.execute(sql, params).fetchall()
 
                 tables = {}
                 for row in result:
-                    table_name, column_name, data_type = row
-
-                    if table_name not in tables:
-                        tables[table_name] = Table(
-                            name=table_name, columns=[], pks=[], fks=[])
-                    tables[table_name].columns.append(
-                        TableColumn(name=column_name, dtype=data_type))
+                    table_schema, table_name, column_name, data_type = row
+                    key = (table_schema, table_name)
+                    fqn = f"{table_schema}.{table_name}"
+                    if key not in tables:
+                        tables[key] = Table(
+                            name=fqn, columns=[], pks=[], fks=[], metadata_json={"schema": table_schema}
+                        )
+                    tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
                 return list(tables.values())
         except Exception as e:
             print(f"Error retrieving tables: {e}")
