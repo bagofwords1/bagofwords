@@ -42,6 +42,7 @@ from typing import List
 from sqlalchemy.orm import selectinload
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import InstructionCreate
+from app.core.telemetry import telemetry
 
 class DataSourceService:
 
@@ -108,6 +109,23 @@ class DataSourceService:
         db.add(new_data_source)
         await db.commit()
         await db.refresh(new_data_source)
+
+        # Telemetry: data source created (minimal fields only)
+        try:
+            await telemetry.capture(
+                "data_source_created",
+                {
+                    "data_source_id": str(new_data_source.id),
+                    "type": new_data_source.type,
+                    "is_public": bool(is_public),
+                    "auth_policy": auth_policy,
+                    "use_llm_sync": bool(use_llm_sync),
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         
         # Always add the creator as a member (regardless of public/private status)
         await self._create_memberships(db, new_data_source, [current_user.id])

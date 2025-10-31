@@ -15,6 +15,7 @@ from app.schemas.external_platform_schema import (
     TeamsConfig,
     EmailConfig
 )
+from app.core.telemetry import telemetry
 
 class ExternalPlatformService:
     
@@ -48,6 +49,20 @@ class ExternalPlatformService:
         db.add(platform)
         await db.commit()
         await db.refresh(platform)
+        # Telemetry: external platform created
+        try:
+            await telemetry.capture(
+                "external_platform_created",
+                {
+                    "platform_id": str(platform.id),
+                    "platform_type": platform.platform_type,
+                    "is_active": bool(platform.is_active),
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         
         return ExternalPlatformSchema.from_orm(platform)
     
@@ -139,6 +154,18 @@ class ExternalPlatformService:
         
         await db.delete(platform)
         await db.commit()
+        # Telemetry: external platform deleted
+        try:
+            await telemetry.capture(
+                "external_platform_deleted",
+                {
+                    "platform_type": platform_type,
+                },
+                user_id=None,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         
         return True
     
@@ -264,6 +291,20 @@ class ExternalPlatformService:
         db.add(platform)
         await db.commit()
         await db.refresh(platform)
+        # Telemetry: external platform created (slack)
+        try:
+            await telemetry.capture(
+                "external_platform_created",
+                {
+                    "platform_id": str(platform.id),
+                    "platform_type": "slack",
+                    "is_active": True,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         
         return ExternalPlatformSchema.from_orm(platform)
 

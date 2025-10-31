@@ -20,6 +20,7 @@ from fastapi_mail import FastMail, MessageSchema
 import asyncio
 from typing import Optional
 from app.settings.logging_config import get_logger
+from app.core.telemetry import telemetry
 
 logger = get_logger(__name__)
 
@@ -100,6 +101,21 @@ class OrganizationService:
             .where(Membership.id == membership.id)
         )
         membership_with_user = result.scalar_one()
+        # Telemetry: organization member invited/added
+        try:
+            await telemetry.capture(
+                "organization_member_added",
+                {
+                    "organization_id": str(membership_with_user.organization_id),
+                    "membership_id": str(membership_with_user.id),
+                    "role": membership_with_user.role,
+                    "user_id": str(membership_with_user.user_id) if membership_with_user.user_id else None,
+                },
+                user_id=current_user.id,
+                org_id=membership_with_user.organization_id,
+            )
+        except Exception:
+            pass
         
         # Send invitation email if email client is configured
         if hasattr(settings, 'email_client') and settings.email_client and invitation_email:

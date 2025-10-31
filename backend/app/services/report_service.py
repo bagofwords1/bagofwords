@@ -200,6 +200,19 @@ class ReportService:
 
         await db.commit()
         await db.refresh(report)
+        # Telemetry: report publish status changed
+        try:
+            await telemetry.capture(
+                "report_published" if report.status == "published" else "report_unpublished",
+                {
+                    "report_id": str(report.id),
+                    "status": report.status,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         return report
     
     async def rerun_report_steps(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
@@ -286,6 +299,19 @@ class ReportService:
 
         await db.commit()
         await db.refresh(report)
+        # Telemetry: report publish status changed
+        try:
+            await telemetry.capture(
+                "report_published" if report.status == "published" else "report_unpublished",
+                {
+                    "report_id": str(report.id),
+                    "status": report.status,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         return report
     
     async def get_public_report(self, db: AsyncSession, report_id: str) -> ReportSchema:
@@ -544,4 +570,17 @@ class ReportService:
         
         await db.commit()
         await db.refresh(report)
+        # Telemetry: report schedule changed
+        try:
+            await telemetry.capture(
+                "report_scheduled" if cron_expression is not None else "report_unscheduled",
+                {
+                    "report_id": str(report.id),
+                    "status": "scheduled" if cron_expression is not None else "unscheduled",
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         return report
