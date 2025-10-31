@@ -144,3 +144,24 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | Google Cloud Platform    | Service             |
 
 > **Note:** Some data sources (like NetSuite) may be marked as inactive or beta in the registry. "Service" refers to APIs or SaaS platforms, while "Database/Warehouse" refers to systems that store and query structured data.
+
+## 🔒 Security & Privacy
+We take data security and privacy seriously.  
+
+### Telemetry
+By default, Bag of words captures basic usage stats of self-hosted instances to a centralized server. The data helps us improve the product.
+
+You can disable by setting in `bow-config.yaml`
+
+```yaml
+telemetry
+  enabled: false
+```
+
+You can also disable the Intercom chat for support
+
+```yaml
+intercom
+  enabled: false
+```
+
