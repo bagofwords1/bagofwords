@@ -43,6 +43,7 @@ from app.settings.database import create_async_session_factory
 from sqlalchemy import select, update, func
 
 from fastapi import BackgroundTasks, HTTPException
+from app.core.telemetry import telemetry
 
 from app.ai.agent import Agent
 from app.ai.agent_v2 import AgentV2
@@ -948,6 +949,22 @@ class CompletionService:
                             clients=clients
                         )
                         
+                        # Emit telemetry: stream started
+                        try:
+                            await telemetry.capture(
+                                "completion_stream_started",
+                                {
+                                    "report_id": str(report.id),
+                                    "system_completion_id": str(system_completion.id),
+                                    "model_id": model.model_id,
+                                    "has_widget": bool(widget_obj is not None),
+                                },
+                                user_id=current_user.id,
+                                org_id=organization.id,
+                            )
+                        except Exception:
+                            pass
+
                         # Run agent execution
                         await agent.main_execution()
                         
@@ -958,6 +975,20 @@ class CompletionService:
                             data={"status": "success"}
                         )
                         await event_queue.put(finished_event)
+
+                        # Emit telemetry: stream completed
+                        try:
+                            await telemetry.capture(
+                                "completion_stream_completed",
+                                {
+                                    "report_id": str(report.id),
+                                    "system_completion_id": str(system_completion.id),
+                                },
+                                user_id=current_user.id,
+                                org_id=organization.id,
+                            )
+                        except Exception:
+                            pass
                         
                     except Exception as e:
                         logging.error(f"Agent streaming execution failed: {e}")
@@ -971,6 +1002,21 @@ class CompletionService:
                             }
                         )
                         await event_queue.put(error_event)
+
+                        # Emit telemetry: stream failed
+                        try:
+                            await telemetry.capture(
+                                "completion_stream_failed",
+                                {
+                                    "report_id": str(report.id),
+                                    "system_completion_id": str(system_completion.id),
+                                    "error_type": type(e).__name__,
+                                },
+                                user_id=current_user.id,
+                                org_id=organization.id,
+                            )
+                        except Exception:
+                            pass
                         
                         # Update completion status in database
                         try:

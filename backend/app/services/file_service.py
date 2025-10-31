@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import aiofiles  # Add this import for async file operations
 from sqlalchemy import select, exists
 from app.models.llm_model import LLMModel
+from app.core.telemetry import telemetry
 
 class FileService:
     def __init__(self):
@@ -47,6 +48,21 @@ class FileService:
         db.add(db_file)
         await db.commit()
         await db.refresh(db_file)
+        # Telemetry: file uploaded (minimal fields only)
+        try:
+            await telemetry.capture(
+                "file_uploaded",
+                {
+                    "file_id": str(db_file.id),
+                    "content_type": db_file.content_type,
+                    "bytes": len(content or b""),
+                    "report_id": report_id,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         if report_id:
             stmt = select(Report).filter(Report.id == report_id)
             result = await db.execute(stmt)

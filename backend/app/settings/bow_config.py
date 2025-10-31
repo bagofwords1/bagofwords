@@ -21,14 +21,12 @@ class LLMProvider(BaseModel):
 class Intercom(BaseModel):
     enabled: bool = False
 
-
 class Telemetry(BaseModel):
     enabled: bool = True
 
 
 class DeploymentConfig(BaseModel):
     type: str = "self_hosted"
-
 
 class FeatureFlags(BaseModel):
     allow_uninvited_signups: bool = False

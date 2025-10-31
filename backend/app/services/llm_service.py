@@ -12,6 +12,7 @@ from app.models.llm_model import LLM_MODEL_DETAILS
 from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema, LLMProviderCreate
 from app.ai.llm.llm import LLM
 from datetime import datetime
+from app.core.telemetry import telemetry
 
 class LLMService:
     def __init__(self):
@@ -73,6 +74,21 @@ class LLMService:
         db.add(provider)
         await db.commit()
         await db.refresh(provider)
+
+        # Telemetry: LLM provider created
+        try:
+            await telemetry.capture(
+                "llm_provider_created",
+                {
+                    "provider_type": provider.provider_type,
+                    "is_preset": bool(getattr(provider, "is_preset", False)),
+                    "num_models": len(models or []),
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
 
         return provider
 

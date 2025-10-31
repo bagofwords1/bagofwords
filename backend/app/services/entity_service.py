@@ -15,6 +15,7 @@ from app.services.query_service import QueryService
 from app.schemas.entity_schema import EntityCreate, EntityUpdate
 from datetime import datetime
 from app.schemas.entity_schema import EntityRunPayload
+from app.core.telemetry import telemetry
 
 
 class EntityService:
@@ -137,6 +138,22 @@ class EntityService:
         await db.flush()
         await db.commit()
         await db.refresh(entity)
+        # Telemetry: entity created from step (minimal fields only)
+        try:
+            await telemetry.capture(
+                "entity_created_from_step",
+                {
+                    "entity_id": str(entity.id),
+                    "type": entity.type,
+                    "status": entity.status,
+                    "title_char_length": len((entity.title or "").strip()),
+                    "num_data_sources": len(ds_ids or []),
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         
         # Bidirectional relationship is automatically maintained by SQLAlchemy
         # through entity.source_step_id - no need to manually set step.created_entity_id
@@ -173,6 +190,22 @@ class EntityService:
         await db.flush()
         await db.commit()
         await db.refresh(entity)
+        # Telemetry: entity created (payload)
+        try:
+            await telemetry.capture(
+                "entity_created",
+                {
+                    "entity_id": str(entity.id),
+                    "type": entity.type,
+                    "status": entity.status,
+                    "title_char_length": len((entity.title or "").strip()),
+                    "num_data_sources": len(payload.data_source_ids or []),
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         return entity
 
     async def list_entities(

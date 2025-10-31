@@ -19,6 +19,7 @@ from app.utils.lineage import extract_tables_from_data_model
 from app.models.completion_block import CompletionBlock
 from app.models.tool_execution import ToolExecution
 from app.models.step import Step
+from app.core.telemetry import telemetry
 
 
 class CompletionFeedbackService:
@@ -157,6 +158,20 @@ class CompletionFeedbackService:
             existing_feedback.message = feedback_data.message
             await db.commit()
             await db.refresh(existing_feedback)
+            # Telemetry: feedback updated
+            try:
+                await telemetry.capture(
+                    "completion_feedback_updated",
+                    {
+                        "completion_id": str(completion_id),
+                        "direction": int(existing_feedback.direction),
+                        "has_message": bool(existing_feedback.message),
+                    },
+                    user_id=user.id if user else None,
+                    org_id=organization.id,
+                )
+            except Exception:
+                pass
             # Emit table feedback events reflecting the updated direction
             try:
                 await self._emit_table_feedback(db, organization, completion, existing_feedback, user)
@@ -176,6 +191,21 @@ class CompletionFeedbackService:
             db.add(feedback)
             await db.commit()
             await db.refresh(feedback)
+
+            # Telemetry: feedback created
+            try:
+                await telemetry.capture(
+                    "completion_feedback_created",
+                    {
+                        "completion_id": str(completion_id),
+                        "direction": int(feedback.direction),
+                        "has_message": bool(feedback.message),
+                    },
+                    user_id=user.id if user else None,
+                    org_id=organization.id,
+                )
+            except Exception:
+                pass
 
             # Emit table feedback events attributed to the completion's step lineage if available
             await self._emit_table_feedback(db, organization, completion, feedback, user)

@@ -14,6 +14,11 @@ from app.settings.database import create_async_database_engine, create_async_ses
 # Ensure the application uses the test database/engine during tests
 settings.TESTING = True
 
+@pytest.fixture(scope="session", autouse=True)
+def disable_telemetry_for_tests():
+    """Disable telemetry during the entire pytest session via BowConfig only."""
+    settings.bow_config.telemetry.enabled = False
+
 from tests.fixtures.client import test_client
 from tests.fixtures.user import create_user
 from tests.fixtures.auth import login_user, whoami

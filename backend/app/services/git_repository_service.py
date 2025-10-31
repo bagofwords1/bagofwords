@@ -20,6 +20,8 @@ from app.models.organization import Organization
 from app.services.metadata_indexing_job_service import MetadataIndexingJobService
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
+from app.core.telemetry import telemetry
+from urllib.parse import urlparse
 
 class GitRepositoryService:
 
@@ -155,6 +157,27 @@ class GitRepositoryService:
         db.add(git_repository)
         await db.commit()
         await db.refresh(git_repository)
+
+        # Telemetry: git repository created (minimal fields only)
+        try:
+            try:
+                host = urlparse(git_repo.repo_url).hostname
+            except Exception:
+                host = None
+            await telemetry.capture(
+                "git_repository_created",
+                {
+                    "repository_id": str(git_repository.id),
+                    "provider": git_repository.provider,
+                    "branch": git_repository.branch,
+                    "data_source_id": data_source_id,
+                    "repo_host": host,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
 
         await self.index_git_repository(db, git_repository.id, data_source_id, organization)
 

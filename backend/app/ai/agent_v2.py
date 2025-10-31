@@ -27,6 +27,7 @@ from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge
 from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
 from app.settings.database import create_async_session_factory
+from app.core.telemetry import telemetry
 
 
 class AgentV2:
@@ -226,6 +227,21 @@ class AgentV2:
                 user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
                 report_id=str(self.report.id) if self.report else None,
             )
+
+            # Telemetry: agent execution started
+            try:
+                await telemetry.capture(
+                    "agent_execution_started",
+                    {
+                        "agent_execution_id": str(self.current_execution.id),
+                        "report_id": str(self.report.id) if self.report else None,
+                        "model_id": self.model.model_id if self.model else None,
+                    },
+                    user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                    org_id=str(self.organization.id) if self.organization else None,
+                )
+            except Exception:
+                pass
 
             
             # Prime static once; then refresh warm each loop
@@ -773,6 +789,20 @@ class AgentV2:
                             tool_action=action.type,
                             tool_input_model=tool_input,
                         )
+                        # Telemetry: tool started
+                        try:
+                            await telemetry.capture(
+                                "agent_tool_started",
+                                {
+                                    "agent_execution_id": str(self.current_execution.id),
+                                    "tool_name": tool_name,
+                                    "tool_action": action.type,
+                                },
+                                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                                org_id=str(self.organization.id) if self.organization else None,
+                            )
+                        except Exception:
+                            pass
                         
                         # Emit tool start event
                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
@@ -922,6 +952,21 @@ class AgentV2:
                             context_snapshot_id=post_snap.id,
                             success=bool(observation and not observation.get("error")),
                         )
+                        # Telemetry: tool finished
+                        try:
+                            await telemetry.capture(
+                                "agent_tool_finished",
+                                {
+                                    "agent_execution_id": str(self.current_execution.id),
+                                    "tool_name": tool_name,
+                                    "status": "success" if observation and not observation.get("error") else "error",
+                                    "duration_ms": getattr(tool_execution, "duration_ms", None),
+                                },
+                                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                                org_id=str(self.organization.id) if self.organization else None,
+                            )
+                        except Exception:
+                            pass
                         # Upsert completion block for tool and rebuild transcript
                         try:
                             block = await self.project_manager.upsert_block_for_tool(self.db, self.system_completion, self.current_execution, tool_execution)
@@ -1056,6 +1101,19 @@ class AgentV2:
                 agent_execution=self.current_execution,
                 status=status,
             )
+            # Telemetry: agent execution completed
+            try:
+                await telemetry.capture(
+                    "agent_execution_completed",
+                    {
+                        "agent_execution_id": str(self.current_execution.id),
+                        "status": status,
+                    },
+                    user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                    org_id=str(self.organization.id) if self.organization else None,
+                )
+            except Exception:
+                pass
             
             # Update system completion status and emit event
             if self.system_completion:
@@ -1085,6 +1143,19 @@ class AgentV2:
                     status='error',
                     error_json=error_payload,
                 )
+                # Telemetry: agent execution failed
+                try:
+                    await telemetry.capture(
+                        "agent_execution_failed",
+                        {
+                            "agent_execution_id": str(self.current_execution.id),
+                            "error_type": type(e).__name__,
+                        },
+                        user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                        org_id=str(self.organization.id) if self.organization else None,
+                    )
+                except Exception:
+                    pass
                 # Persist error on completion and latest block for UI
                 try:
                     # Update completion record with status and message

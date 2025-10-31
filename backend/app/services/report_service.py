@@ -5,6 +5,7 @@ from sqlalchemy.orm import selectinload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
 from app.services.widget_service import WidgetService
+from app.core.telemetry import telemetry
 from app.schemas.widget_schema import WidgetSchema
 from app.schemas.step_schema import StepSchema
 from app.schemas.user_schema import UserSchema
@@ -131,6 +132,22 @@ class ReportService:
         db.add(report)
         await db.commit()
         await db.refresh(report)
+
+        # Telemetry: report created (minimal fields only)
+        try:
+            await telemetry.capture(
+                "report_created",
+                {
+                    "report_id": str(report.id),
+                    "status": report.status,
+                    "count_files": len(file_uuids or []),
+                    "count_data_sources": len(data_sources or [])
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
 
         # Create an empty dashboard layout version for this report
         try:
