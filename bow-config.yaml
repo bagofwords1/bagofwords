@@ -35,3 +35,6 @@ encryption_key: ${BOW_ENCRYPTION_KEY}
 
 intercom:
   enabled: true
+
+telemetry:
+  enabled: true
