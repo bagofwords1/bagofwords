@@ -251,8 +251,12 @@ class Coder:
 
         result = self.llm.inference(text)
 
-        # Remove markdown code block indicators if present
-        result = re.sub(r'^```python\n|^```\n|```$', '', result.strip())
+        # Remove markdown code fence (with optional language tag) if present
+        result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
+        # Remove any closing fence lines that are just ```
+        result = re.sub(r'(?m)^\s*```\s*$', '', result)
+        # Defensive: remove a leading standalone language tag line (e.g., "python" or "json")
+        result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
         # Remove any code after return df
         result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
         return result

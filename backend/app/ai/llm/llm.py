@@ -40,8 +40,19 @@ class LLM:
             raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
         print(f"response: {response}")
         try:
-            response = response.replace("```json", "").replace("```", "")
-            response = response.replace("```python", "").replace("```", "")
+            import re
+            # Normalize to string if a client returned a non-string type
+            if not isinstance(response, str):
+                response = str(response)
+
+            # Remove a leading opening fence with optional language tag (e.g., ```python, ```json, ```)
+            response = re.sub(r"^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n", "", response)
+
+            # If a standalone language tag line was left behind (e.g., "python"), drop it
+            response = re.sub(r"^\s*(?:json|python)\s*\r?\n", "", response, flags=re.IGNORECASE)
+
+            # Remove any closing fence lines that are just ```
+            response = re.sub(r"(?m)^\s*```\s*$", "", response)
         except Exception:
             # If response is not a string, rethrow with context
             raise RuntimeError("LLM inference returned a non-string response that could not be sanitized")
