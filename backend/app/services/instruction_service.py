@@ -381,6 +381,21 @@ class InstructionService:
         
         await db.commit()
         await db.refresh(instruction, ["user", "data_sources", "reviewed_by"])
+        # Telemetry: instruction suggested
+        try:
+            await telemetry.capture(
+                "instruction_suggested",
+                {
+                    "instruction_id": str(instruction.id),
+                    "status": instruction.status,
+                    "private_status": instruction.private_status,
+                    "global_status": instruction.global_status,
+                },
+                user_id=current_user.id if current_user else None,
+                org_id=organization.id if organization else None,
+            )
+        except Exception:
+            pass
         return InstructionSchema.from_orm(instruction)
 
     async def withdraw_suggestion(

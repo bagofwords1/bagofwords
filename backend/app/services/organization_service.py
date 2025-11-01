@@ -41,6 +41,20 @@ class OrganizationService:
         await db.commit()
         await db.refresh(organization)
 
+        # Telemetry: organization created
+        try:
+            await telemetry.capture(
+                "organization_created",
+                {
+                    "organization_id": str(organization.id),
+                    "name_length": len((organization.name or "").strip()),
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+
         await self.organization_settings_service.create_default_settings(db, organization, current_user)
         await self.add_member(db, MembershipCreate(role="admin", user_id=current_user.id, organization_id=organization.id), current_user)
         await self.llm_service.set_default_models_from_config(db, organization, current_user)

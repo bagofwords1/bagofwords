@@ -31,6 +31,7 @@ from fastapi.responses import RedirectResponse
 from app.settings.config import settings
 from app.services.organization_service import OrganizationService
 from app.schemas.organization_schema import OrganizationCreate
+from app.core.telemetry import telemetry
 
 SECRET = settings.bow_config.encryption_key
 
@@ -79,6 +80,20 @@ class UserManager(BaseUserManager[User, str]):
         for membership in open_memberships:
             membership.user_id = user.id
             membership.email = None  # Clear the email since we now have a user
+            # Telemetry: invited user accepted invite and signed up
+            try:
+                await telemetry.capture(
+                    "organization_member_joined_via_invite",
+                    {
+                        "organization_id": str(membership.organization_id),
+                        "membership_id": str(membership.id),
+                        "user_id": str(user.id),
+                    },
+                    user_id=str(user.id),
+                    org_id=str(membership.organization_id),
+                )
+            except Exception:
+                pass
 
     async def on_after_register(self, user: User, request: Optional[Request] = None):
         print(f"User {user.id} has registered.")
