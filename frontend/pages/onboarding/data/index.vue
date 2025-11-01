@@ -44,8 +44,12 @@
                   <div class="text-sm font-medium text-gray-700 mb-2">Configuration</div>
                   <div v-for="field in configFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
                     <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-                    <input v-if="field.type === 'string'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
-                    <input v-else-if="field.type === 'integer'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
+                    <input v-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                    <input v-else-if="field.type === 'integer' || field.type === 'number' || uiType(field) === 'number'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
+                    <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.config[field.field_name]" size="xs" color="blue" />
+                    <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" :placeholder="field.title || field.field_name" rows="3" />
+                    <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                    <input v-else type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
                   </div>
                 </div>
 
@@ -53,7 +57,11 @@
                   <div class="text-sm font-medium text-gray-700 mb-2">Credentials</div>
                   <div v-for="field in credentialFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
                     <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-                    <input :type="isPasswordField(field.field_name) ? 'password' : 'text'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                    <input v-if="uiType(field) === 'string' || field.type === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                    <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.credentials[field.field_name]" size="xs" color="blue" />
+                    <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm" :placeholder="field.title || field.field_name" rows="3" />
+                    <input v-else-if="uiType(field) === 'password' || field.type === 'password' || isPasswordField(field.field_name)" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+                    <input v-else type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
                   </div>
                 </div>
 
@@ -175,6 +183,18 @@ function isPasswordField(fieldName: string) {
   return s.includes('password') || s.includes('secret') || s.includes('token') || s.includes('key')
 }
 
+// Normalize UI type across schema variants
+function uiType(field: any): string | undefined {
+  try {
+    const raw: any = (field && (field['ui:type'] ?? field.uiType ?? field.ui_type ?? field.ui))
+    if (raw == null) return undefined
+    const val = String(raw).trim().toLowerCase()
+    return val || undefined
+  } catch {
+    return undefined
+  }
+}
+
 async function fetchFieldsForSelected() {
   if (!selectedDataSource.value) return
   try {
@@ -190,12 +210,28 @@ async function fetchFieldsForSelected() {
 function initFormDefaults() {
   if (fields.value.config?.properties) {
     Object.entries(fields.value.config.properties).forEach(([field_name, schema]: any) => {
-      formData.config[field_name] = schema?.default ?? ''
+      const t = schema?.type
+      const ui = uiType(schema)
+      if (t === 'boolean' || ui === 'boolean' || ui === 'toggle') {
+        formData.config[field_name] = typeof schema?.default === 'boolean' ? schema.default : false
+      } else if (t === 'integer' || t === 'number' || ui === 'number') {
+        formData.config[field_name] = typeof schema?.default === 'number' ? schema.default : undefined
+      } else {
+        formData.config[field_name] = schema?.default ?? ''
+      }
     })
   }
   if (fields.value.credentials?.properties) {
     Object.entries(fields.value.credentials.properties).forEach(([field_name, schema]: any) => {
-      formData.credentials[field_name] = schema?.default ?? ''
+      const t = schema?.type
+      const ui = uiType(schema)
+      if (t === 'boolean' || ui === 'boolean' || ui === 'toggle') {
+        formData.credentials[field_name] = typeof schema?.default === 'boolean' ? schema.default : false
+      } else if (t === 'integer' || t === 'number' || ui === 'number') {
+        formData.credentials[field_name] = typeof schema?.default === 'number' ? schema.default : undefined
+      } else {
+        formData.credentials[field_name] = schema?.default ?? ''
+      }
     })
   }
 }
