@@ -329,6 +329,7 @@ import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
+import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -495,6 +496,8 @@ function getToolComponent(toolName: string) {
 			return CreateDataModelTool
 		case 'create_widget':
 			return CreateWidgetTool
+			case 'describe_tables':
+				return DescribeTablesTool
 		case 'create_and_execute_code':
 			return ExecuteCodeTool
 		case 'create_dashboard':
@@ -911,6 +914,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					// Reset result_json for fresh run to avoid stale shared references
 					lastBlock.tool_execution.result_json = {}
+					// For describe_tables, stash the query so the UI can show it
+					try {
+						if (payload.tool_name === 'describe_tables' && payload.arguments) {
+							const q = payload.arguments.query
+							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'tables'))
+							;(lastBlock.tool_execution.result_json as any).search_query = q
+							lastBlock.tool_execution.result_summary = `Searching ${qStr}…`
+						}
+					} catch {}
 					lastBlock.status = 'in_progress'
 				}
 			}

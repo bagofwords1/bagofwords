@@ -7,6 +7,7 @@ from .create_widget import CreateWidgetInput, CreateWidgetOutput
 from .create_dashboard import CreateDashboardInput, CreateDashboardOutput
 from .clarify import ClarifyInput, ClarifyOutput
 from .read_file import ReadFileInput, ReadFileOutput
+from .describe_tables import DescribeTablesInput, DescribeTablesOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -34,6 +35,8 @@ __all__ = [
     "ClarifyOutput", 
     "ReadFileInput",
     "ReadFileOutput",
+    "DescribeTablesInput",
+    "DescribeTablesOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent", 

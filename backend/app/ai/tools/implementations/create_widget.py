@@ -17,6 +17,37 @@ from app.ai.code_execution.code_execution import StreamingCodeExecutor
 
 
 class CreateWidgetTool(Tool):
+    # Helper: Build concise schemas excerpt (AgentV2-style) with optional keyword filtering
+    @staticmethod
+    async def _build_schemas_excerpt(context_hub, context_view, user_text: str, top_k: int = 10) -> str:
+        try:
+            import re
+            if context_hub and getattr(context_hub, "schema_builder", None):
+                tokens = [t.lower() for t in re.findall(r"[a-zA-Z0-9_]{3,}", user_text or "")]
+                seen = set()
+                keywords = []
+                for t in tokens:
+                    if t in seen:
+                        continue
+                    seen.add(t)
+                    keywords.append(t)
+                    if len(keywords) >= 3:
+                        break
+                name_patterns = [f"(?i){re.escape(k)}" for k in keywords] if keywords else None
+
+                ctx = await context_hub.schema_builder.build(
+                    include_inactive=False,
+                    with_stats=True,
+                    name_patterns=name_patterns,
+                    active_only=True,
+                )
+                return ctx.render_combined(top_k_per_ds=top_k, index_limit=0, include_index=False)
+            # Fallback to compact static renderers
+            _schemas_section_obj = getattr(context_view.static, "schemas", None) if context_view else None
+            return _schemas_section_obj.render("gist") if _schemas_section_obj else ""
+        except Exception:
+            _schemas_section_obj = getattr(context_view.static, "schemas", None) if context_view else None
+            return _schemas_section_obj.render() if _schemas_section_obj else ""
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -50,9 +81,50 @@ class CreateWidgetTool(Tool):
         # Context
         organization_settings = runtime_ctx.get("settings")
         context_view = runtime_ctx.get("context_view")
-        # Schemas
-        _schemas_section_obj = getattr(context_view.static, "schemas", None) if context_view else None
-        schemas_excerpt = _schemas_section_obj.render() if _schemas_section_obj else ""
+        # Schemas (prefer explicit tables_by_source if provided, else AgentV2-style keyword filtering)
+        context_hub = runtime_ctx.get("context_hub")
+        schemas_excerpt = ""
+        try:
+            if data.tables_by_source and context_hub and getattr(context_hub, "schema_builder", None):
+                import re
+                # Collect source scope and patterns
+                data_source_ids = []
+                name_patterns = []
+                # Detect if a string contains regex special characters
+                # Classic safe class: [.*+?^${}()|\[\]\\]
+                special = re.compile(r"[.*+?^${}()|\[\]\\]")
+                for group in (data.tables_by_source or []):
+                    if group.data_source_id:
+                        data_source_ids.append(group.data_source_id)
+                    for q in (group.tables or []):
+                        if not isinstance(q, str):
+                            continue
+                        try:
+                            if special.search(q or ""):
+                                name_patterns.append(q)
+                            else:
+                                esc = re.escape(q)
+                                name_patterns.append(f"(?i)(?:^|\\.){esc}$")
+                        except Exception:
+                            continue
+                # Deduplicate ds scope
+                ds_scope = list({str(x) for x in data_source_ids}) or None
+                # Build filtered schema
+                ctx = await context_hub.schema_builder.build(
+                    include_inactive=False,
+                    with_stats=True,
+                    data_source_ids=ds_scope,
+                    name_patterns=name_patterns or None,
+                    active_only=True,
+                )
+                limit = int(getattr(data, "schema_limit", 10) or 10)
+                schemas_excerpt = ctx.render_combined(top_k_per_ds=max(1, limit), index_limit=0, include_index=False)
+            else:
+                raw_text = (data.interpreted_prompt or data.user_prompt or "")
+                schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)
+        except Exception as e:
+            raw_text = (data.interpreted_prompt or data.user_prompt or "")
+            schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)
         # Resources
         _resources_section_obj = getattr(context_view.static, "resources", None) if context_view else None
         resources_context = _resources_section_obj.render() if _resources_section_obj else ""
@@ -96,6 +168,7 @@ class CreateWidgetTool(Tool):
         # Phase 1: Generate Data Model (streamed parsing like create_data_model)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_data_model"})
         llm = LLM(runtime_ctx.get("model"))
+
         header = f"""
 You are a data modeling assistant.
 Given the user's goal and available schemas, produce a normalized JSON data_model that will be streamed progressively.
@@ -254,7 +327,7 @@ CRITICAL:
         context_view = runtime_ctx.get("context_view")
         schemas_section = getattr(context_view.static, "schemas", None) if context_view else None
         files_section = getattr(context_view.static, "files", None) if context_view else None
-        schemas = (schemas_section.render() if schemas_section else "") + ("\n\n" + files_section.render() if files_section else "")
+        schemas = (schemas_excerpt or "") + ("\n\n" + files_section.render() if files_section else "")
         messages_section = getattr(context_view.warm, "messages", None) if context_view else None
         messages_context = messages_section.render() if messages_section else ""
 

@@ -162,6 +162,28 @@ class MessageContextBuilder:
                                         except Exception:
                                             pass
                                     tool_info += " - " + "; ".join(digest_parts)
+                                elif tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
+                                    # Show table names extracted from schemas excerpt; fallback to query/arguments
+                                    rj = tool_execution.result_json or {}
+                                    names: list[str] = []
+                                    try:
+                                        import re
+                                        excerpt = rj.get('schemas_excerpt') or ''
+                                        names = re.findall(r'<table\s+[^>]*name="([^\"]+)"', excerpt)[:5]
+                                    except Exception:
+                                        names = []
+                                    if not names:
+                                        try:
+                                            args = getattr(tool_execution, 'arguments_json', None) or {}
+                                            q = args.get('query')
+                                            if isinstance(q, list):
+                                                names = [str(x) for x in q][:5]
+                                            elif isinstance(q, str) and q.strip():
+                                                names = [q.strip()]
+                                        except Exception:
+                                            pass
+                                    if names:
+                                        tool_info += f" - tables: {', '.join(names)}"
                                 elif tool_execution.tool_name == 'answer_question' and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     answer_text = rj.get('answer') or ((rj.get('output') or {}).get('answer') if isinstance(rj.get('output'), dict) else None)
@@ -464,6 +486,28 @@ class MessageContextBuilder:
                                         except Exception:
                                             pass
                                 tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
+                                # Show table names extracted from schemas excerpt; fallback to query/arguments
+                                rj = tool_execution.result_json or {}
+                                names: list[str] = []
+                                try:
+                                    import re
+                                    excerpt = rj.get('schemas_excerpt') or ''
+                                    names = re.findall(r'<table\s+[^>]*name=\"([^\\\"]+)\"', excerpt)[:5]
+                                except Exception:
+                                    names = []
+                                if not names:
+                                    try:
+                                        args = getattr(tool_execution, 'arguments_json', None) or {}
+                                        q = args.get('query')
+                                        if isinstance(q, list):
+                                            names = [str(x) for x in q][:5]
+                                        elif isinstance(q, str) and q.strip():
+                                            names = [q.strip()]
+                                    except Exception:
+                                        pass
+                                if names:
+                                    tool_info += f" - tables: {', '.join(names)}"
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'answer_question' and tool_execution.result_json:
                                 rj = tool_execution.result_json or {}
                                 answer_text = rj.get('answer') or ((rj.get('output') or {}).get('answer') if isinstance(rj.get('output'), dict) else None)

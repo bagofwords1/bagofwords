@@ -205,11 +205,11 @@ class TablesSchemaContext(ContextSection):
             return xml_tag(self.tag_name, "".join(ds._render_digest() for ds in self.data_sources or []))
         return xml_tag(self.tag_name, "\n\n".join(ds.render() for ds in self.data_sources or []))
 
-    def render_combined(self, top_k_per_ds: int = 10, index_limit: int = 200) -> str:
+    def render_combined(self, top_k_per_ds: int = 10, index_limit: int = 200, include_index: bool = True) -> str:
         ds_chunks: List[str] = []
         for ds in (self.data_sources or []):
             sample_xml = ds._render_topk_tables_full(top_k_per_ds)
-            index_xml = ds._render_names_index(index_limit)
+            index_xml = ds._render_names_index(index_limit) if include_index else ""
             if not (sample_xml or index_xml):
                 continue
             inner_parts: List[str] = []

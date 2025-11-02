@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.219 (November 3, 2025)
+- Improved table discovery and retrieval in main agent loop
+- Introduced describe_tables tool for better data modeling
+
 ## Version 0.0.218 (November 1, 2025)
 - Fixed issue where the data source form was not fully rendered in the onboarding screen
 - Fixed issue where Claude outputs a Python code fence before the actual code
