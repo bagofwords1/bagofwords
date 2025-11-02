@@ -141,7 +141,7 @@ class EntityService:
         # Telemetry: entity created from step (minimal fields only)
         try:
             await telemetry.capture(
-                "entity_created_from_step",
+                "entity_created",
                 {
                     "entity_id": str(entity.id),
                     "type": entity.type,
