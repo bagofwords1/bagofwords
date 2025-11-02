@@ -263,9 +263,17 @@ class AgentV2:
                 prompt_text=self.head_completion.prompt.get("content", "") if self.head_completion.prompt else "",
             )
             
-            # Initial context values
-            schemas_excerpt = view.static.schemas.render() if view.static.schemas else ""
-            
+            # Initial context values (combined per data source: sample Top-K + index)
+            try:
+                schemas_ctx = await self.context_hub.schema_builder.build(
+                    include_inactive=True,
+                    with_stats=True,
+                )
+                combined_schemas = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
+                schemas_excerpt = combined_schemas
+            except Exception:
+                schemas_excerpt = view.static.schemas.render() if view.static.schemas else ""
+
             # History summary based on observation context only
             history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -349,7 +357,9 @@ class AgentV2:
                         organization_ai_analyst_name=self.ai_analyst_name,
                         instructions=instructions,
                         user_message=self.head_completion.prompt["content"],
-                        schemas_excerpt=schemas_excerpt,
+                        schemas_excerpt=None,
+                        schemas_combined=schemas_excerpt,
+                        schemas_names_index=None,
                         files_context=files_context,
                         mentions_context=mentions_context,
                         entities_context=entities_context,
@@ -823,216 +833,14 @@ class AgentV2:
                             view = self.context_hub.get_view()
                         except Exception:
                             pass
-
-                        # RUN TOOL with enhanced context tracking
-                        runtime_ctx = {
-                            "db": self.db,
-                            "organization": self.organization,
-                            "settings": self.organization_settings,
-                            "report": self.report,
-                            "head_completion": self.head_completion,
-                            "system_completion": self.system_completion,
-                            "widget": self.widget,
-                            "step": self.step,
-                            "current_widget": self.current_widget,  # Current widget being worked on
-                            "current_query": self.current_query,  # Current query being worked on
-                            "current_step": self.current_step,      # Current step being worked on
-                            "current_step_id": self.current_step_id, # Stable id for persistence across tools
-                            "project_manager": self.project_manager,  # For widget/step creation
-                            "model": self.model,  # LLM model for code generation
-                            "sigkill_event": self.sigkill_event,
-                            "observation_context": self.context_hub.observation_builder.to_dict(),  # Pass observation context
-                            "context_view": view,
-                            "context_hub": self.context_hub,
-                            # Data source clients and files (mirror agent.py pattern)
-                            "ds_clients": self.clients,
-                            "excel_files": self.files
-                            # Context builders can be accessed via context_hub when needed
-                        }
-                        
-                        async def emit(ev: dict):
-                            # Handle streaming state management for widget/step creation
-                            await self._handle_streaming_event(tool_name, ev, tool_input)
-                            
-                            # Forward tool events to UI and persist important ones
-                            if ev.get("type") in ["tool.progress", "tool.error", "tool.partial", "tool.stdout"]:
-                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event=ev.get("type", "tool.progress"),
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq,
-                                    data={
-                                        "tool_name": tool_name,
-                                        "payload": ev.get("payload", {}),
-                                    }
-                                ))
-                                # create_dashboard streaming is handled in _handle_streaming_event; avoid layout writes here
-
-                        tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
-                        
-                        # Extract observation and output from tool result
-                        if isinstance(tool_result, dict) and "observation" in tool_result:
-                            observation = tool_result["observation"]
-                            tool_output = tool_result.get("output")
-                        else:
-                            # Fallback for legacy format
-                            observation = tool_result
-                            tool_output = None
-                        
-
-                        
-                        # Handle tool outputs and manage widget/step state
-                        await self._handle_tool_output(tool_name, tool_input, observation, tool_output)
-                        
-                        # Circuit breaker: track repeated tool failures
-                        if observation and observation.get("error"):
-                            failed_tool_count[tool_name] = failed_tool_count.get(tool_name, 0) + 1
-                            
-                            # If this tool has failed too many times, force completion
-                            if failed_tool_count[tool_name] >= max_tool_failures:
-                                analysis_done = True
-                                # Override the observation to include a final answer
-                                observation.update({
-                                    "analysis_complete": True,
-                                    "final_answer": f"Unable to complete the task. The {tool_name} tool failed {failed_tool_count[tool_name]} times with errors. Please check the tool configuration or try a different approach."
-                                })
-                        else:
-                            # Reset failure count on successful execution
-                            if tool_name in failed_tool_count:
-                                del failed_tool_count[tool_name]
-                            
-                            # Track successful actions to detect infinite success loops
-                            action_signature = f"{tool_name}:{json.dumps(tool_input, sort_keys=True)}"
-                            successful_tool_actions.append(action_signature)
-                            
-                            # Check for repeated successful actions
-                            if len(successful_tool_actions) >= max_repeated_successes:
-                                recent_actions = successful_tool_actions[-max_repeated_successes:]
-                                if len(set(recent_actions)) == 1:  # All same action
-                                    analysis_done = True
-                                    # Override observation to include completion
-                                    observation.update({
-                                        "analysis_complete": True,
-                                        "final_answer": f"Task completed successfully. The {tool_name} tool has been executed {max_repeated_successes} times with the same parameters, indicating the goal has been achieved."
-                                    })
-                        
-                        # Check if tool runner is signaling to complete analysis
-                        if observation and observation.get("analysis_complete"):
-                            analysis_done = True
-                        
-                        # Extract created objects from observation
-                        created_widget_id = None
-                        created_step_id = None
-                        if observation and "widget_id" in observation:
-                            created_widget_id = observation["widget_id"]
-                        if observation and "step_id" in observation:
-                            created_step_id = observation["step_id"]
-                            
-                        # Capture post-tool context snapshot
-                        await self.context_hub.refresh_warm()
-                        post_view = self.context_hub.get_view()
-                        post_snap = await self.project_manager.save_context_snapshot(
-                            self.db,
-                            agent_execution=self.current_execution,
-                            kind="post_tool",
-                            context_view_json=post_view.model_dump(),
-                        )
-
-                        # Finish tool execution tracking (Pydantic-friendly)
-                        await self.project_manager.finish_tool_execution_from_models(
-                            self.db,
-                            tool_execution=tool_execution,
-                            result_model=tool_output,
-                            summary=observation.get("summary", "") if observation else "",
-                            created_widget_id=created_widget_id,
-                            created_step_id=created_step_id,
-                            created_visualization_ids=(observation.get("created_visualization_ids") if observation else None),
-                            error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
-                            context_snapshot_id=post_snap.id,
-                            success=bool(observation and not observation.get("error")),
-                        )
-                        # Telemetry: tool finished
                         try:
-                            await telemetry.capture(
-                                "agent_tool_finished",
-                                {
-                                    "agent_execution_id": str(self.current_execution.id),
-                                    "tool_name": tool_name,
-                                    "status": "success" if observation and not observation.get("error") else "error",
-                                    "duration_ms": getattr(tool_execution, "duration_ms", None),
-                                },
-                                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                                org_id=str(self.organization.id) if self.organization else None,
+                            schemas_ctx = await self.context_hub.schema_builder.build(
+                                include_inactive=True,
+                                with_stats=True,
                             )
+                            schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
                         except Exception:
-                            pass
-                        # Upsert completion block for tool and rebuild transcript
-                        try:
-                            block = await self.project_manager.upsert_block_for_tool(self.db, self.system_completion, self.current_execution, tool_execution)
-                            await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
-                            if block is not None:
-                                # Emit a v2-shaped block snapshot
-                                try:
-                                    block_schema = await serialize_block_v2(self.db, block)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.upsert",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=seq,
-                                        data={"block": block_schema.model_dump()}
-                                    ))
-                                except Exception:
-                                    pass
-                        except Exception:
-                            pass
-                        
-                        # Emit tool finished event (include result_json and duration_ms for frontend)
-                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        # Sanitize tool_output for SSE (avoid invalid JSON due to special values)
-                        safe_result_json = None
-                        if tool_output is not None:
-                            try:
-                                safe_result_json = json.loads(json.dumps(tool_output, default=str))
-                            except Exception:
-                                # Fallback to minimal payload
-                                safe_result_json = {
-                                    "summary": observation.get("summary", "") if observation else "",
-                                }
-                        await self._emit_sse_event(SSEEvent(
-                            event="tool.finished",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=seq,
-                            data={
-                                "tool_name": tool_name,
-                                "status": "success" if observation and not observation.get("error") else "error",
-                                "result_summary": observation.get("summary", "") if observation else "",
-                                "result_json": safe_result_json,  # Include tool output (code, logs, etc.)
-                                "duration_ms": tool_execution.duration_ms,
-                                "created_widget_id": created_widget_id,
-                                "created_step_id": created_step_id,
-                                "created_visualization_ids": (observation.get("created_visualization_ids") if observation else None),
-                            }
-                        ))
-                        
-                        # Track tool execution in observation builder unless tool opts out
-                        try:
-                            meta = self.registry.get_metadata(tool_name)
-                            if not meta or getattr(meta, "observation_policy", "on_trigger") != "never":
-                                self.context_hub.observation_builder.add_tool_observation(tool_name, tool_input, observation)
-                        except Exception:
-                            pass
-                        # Reset invalid retry counter after a successful tool attempt (even if tool errors, planner was valid)
-                        invalid_retry_count = 0
-                        
-                        # suggest_instructions tool removed; no special-case handling
-
-                        # Refresh warm sections and view for next iteration
-                        await self.context_hub.refresh_warm()
-                        view = self.context_hub.get_view()
-                        schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
-                        
+                            schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
                         # Refresh history summary with updated context
                         history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
                         

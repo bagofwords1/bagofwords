@@ -58,6 +58,10 @@ class PlannerInput(BaseModel):
     user_message: str
     instructions: Optional[str] = None
     schemas_excerpt: Optional[str] = None
+    # Combined schema context (per data source: sample Top-K + names index)
+    schemas_combined: Optional[str] = None
+    # Optional: legacy split fields (unused by default)
+    schemas_names_index: Optional[str] = None
     # Files context rendered from uploaded report files (schemas/metadata)
     files_context: Optional[str] = None
     history_summary: Optional[str] = None

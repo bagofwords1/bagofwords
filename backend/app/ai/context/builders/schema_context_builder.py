@@ -2,6 +2,7 @@
 Schema Context Builder - builds TablesSchemaContext object for schemas
 """
 from typing import List, Optional, Dict, Any
+import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select
@@ -28,12 +29,29 @@ class SchemaContextBuilder:
         self.data_sources = data_sources
         self.user = user
 
-    async def build(self, include_inactive: bool = False, with_stats: bool = True, top_k: Optional[int] = None) -> TablesSchemaContext:
-        """Return TablesSchemaContext built from report's data sources, with optional stats and top_k filtering."""
+    async def build(
+        self,
+        include_inactive: bool = False,
+        with_stats: bool = True,
+        top_k: Optional[int] = None,
+        *,
+        data_source_ids: Optional[List[str]] = None,
+        table_names: Optional[List[str]] = None,
+        name_patterns: Optional[List[str]] = None,
+        active_only: bool = True,
+        sort: str = "score",  # "score" | "usage" | "centrality" | "alpha"
+    ) -> TablesSchemaContext:
+        """Return TablesSchemaContext with optional filtering and sorting.
+
+        Backward compatible: existing callers may pass only include_inactive/with_stats/top_k.
+        """
 
         ds_sections: List[TablesSchemaContext.DataSource] = []
 
+        ds_filter = set(str(x) for x in (data_source_ids or [])) if data_source_ids else None
         for ds in self.data_sources:
+            if ds_filter and str(ds.id) not in ds_filter:
+                continue
             # Build stats map (table name lowercase -> TableStats)
             stats_map: Dict[str, TableStats] = {}
             if with_stats:
@@ -198,11 +216,58 @@ class SchemaContextBuilder:
                 else:
                     tables.append(tbl)
 
+            # Default ordering by composite score when stats are present
             if with_stats:
                 scored.sort(key=lambda x: x[0], reverse=True)
                 tables = [t for (_, t) in scored]
-                if top_k is not None and top_k > 0:
-                    tables = tables[:top_k]
+
+            # Apply alternate sorts if requested
+            try:
+                if sort == "alpha":
+                    tables.sort(key=lambda t: (t.name or '').lower())
+                elif sort == "usage":
+                    tables.sort(key=lambda t: (getattr(t, 'weighted_usage_count', 0.0) or 0.0, getattr(t, 'usage_count', 0) or 0), reverse=True)
+                elif sort == "centrality":
+                    def _cent(t):
+                        di = float(getattr(t, 'degree_in', 0.0) or 0.0)
+                        do = float(getattr(t, 'degree_out', 0.0) or 0.0)
+                        cs = float(getattr(t, 'centrality_score', 0.0) or 0.0)
+                        return di + do + cs
+                    tables.sort(key=_cent, reverse=True)
+            except Exception:
+                pass
+
+            # Apply table-level filters and active flag after initial build
+            if table_names or name_patterns or active_only:
+                name_set = set((table_names or []))
+                patterns = []
+                for p in (name_patterns or []):
+                    try:
+                        patterns.append(re.compile(p))
+                    except Exception:
+                        continue
+                def _match(n: str) -> bool:
+                    if name_set and n in name_set:
+                        return True
+                    for rp in patterns:
+                        try:
+                            if rp.search(n or ''):
+                                return True
+                        except Exception:
+                            continue
+                    return (not name_set) and (not patterns)
+                filtered = []
+                for t in tables:
+                    if active_only and not getattr(t, 'is_active', True):
+                        continue
+                    if (table_names or name_patterns) and not _match(getattr(t, 'name', '')):
+                        continue
+                    filtered.append(t)
+                tables = filtered
+
+            # Apply top_k cap last
+            if top_k is not None and top_k > 0:
+                tables = tables[:top_k]
 
             ds_sections.append(
                 TablesSchemaContext.DataSource(

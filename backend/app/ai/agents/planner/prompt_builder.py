@@ -48,7 +48,8 @@ Do not rely on any external parameter; decide the final reasoning level in real 
 
 Deep Analytics mode: If selected, you are expected to perform heavier planning, run multiple iterations of widgets/observations, and end with a create_dashboard call to present findings. Acknowledge deep mode in both reasoning_message and assistant_message.
 """
-        return f"""
+
+        prompt= f"""
 SYSTEM
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
 
@@ -141,7 +142,8 @@ INPUT ENVELOPE
 <context>
   <platform>{planner_input.external_platform}</platform>
   {planner_input.instructions}
-  {planner_input.schemas_excerpt}
+  <!-- schemas: combined per data source (sample Top-K + index) -->
+  {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
@@ -174,6 +176,7 @@ EXPECTED JSON OUTPUT (strict):
   "final_answer": string | null
 }}
 """
+        return prompt
     
     @staticmethod
     def _extract_research_step_count(history_summary: str) -> int:
