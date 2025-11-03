@@ -143,7 +143,6 @@ INPUT ENVELOPE
 <context>
   <platform>{planner_input.external_platform}</platform>
   {planner_input.instructions}
-  <!-- schemas: combined per data source (sample Top-K + index) -->
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}

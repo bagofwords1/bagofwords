@@ -5,7 +5,7 @@ from app.ai.prompt_formatters import Table as PromptTable
 
 
 class TablesSchemaContext(ContextSection):
-    tag_name: ClassVar[str] = "schemas"
+    tag_name: ClassVar[str] = "data_sources"
 
     class DataSource(ContextSection):
         tag_name: ClassVar[str] = "data_source"
@@ -185,11 +185,14 @@ class TablesSchemaContext(ContextSection):
                         attrs["score"] = str(round(float(getattr(t, 'score')), 2))
                 except Exception:
                     pass
-                items_xml.append(xml_tag("item", "", attrs))
+                # Emit self-closing <item .../> to avoid empty inner newlines
+                attrs_str = "".join(f' {k}="{xml_escape(str(v))}"' for k, v in attrs.items())
+                items_xml.append(f"<item{attrs_str}/>")
             idx_attrs = {"count": str(len(tables))}
             if cap > 0 and len(tables) > cap:
                 idx_attrs["truncated"] = "true"
-            return xml_tag("index", "".join(items_xml), idx_attrs)
+            # Place each item on its own line for better readability
+            return xml_tag("index", "\n".join(items_xml), idx_attrs)
 
     data_sources: List[DataSource] = []
 
@@ -225,7 +228,8 @@ class TablesSchemaContext(ContextSection):
                 "id": ds.info.id,
                 "total_tables": str(len(getattr(ds, 'tables', []) or [])),
             }
-            ds_chunks.append(xml_tag("data_source", "".join(inner_parts), attrs))
+            # Ensure separation between <sample> and <index>
+            ds_chunks.append(xml_tag("data_source", "\n".join(inner_parts), attrs))
         return xml_tag(self.tag_name, "".join(ds_chunks))
 
 

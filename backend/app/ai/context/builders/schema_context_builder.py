@@ -271,7 +271,13 @@ class SchemaContextBuilder:
 
             ds_sections.append(
                 TablesSchemaContext.DataSource(
-                    info=DataSourceSummarySchema(id=str(ds.id), name=ds.name, type=ds.type, context=getattr(ds, 'context', None)),
+                    info=DataSourceSummarySchema(
+                        id=str(ds.id),
+                        name=ds.name,
+                        type=ds.type,
+                        # Prefer the richer human-written description when available; fallback to context
+                        context=(getattr(ds, 'description', None) or getattr(ds, 'context', None)),
+                    ),
                     tables=tables,
                 )
             )

@@ -86,19 +86,6 @@ class DescribeTablesTool(Tool):
         except Exception:
             pass
 
-        # Emit debug of resolved patterns (helps UI debugging instead of breakpoints)
-        try:
-            yield ToolProgressEvent(
-                type="tool.progress",
-                payload={
-                    "stage": "debug.resolved_queries",
-                    "table_names": table_names,
-                    "name_patterns": name_patterns,
-                },
-            )
-        except Exception:
-            pass
-
         # Build filtered schema context via the same builder used by the agent
         schemas_excerpt = ""
         searched_sources = 0

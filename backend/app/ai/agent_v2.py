@@ -29,6 +29,9 @@ from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstr
 from app.settings.database import create_async_session_factory
 from app.core.telemetry import telemetry
 
+TOP_K_PER_DS = 30  # Number of tables to sample per data source
+INDEX_LIMIT = 1000  # Number of tables to include in the index
+
 
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
@@ -270,7 +273,7 @@ class AgentV2:
                     with_stats=True,
                     active_only=True,
                 )
-                combined_schemas = schemas_ctx.render_combined(top_k_per_ds=20, index_limit=200)
+                combined_schemas = schemas_ctx.render_combined(top_k_per_ds=TOP_K_PER_DS, index_limit=INDEX_LIMIT)
                 schemas_excerpt = combined_schemas
             except Exception:
                 schemas_excerpt = view.static.schemas.render() if view.static.schemas else ""

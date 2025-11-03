@@ -2,7 +2,9 @@
 
 ## Version 0.0.219 (November 3, 2025)
 - Improved table discovery and retrieval in main agent loop
-- Introduced describe_tables tool for better data modeling
+- Introduced describe_tables tool for better data modeling, with light UI signaling
+- Reduced the main agent's context footprint by 5x, significantly faster and leaner
+- The create data sub-agent now receives a provided list of tables instead of inferring the data model itself
 
 ## Version 0.0.218 (November 1, 2025)
 - Fixed issue where the data source form was not fully rendered in the onboarding screen
