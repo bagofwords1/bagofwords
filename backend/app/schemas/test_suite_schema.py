@@ -16,6 +16,18 @@ class TestSuiteSchema(BaseModel):
         from_attributes = True
 
 
+class TestSuiteCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    report_id: str
+
+
+class TestSuiteUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    report_id: Optional[str] = None
+
+
 class TestCaseSchema(BaseModel):
     id: str
     suite_id: str
@@ -28,6 +40,20 @@ class TestCaseSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class TestCaseCreate(BaseModel):
+    name: str
+    prompt_json: Dict[str, Any]
+    expectations_json: Dict[str, Any]
+    data_source_ids_json: Optional[List[str]] = None
+
+
+class TestCaseUpdate(BaseModel):
+    name: Optional[str] = None
+    prompt_json: Optional[Dict[str, Any]] = None
+    expectations_json: Optional[Dict[str, Any]] = None
+    data_source_ids_json: Optional[List[str]] = None
 
 
 class TestRunSchema(BaseModel):

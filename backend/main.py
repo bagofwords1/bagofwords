@@ -36,6 +36,7 @@ from app.models.user import User
 
 from app.routes import (
     report,
+    tests,
     widget,
     query,
     visualization,
@@ -159,6 +160,7 @@ app.include_router(
 
 app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
+app.include_router(tests.router, prefix="/api")
 app.include_router(widget.router, prefix="/api")
 app.include_router(query.router, prefix="/api")
 app.include_router(visualization.router, prefix="/api")
