@@ -5,17 +5,19 @@ import os
 import pandas as pd
 from google.cloud import bigquery
 from google.oauth2 import service_account
-from typing import List, Generator
+from typing import List, Generator, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from contextlib import contextmanager
 
 
 class BigqueryClient(DataSourceClient):
-    def __init__(self, project_id, credentials_json, dataset):
+    def __init__(self, project_id, credentials_json, dataset, maximum_bytes_billed: Optional[int] = None, use_query_cache: bool = False):
         self.project_id = project_id
         self.credentials_json = credentials_json
         self.dataset = dataset
+        self.maximum_bytes_billed = maximum_bytes_billed
+        self.use_query_cache = use_query_cache
 
         # Support both raw JSON content and a server-accessible file path
         self.credentials = None
@@ -47,17 +49,32 @@ class BigqueryClient(DataSourceClient):
             # No explicit close method for BigQuery client, but ensuring resource cleanup if needed
             pass
 
-    def execute_query(self, sql: str) -> pd.DataFrame:
-        """Run SQL statement and return the result as a DataFrame."""
+    def execute_query(self, sql: str, maximum_bytes_billed: Optional[int] = None, use_query_cache: Optional[bool] = None) -> pd.DataFrame:
+        """Run SQL statement and return the result as a DataFrame.
+
+        Args:
+            sql: SQL to execute.
+            maximum_bytes_billed: Optional per-call cap. If 0 or None, no cap. Defaults to client-level setting.
+            use_query_cache: Optional per-call cache flag. Defaults to client-level setting.
+        """
         try:
             with self.connect() as conn:
-                query_job = conn.query(sql)
+                # Determine effective settings
+                cap = self.maximum_bytes_billed if maximum_bytes_billed is None else maximum_bytes_billed
+                cache_flag = self.use_query_cache if use_query_cache is None else use_query_cache
+
+                job_config = bigquery.QueryJobConfig(use_query_cache=bool(cache_flag))
+                # Only set maximum_bytes_billed if a positive integer cap is provided
+                if isinstance(cap, int) and cap > 0:
+                    job_config.maximum_bytes_billed = int(cap)
+
+                query_job = conn.query(sql, job_config=job_config)
                 result = query_job.result()
                 df = result.to_dataframe()
             return df
         except Exception as e:
             print(f"Error executing SQL: {e}")
-            raise
+            raise e
 
     def get_tables(self) -> List[Table]:
         """Get all tables and their columns in the specified dataset."""
