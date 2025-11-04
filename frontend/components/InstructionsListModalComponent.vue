@@ -72,14 +72,14 @@
                                 </tr>
                             </thead>
                             <tbody class="bg-white divide-y divide-gray-200">
-                                <tr v-for="instruction in instructions" 
+                                <tr v-for="instruction in paginatedInstructions" 
                                     :key="instruction.id" 
                                     :class="[
                                         'hover:bg-gray-50 cursor-pointer'
                                     ]"
                                     @click="handleInstructionClick(instruction)"
                                 >
-                                    <td class="px-3 py-2 text-sm">
+                                    <td class="px-3 py-2 text-xs">
                                         <div class="max-w-md">
                                             <p class="text-gray-900 leading-tight">{{ instruction.text }}</p>
                                         </div>
@@ -133,6 +133,47 @@
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                    <!-- Pagination -->
+                    <div v-if="instructions.length > pageSize" class="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
+                        <div class="text-xs text-gray-700">
+                            Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, instructions.length) }} of {{ instructions.length }} instructions
+                        </div>
+                        <div class="flex items-center space-x-1">
+                            <UButton
+                                icon="i-heroicons-chevron-left"
+                                color="gray"
+                                variant="ghost"
+                                size="xs"
+                                @click="currentPage--"
+                                :disabled="currentPage === 1"
+                            >
+                                Previous
+                            </UButton>
+                            <div class="flex items-center space-x-1">
+                                <UButton
+                                    v-for="page in visiblePages"
+                                    :key="page"
+                                    :color="page === currentPage ? 'blue' : 'gray'"
+                                    :variant="page === currentPage ? 'solid' : 'ghost'"
+                                    size="xs"
+                                    @click="currentPage = page"
+                                    class="min-w-[28px]"
+                                >
+                                    {{ page }}
+                                </UButton>
+                            </div>
+                            <UButton
+                                icon="i-heroicons-chevron-right"
+                                color="gray"
+                                variant="ghost"
+                                size="xs"
+                                @click="currentPage++"
+                                :disabled="currentPage === totalPages"
+                            >
+                                Next
+                            </UButton>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -212,6 +253,10 @@ const editingInstruction = ref<Instruction | null>(null)
 const showDetailsModal = ref(false)
 const viewingInstruction = ref<Instruction | null>(null)
 
+// Pagination state
+const currentPage = ref(1)
+const pageSize = ref(10)
+
 // Check if user can create global instructions
 const canCreateGlobalInstructions = computed(() => {
     return useCan('create_instructions')
@@ -238,6 +283,33 @@ const buttonIcon = computed(() => {
 })
 
 // Color is set directly in template to avoid TS type mismatch
+
+// Pagination derived values
+const paginatedInstructions = computed(() => {
+    const start = (currentPage.value - 1) * pageSize.value
+    const end = start + pageSize.value
+    return instructions.value.slice(start, end)
+})
+
+const totalPages = computed(() => {
+    const total = Math.ceil(instructions.value.length / pageSize.value)
+    return total > 0 ? total : 1
+})
+
+const visiblePages = computed(() => {
+    const pages: number[] = []
+    const total = totalPages.value
+    const current = currentPage.value
+    let start = Math.max(1, current - 2)
+    let end = Math.min(total, start + 4)
+    if (end - start < 4) {
+        start = Math.max(1, end - 4)
+    }
+    for (let i = start; i <= end; i++) {
+        pages.push(i)
+    }
+    return pages
+})
 
 // Methods
 // Get current user ID helper  
@@ -313,6 +385,11 @@ const fetchInstructions = async () => {
             } else {
                 instructions.value = data.value
             }
+
+            // Clamp current page in case total pages shrank
+            if (currentPage.value > totalPages.value) {
+                currentPage.value = totalPages.value
+            }
         }
     } catch (err) {
         console.error('Error:', err)
@@ -329,6 +406,7 @@ const fetchInstructions = async () => {
 const setActiveFilter = async (filter: string) => {
     //console.log('Setting active filter to:', filter)
     activeFilter.value = filter
+    currentPage.value = 1
     await fetchInstructions()
 }
 

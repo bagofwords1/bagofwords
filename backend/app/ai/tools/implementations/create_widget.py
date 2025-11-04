@@ -48,6 +48,25 @@ class CreateWidgetTool(Tool):
         except Exception:
             _schemas_section_obj = getattr(context_view.static, "schemas", None) if context_view else None
             return _schemas_section_obj.render() if _schemas_section_obj else ""
+
+    # Lean, provider-agnostic error summarization for observations
+    @staticmethod
+    def _summarize_errors(errors, attempts: int | None = None, succeeded: bool = False) -> dict:
+        # errors: List[Tuple[str, str]] -> (code_text, error_text)
+        last_text = (errors[-1][1] if errors else "") or ""
+        last_line = last_text.strip().splitlines()[0][:300]
+        attempts = attempts if attempts is not None else (len(errors or []) + (1 if succeeded else 0))
+        payload = {
+            "retry_summary": {
+                "attempts": int(attempts),
+                "succeeded": bool(succeeded),
+                "error_count": int(len(errors or [])),
+                "last_error_message": last_line,
+            }
+        }
+        if not succeeded and last_line:
+            payload["error"] = {"message": last_line}
+        return payload
     @property
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
@@ -374,6 +393,11 @@ CRITICAL:
                 "summary": "Create widget failed",
                 "error": {"type": "execution_failure", "message": "execution failed (validation or execution error)"},
             }
+            # Enrich with deterministic retry summary and last error message
+            try:
+                error_observation.update(self._summarize_errors(code_errors, succeeded=False))
+            except Exception:
+                pass
             if current_step_id:
                 error_observation["step_id"] = current_step_id
             yield ToolEndEvent(
@@ -420,6 +444,12 @@ CRITICAL:
             "analysis_complete": False,
             "final_answer": None
         }
+        # If there were internal retries/errors but eventual success, include summary
+        try:
+            if code_errors:
+                observation.update(self._summarize_errors(code_errors, succeeded=True))
+        except Exception:
+            pass
         if current_step_id:
             observation["step_id"] = current_step_id
 

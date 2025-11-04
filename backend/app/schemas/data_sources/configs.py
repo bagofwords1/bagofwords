@@ -57,6 +57,18 @@ class BigQueryCredentials(BaseModel):
 class BigQueryConfig(BaseModel):
     project_id: str = Field(..., title="Project ID", description="", json_schema_extra={"ui:type": "string"})
     dataset: str = Field(..., title="Dataset", description="", json_schema_extra={"ui:type": "string"})
+    maximum_bytes_billed: Optional[int] = Field(
+        None,
+        title="Max Bytes Billed",
+        description="Limit the number of bytes billed for the query. Keep blank to disable limit",
+        json_schema_extra={"ui:type": "number"}
+    )
+    use_query_cache: bool = Field(
+        False,
+        title="Use Query Cache",
+        description="Allow returning cached results if available",
+        json_schema_extra={"ui:type": "boolean"}
+    )
 
 
 # NetSuite - all auth related fields should be in credentials

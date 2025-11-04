@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.220 (November 4, 2025)
+- Added BigQuery support for `maximum_bytes_billed` for cost guardrails and support for `use_query_cache`
+- Improved UI for list of instrusctions modal - pagination, visibility, etc
+
 ## Version 0.0.219 (November 3, 2025)
 - Improved table discovery and retrieval in main agent loop
 - Introduced describe_tables tool for better data modeling, with light UI signaling
