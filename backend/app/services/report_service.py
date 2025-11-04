@@ -85,6 +85,7 @@ class ReportService:
                 selectinload(Report.data_sources)  # Add this line to load data sources
             )
             .filter(Report.id == report_id)
+            .filter(Report.report_type == 'regular')
         )
         report = result.unique().scalar_one_or_none()
         if not report:
@@ -177,7 +178,7 @@ class ReportService:
         return ReportSchema.from_orm(report).copy(update={"user": UserSchema.from_orm(current_user)})
 
     async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportUpdate, current_user: User, organization: Organization) -> Report:
-        result = await db.execute(select(Report).filter(Report.id == report_id))
+        result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
 
         if not report:
@@ -275,7 +276,7 @@ class ReportService:
         return report
 
     async def archive_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
-        result = await db.execute(select(Report).filter(Report.id == report_id))
+        result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
@@ -286,7 +287,7 @@ class ReportService:
         return report
 
     async def publish_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
-        result = await db.execute(select(Report).filter(Report.id == report_id))
+        result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
 
         if not report:
@@ -315,7 +316,7 @@ class ReportService:
         return report
     
     async def get_public_report(self, db: AsyncSession, report_id: str) -> ReportSchema:
-        result = await db.execute(select(Report).filter(Report.id == report_id))
+        result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
@@ -343,7 +344,7 @@ class ReportService:
 
     async def get_public_layouts(self, db: AsyncSession, report_id: str):
         # Ensure report exists and is published
-        result = await db.execute(select(Report).where(Report.id == report_id))
+        result = await db.execute(select(Report).where(Report.id == report_id).where(Report.report_type == 'regular'))
         report = result.scalar_one_or_none()
         if not report or report.status != 'published':
             raise HTTPException(status_code=404, detail="Report not found")
@@ -365,7 +366,8 @@ class ReportService:
         # Build filter conditions based on filter parameter
         base_conditions = [
             Report.organization_id == organization.id,
-            Report.status != 'archived'
+            Report.status != 'archived',
+            Report.report_type == 'regular',
         ]
         
         if filter == "my":

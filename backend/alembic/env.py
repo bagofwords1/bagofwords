@@ -59,6 +59,10 @@ from app.models.visualization import Visualization
 from app.models.user_data_source_credentials import UserDataSourceCredentials
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 from app.models.entity import Entity
+from app.models.test_suite import TestSuite
+from app.models.test_suite import TestCase
+from app.models.test_suite import TestRun
+from app.models.test_suite import TestResult
 
 from app.settings.config import settings
 

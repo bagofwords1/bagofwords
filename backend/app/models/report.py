@@ -13,6 +13,7 @@ class Report(BaseSchema):
     title = Column(String, index=True, nullable=False, unique=False, default="")
     slug = Column(String, index=True, nullable=False, unique=True)
     status = Column(String, nullable=False, default='draft')
+    report_type = Column(String, nullable=False, default='regular', index=True)
     theme_name = Column(String, nullable=True, default=None)
     theme_overrides = Column(JSON, nullable=True, default=dict)
     

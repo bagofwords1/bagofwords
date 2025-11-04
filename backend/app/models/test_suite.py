@@ -1,0 +1,69 @@
+from sqlalchemy import Column, String, JSON, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
+from app.models.base import BaseSchema
+
+
+class TestSuite(BaseSchema):
+    __tablename__ = "test_suites"
+
+    organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+
+    # Dedicated report to run tests against (must have report_type='test')
+    report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, index=True)
+
+    cases = relationship("TestCase", back_populates="suite", cascade="all, delete-orphan")
+
+
+class TestCase(BaseSchema):
+    __tablename__ = "test_cases"
+
+    suite_id = Column(String(36), ForeignKey('test_suites.id'), nullable=False, index=True)
+    name = Column(String, nullable=False)
+
+    # Store PromptSchema as JSON:
+    # { content, widget_id, step_id, mentions, mode, model_id }
+    prompt_json = Column(JSON, nullable=False, default=dict)
+
+    # Assertions spec (the Y we designed)
+    expectations_json = Column(JSON, nullable=False, default=dict)
+
+    # Optional: limit impact/trigger scope (list of DataSource ids)
+    data_source_ids_json = Column(JSON, nullable=True, default=list)
+
+    suite = relationship("TestSuite", back_populates="cases")
+
+
+class TestRun(BaseSchema):
+    __tablename__ = "test_runs"
+
+    suite_id = Column(String(36), ForeignKey('test_suites.id'), nullable=False, index=True)
+    requested_by_user_id = Column(String(36), ForeignKey('users.id'), nullable=True, index=True)
+    trigger_reason = Column(String, nullable=True)  # 'manual' | 'context_change' | 'schedule'
+    status = Column(String, nullable=False, default="in_progress")  # in_progress | success | error
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    summary_json = Column(JSON, nullable=True, default=dict)
+
+
+class TestResult(BaseSchema):
+    __tablename__ = "test_results"
+
+    run_id = Column(String(36), ForeignKey('test_runs.id'), nullable=False, index=True)
+    case_id = Column(String(36), ForeignKey('test_cases.id'), nullable=False, index=True)
+
+    # Link to the head (user) completion created for this test execution
+    head_completion_id = Column(String(36), ForeignKey('completions.id'), nullable=False, index=True)
+
+    status = Column(String, nullable=False, default="in_progress")  # pass | fail | error
+    failure_reason = Column(String, nullable=True)
+
+    # Optional drill-down link (can be null; system completion can be derived from head)
+    agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True, index=True)
+
+    # Assertion diffs and basic metrics
+    diffs_json = Column(JSON, nullable=True, default=list)
+    metrics_json = Column(JSON, nullable=True, default=dict)
+
+
