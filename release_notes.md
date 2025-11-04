@@ -2,6 +2,7 @@
 
 ## Version 0.0.220 (November 4, 2025)
 - Added BigQuery support for `maximum_bytes_billed` for cost guardrails and support for `use_query_cache`
+- Improved main AI loop with additional observations from sub-agent create data (code, errors, etc)
 - Improved UI for list of instrusctions modal - pagination, visibility, etc
 
 ## Version 0.0.219 (November 3, 2025)
