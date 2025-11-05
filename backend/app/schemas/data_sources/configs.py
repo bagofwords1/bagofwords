@@ -300,6 +300,25 @@ class DuckDBConfig(BaseModel):
         json_schema_extra={"ui:type": "textarea"}
     )
 
+# Apache Pinot
+class PinotConfig(BaseModel):
+    host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
+    port: int = Field(8099, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
+    secure: bool = Field(True, title="Secure", description="Use HTTPS when true", json_schema_extra={"ui:type": "boolean"})
+    path: str = Field("/query/sql", title="Path", description="Broker SQL endpoint path", json_schema_extra={"ui:type": "string"})
+    controller: Optional[str] = Field(
+        None,
+        title="Controller URL",
+        description="Optional controller base URL, e.g. http://controller-host:9000",
+        json_schema_extra={"ui:type": "string"}
+    )
+    query_options: Optional[str] = Field(
+        None,
+        title="Query Options",
+        description="Optional queryOptions string, e.g. useMultistageEngine=true",
+        json_schema_extra={"ui:type": "string"}
+    )
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -316,6 +335,7 @@ __all__ = [
     "AwsRedshiftConfig",
     "TableauConfig",
     "DuckDBConfig",
+    "PinotConfig",
     "DuckDBNoAuthCredentials",
     "DuckDBAwsCredentials",
     "DuckDBGcpCredentials",
