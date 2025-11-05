@@ -1,6 +1,7 @@
 from pydantic import BaseModel
-from typing import Optional, Any, Dict, List
+from typing import Optional, Any, Dict, List, Union
 from datetime import datetime
+from app.schemas.test_expectations import ExpectationsSpec
 
 
 class TestSuiteSchema(BaseModel):
@@ -8,7 +9,6 @@ class TestSuiteSchema(BaseModel):
     organization_id: str
     name: str
     description: Optional[str] = None
-    report_id: str
     created_at: datetime
     updated_at: datetime
 
@@ -19,13 +19,11 @@ class TestSuiteSchema(BaseModel):
 class TestSuiteCreate(BaseModel):
     name: str
     description: Optional[str] = None
-    report_id: str
 
 
 class TestSuiteUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
-    report_id: Optional[str] = None
 
 
 class TestCaseSchema(BaseModel):
@@ -33,7 +31,7 @@ class TestCaseSchema(BaseModel):
     suite_id: str
     name: str
     prompt_json: Dict[str, Any]
-    expectations_json: Dict[str, Any]
+    expectations_json: ExpectationsSpec
     data_source_ids_json: Optional[List[str]] = None
     created_at: datetime
     updated_at: datetime
@@ -45,14 +43,14 @@ class TestCaseSchema(BaseModel):
 class TestCaseCreate(BaseModel):
     name: str
     prompt_json: Dict[str, Any]
-    expectations_json: Dict[str, Any]
+    expectations_json: ExpectationsSpec
     data_source_ids_json: Optional[List[str]] = None
 
 
 class TestCaseUpdate(BaseModel):
     name: Optional[str] = None
     prompt_json: Optional[Dict[str, Any]] = None
-    expectations_json: Optional[Dict[str, Any]] = None
+    expectations_json: Optional[ExpectationsSpec] = None
     data_source_ids_json: Optional[List[str]] = None
 
 
@@ -77,6 +75,7 @@ class TestResultSchema(BaseModel):
     run_id: str
     case_id: str
     head_completion_id: str
+    report_id: Optional[str] = None
     status: str
     failure_reason: Optional[str] = None
     agent_execution_id: Optional[str] = None

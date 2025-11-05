@@ -76,7 +76,8 @@ ADMIN_PERMISSIONS = {
     'update_entities',
     'delete_entities',
     'approve_entities',
-    'reject_entities'
+    'reject_entities',
+    'manage_tests'
 }
 
 # Combine permissions for roles

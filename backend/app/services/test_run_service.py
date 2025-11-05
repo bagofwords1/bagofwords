@@ -7,6 +7,7 @@ from app.models.test_suite import TestSuite, TestCase, TestRun, TestResult
 from app.models.report import Report
 from app.services.completion_service import CompletionService
 from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
+from app.schemas.test_dashboard_schema import TestMetricsSchema, TestSuiteSummarySchema
 
 
 class TestRunService:
@@ -26,104 +27,21 @@ class TestRunService:
 
     async def run_suite(self, db: AsyncSession, organization, current_user, suite_id: str, background: bool = True) -> TestRun:
         suite = await self._get_suite(db, str(organization.id), suite_id)
-        report = await db.get(Report, str(suite.report_id))
-        if not report or getattr(report, 'report_type', 'regular') != 'test' or str(report.organization_id) != str(organization.id):
-            raise HTTPException(status_code=400, detail="Suite is not bound to a valid test report in this organization")
+        # Report association will be added later; block for now
+        raise HTTPException(status_code=400, detail="Test runs are not configured yet for this suite")
 
-        run = TestRun(
-            suite_id=str(suite.id),
-            requested_by_user_id=str(current_user.id),
-            trigger_reason="manual",
-            status="in_progress",
-        )
-        db.add(run)
-        await db.commit()
-        await db.refresh(run)
+        # The below implementation will be re-enabled once report linkage is added
 
-        cases = await self._get_cases(db, str(suite.id))
-        if not cases:
-            run.status = "error"
-            run.summary_json = {"passed": 0, "failed": 0, "total": 0, "reason": "no_cases"}
-            db.add(run)
-            await db.commit()
-            await db.refresh(run)
-            return run
-
-        # Foreground for MVP
-        passed = 0
-        failed = 0
-        for case in cases:
-            # Create result row
-            tr = TestResult(run_id=str(run.id), case_id=str(case.id), status="in_progress")
-            db.add(tr)
-            await db.commit(); await db.refresh(tr)
-
-            try:
-                pj = case.prompt_json or {}
-                prompt = CompletionCreate(prompt=PromptSchema(**{
-                    "content": pj.get("content") or pj.get("text") or "",
-                    "widget_id": pj.get("widget_id"),
-                    "step_id": pj.get("step_id"),
-                    "mentions": pj.get("mentions"),
-                    "mode": pj.get("mode") or "chat",
-                    "model_id": pj.get("model_id"),
-                }))
-
-                # Foreground agent execution (non-stream), reuse existing service
-                v2 = await self.completions.create_completion(
-                    db=db,
-                    report_id=str(report.id),
-                    completion_data=prompt,
-                    current_user=current_user,
-                    organization=organization,
-                    background=False,
-                )
-
-                # Extract head/system ids from response
-                head_id = None
-                system_id = None
-                agent_execution_id = None
-                for c in v2.completions:
-                    if c.role == 'system':
-                        system_id = c.id
-                        agent_execution_id = c.agent_execution_id
-                    else:
-                        head_id = c.id
-
-                if not head_id:
-                    raise RuntimeError("Head completion not found")
-
-                tr.head_completion_id = str(head_id)
-                tr.agent_execution_id = str(agent_execution_id) if agent_execution_id else None
-
-                # For MVP, mark pass (assertions will be added next phases)
-                tr.status = "pass"
-                db.add(tr)
-                await db.commit(); await db.refresh(tr)
-                passed += 1
-            except Exception as e:
-                tr.status = "error"
-                tr.failure_reason = str(e)
-                db.add(tr)
-                await db.commit(); await db.refresh(tr)
-                failed += 1
-
-        run.status = "success" if failed == 0 else "error"
-        run.summary_json = {"passed": passed, "failed": failed, "total": passed + failed}
-        db.add(run)
-        await db.commit(); await db.refresh(run)
-        return run
-
-    async def get_run(self, db: AsyncSession, organization_id: str, run_id: str) -> TestRun:
+    async def get_run(self, db: AsyncSession, organization_id: str, current_user, run_id: str) -> TestRun:
         res = await db.execute(select(TestRun).where(TestRun.id == run_id))
         run = res.scalar_one_or_none()
         if not run:
             raise HTTPException(status_code=404, detail="Test run not found")
         # Ensure suite belongs to org
-        _ = await self._get_suite(db, organization_id, str(run.suite_id))
+        _ = await self._get_suite(db, organization_id, str(current_user.id), str(run.suite_id))
         return run
 
-    async def list_runs(self, db: AsyncSession, organization_id: str, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20) -> List[TestRun]:
+    async def list_runs(self, db: AsyncSession, organization_id: str, current_user, suite_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, limit: int = 20) -> List[TestRun]:
         from app.models.test_suite import TestSuite
         stmt = select(TestRun)
         if suite_id:
@@ -134,18 +52,54 @@ class TestRunService:
         res = await db.execute(stmt)
         return res.scalars().all()
 
-    async def list_results(self, db: AsyncSession, organization_id: str, run_id: str) -> List[TestResult]:
-        _ = await self.get_run(db, organization_id, run_id)
+    async def list_results(self, db: AsyncSession, organization_id: str, current_user, run_id: str) -> List[TestResult]:
+        _ = await self.get_run(db, organization_id, current_user, run_id)
         res = await db.execute(select(TestResult).where(TestResult.run_id == str(run_id)).order_by(TestResult.created_at.asc()))
         return res.scalars().all()
 
-    async def get_result(self, db: AsyncSession, organization_id: str, result_id: str) -> TestResult:
+    async def get_result(self, db: AsyncSession, organization_id: str, current_user, result_id: str) -> TestResult:
         res = await db.execute(select(TestResult).where(TestResult.id == result_id))
         result = res.scalar_one_or_none()
         if not result:
             raise HTTPException(status_code=404, detail="Test result not found")
         # ensure run -> suite in org
-        _ = await self.get_run(db, organization_id, str(result.run_id))
+        _ = await self.get_run(db, organization_id, current_user, str(result.run_id))
         return result
+
+    # ---- Dashboard helpers (mock data for MVP) ----
+    async def get_dashboard_metrics(self, db: AsyncSession, organization_id: str, current_user) -> TestMetricsSchema:
+        # Mock: count total test cases and estimate success_rate
+        res = await db.execute(select(TestCase).join(TestSuite, TestCase.suite_id == TestSuite.id).where(TestSuite.organization_id == str(organization_id)))
+        total_cases = len(res.scalars().all())
+        # Mock success rate: 0.75 if cases exist, else 0.0
+        success_rate = 0.75 if total_cases > 0 else 0.0
+        return TestMetricsSchema(total_tests=total_cases, success_rate=success_rate)
+
+    async def get_suites_summary(self, db: AsyncSession, organization_id: str, current_user) -> List[TestSuiteSummarySchema]:
+        # Return suites with mock counts and last run info
+        res = await db.execute(select(TestSuite).where(TestSuite.organization_id == str(organization_id)).order_by(TestSuite.created_at.desc()))
+        suites = res.scalars().all()
+        summaries: List[TestSuiteSummarySchema] = []
+        for s in suites:
+            # tests_count = number of cases in suite
+            res_cases = await db.execute(select(TestCase).where(TestCase.suite_id == str(s.id)))
+            cases = res_cases.scalars().all()
+            tests_count = len(cases)
+            # last run (mock by picking latest TestRun if exists)
+            res_run = await db.execute(select(TestRun).where(TestRun.suite_id == str(s.id)).order_by(TestRun.created_at.desc()).limit(1))
+            run = res_run.scalar_one_or_none()
+            last_run_at = getattr(run, 'created_at', None)
+            last_status = getattr(run, 'status', None) if run else None
+            # mock pass_rate per suite
+            pass_rate = 0.8 if tests_count > 0 else 0.0
+            summaries.append(TestSuiteSummarySchema(
+                id=str(s.id),
+                name=s.name,
+                tests_count=tests_count,
+                last_run_at=last_run_at,
+                last_status=last_status,
+                pass_rate=pass_rate,
+            ))
+        return summaries
 
 

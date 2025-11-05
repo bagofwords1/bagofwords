@@ -10,9 +10,6 @@ class TestSuite(BaseSchema):
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
 
-    # Dedicated report to run tests against (must have report_type='test')
-    report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, index=True)
-
     cases = relationship("TestCase", back_populates="suite", cascade="all, delete-orphan")
 
 
@@ -61,6 +58,9 @@ class TestResult(BaseSchema):
 
     # Optional drill-down link (can be null; system completion can be derived from head)
     agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True, index=True)
+
+    # Optional: report associated with this run/result
+    report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
 
     # Assertion diffs and basic metrics
     diffs_json = Column(JSON, nullable=True, default=list)
