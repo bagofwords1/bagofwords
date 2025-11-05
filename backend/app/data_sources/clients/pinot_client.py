@@ -77,87 +77,57 @@ class PinotClient(DataSourceClient):
                 cursor.close()
                 return pd.DataFrame(rows, columns=cols or None)
         except Exception as e:
+            breakpoint()
             print(f"Error executing SQL: {e}")
             raise
 
     def get_tables(self) -> List[Table]:
-        # Strategy A: INFORMATION_SCHEMA via SQL (recent Pinot versions)
-        try:
-            with self.connect() as conn:
-                cursor = conn.cursor()
-                list_sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES"
-                if self.query_options:
-                    cursor.execute(list_sql, queryOptions=self.query_options)
-                else:
-                    cursor.execute(list_sql)
-                table_names = [row[0] for row in cursor.fetchall()]
+        # Simple discovery: controller list + LIMIT 0 inference, else INFORMATION_SCHEMA + LIMIT 0
+        tables: Dict[str, Table] = {}
+        table_names: List[str] = []
 
-                tables: Dict[str, Table] = {}
-                for t in table_names:
-                    cols_sql = (
-                        f"SELECT COLUMN_NAME, DATA_TYPE "
-                        f"FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '{t}'"
-                    )
-                    if self.query_options:
-                        cursor.execute(cols_sql, queryOptions=self.query_options)
-                    else:
-                        cursor.execute(cols_sql)
-                    cols = cursor.fetchall()
-                    table = Table(name=t, columns=[], pks=[], fks=[], metadata_json={})
-                    for col_name, dtype in cols:
-                        table.columns.append(TableColumn(name=col_name, dtype=dtype))
-                    tables[t] = table
-                cursor.close()
-                return list(tables.values())
-        except Exception:
-            # Strategy B: Controller REST (if configured)
-            if not self.controller or not requests:
-                return []
+        if self.controller and requests:
             try:
                 base = self.controller.rstrip("/")
                 r = requests.get(f"{base}/tables", timeout=10)
                 r.raise_for_status()
                 payload = r.json()
-                table_names = payload.get("tables", []) if isinstance(payload, dict) else payload
+                table_names = payload.get("tables", []) if isinstance(payload, dict) else list(payload or [])
+            except Exception:
+                table_names = []
 
-                tables: Dict[str, Table] = {}
-                for t in table_names or []:
-                    columns: List[TableColumn] = []
-                    # Attempt schema lookup
-                    try:
-                        cfg = requests.get(f"{base}/tables/{t}", timeout=10)
-                        cfg.raise_for_status()
-                        cfg_json = cfg.json()
-                        candidate = cfg_json.get("OFFLINE") or cfg_json.get("REALTIME") or {}
-                        schema_name = (
-                            candidate.get("tableConfig", {})
-                            .get("validationConfig", {})
-                            .get("schemaName")
-                        )
-                        if schema_name:
-                            sch = requests.get(f"{base}/schemas/{schema_name}", timeout=10)
-                            if sch.ok:
-                                sj = sch.json()
-                                for sec in (
-                                    "dimensionFieldSpecs",
-                                    "metricFieldSpecs",
-                                    "dateTimeFieldSpecs",
-                                    "timeFieldSpec",
-                                ):
-                                    fields = sj.get(sec) or []
-                                    if isinstance(fields, dict):
-                                        fields = [fields]
-                                    for f in fields:
-                                        name = f.get("name")
-                                        dtype = f.get("dataType") or f.get("dataTypeName") or "STRING"
-                                        if name:
-                                            columns.append(TableColumn(name=name, dtype=dtype))
-                    except Exception:
-                        pass
-                    tables[t] = Table(name=t, columns=columns, pks=[], fks=[], metadata_json={})
-                return list(tables.values())
+        if not table_names:
+            try:
+                with self.connect() as conn:
+                    cursor = conn.cursor()
+                    list_sql = "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES"
+                    if self.query_options:
+                        cursor.execute(list_sql, queryOptions=self.query_options)
+                    else:
+                        cursor.execute(list_sql)
+                    table_names = [row[0] for row in cursor.fetchall()]
+                    cursor.close()
             except Exception:
                 return []
+
+        for t in table_names:
+            columns: List[TableColumn] = []
+            try:
+                probe_sql = f"SELECT * FROM {t} LIMIT 0"
+                with self.connect() as conn:
+                    cursor = conn.cursor()
+                    if self.query_options:
+                        cursor.execute(probe_sql, queryOptions=self.query_options)
+                    else:
+                        cursor.execute(probe_sql)
+                    inferred = [d[0] for d in (cursor.description or [])] if getattr(cursor, "description", None) else []
+                    cursor.close()
+                    for c in inferred:
+                        columns.append(TableColumn(name=c, dtype="STRING"))
+            except Exception:
+                pass
+            tables[t] = Table(name=t, columns=columns, pks=[], fks=[], metadata_json={})
+        return list(tables.values())
 
     def get_schema(self, table: str) -> Table:
         raise NotImplementedError("get_schema() is obsolete. Use get_tables() instead.")
