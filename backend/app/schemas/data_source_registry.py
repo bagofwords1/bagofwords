@@ -22,6 +22,7 @@ from app.schemas.data_sources.configs import (
     TableauConfig,
     SalesforceConfig,
     ClickhouseConfig,
+    PinotConfig,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -190,6 +191,17 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
         client_path=None,
+    ),
+    "pinot": DataSourceRegistryEntry(
+        type="pinot",
+        title="Apache Pinot",
+        description="Real-time OLAP datastore queried via Broker SQL API.",
+        config_schema=PinotConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+        }),
+        client_path=None,
+        version="beta",
     ),
     "aws_cost": DataSourceRegistryEntry(
         type="aws_cost",
