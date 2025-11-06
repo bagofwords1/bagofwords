@@ -73,11 +73,11 @@ class PinotClient(DataSourceClient):
                 else:
                     cursor.execute(sql)
                 rows = cursor.fetchall()
+                breakpoint()
                 cols = [d[0] for d in (cursor.description or [])] if getattr(cursor, "description", None) else []
                 cursor.close()
                 return pd.DataFrame(rows, columns=cols or None)
         except Exception as e:
-            breakpoint()
             print(f"Error executing SQL: {e}")
             raise
 

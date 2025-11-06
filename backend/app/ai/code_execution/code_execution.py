@@ -3,6 +3,7 @@ import sys
 import pandas as pd
 import numpy as np
 import datetime
+import json
 import uuid
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
@@ -80,6 +81,47 @@ class StreamingCodeExecutor:
             if isinstance(obj, np.ndarray):
                 return obj.tolist()
             return obj
+        def make_hashable(value: Any) -> Any:
+            """
+            Convert potentially unhashable values (dict, list, set, ndarray, Timestamp)
+            into a hashable representation so nunique/value_counts won't crash.
+            """
+            try:
+                # Fast path: already hashable
+                hash(value)
+                return value
+            except Exception:
+                pass
+            # Normalize common container types
+            if isinstance(value, (pd.Timestamp, datetime.date)):
+                return pd.Timestamp(value).isoformat()
+            if isinstance(value, np.ndarray):
+                return tuple(value.tolist())
+            if isinstance(value, (list, tuple)):
+                try:
+                    return tuple(make_hashable(v) for v in value)
+                except Exception:
+                    return tuple(str(v) for v in value)
+            if isinstance(value, set):
+                try:
+                    return tuple(sorted(make_hashable(v) for v in value))
+                except Exception:
+                    return tuple(sorted(str(v) for v in value))
+            if isinstance(value, dict):
+                try:
+                    # Stable, readable representation
+                    return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+                except Exception:
+                    # Fallback to tuple of items
+                    try:
+                        return tuple(sorted((str(k), str(v)) for k, v in value.items()))
+                    except Exception:
+                        return str(value)
+            # Final fallback
+            try:
+                return str(value)
+            except Exception:
+                return None
 
         info_dict = {
             "total_rows": int(len(df)),
@@ -88,18 +130,35 @@ class StreamingCodeExecutor:
             "memory_usage": int(df.memory_usage(deep=True).sum()),
             "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().items()},
         }
-        desc_dict = df.describe(include='all').to_dict()
+        # describe(include='all') may fail on unhashable objects (e.g., dict cells). Guard it.
+        try:
+            desc_dict = df.describe(include='all').to_dict()
+        except Exception:
+            desc_dict = {}
         for column in df.columns:
             column_info = {
                 "dtype": str(df[column].dtype),
                 "non_null_count": int(df[column].count()),
                 "memory_usage": int(df[column].memory_usage(deep=True)),
                 "null_count": int(df[column].isna().sum()),
-                "unique_count": int(df[column].nunique()),
+                # nunique may fail for unhashable objects; fall back to a hashable projection
+                "unique_count": 0,
             }
+            try:
+                column_info["unique_count"] = int(df[column].nunique(dropna=True))
+            except Exception:
+                try:
+                    projected = df[column].map(make_hashable)
+                    column_info["unique_count"] = int(projected.nunique(dropna=True))
+                except Exception:
+                    column_info["unique_count"] = 0
             if column in desc_dict:
-                stats = {stat: convert_to_native(value) for stat, value in desc_dict[column].items() if pd.notna(value)}
-                column_info.update(stats)
+                try:
+                    stats = {stat: convert_to_native(value) for stat, value in desc_dict[column].items() if pd.notna(value)}
+                    column_info.update(stats)
+                except Exception:
+                    # Best-effort; skip stats if conversion fails
+                    pass
             info_dict["column_info"][column] = column_info
         return info_dict
 
