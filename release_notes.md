@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.221 (November 6, 2025)
+- Introduced a new create_data tool that is more robust, reliable and accurate data generation
+- Improved code generation
+- Improved chart visualizations
+- Introduced Apache Pinot integration
+
+
 ## Version 0.0.220 (November 4, 2025)
 - Added BigQuery support for `maximum_bytes_billed` for cost guardrails and support for `use_query_cache`
 - Improved main AI loop with additional observations from sub-agent create data (code, errors, etc)

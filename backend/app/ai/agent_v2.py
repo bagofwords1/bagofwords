@@ -793,6 +793,20 @@ class AgentV2:
                             }
                             continue  # Continue to next iteration with error observation
 
+                        # Reset artifact state for tools that can create/update steps/visualizations
+                        try:
+                            if tool_name in [
+                                "create_widget",
+                                "create_data",
+                                "create_and_execute_code",
+                            ]:
+                                self.current_query = None
+                                self.current_step = None
+                                self.current_step_id = None
+                                self.current_visualization = None
+                        except Exception:
+                            pass
+
                         # Start tool execution tracking
                         tool_execution = await self.project_manager.start_tool_execution_from_models(
                             self.db,
@@ -938,6 +952,11 @@ class AgentV2:
 
                         # Capture post-tool context snapshot
                         await self.context_hub.refresh_warm()
+                        # Refresh static sections (schemas with stats) so post_tool snapshot reflects latest table usage
+                        try:
+                            await self.context_hub.build_context()
+                        except Exception:
+                            pass
                         post_view = self.context_hub.get_view()
                         post_snap = await self.project_manager.save_context_snapshot(
                             self.db,
@@ -1299,7 +1318,7 @@ class AgentV2:
         stage = payload.get("stage")
         
         try:
-            if tool_name in ["create_data_model", "create_widget", "create_data"]:
+            if tool_name in ["create_widget", "create_data"]:
                 if stage == "data_model_type_determined":
                     # Create Query, Step and Visualization early when we know the type
                     data_model_type = payload.get("data_model_type")
@@ -1587,26 +1606,7 @@ class AgentV2:
             return  # Don't process failed tool executions
             
         try:
-            if tool_name == "create_data_model":
-                # Widget/step creation already handled in streaming
-                # Refresh current_step from database to get updated data_model
-                if self.current_widget and self.current_step:
-                    await self.db.refresh(self.current_step)
-                    observation["widget_id"] = str(self.current_widget.id)
-                    observation["step_id"] = str(self.current_step.id)
-                    observation["data_model"] = getattr(self.current_step, "data_model", {})
-            
-            elif tool_name == "modify_data_model":
-                # Update current step's data_model using tool_output
-                if tool_output:
-                    data_model = tool_output.get("data_model", {})
-                    
-                    if data_model and self.current_step:
-                        await self.project_manager.update_step_with_data_model(
-                            self.db, self.current_step, data_model
-                        )
-                    
-            elif tool_name in ["create_and_execute_code", "create_widget", "create_data"]:
+            if tool_name in ["create_and_execute_code", "create_widget", "create_data"]:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return
@@ -1663,6 +1663,27 @@ class AgentV2:
                             user_id=str(getattr(self.head_completion, "user_id", None)) if hasattr(self.head_completion, "user_id") and self.head_completion.user_id else None,
                             user_role=None
                         )
+                    except Exception:
+                        pass
+
+                    # Fallback for create_data: if no columns in data_model, emit usage from tool_input.tables_by_source
+                    try:
+                        if tool_name == "create_data":
+                            dm = getattr(step_obj, "data_model", {}) or {}
+                            cols = dm.get("columns") if isinstance(dm, dict) else None
+                            has_columns = isinstance(cols, list) and len(cols) > 0
+                            if not has_columns and isinstance(tool_input, dict):
+                                tbs = tool_input.get("tables_by_source")
+                                if tbs:
+                                    await self.project_manager.emit_table_usage_from_tables_by_source(
+                                        db=self.db,
+                                        report=self.report,
+                                        step=step_obj,
+                                        tables_by_source=tbs,
+                                        user_id=str(getattr(self.head_completion, "user_id", None)) if hasattr(self.head_completion, "user_id") and self.head_completion.user_id else None,
+                                        user_role=None,
+                                        source_type="sql",
+                                    )
                     except Exception:
                         pass
 

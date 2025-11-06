@@ -4,6 +4,7 @@ from app.models.llm_model import LLMModel
 import re
 import json
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+from app.ai.schemas.codegen import CodeGenContext
 
 class Coder:
     def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder=None, context_hub=None) -> None:
@@ -40,6 +41,14 @@ class Coder:
         instructions_context = ""
         mentions_context = "<mentions>No mentions for this turn</mentions>"
         entities_context = ""
+        # Defaults for additional context
+        resources_context = ""
+        files_context = ""
+        messages_context = ""
+        platform = None
+        past_observations = []
+        last_observation = None
+        history_summary = ""
         if self.context_hub is not None:
             try:
                 view = self.context_hub.get_view()
@@ -49,10 +58,42 @@ class Coder:
                 mentions_context = mentions_obj.render() if mentions_obj else mentions_context
                 entities_obj = getattr(view.warm, "entities", None)
                 entities_context = entities_obj.render() if entities_obj else entities_context
+                # Additional context sections aligned with create_data/create_widget
+                resources_obj = getattr(view.static, "resources", None)
+                resources_context = resources_obj.render() if resources_obj else ""
+                files_obj = getattr(view.static, "files", None)
+                files_context = files_obj.render() if files_obj else ""
+                messages_obj = getattr(view.warm, "messages", None)
+                messages_context = messages_obj.render() if messages_obj else ""
+                try:
+                    platform = (getattr(view, "meta", {}) or {}).get("external_platform")
+                except Exception:
+                    platform = None
+                # Observations and history
+                past_observations = []
+                last_observation = None
+                try:
+                    if getattr(self.context_hub, "observation_builder", None):
+                        past_observations = self.context_hub.observation_builder.tool_observations or []
+                        last_observation = self.context_hub.observation_builder.get_latest_observation()
+                except Exception:
+                    past_observations = []
+                    last_observation = None
+                try:
+                    history_summary = await self.context_hub.get_history_summary()
+                except Exception:
+                    history_summary = ""
             except Exception:
                 instructions_context = ""
                 mentions_context = mentions_context
                 entities_context = entities_context
+                resources_context = ""
+                files_context = ""
+                messages_context = ""
+                platform = None
+                past_observations = []
+                last_observation = None
+                history_summary = ""
         elif self.instruction_context_builder is not None:
             # Legacy compatibility
             if hasattr(self.instruction_context_builder, "get_instructions_context"):
@@ -63,6 +104,14 @@ class Coder:
                     instructions_context = inst_section.render()
                 except Exception:
                     instructions_context = ""
+            # Legacy fallbacks when ContextHub is not available
+            resources_context = ""
+            files_context = ""
+            messages_context = "\n".join(previous_messages) if isinstance(previous_messages, list) else str(previous_messages or "")
+            platform = None
+            past_observations = []
+            last_observation = None
+            history_summary = ""
 
         # Build a section with existing widget data if applicable
         modify_existing_widget_text = ""
@@ -265,6 +314,7 @@ class Coder:
         self,
         data_model,  # kept for signature compatibility; ignored
         prompt,
+        interpreted_prompt,
         schemas,
         ds_clients,
         excel_files,
@@ -275,15 +325,143 @@ class Coder:
         prev_data_model_code_pair=None,
         sigkill_event=None,
         code_context_builder=None,
+        context: CodeGenContext | None = None,
     ):
         # Optional early exit if a cancellation was requested before generation
         if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
             return "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame()"
+        # If a typed context is provided, use it exclusively (no ContextHub reads)
+        if context is not None:
+            instructions_context = context.instructions_context or ""
+            mentions_context = context.mentions_context or "<mentions>No mentions for this turn</mentions>"
+            entities_context = context.entities_context or ""
+            messages_context = context.messages_context or ""
+            resources_context = context.resources_context or ""
+            files_context = context.files_context or ""
+            platform = context.platform
+            history_summary = context.history_summary or ""
+            past_observations = context.past_observations or []
+            last_observation = context.last_observation
+            # Override schemas/prompt with curated ones from context
+            schemas = context.schemas_excerpt or schemas
+            prompt = context.interpreted_prompt or context.user_prompt or prompt
+            data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+            text = f"""
+            You are a highly skilled data engineer and data scientist.
+
+            Your goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
+            that produces a Pandas DataFrame grounded ONLY in the provided schemas and resources.
+
+            **General Organization Instructions**:
+            **VERY IMPORTANT, CREATED BY THE USER, MUST BE USED AND CONSIDERED**:
+            {instructions_context}
+
+            **Context and Inputs**:
+            - User Prompt:
+            <user_prompt>
+            {prompt}
+            </user_prompt>
+            
+            - Interpreted Prompt:
+            <interpreted_prompt>
+            {interpreted_prompt}
+            </interpreted_prompt>
+
+            - Provided Schemas (Ground Truth):
+            <ground_truth_schemas>
+            {schemas}
+            </ground_truth_schemas>
+
+            - Resources:
+            {resources_context}
+
+            - Files:
+            {files_context}
+
+            - Mentions:
+            {mentions_context}
+
+            - Entities:
+            {entities_context}
+
+            - Messages (recent):
+            <messages>
+            {messages_context}
+            </messages>
+
+            - History Summary:
+            {history_summary}
+
+            - Past Observations:
+            <past_observations>{json.dumps(past_observations) if past_observations else '[]'}</past_observations>
+
+            - Last Observation:
+            <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
+
+            **Guidelines and Requirements**:
+
+            1. **Function Signature**: Implement exactly:
+               `def generate_df(ds_clients, excel_files):`
+               - The function should return the main dataframe that answers the user prompt.
+
+            2. **Data Source Usage**:
+               - Use `ds_clients[data_source_name].execute_query("SOME QUERY")` to query non-Excel data sources.
+               - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
+               {data_preview_instruction}
+               - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
+               - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)`.
+                 * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
+                 * Use prints to help validate indices and positions.
+               - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
+               - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
+               - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
+
+            3. **Schema Adherence**:
+               - Use only columns and relationships that exist in the provided schemas.
+               - Do NOT invent columns that do not exist or cannot be derived.
+
+            4. **Handling Previous Code and Errors**:
+               - If `retries` ≥ 1, review the code_and_error_messages:
+                 * Understand the error.
+                 * If it's related to a missing column or invalid query, fix it by removing or correcting that column/query.
+               - If `retries` ≥ 2 and still failing due to a specific column or measure, remove that problematic part and return a reduced but valid DataFrame.
+               - Ensure you produce some output even if reduced.
+
+            5. **Sorting and Final Output**:
+               - If not mentioned by user, sort by the most relevant key column.
+
+            6. **Data Formatting**:
+               - Ensure the DataFrame is two-dimensional and handle missing values.
+
+            7. **No Extra Formatting**:
+               - Return ONLY the Python function code for `generate_df`.
+
+            8. **End of code**:
+               - Before returning the df — print("Final df Info:", df.info())
+               {data_preview_instruction}
+               - Return the df.
+
+            Now produce ONLY the Python function code as described. No markdown or extra text.
+            """
+            result = self.llm.inference(text)
+            result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
+            result = re.sub(r'(?m)^\s*```\s*$', '', result)
+            result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
+            result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
+            return result
 
         # Resolve instructions from context hub when available; otherwise fallback to legacy builder
         instructions_context = ""
         mentions_context = "<mentions>No mentions for this turn</mentions>"
         entities_context = ""
+        # Defaults for additional context to avoid undefined variables
+        resources_context = ""
+        files_context = ""
+        messages_context = ""
+        platform = None
+        past_observations = []
+        last_observation = None
+        history_summary = ""
         if self.context_hub is not None:
             try:
                 view = self.context_hub.get_view()
@@ -293,10 +471,40 @@ class Coder:
                 mentions_context = mentions_obj.render() if mentions_obj else mentions_context
                 entities_obj = getattr(view.warm, "entities", None)
                 entities_context = entities_obj.render() if entities_obj else entities_context
+                # Additional sections (resources/files/messages/platform)
+                resources_obj = getattr(view.static, "resources", None)
+                resources_context = resources_obj.render() if resources_obj else ""
+                files_obj = getattr(view.static, "files", None)
+                files_context = files_obj.render() if files_obj else ""
+                messages_obj = getattr(view.warm, "messages", None)
+                messages_context = messages_obj.render() if messages_obj else ""
+                try:
+                    platform = (getattr(view, "meta", {}) or {}).get("external_platform")
+                except Exception:
+                    platform = None
+                # Observations and history summary
+                try:
+                    if getattr(self.context_hub, "observation_builder", None):
+                        past_observations = self.context_hub.observation_builder.tool_observations or []
+                        last_observation = self.context_hub.observation_builder.get_latest_observation()
+                except Exception:
+                    past_observations = []
+                    last_observation = None
+                try:
+                    history_summary = await self.context_hub.get_history_summary()
+                except Exception:
+                    history_summary = ""
             except Exception:
                 instructions_context = ""
                 mentions_context = mentions_context
                 entities_context = entities_context
+                resources_context = ""
+                files_context = ""
+                messages_context = ""
+                platform = None
+                past_observations = []
+                last_observation = None
+                history_summary = ""
         elif self.instruction_context_builder is not None:
             # Legacy compatibility
             if hasattr(self.instruction_context_builder, "get_instructions_context"):
@@ -307,8 +515,16 @@ class Coder:
                     instructions_context = inst_section.render()
                 except Exception:
                     instructions_context = ""
+            # Fallbacks when ContextHub is not present
+            resources_context = ""
+            files_context = ""
+            messages_context = "\n".join(previous_messages) if isinstance(previous_messages, list) else str(previous_messages or "")
+            platform = None
+            past_observations = []
+            last_observation = None
+            history_summary = ""
 
-        # Prepare data source descriptions
+        # Prepare data source descriptions (kept for compatibility)
         data_source_descriptions = []
         for data_source_name, client in ds_clients.items():
             data_source_descriptions.append(
@@ -327,6 +543,7 @@ class Coder:
 
         # Reuse data-model-based retrieval with an empty model for code-first flows
         if code_context_builder:
+            
             try:
                 similar_successful_code_snippets = await code_context_builder.get_top_successful_snippets_for_data_model({})
             except Exception:
@@ -363,10 +580,24 @@ class Coder:
         {prompt}
         </user_prompt>
 
+        - Platform:
+        <platform>{platform}</platform>
+
+        - Interpreted Prompt (if applicable):
+        <interpreted_prompt>
+        {prompt}
+        </interpreted_prompt>
+
         - Provided Schemas (Ground Truth):
         <ground_truth_schemas>
         {schemas}
         </ground_truth_schemas>
+
+        - Resources:
+        {resources_context}
+
+        - Files:
+        {files_context}
 
         - Mentions:
         {mentions_context}
@@ -374,15 +605,19 @@ class Coder:
         - Entities:
         {entities_context}
 
-        - Previous Messages:
-        <previous_messages>
-        {previous_messages}
-        </previous_messages>
+        - Messages (recent):
+        <messages>
+        {messages_context}
+        </messages>
 
-        - Memories:
-        <memories>
-        {memories}
-        </memories>
+        - History Summary:
+        {history_summary}
+
+        - Past Observations:
+        <past_observations>{json.dumps(past_observations) if past_observations else '[]'}</past_observations>
+
+        - Last Observation:
+        <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
 
         - Data Sources and Clients:
         Each data source may be SQL, document DB, service API, or Excel.
@@ -412,11 +647,6 @@ class Coder:
         {similar_successful_code_snippets}
         </similar_successful_code_snippets>
 
-        - Similar failed code snippets (for reference on what is not working):
-        <similar_failed_code_snippets>
-        {similar_failed_code_snippets}
-        </similar_failed_code_snippets>
-
         **Guidelines and Requirements**:
 
         1. **Function Signature**: Implement exactly:
@@ -430,8 +660,8 @@ class Coder:
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
            - For Excel files, use `pd.read_excel(excel_files[INDEX].path, sheet_name=SHEET_INDEX, header=None)` to read data.
              * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
-             * Print the dict/df preview to help the LLM ensure indices and positions are correct.
-           - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Preview:", ...)
+             * Use prints to help validate indices and positions.
+           - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
            - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
            - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
@@ -449,7 +679,7 @@ class Coder:
            - Ensure you produce some output even if reduced. Not returning anything is worse than returning partial data.
 
         5. **Sorting and Final Output**:
-           - Sort the DataFrame by the most relevant key column.
+           - If not mentioned by user, sort the DataFrame by the most relevant key column.
              * If it's a time or date column, sort descending.
              * If it's a count or sum, also sort descending.
              * Otherwise, sort ascending.
@@ -464,7 +694,8 @@ class Coder:
            - Do not wrap code in triple backticks or any markup.
         
         8. **End of code**:
-           - At the end of the function, before returning the df — print the df preview last time using: print("Final df Preview:", ...)
+           - At the end of the function, before returning the df — print("Final df Info:", df.info())
+           {data_preview_instruction}
            - Return the df as the final output. Make sure the df name is the right one and reflects the main dataframe.
 
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.

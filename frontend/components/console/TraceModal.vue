@@ -234,7 +234,6 @@
 import RenderTable from '../RenderTable.vue'
 import ContextBrowser from './ContextBrowser.vue'
 import GenericTool from '../tools/GenericTool.vue'
-import CreateDataModelTool from '../tools/CreateDataModelTool.vue'
 import ExecuteCodeTool from '../tools/ExecuteCodeTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
 import Spinner from '../Spinner.vue'
@@ -526,8 +525,6 @@ const hasAnyCompletionScores = (completion: any) => {
 // Tool component helpers (matching index.vue)
 function getToolComponent(toolName: string) {
     switch (toolName) {
-        case 'create_data_model':
-            return CreateDataModelTool
         case 'create_widget':
             return CreateWidgetTool
         case 'create_and_execute_code':

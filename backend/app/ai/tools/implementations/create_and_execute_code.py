@@ -17,7 +17,7 @@ class CreateAndExecuteCodeTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="create_and_execute_code",
-            description="Generate code from the current step's data model and execute it, returning formatted results. The tool has a dependency on the create_data_model tool.",
+            description="Generate code from the current step's data model and execute it, returning formatted results.",
             category="action",
             version="1.0.0",
             input_schema=CreateAndExecuteCodeInput.model_json_schema(),

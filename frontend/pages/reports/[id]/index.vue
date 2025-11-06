@@ -325,7 +325,6 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, watch, computed } from 'vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
-import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
@@ -493,8 +492,7 @@ function hasCompletedContent(block: CompletionBlock): boolean {
 
 function getToolComponent(toolName: string) {
 	switch (toolName) {
-		case 'create_data_model':
-			return CreateDataModelTool
+    // 'create_data_model' removed
 		case 'create_widget':
 			return CreateWidgetTool
     case 'create_data':
@@ -952,8 +950,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						;(lastBlock.tool_execution as any).progress_stage = payload.payload.stage || null
 					}
 
-					// Progressive data model updates for create_data_model/create_widget tools
-					if ((payload.tool_name === 'create_data_model' || payload.tool_name === 'create_widget') && payload.payload) {
+          // Progressive data model updates for create_widget tool
+          if ((payload.tool_name === 'create_widget') && payload.payload) {
 						const p = payload.payload
 						// Ensure result_json.data_model structure exists
 						lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}

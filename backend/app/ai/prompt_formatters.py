@@ -1,5 +1,111 @@
 from pydantic import BaseModel
 from typing import Optional
+from app.ai.schemas.codegen import CodeGenContext
+
+
+async def build_codegen_context(
+    *,
+    runtime_ctx: dict,
+    user_prompt: str,
+    interpreted_prompt: str | None,
+    schemas_excerpt: str,
+) -> CodeGenContext:
+    """
+    Build a CodeGenContext from runtime_ctx (ContextHub/ContextView) with safe fallbacks.
+    """
+    context_view = runtime_ctx.get("context_view") if isinstance(runtime_ctx, dict) else None
+    context_hub = runtime_ctx.get("context_hub") if isinstance(runtime_ctx, dict) else None
+
+    # Defaults
+    instructions_context = ""
+    mentions_context = "<mentions>No mentions for this turn</mentions>"
+    entities_context = ""
+    messages_context = ""
+    resources_context = ""
+    files_context = ""
+    platform = None
+    history_summary = ""
+    past_observations = []
+    last_observation = None
+
+    try:
+        # Static sections
+        inst_obj = getattr(getattr(context_view, "static", None), "instructions", None) if context_view else None
+        if inst_obj:
+            try:
+                instructions_context = inst_obj.render()
+            except Exception:
+                instructions_context = ""
+        mentions_obj = getattr(getattr(context_view, "static", None), "mentions", None) if context_view else None
+        if mentions_obj:
+            try:
+                mentions_context = mentions_obj.render()
+            except Exception:
+                mentions_context = mentions_context
+        resources_obj = getattr(getattr(context_view, "static", None), "resources", None) if context_view else None
+        if resources_obj:
+            try:
+                resources_context = resources_obj.render()
+            except Exception:
+                resources_context = ""
+        files_obj = getattr(getattr(context_view, "static", None), "files", None) if context_view else None
+        if files_obj:
+            try:
+                files_context = files_obj.render()
+            except Exception:
+                files_context = ""
+
+        # Warm sections
+        messages_obj = getattr(getattr(context_view, "warm", None), "messages", None) if context_view else None
+        if messages_obj:
+            try:
+                messages_context = messages_obj.render()
+            except Exception:
+                messages_context = ""
+        entities_obj = getattr(getattr(context_view, "warm", None), "entities", None) if context_view else None
+        if entities_obj:
+            try:
+                entities_context = entities_obj.render()
+            except Exception:
+                entities_context = ""
+
+        # Platform meta
+        try:
+            platform = (getattr(context_view, "meta", {}) or {}).get("external_platform") if context_view else None
+        except Exception:
+            platform = None
+
+        # Observations/history via ContextHub
+        try:
+            if context_hub and getattr(context_hub, "observation_builder", None):
+                past_observations = context_hub.observation_builder.tool_observations or []
+                last_observation = context_hub.observation_builder.get_latest_observation()
+        except Exception:
+            past_observations = []
+            last_observation = None
+        try:
+            if context_hub and hasattr(context_hub, "get_history_summary"):
+                history_summary = await context_hub.get_history_summary()
+        except Exception:
+            history_summary = ""
+    except Exception:
+        pass
+
+    return CodeGenContext(
+        user_prompt=user_prompt or (interpreted_prompt or ""),
+        interpreted_prompt=interpreted_prompt or None,
+        schemas_excerpt=schemas_excerpt or "",
+        instructions_context=instructions_context,
+        mentions_context=mentions_context,
+        entities_context=entities_context,
+        messages_context=messages_context,
+        resources_context=resources_context,
+        files_context=files_context,
+        platform=platform,
+        history_summary=history_summary,
+        past_observations=past_observations,
+        last_observation=last_observation,
+    )
 
 
 class TableColumn(BaseModel):

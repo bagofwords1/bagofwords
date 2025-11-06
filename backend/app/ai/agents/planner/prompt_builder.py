@@ -185,7 +185,7 @@ EXPECTED JSON OUTPUT (strict):
             return 0
         
         # Simple heuristic: count research tool mentions
-        research_keywords = ['read_file', 'answer_question', 'research']
+        research_keywords = ['answer_question', 'research']
         count = 0
         for keyword in research_keywords:
             count += history_summary.lower().count(keyword)

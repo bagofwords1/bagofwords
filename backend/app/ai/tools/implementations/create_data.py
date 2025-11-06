@@ -18,6 +18,14 @@ from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.llm import LLM
 from app.ai.tools.schemas import DataModel
+from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+from app.ai.prompt_formatters import build_codegen_context
+
+
+ALLOWED_VIZ_TYPES = {
+    "table","bar_chart","line_chart","pie_chart","area_chart","count",
+    "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
+}
 
 
 class CreateDataTool(Tool):
@@ -63,10 +71,7 @@ class CreateDataTool(Tool):
         llm = LLM(runtime_ctx.get("model"))
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
-        allowed_types = [
-            "table","bar_chart","line_chart","pie_chart","area_chart","count",
-            "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
-        ]
+        allowed_types = list(ALLOWED_VIZ_TYPES)
 
         prompt = (
             "You are a visualization planner. Based on the data profile, choose the best visualization "
@@ -139,9 +144,16 @@ class CreateDataTool(Tool):
             chart_type = candidate.get("type")
             if chart_type and chart_type != "table":
                 await asyncio.sleep(0)  # keep cooperative
+                payload = {
+                    "stage": "series_configured",
+                    "series": candidate.get("series") or [],
+                    "chart_type": chart_type,
+                }
+                if view_options:
+                    payload["view"] = {"type": chart_type, "options": view_options}
                 yield_event = ToolProgressEvent(
                     type="tool.progress",
-                    payload={"stage": "series_configured", "series": candidate.get("series") or [], "chart_type": chart_type},
+                    payload=payload,
                 )
                 # Use synchronous yield pattern by returning a marker to the caller
                 return {"data_model": candidate, "progress_event": yield_event, "view_options": view_options}
@@ -232,10 +244,7 @@ class CreateDataTool(Tool):
         # Early: signal intended artifact type and request step creation before code-gen
         try:
             # Single signal: declare type and pass the intended query title
-            allowed_types = {
-                "table","bar_chart","line_chart","pie_chart","area_chart","count",
-                "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
-            }
+            allowed_types = ALLOWED_VIZ_TYPES
             requested_type = None
             try:
                 requested_type = str((tool_input or {}).get("visualization_type") or "").strip()
@@ -306,7 +315,6 @@ class CreateDataTool(Tool):
         mentions_context = _mentions_section_obj.render() if _mentions_section_obj else "<mentions>No mentions for this turn</mentions>"
         _entities_section_obj = getattr(context_view.warm, "entities", None) if context_view else None
         entities_context = _entities_section_obj.render() if _entities_section_obj else ""
-        platform = (getattr(context_view, "meta", {}) or {}).get("external_platform") if context_view else None
 
         # Past observations and history summary
         past_observations = []
@@ -331,8 +339,16 @@ class CreateDataTool(Tool):
         coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, context_hub=context_hub)
         streamer = StreamingCodeExecutor(organization_settings=organization_settings, logger=None, context_hub=context_hub)
 
-        # Combine schemas with files for additional grounding
-        schemas = (schemas_excerpt or "") + ("\n\n" + files_context if files_context else "")
+        # Build typed context via helper
+        codegen_context = await build_codegen_context(
+            runtime_ctx=runtime_ctx,
+            user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
+            interpreted_prompt=(data.interpreted_prompt or None),
+            schemas_excerpt=(schemas_excerpt or ""),
+        )
+
+        # Combine schemas with files for additional grounding (keep previous semantics)
+        schemas = (codegen_context.schemas_excerpt or "") + ("\n\n" + codegen_context.files_context if codegen_context.files_context else "")
 
         code_errors = []
         generated_code = None
@@ -343,16 +359,13 @@ class CreateDataTool(Tool):
         async def _validator_fn(code, data_model_unused):
             return await coder.validate_code(code, data_model_unused)
 
-        async for e in streamer.generate_and_execute_stream(
-            data_model={},
-            prompt=data.interpreted_prompt or data.user_prompt,
-            schemas=schemas,
+        async for e in streamer.generate_and_execute_stream_v2(
+            request=CodeGenRequest(context=codegen_context, retries=2),
             ds_clients=runtime_ctx.get("ds_clients", {}),
             excel_files=runtime_ctx.get("excel_files", []),
-            code_context_builder=(getattr(context_hub, "code_builder", None) if context_hub else None),
+            code_context_builder=None,
             code_generator_fn=coder.generate_code,
             validator_fn=_validator_fn,
-            max_retries=2,
             sigkill_event=runtime_ctx.get("sigkill_event"),
         ):
             if e["type"] == "progress":
@@ -424,7 +437,7 @@ class CreateDataTool(Tool):
                 inference = await self._infer_visualization_model(
                     runtime_ctx=runtime_ctx,
                     user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
-                    messages_context=messages_context,
+                    messages_context=codegen_context.messages_context,
                     formatted=formatted,
                     allow_llm_see_data=allow_llm_see_data,
                 )
@@ -467,7 +480,7 @@ class CreateDataTool(Tool):
         }
         observation["data_model"] = final_dm
         if view_options:
-            observation["view_options"] = view_options
+            observation["view"] = {"type": final_dm.get("type"), "options": view_options}
         if current_step_id:
             observation["step_id"] = current_step_id
         yield ToolEndEvent(

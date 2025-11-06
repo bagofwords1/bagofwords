@@ -10,6 +10,7 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
+from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 
 class CodeExecutionManager:
     """
@@ -282,6 +283,141 @@ class StreamingCodeExecutor:
                 }
             else:
                 # Emit a final done event carrying the results instead of returning values
+                yield {
+                    "type": "done",
+                    "payload": {
+                        "df": exec_df,
+                        "code": final_code,
+                        "errors": code_and_error_messages,
+                        "execution_log": execution_log,
+                    },
+                }
+
+    async def generate_and_execute_stream_v2(
+        self,
+        *,
+        request: CodeGenRequest,
+        ds_clients: Dict,
+        excel_files: List,
+        code_context_builder: Optional['CodeContextBuilder'] = None,
+        code_generator_fn: Callable = None,
+        validator_fn: Optional[Callable] = None,
+        sigkill_event=None,
+    ):
+        """
+        V2: Typed context-based generator. Yields the same event shapes as v1.
+        """
+        retries = 0
+        max_retries = int(getattr(request, "retries", 2) or 2)
+        code_and_error_messages: List[Tuple[str, str]] = []
+        final_code = ""
+        exec_df = pd.DataFrame()
+        execution_log = ""
+        executed_successfully = False
+        ctx: CodeGenContext = request.context
+        # Derive prompt/schemas for legacy generator signature
+        derived_prompt = ctx.user_prompt
+        derived_interpreted_prompt = ctx.interpreted_prompt
+        derived_schemas = ctx.schemas_excerpt
+
+        while retries < max_retries:
+            if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                break
+            yield {"type": "progress", "payload": {"stage": "generating_code", "attempt": retries}}
+            try:
+                if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                    break
+                # Call code generator with typed context and legacy params populated from context
+                final_code = await code_generator_fn(
+                    data_model={},
+                    prompt=derived_prompt,
+                    interpreted_prompt=derived_interpreted_prompt,
+                    schemas=derived_schemas,
+                    ds_clients=ds_clients,
+                    excel_files=excel_files,
+                    code_and_error_messages=code_and_error_messages,
+                    memories="",
+                    previous_messages="",
+                    retries=retries,
+                    prev_data_model_code_pair=None,
+                    sigkill_event=sigkill_event,
+                    code_context_builder=None,
+                    context=ctx,
+                )
+                yield {"type": "progress", "payload": {"stage": "generated_code", "attempt": retries}}
+            except Exception as e:
+                msg = f"Code generation error: {str(e)}"
+                code_and_error_messages.append((final_code, msg))
+                yield {"type": "stdout", "payload": msg}
+                retries += 1
+                if retries < max_retries:
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                continue
+
+            if validator_fn:
+                try:
+                    yield {"type": "progress", "payload": {"stage": "validating_code", "attempt": retries}}
+                    validation = await validator_fn(final_code, {})
+                    if not validation.get("valid", True):
+                        error_msg = validation.get('reasoning', 'Validation failed')
+                        yield {"type": "progress", "payload": {"stage": "validated_code", "valid": False, "error": error_msg, "attempt": retries}}
+                        code_and_error_messages.append((final_code, error_msg))
+                        retries += 1
+                        if retries < max_retries:
+                            yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
+                        continue
+                    else:
+                        yield {"type": "progress", "payload": {"stage": "validated_code", "valid": True, "attempt": retries}}
+                except Exception as e:
+                    msg = f"Validation error: {str(e)}"
+                    code_and_error_messages.append((final_code, msg))
+                    yield {"type": "stdout", "payload": msg}
+                    retries += 1
+                    if retries < max_retries:
+                        yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
+                    continue
+
+            yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
+            try:
+                if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                    break
+                exec_df, execution_log = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                executed_successfully = True
+                break
+            except Exception as e:
+                import traceback
+                trace = traceback.format_exc()
+                msg = f"Execution error: {str(e)}\n{trace}"
+                code_and_error_messages.append((final_code, msg))
+                yield {"type": "stdout", "payload": msg}
+                retries += 1
+                if retries < max_retries:
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                continue
+
+        if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+            yield {
+                "type": "done",
+                "payload": {
+                    "df": pd.DataFrame(),
+                    "code": final_code,
+                    "errors": code_and_error_messages,
+                    "execution_log": execution_log,
+                },
+            }
+            return
+        else:
+            if not executed_successfully and code_and_error_messages:
+                yield {
+                    "type": "done",
+                    "payload": {
+                        "df": None,
+                        "code": final_code,
+                        "errors": code_and_error_messages,
+                        "execution_log": execution_log,
+                    },
+                }
+            else:
                 yield {
                     "type": "done",
                     "payload": {
