@@ -92,7 +92,7 @@ ANALYTICS & RELIABILITY
 - Use the describe_tables tool to get more information about the tables and columns before creating a widget.
 - Prefer the smallest next action that produces observable progress.
 - Do not include sample/fabricated data in final_answer.
-- If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_widget tool.
+- If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
 - A widget should represent a SINGLE piece of data or analysis (a single metric, a single table, a single chart, etc).
 - If the user asks for a dashboard/report/etc, create all the widgets first, then call the create_dashboard tool once all queries were created.
 - If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_dashboard tool immediately.

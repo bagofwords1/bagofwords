@@ -1013,7 +1013,8 @@ class AgentV2:
                                 "tool_name": tool_name,
                                 "status": "success" if observation and not observation.get("error") else "error",
                                 "result_summary": observation.get("summary", "") if observation else "",
-                                "result_json": safe_result_json,
+                                # Include query_id for hydration in frontend previews when available
+                                "result_json": ({**safe_result_json, "query_id": (str(self.current_query.id) if getattr(self, "current_query", None) else None)} if isinstance(safe_result_json, dict) else safe_result_json),
                                 "duration_ms": tool_execution.duration_ms,
                                 "created_widget_id": created_widget_id,
                                 "created_step_id": created_step_id,
@@ -1298,13 +1299,18 @@ class AgentV2:
         stage = payload.get("stage")
         
         try:
-            if tool_name in ["create_data_model", "create_widget"]:
+            if tool_name in ["create_data_model", "create_widget", "create_data"]:
                 if stage == "data_model_type_determined":
                     # Create Query, Step and Visualization early when we know the type
                     data_model_type = payload.get("data_model_type")
-                    query_title = (tool_input and tool_input.get("widget_title")) or "Untitled Query"
+                    # Accept either payload.query_title (preferred) or tool_input.title/widget_title for backward-compat
+                    query_title = (
+                        (payload.get("query_title") if isinstance(payload, dict) else None)
+                        or (tool_input and (tool_input.get("title") or tool_input.get("widget_title")))
+                        or "Untitled Query"
+                    )
 
-                    if data_model_type and self.report:
+                    if data_model_type and self.report and not self.current_step:
                         # Create query (transitional service may still create a widget under the hood)
                         try:
                             self.current_query = await self.project_manager.create_query_v2(
@@ -1480,44 +1486,79 @@ class AgentV2:
                                 await self._emit_sse_event(SSEEvent(event="visualization.created", completion_id=str(self.system_completion.id), agent_execution_id=str(self.current_execution.id), seq=seq, data={"visualization_id": str(self.current_visualization.id), "query_id": str(self.current_query.id), "report_id": str(self.report.id), "step_id": str(self.current_step.id), "view": {"type": data_model.get("type")}}))
                         except Exception:
                             pass
+            elif tool_name == "create_data":
+                # Code-first path: create query/step/visualization early so outputs can be persisted
+                if stage in ["generated_code", "executing_code"]:
+                    try:
+                        query_title = (tool_input and (tool_input.get("title") or tool_input.get("widget_title"))) or "Untitled Query"
+                        if not self.current_step and self.report:
+                            # Create query and step with a default table view
+                            try:
+                                self.current_query = await self.project_manager.create_query_v2(
+                                    self.db, self.report, query_title
+                                )
+                            except Exception:
+                                self.current_query = None
 
-                    if data_model and self.current_step:
-                        # Update step with final data_model
-                        await self.project_manager.update_step_with_data_model(
-                            self.db, self.current_step, data_model
-                        )
-                        
-                        # Emit data model completion event to UI
-                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event(SSEEvent(
-                            event="data_model.completed",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=seq,
-                            data={
-                                "query_id": str(self.current_query.id) if self.current_query else None,
-                                "step_id": str(self.current_step.id),
-                                "data_model": data_model,
-                            }
-                        ))
-                        # Also emit a consolidated artifact snapshot delta
-                        try:
-                            change = ArtifactChangeSchema(
-                                type="step",
-                                step_id=str(self.current_step.id),
-                                partial=False,
-                                changed_fields=["data_model"],
-                                fields={"data_model": data_model},
+                            self.current_step = await self.project_manager.create_step_for_query(
+                                self.db,
+                                self.current_query,
+                                query_title,
+                                "chart",
+                                {"type": "table", "columns": [], "series": []},
                             )
-                            await self._emit_sse_event(SSEEvent(
-                                event="block.delta.artifact",
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq,
-                                data={"change": change.model_dump()}
-                            ))
-                        except Exception:
-                            pass
+                            self.current_step_id = str(self.current_step.id)
+                            await self.project_manager.set_query_default_step_if_empty(self.db, self.current_query, self.current_step_id)
+
+                            # Create a draft visualization with table view
+                            try:
+                                self.current_visualization = await self.project_manager.create_visualization_v2(
+                                    self.db,
+                                    str(self.report.id),
+                                    str(self.current_query.id),
+                                    query_title,
+                                    view={"type": "table"},
+                                    status="draft",
+                                )
+                            except Exception:
+                                self.current_visualization = None
+
+                            # Emit creation events
+                            try:
+                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="query.created",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={
+                                        "query_id": str(self.current_query.id) if self.current_query else None,
+                                        "report_id": str(self.report.id),
+                                        "title": query_title,
+                                    }
+                                ))
+                            except Exception:
+                                pass
+                            try:
+                                if self.current_visualization:
+                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="visualization.created",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={
+                                            "visualization_id": str(self.current_visualization.id),
+                                            "query_id": str(self.current_query.id) if self.current_query else None,
+                                            "report_id": str(self.report.id),
+                                            "step_id": str(self.current_step.id),
+                                            "view": {"type": "table"},
+                                        }
+                                    ))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
             
             elif tool_name == "create_dashboard":
                 # Stream-only handling: append blocks into active layout via ProjectManager
@@ -1565,13 +1606,13 @@ class AgentV2:
                             self.db, self.current_step, data_model
                         )
                     
-            elif tool_name in ["create_and_execute_code", "create_widget"]:
+            elif tool_name in ["create_and_execute_code", "create_widget", "create_data"]:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return
                 
                 code = tool_output.get("code", "")
-                widget_data = tool_output.get("widget_data", {})
+                widget_data = tool_output.get("widget_data", {}) or tool_output.get("data", {})
                 success = tool_output.get("success", False)
                 
                 step_obj = None

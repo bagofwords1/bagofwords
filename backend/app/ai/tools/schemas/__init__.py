@@ -4,6 +4,7 @@ from .create_data_model import CreateDataModelInput, CreateDataModelOutput, Data
 from .create_and_execute_code import CreateAndExecuteCodeInput, CreateAndExecuteCodeOutput
 from .modify_data_model import ModifyDataModelInput, ModifyDataModelOutput
 from .create_widget import CreateWidgetInput, CreateWidgetOutput
+from .create_data import CreateDataInput, CreateDataOutput
 from .create_dashboard import CreateDashboardInput, CreateDashboardOutput
 from .clarify import ClarifyInput, ClarifyOutput
 from .read_file import ReadFileInput, ReadFileOutput
@@ -29,6 +30,8 @@ __all__ = [
     "ModifyDataModelOutput", 
     "CreateWidgetInput",
     "CreateWidgetOutput",
+    "CreateDataInput",
+    "CreateDataOutput",
     "CreateDashboardInput",
     "CreateDashboardOutput",
     "ClarifyInput",

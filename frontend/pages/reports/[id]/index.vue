@@ -327,6 +327,7 @@ import { ref, nextTick, onMounted, onUnmounted, watch, computed } from 'vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
+import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
@@ -496,6 +497,8 @@ function getToolComponent(toolName: string) {
 			return CreateDataModelTool
 		case 'create_widget':
 			return CreateWidgetTool
+    case 'create_data':
+      return CreateDataTool
 			case 'describe_tables':
 				return DescribeTablesTool
 		case 'create_and_execute_code':
@@ -521,8 +524,9 @@ function shouldUseToolComponent(toolExecution: ToolCall): boolean {
 function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boolean {
 	if (!toolExecution) return false
 	
-	// Only show for create_and_execute_code or execute_code tools with success status
-	const showForTools = ['create_and_execute_code', 'execute_code', 'execute_sql']
+  // Only show for generic code-execution tools with success status.
+  // Tools with a specialized component (e.g., create_widget, create_data) handle their own preview.
+  const showForTools = ['create_and_execute_code', 'execute_code', 'execute_sql']
 	return showForTools.includes(toolExecution.tool_name) && 
 	       toolExecution.status === 'success' &&
 	       (toolExecution.created_widget || toolExecution.created_step)
