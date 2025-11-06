@@ -73,7 +73,6 @@ class PinotClient(DataSourceClient):
                 else:
                     cursor.execute(sql)
                 rows = cursor.fetchall()
-                breakpoint()
                 cols = [d[0] for d in (cursor.description or [])] if getattr(cursor, "description", None) else []
                 cursor.close()
                 return pd.DataFrame(rows, columns=cols or None)
@@ -154,6 +153,13 @@ class PinotClient(DataSourceClient):
             parts.append(f"controller={self.controller}")
         if self.query_options:
             parts.append(f"queryOptions={self.query_options}")
+        # Hint to guide LLMs and users toward chart-friendly outputs when columns are JSON/MAP
+        parts.append(
+            "JSON/MAP tip: extract scalars in SQL for readable output, e.g., "
+            "jsonExtractScalar(repo, '$.full_name') AS repo_full_name, "
+            "mapValue(props, 'count'), or jsonFormat(col) to stringify; "
+            "always alias to human-friendly names"
+        )
         return " | ".join(parts)
 
 

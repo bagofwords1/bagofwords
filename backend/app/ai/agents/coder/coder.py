@@ -253,6 +253,7 @@ class Coder:
              * Decide the correct INDEX and SHEET_INDEX based on prompt and data model.
              * Print the dict/df preview to help the LLM ensure indices and positions are correct.
            - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Preview:", {data_preview_instruction})
+           - Output schema contract: The final DataFrame must contain only primitives (str/int/float/bool/None). Never return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
            - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
            - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
@@ -378,6 +379,11 @@ class Coder:
             - Files:
             {files_context}
 
+            - Data Sources and Clients:
+            <data_sources_clients>
+            {context.data_sources_context or ""}
+            </data_sources_clients>
+
             - Mentions:
             {mentions_context}
 
@@ -413,6 +419,7 @@ class Coder:
                  * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
                  * Use prints to help validate indices and positions.
                - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
+               - Output schema contract: The final DataFrame must contain only primitives (str/int/float/bool/None). Never return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
                - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
                - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 
@@ -443,6 +450,7 @@ class Coder:
 
             Now produce ONLY the Python function code as described. No markdown or extra text.
             """
+            breakpoint()
             result = self.llm.inference(text)
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)
@@ -662,6 +670,7 @@ class Coder:
              * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
              * Use prints to help validate indices and positions.
            - After ANY operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
+           - Output schema contract: The final DataFrame must contain only primitives (str/int/float/bool/None). Never return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
            - Allow only read operations on the data sources. No insert/delete/add/update/put/drop.
            - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
 

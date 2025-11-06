@@ -8,6 +8,8 @@ class CodeGenContext(BaseModel):
 
     # Curated/filtered strings (already rendered for prompt inclusion)
     schemas_excerpt: str
+    # New: rendered descriptions of connected data sources/clients (LLM-ready text)
+    data_sources_context: str = ""
     instructions_context: str = ""
     mentions_context: str = "<mentions>No mentions for this turn</mentions>"
     entities_context: str = ""

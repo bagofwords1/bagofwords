@@ -27,6 +27,7 @@ async def build_codegen_context(
     history_summary = ""
     past_observations = []
     last_observation = None
+    data_sources_context = ""
 
     try:
         # Static sections
@@ -91,10 +92,29 @@ async def build_codegen_context(
     except Exception:
         pass
 
+    # Render data sources/clients descriptions if available in runtime context
+    try:
+        ds_clients = runtime_ctx.get("ds_clients") if isinstance(runtime_ctx, dict) else None
+        if isinstance(ds_clients, dict) and ds_clients:
+            lines = []
+            for name, client in ds_clients.items():
+                try:
+                    desc = getattr(client, "description", None)
+                    if callable(desc):
+                        # Some clients expose description as @property; getattr will yield value
+                        desc = desc  # already resolved
+                    lines.append(f"data_source_name: {name}\ndescription: {desc}")
+                except Exception:
+                    lines.append(f"data_source_name: {name}\ndescription: ")
+            data_sources_context = "\n".join(lines)
+    except Exception:
+        data_sources_context = ""
+
     return CodeGenContext(
         user_prompt=user_prompt or (interpreted_prompt or ""),
         interpreted_prompt=interpreted_prompt or None,
         schemas_excerpt=schemas_excerpt or "",
+        data_sources_context=data_sources_context,
         instructions_context=instructions_context,
         mentions_context=mentions_context,
         entities_context=entities_context,
