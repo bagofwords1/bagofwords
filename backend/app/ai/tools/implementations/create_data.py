@@ -1,4 +1,5 @@
 import json
+import asyncio
 from typing import AsyncIterator, Dict, Any, Type
 from pydantic import BaseModel
 
@@ -15,9 +16,138 @@ from app.ai.tools.schemas import (
 )
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.ai.llm import LLM
+from app.ai.tools.schemas import DataModel
 
 
 class CreateDataTool(Tool):
+    # --- Visualization inference (post-execution) ---------------------------------------------
+    @staticmethod
+    def _build_viz_profile(formatted: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
+        info = formatted.get("info", {}) if isinstance(formatted, dict) else {}
+        column_info = info.get("column_info") or {}
+        cols = []
+        for name, meta in (column_info.items() if isinstance(column_info, dict) else []):
+            cols.append({
+                "name": name,
+                "dtype": meta.get("dtype"),
+                "non_null_count": meta.get("non_null_count"),
+                "unique_count": meta.get("unique_count"),
+                "null_count": meta.get("null_count"),
+                "min": meta.get("min"),
+                "max": meta.get("max"),
+            })
+        profile: Dict[str, Any] = {
+            "row_count": info.get("total_rows"),
+            "column_count": info.get("total_columns"),
+            "columns": cols,
+        }
+        if allow_llm_see_data:
+            # Add a tiny head sample for better inference (privacy-aware)
+            profile["head_rows"] = (formatted.get("rows") or [])[:5]
+        return profile
+
+    async def _infer_visualization_model(
+        self,
+        runtime_ctx: Dict[str, Any],
+        user_prompt: str,
+        messages_context: str,
+        formatted: Dict[str, Any],
+        allow_llm_see_data: bool,
+    ) -> Dict[str, Any]:
+        """Ask a small LLM pass to pick visualization type and series from schema/stats (+sample).
+
+        Returns a minimal DataModel dict validated against schema: at least { type, series? }.
+        Fallback to {"type": "table", "series": []} on failure.
+        """
+        llm = LLM(runtime_ctx.get("model"))
+        profile = self._build_viz_profile(formatted, allow_llm_see_data)
+
+        allowed_types = [
+            "table","bar_chart","line_chart","pie_chart","area_chart","count",
+            "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
+        ]
+
+        prompt = (
+            "You are a visualization planner. Based on the data profile, choose the best visualization "
+            "type and construct a minimal series spec. Use ONLY the provided column names. Return JSON only.\n\n"
+            "Context messages (recent):\n" + (messages_context or "") + "\n\n"
+            "User prompt:\n" + (user_prompt or "") + "\n\n"
+            "Data profile (JSON):\n" + json.dumps(profile, ensure_ascii=False) + "\n\n"
+            "Return a compact JSON object with keys: type, series, view.\n"
+            "- type must be one of: " + ", ".join(allowed_types) + "\n"
+            "- series must match the chart type contract:\n"
+            "  * bar/line/area/pie/map: [{name, key, value}]\n"
+            "  * scatter: [{name, x, y}] (+ size optional)\n"
+            "  * heatmap: [{name, x, y, value}]\n"
+            "  * candlestick: [{name, open, close, low, high, key}]\n"
+            "  * treemap: [{name, id, parentId, value}]\n"
+            "  * radar_chart: [{name?, dimensions: [{axis, value}...]}]\n"
+            "- For table, return series: []\n"
+            "- Do not invent columns.\n"
+        )
+
+        try:
+            raw = llm.inference(prompt)
+        except Exception:
+            raw = None
+
+        candidate = {"type": "table", "series": []}
+        view_options: Dict[str, Any] | None = None
+        if raw:
+            try:
+                candidate_json = json.loads(raw)
+            except Exception:
+                candidate_json = None
+            if isinstance(candidate_json, dict):
+                try:
+                    dm = DataModel(**{k: v for k, v in candidate_json.items() if k in {"type", "series", "group_by", "sort", "limit"}})
+                    candidate = dm.model_dump()
+                except Exception:
+                    candidate = {"type": "table", "series": []}
+                # Extract optional view mappings (limit/sort/colors) from candidate_json.view
+                try:
+                    view = candidate_json.get("view") if isinstance(candidate_json, dict) else None
+                    if isinstance(view, dict):
+                        # limit
+                        if view.get("limit") is not None and candidate.get("limit") is None:
+                            candidate["limit"] = view.get("limit")
+                        # sort { by, order }
+                        sort = view.get("sort")
+                        if isinstance(sort, dict) and not candidate.get("sort"):
+                            by = sort.get("by") or sort.get("field")
+                            order = str(sort.get("order") or "asc").lower()
+                            if by:
+                                candidate["sort"] = [{"field": by, "direction": ("desc" if order.startswith("d") else "asc")}]
+                        # colors → view.options.colors
+                        colors = None
+                        if isinstance(view.get("colors"), list):
+                            colors = view.get("colors")
+                        elif isinstance(view.get("color"), str):
+                            colors = [view.get("color")]
+                        if colors:
+                            view_options = {"colors": colors}
+                except Exception:
+                    pass
+
+        # Normalize: ensure series exists for non-table types
+        if candidate.get("type") != "table" and not candidate.get("series"):
+            candidate["series"] = []
+
+        # Emit a progress event for UI when series/type are inferred
+        try:
+            chart_type = candidate.get("type")
+            if chart_type and chart_type != "table":
+                await asyncio.sleep(0)  # keep cooperative
+                yield_event = ToolProgressEvent(
+                    type="tool.progress",
+                    payload={"stage": "series_configured", "series": candidate.get("series") or [], "chart_type": chart_type},
+                )
+                # Use synchronous yield pattern by returning a marker to the caller
+                return {"data_model": candidate, "progress_event": yield_event, "view_options": view_options}
+        except Exception:
+            pass
+        return {"data_model": candidate, "progress_event": None, "view_options": view_options}
     @staticmethod
     async def _build_schemas_excerpt(context_hub, context_view, user_text: str, top_k: int = 10) -> str:
         """Best-effort schema excerpt similar to CreateWidgetTool, with keyword fallback."""
@@ -91,7 +221,6 @@ class CreateDataTool(Tool):
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateDataInput(**tool_input)
-
         yield ToolStartEvent(type="tool.start", payload={"title": data.title})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 
@@ -103,11 +232,21 @@ class CreateDataTool(Tool):
         # Early: signal intended artifact type and request step creation before code-gen
         try:
             # Single signal: declare type and pass the intended query title
+            allowed_types = {
+                "table","bar_chart","line_chart","pie_chart","area_chart","count",
+                "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
+            }
+            requested_type = None
+            try:
+                requested_type = str((tool_input or {}).get("visualization_type") or "").strip()
+            except Exception:
+                requested_type = None
+            viz_type = requested_type if requested_type in allowed_types else "table"
             yield ToolProgressEvent(
                 type="tool.progress",
                 payload={
                     "stage": "data_model_type_determined",
-                    "data_model_type": "table",
+                    "data_model_type": viz_type,
                     "query_title": data.title,
                 },
             )
@@ -271,7 +410,54 @@ class CreateDataTool(Tool):
                 "stats": info,
             }
 
+        # Optional: infer minimal visualization model (type + series) using the existing DataModel schema
+        inferred_dm = None
+        try:
+            requested_type = None
+            try:
+                requested_type = str((tool_input or {}).get("visualization_type") or "").strip()
+            except Exception:
+                requested_type = None
+            effective_type = requested_type if requested_type else "table"
+            if effective_type != "table":
+                yield ToolProgressEvent(type="tool.progress", payload={"stage": "inferring_visualization"})
+                inference = await self._infer_visualization_model(
+                    runtime_ctx=runtime_ctx,
+                    user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
+                    messages_context=messages_context,
+                    formatted=formatted,
+                    allow_llm_see_data=allow_llm_see_data,
+                )
+                inferred_dm = (inference or {}).get("data_model")
+                progress_event = (inference or {}).get("progress_event")
+                inferred_view_opts = (inference or {}).get("view_options")
+                if progress_event is not None:
+                    # emit the series_configured progress for UI if a non-table chart was chosen
+                    yield progress_event
+        except Exception:
+            inferred_dm = None
+            inferred_view_opts = None
+
         current_step_id = runtime_ctx.get("current_step_id")
+        # Always provide a minimal data_model in observation/output
+        try:
+            fallback_type = effective_type if 'effective_type' in locals() and effective_type else "table"
+        except Exception:
+            fallback_type = "table"
+        # Force the final type to the early/user-requested type; only take series/grouping from inference
+        final_dm = {"type": fallback_type, "series": []}
+        if isinstance(inferred_dm, dict):
+            for key in ("series", "group_by", "sort", "limit"):
+                if inferred_dm.get(key) is not None:
+                    final_dm[key] = inferred_dm.get(key)
+        # Prepare view options (e.g., colors) to send to AgentV2 for persistence
+        view_options = None
+        try:
+            if isinstance(inferred_view_opts, dict) and inferred_view_opts:
+                view_options = inferred_view_opts
+        except Exception:
+            view_options = None
+
         observation = {
             "summary": f"Created data '{data.title}' successfully.",
             "data_preview": data_preview,
@@ -279,9 +465,11 @@ class CreateDataTool(Tool):
             "analysis_complete": False,
             "final_answer": None,
         }
+        observation["data_model"] = final_dm
+        if view_options:
+            observation["view_options"] = view_options
         if current_step_id:
             observation["step_id"] = current_step_id
-
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -293,6 +481,8 @@ class CreateDataTool(Tool):
                     "stats": info,
                     "execution_log": output_log,
                     "errors": code_errors,
+                    "data_model": final_dm,
+                    "view_options": view_options,
                 },
                 "observation": observation,
             },

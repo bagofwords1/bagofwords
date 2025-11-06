@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 
 # Reuse per-source targeting schema for consistent behavior
 from .create_widget import TablesBySource
+from .create_data_model import DataModel
 
 
 class CreateDataInput(BaseModel):
@@ -28,6 +29,24 @@ class CreateDataInput(BaseModel):
         le=100,
         description="Max tables to include per data source when rendering the schema excerpt.",
     )
+    visualization_type: Optional[str] = Field(
+        default=None,
+        description="Type of visualization to create. If not provided, a table will be created.",
+        choices=[
+            "table",
+            "bar_chart",
+            "line_chart",
+            "pie_chart",
+            "area_chart",
+            "count",
+            "heatmap",
+            "map",
+            "candlestick",
+            "treemap",
+            "radar_chart",
+            "scatter_plot",
+        ]
+    )
 
 
 class CreateDataOutput(BaseModel):
@@ -40,5 +59,9 @@ class CreateDataOutput(BaseModel):
     stats: Optional[Dict[str, Any]] = Field(default=None, description="Execution stats/metadata")
     execution_log: Optional[str] = Field(default=None, description="Execution log or trace output if available")
     errors: Optional[List[Any]] = Field(default=None, description="Internal retry errors, if any")
+    # Minimal data model (no columns) for visualization: type + optional series/grouping
+    data_model: Optional[DataModel] = Field(default=None, description="Minimal data model: type + optional series/group_by/sort/limit; columns omitted")
+    # Optional view options (styling/palette) to merge into Visualization.view.options
+    view_options: Optional[Dict[str, Any]] = Field(default=None, description="Optional view.options overrides, e.g., colors palette")
 
 

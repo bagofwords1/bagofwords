@@ -1614,12 +1614,31 @@ class AgentV2:
                 code = tool_output.get("code", "")
                 widget_data = tool_output.get("widget_data", {}) or tool_output.get("data", {})
                 success = tool_output.get("success", False)
+                data_model_from_tool = tool_output.get("data_model") or {}
+                view_options_from_tool = tool_output.get("view_options") or {}
                 
                 step_obj = None
                 if self.current_step_id:
                     step_obj = await self.db.get(Step, self.current_step_id)
                 
                 if step_obj and success and widget_data:
+                    # If tool provided a minimal data_model (type/series), merge it into the step before deriving view
+                    try:
+                        if isinstance(data_model_from_tool, dict) and data_model_from_tool:
+                            existing_dm = (getattr(step_obj, "data_model", {}) or {}).copy()
+                            merged = existing_dm.copy()
+                            # Preserve existing type; only set if missing
+                            if not merged.get("type") and data_model_from_tool.get("type"):
+                                merged["type"] = data_model_from_tool.get("type")
+                            # Merge series/grouping fields
+                            for key in ("series", "group_by", "sort", "limit"):
+                                if data_model_from_tool.get(key) is not None:
+                                    merged[key] = data_model_from_tool.get(key)
+                            await self.project_manager.update_step_with_data_model(self.db, step_obj, merged)
+                            # Refresh the object to read the updated data_model
+                            await self.db.refresh(step_obj)
+                    except Exception:
+                        pass
                     # Update step with code
                     await self.project_manager.update_step_with_code(
                         self.db, step_obj, code
@@ -1656,6 +1675,14 @@ class AgentV2:
                             view = {"type": dm.get("type")}
                             if enc:
                                 view["encoding"] = enc
+                            # Merge any tool-provided view options (e.g., colors palette)
+                            try:
+                                if isinstance(view_options_from_tool, dict) and view_options_from_tool:
+                                    current_options = (view.get("options") or {})
+                                    merged_options = {**current_options, **view_options_from_tool}
+                                    view["options"] = merged_options
+                            except Exception:
+                                pass
                             await self.project_manager.update_visualization_view(self.db, self.current_visualization, view)
                             await self.project_manager.set_visualization_status(self.db, self.current_visualization, "success")
                             # Emit visualization.updated
