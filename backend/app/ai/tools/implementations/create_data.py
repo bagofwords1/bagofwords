@@ -293,8 +293,8 @@ class CreateDataTool(Tool):
                     name_patterns=name_patterns or None,
                     active_only=True,
                 )
-                limit = int(getattr(data, "schema_limit", 10) or 10)
-                schemas_excerpt = ctx.render_combined(top_k_per_ds=max(1, limit), index_limit=0, include_index=False)
+                # Fixed default size for per-datasource schema excerpt
+                schemas_excerpt = ctx.render_combined(top_k_per_ds=10, index_limit=0, include_index=False)
             else:
                 raw_text = (data.interpreted_prompt or data.user_prompt or "")
                 schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)

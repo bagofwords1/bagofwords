@@ -5,6 +5,7 @@
 - Improved code generation
 - Improved chart visualizations
 - Introduced Apache Pinot integration
+- Show table stats (usage, score, centrality) when browsing data source schema tables
 
 
 ## Version 0.0.220 (November 4, 2025)

@@ -23,12 +23,6 @@ class CreateDataInput(BaseModel):
             "Avoids repeating ds_id per table and supports cross-source patterns when data_source_id is null."
         ),
     )
-    schema_limit: int = Field(
-        default=10,
-        ge=1,
-        le=100,
-        description="Max tables to include per data source when rendering the schema excerpt.",
-    )
     visualization_type: Optional[str] = Field(
         default=None,
         description="Type of visualization to create. If not provided, a table will be created.",

@@ -47,11 +47,18 @@
             <li v-for="table in filteredTables" :key="table.name" class="py-2 px-2">
               <div class="flex items-center">
                 <UCheckbox v-if="canUpdate" color="blue" v-model="table.is_active" class="mr-3" />
-                <button type="button" class="flex items-center text-left flex-1" @click="toggleTable(table)">
+              <button type="button" class="flex items-center justify-between text-left flex-1" @click="toggleTable(table)">
+                <div class="flex items-center min-w-0">
                   <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 mr-1 text-gray-500" />
-                  <span class="text-sm text-gray-800">{{ table.name }}</span>
+                  <span class="text-sm text-gray-800 truncate">{{ table.name }}</span>
                   <span v-if="!table.is_active && canUpdate" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
-                </button>
+                </div>
+                <span v-if="props.showStats && (table.usage_count !== undefined || table.centrality_score !== undefined)" class="ml-2 text-[11px] text-gray-500 whitespace-nowrap">
+                  <template v-if="table.usage_count !== undefined">usage {{ table.usage_count }}</template>
+                  <template v-if="table.usage_count !== undefined && table.centrality_score !== undefined"> · </template>
+                  <template v-if="table.centrality_score !== undefined">centrality {{ formatCentrality(table.centrality_score) }}</template>
+                </span>
+              </button>
               </div>
               <div v-if="expandedTables[table.name] && table.columns" class="mt-2 ml-7">
                 <div class="border border-gray-100 rounded">
@@ -86,9 +93,9 @@
 import Spinner from '@/components/Spinner.vue'
 
 type Column = { name: string; dtype?: string; type?: string }
-type Table = { name: string; is_active: boolean; columns?: Column[]; pks?: any[]; fks?: any[] }
+type Table = { name: string; is_active: boolean; columns?: Column[]; pks?: any[]; fks?: any[]; usage_count?: number; centrality_score?: number }
 
-const props = withDefaults(defineProps<{ dsId: string; schema: 'full' | 'user'; canUpdate?: boolean; showRefresh?: boolean; refreshIconOnly?: boolean; showSave?: boolean; saveLabel?: string; maxHeight?: string; showHeader?: boolean; headerTitle?: string; headerSubtitle?: string }>(), { canUpdate: true, showRefresh: true, refreshIconOnly: false, showSave: true, saveLabel: 'Save', maxHeight: '50vh', showHeader: false, headerTitle: 'Select tables', headerSubtitle: 'Choose which tables to enable' })
+const props = withDefaults(defineProps<{ dsId: string; schema: 'full' | 'user'; canUpdate?: boolean; showRefresh?: boolean; refreshIconOnly?: boolean; showSave?: boolean; saveLabel?: string; maxHeight?: string; showHeader?: boolean; headerTitle?: string; headerSubtitle?: string; showStats?: boolean }>(), { canUpdate: true, showRefresh: true, refreshIconOnly: false, showSave: true, saveLabel: 'Save', maxHeight: '50vh', showHeader: false, headerTitle: 'Select tables', headerSubtitle: 'Choose which tables to enable', showStats: false })
 const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void }>()
 
 const loading = ref(false)
@@ -126,7 +133,7 @@ async function fetchTables() {
   loading.value = true
   try {
     const endpoint = endpointForSchema()
-    const res = await useMyFetch(`/data_sources/${props.dsId}/${endpoint}`, { method: 'GET' })
+    const res = await useMyFetch(`/data_sources/${props.dsId}/${endpoint}${props.showStats ? '?with_stats=true' : ''}`, { method: 'GET' })
     if ((res as any)?.status?.value === 'success') {
       tables.value = (((res as any).data?.value) || []) as Table[]
     } else {
@@ -143,6 +150,11 @@ async function fetchTables() {
 function toggleTable(table: Table) {
   const current = expandedTables.value[table.name]
   expandedTables.value[table.name] = !current
+}
+
+function formatCentrality(value?: number) {
+  if (value === undefined || value === null || !Number.isFinite(value)) return '—'
+  return Number(value).toFixed(2)
 }
 
 async function onSave() {

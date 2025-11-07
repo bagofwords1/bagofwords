@@ -795,7 +795,7 @@ class DataSourceService:
             print(f"Error getting data source schema: {e}")
             raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
     
-    async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None):
+    async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None, with_stats: bool = False):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
         
@@ -810,7 +810,7 @@ class DataSourceService:
                 # Fallback to canonical schema if user overlay fetch fails
                 pass
 
-        schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive)
+        schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)
 
         return schemas
 

@@ -11,6 +11,25 @@ class PostgreSQLCredentials(BaseModel):
     # Password can be empty for some deployments; treat as optional/blank-allowed
     password: str = Field("", title="Password", description="", json_schema_extra={"ui:type": "password"})
 
+#
+# OracleDB
+#
+class OracleCredentials(BaseModel):
+    user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class OracleConfig(BaseModel):
+    host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
+    port: int = Field(1521, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
+    service_name: str = Field(..., title="Service Name", description="Oracle service name (not SID)", json_schema_extra={"ui:type": "string"})
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas",
+        json_schema_extra={"ui:type": "string"}
+    )
+
 
 class PostgreSQLConfig(BaseModel):
     host: str = Field(..., title="Host", description="", json_schema_extra={"ui:type": "string"})
@@ -322,6 +341,7 @@ class PinotConfig(BaseModel):
 __all__ = [
     # Configs
     "PostgreSQLConfig",
+    "OracleConfig",
     "SnowflakeConfig",
     "BigQueryConfig",
     "NetSuiteConfig",
@@ -342,6 +362,7 @@ __all__ = [
     "DuckDBAzureCredentials",
     # Credentials
     "PostgreSQLCredentials",
+    "OracleCredentials",
     "SnowflakeCredentials",
     "BigQueryCredentials",
     "NetSuiteCredentials",
