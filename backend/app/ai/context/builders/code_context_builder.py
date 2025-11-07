@@ -264,7 +264,6 @@ class CodeContextBuilder:
         allowed_ds_ids, since_ts, now_utc = await self._get_access_and_time(time_window_days)
         if not allowed_ds_ids:
             return []
-        breakpoint()
         # Normalize targets: list of (ds_id or None, table_name_lower)
         targets: list[tuple[Optional[str], str]] = []
         for group in (tables_by_source or []):
@@ -285,7 +284,6 @@ class CodeContextBuilder:
         ]
         if since_ts is not None:
             usage_filters.append(TableUsageEvent.used_at >= since_ts)
-        breakpoint()
         # Target matching: (optional ds match) AND table_fqn equals/lower like %.table
         from sqlalchemy import or_, and_
         match_clauses = []
@@ -316,7 +314,6 @@ class CodeContextBuilder:
             .group_by(TableUsageEvent.step_id)
             .subquery()
         )
-        breakpoint()
         # Candidate successful steps joined with filtered usage
         step_rows = (
             await self.db.execute(
@@ -332,7 +329,6 @@ class CodeContextBuilder:
                 .where(func.lower(Step.status) == "success")
             )
         ).all()
-        breakpoint()
         if not step_rows:
             return []
 
@@ -365,7 +361,6 @@ class CodeContextBuilder:
             ))
 
         ranked.sort(key=lambda x: x[0], reverse=True)
-        breakpoint()
         return [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
 
 
