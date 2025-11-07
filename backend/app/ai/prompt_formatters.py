@@ -9,6 +9,7 @@ async def build_codegen_context(
     user_prompt: str,
     interpreted_prompt: str | None,
     schemas_excerpt: str,
+    tables_by_source: list | None = None,
 ) -> CodeGenContext:
     """
     Build a CodeGenContext from runtime_ctx (ContextHub/ContextView) with safe fallbacks.
@@ -110,6 +111,22 @@ async def build_codegen_context(
     except Exception:
         data_sources_context = ""
 
+    # Normalize tables_by_source to a list[dict] for Pydantic
+    norm_tables_by_source = None
+    if tables_by_source:
+        try:
+            norm: list[dict] = []
+            for item in tables_by_source:
+                if hasattr(item, "model_dump"):
+                    norm.append(item.model_dump())
+                elif hasattr(item, "dict"):
+                    norm.append(item.dict())
+                elif isinstance(item, dict):
+                    norm.append(item)
+            norm_tables_by_source = norm if norm else None
+        except Exception:
+            norm_tables_by_source = None
+
     return CodeGenContext(
         user_prompt=user_prompt or (interpreted_prompt or ""),
         interpreted_prompt=interpreted_prompt or None,
@@ -125,6 +142,7 @@ async def build_codegen_context(
         history_summary=history_summary,
         past_observations=past_observations,
         last_observation=last_observation,
+        tables_by_source=norm_tables_by_source,
     )
 
 

@@ -26,6 +26,8 @@ class CodeGenContext(BaseModel):
     # Optional extras to guide generation (machine-usable)
     filtered_entities: List[Dict[str, Any]] = []
     successful_queries: List[str] = []
+    # New: optional targeting info to drive snippet retrieval
+    tables_by_source: Optional[List[Dict[str, Any]]] = None
 
 
 class CodeGenRequest(BaseModel):

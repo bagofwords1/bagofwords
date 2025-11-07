@@ -345,6 +345,7 @@ class CreateDataTool(Tool):
             user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
             interpreted_prompt=(data.interpreted_prompt or None),
             schemas_excerpt=(schemas_excerpt or ""),
+            tables_by_source=(data.tables_by_source or None),
         )
 
         # Combine schemas with files for additional grounding (keep previous semantics)

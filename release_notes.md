@@ -1,11 +1,13 @@
 # Release Notes
 
-## Version 0.0.221 (November 6, 2025)
+## Version 0.0.230 (November 6, 2025)
 - Introduced a new create_data tool that is more robust, reliable and accurate data generation
-- Improved code generation
-- Improved chart visualizations
-- Introduced Apache Pinot integration
-- Show table stats (usage, score, centrality) when browsing data source schema tables
+- Enhanced code generation for more accurate and robust SQL and Python outputs
+- Improved chart visualizations for clearer and more informative data presentation
+- Added new data source integration support: Apache Pinot and Oracle DB
+- Table browsing now displays detailed statistics, including usage frequency, scoring, and feedback metrics
+- Launched the new `read_resources` tool for intelligent, on-demand searching across all metadata resources
+- Added successful executed queries in the same tables for when agent is generating code
 
 
 ## Version 0.0.220 (November 4, 2025)

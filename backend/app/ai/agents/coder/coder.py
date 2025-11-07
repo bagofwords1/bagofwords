@@ -347,6 +347,41 @@ class Coder:
             schemas = context.schemas_excerpt or schemas
             prompt = context.interpreted_prompt or context.user_prompt or prompt
             data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+            # Retrieve top successful snippets based on targeted tables if provided
+            similar_successful_code_snippets = ""
+            try:
+                if getattr(context, "tables_by_source", None):
+                    builder = None
+                    try:
+                        # Prefer explicit code_context_builder param when provided
+                        if code_context_builder is not None:
+                            builder = code_context_builder
+                        elif self.context_hub is not None:
+                            from app.ai.context.builders.code_context_builder import CodeContextBuilder
+                            # ContextHub is initialized with db and organization
+                            db = getattr(self.context_hub, "db", None)
+                            organization = getattr(self.context_hub, "organization", None)
+                            current_user = getattr(self.context_hub, "user", None)
+                            if db is not None and organization is not None:
+                                builder = CodeContextBuilder(db=db, organization=organization, current_user=current_user)
+                    except Exception:
+                        builder = None
+                    if builder is not None and hasattr(builder, "get_top_successful_snippets_for_tables"):
+                        try:
+                            top_success = await builder.get_top_successful_snippets_for_tables(context.tables_by_source, top_k=2)
+                            if isinstance(top_success, list) and top_success:
+                                lines = ["=== SUCCESSFUL EXAMPLES (by targeted tables) ==="]
+                                for idx, s in enumerate(top_success, start=1):
+                                    lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('success_rate')}")
+                                    code = s.get("code") or ""
+                                    lines.append(code)
+                                    lines.append("")
+                                similar_successful_code_snippets = "\n".join(lines).strip()
+                        except Exception as e:
+                            similar_successful_code_snippets = ""
+            except Exception:
+                similar_successful_code_snippets = ""
+            breakpoint()
             text = f"""
             You are a highly skilled data engineer and data scientist.
 
@@ -403,6 +438,11 @@ class Coder:
 
             - Last Observation:
             <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
+
+            - Similar successful code snippets (for reference on what is working):
+            <similar_successful_code_snippets>
+            {similar_successful_code_snippets}
+            </similar_successful_code_snippets>
 
             **Guidelines and Requirements**:
 

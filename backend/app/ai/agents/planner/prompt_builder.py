@@ -75,6 +75,7 @@ AGENT LOOP (single-cycle planning; one tool per iteration)
 PLAN TYPE DECISION FRAMEWORK
 - You must review user message, the chat's previous messages and activity, inspect schemas or gather context first
 - If the user's message is a greeting/thanks/farewell, do not call any tool; respond briefly.
+- Use describe_tables and read_resources tools to get more information about the resources names, context, semantic layers, etc before the next step (clarify/create_data/answer etc)
 - If schemas are empty/insufficient, use the clarify tool to ask targeted clarifying questions via assistant_message.
 - If the user's request is ambiguous, trigger the clarify tool.
 - If you have enough information, go ahead and execute the plan.
@@ -90,6 +91,7 @@ ERROR HANDLING (robust; no blind retries)
 ANALYTICS & RELIABILITY
 - Ground reasoning in provided context (schemas, history, last_observation). If not present, ask a clarifying question via assistant_message.
 - Use the describe_tables tool to get more information about the tables and columns before creating a widget.
+- Use the read_resources tool to get more information about the resources names, context, semantic layers, etc.
 - Prefer the smallest next action that produces observable progress.
 - Do not include sample/fabricated data in final_answer.
 - If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
