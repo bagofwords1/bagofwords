@@ -7,6 +7,7 @@ from .create_data import CreateDataInput, CreateDataOutput
 from .create_dashboard import CreateDashboardInput, CreateDashboardOutput
 from .clarify import ClarifyInput, ClarifyOutput
 from .describe_tables import DescribeTablesInput, DescribeTablesOutput
+from .read_resources import ReadResourcesInput, ReadResourcesOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -32,6 +33,8 @@ __all__ = [
     "ClarifyOutput", 
     "DescribeTablesInput",
     "DescribeTablesOutput",
+    "ReadResourcesInput",
+    "ReadResourcesOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent", 

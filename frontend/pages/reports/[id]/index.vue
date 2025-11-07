@@ -330,6 +330,7 @@ import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
+import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -505,6 +506,8 @@ function getToolComponent(toolName: string) {
 			return CreateDashboardTool
 		case 'answer_question':
 			return AnswerQuestionTool
+		case 'read_resources':
+			return ReadResourcesTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'execute_code':
@@ -924,6 +927,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							;(lastBlock.tool_execution.result_json as any).search_query = q
 							lastBlock.tool_execution.result_summary = `Searching ${qStr}…`
 						}
+						if (payload.tool_name === 'read_resources' && payload.arguments) {
+							const q = payload.arguments.query
+							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'resources'))
+							;(lastBlock.tool_execution.result_json as any).search_query = q
+							lastBlock.tool_execution.result_summary = `Searching ${qStr}…`
+						}
 					} catch {}
 					lastBlock.status = 'in_progress'
 				}
@@ -948,6 +957,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					// Record progress stage for tool-specific UIs
 					if (payload.payload && lastBlock.tool_execution) {
 						;(lastBlock.tool_execution as any).progress_stage = payload.payload.stage || null
+						// Capture icon for read_resources submit_search stage if provided
+						if (payload.tool_name === 'read_resources' && payload.payload.stage === 'submit_search' && payload.payload.icon) {
+							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
+							;(lastBlock.tool_execution.result_json as any).icon = payload.payload.icon
+						}
 					}
 
           // Progressive data model updates for create_widget tool

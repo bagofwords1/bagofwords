@@ -32,7 +32,7 @@ class OracledbClient(DataSourceClient):
     @cached_property
     def oracle_uri(self):
         uri = (
-            f"oracle+cx_oracle://{self.user}:{self.password}@"
+            f"oracle+oracledb://{self.user}:{self.password}@"
             f"{self.host}:{self.port}/?service_name={self.service_name}"
         )
         return uri

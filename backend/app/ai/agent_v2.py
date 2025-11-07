@@ -277,6 +277,16 @@ class AgentV2:
                 schemas_excerpt = combined_schemas
             except Exception:
                 schemas_excerpt = view.static.schemas.render() if view.static.schemas else ""
+            # Resources combined (sample + index)
+            try:
+                resources_ctx = await self.context_hub.resource_builder.build()
+                resources_combined = resources_ctx.render_combined(top_k_per_repo=TOP_K_PER_DS, index_limit=INDEX_LIMIT)
+            except Exception:
+                try:
+                    resources_section_fallback = await self.context_hub.resource_builder.build()
+                    resources_combined = resources_section_fallback.render()
+                except Exception:
+                    resources_combined = ""
             # History summary based on observation context only
             history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -348,6 +358,11 @@ class AgentV2:
                     # Get resources context from metadata resources
                     resources_section = await self.context_hub.resource_builder.build()
                     resources_context = resources_section.render()
+                    # Smaller combined excerpt to control tokens per-iteration
+                    try:
+                        resources_combined_small = resources_section.render_combined(top_k_per_repo=10, index_limit=200)
+                    except Exception:
+                        resources_combined_small = resources_context
                     # Files context (uploaded files schemas/metadata)
                     files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
                     # Mentions context (current user turn mentions)
@@ -369,6 +384,7 @@ class AgentV2:
                         history_summary=history_summary,
                         messages_context=messages_context,
                         resources_context=resources_context,
+                        resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
                         last_observation=observation,
                         past_observations=self.context_hub.observation_builder.tool_observations,
                         external_platform=getattr(self.head_completion, "external_platform", None),

@@ -69,6 +69,8 @@ class PlannerInput(BaseModel):
     messages_context: Optional[str] = None
     # Resources context from metadata resources (git repos, documentation, etc.)
     resources_context: Optional[str] = None
+    # Combined resources context (per data source: sample Top-K + names index)
+    resources_combined: Optional[str] = None
     # Mentions context rendered from the current user turn mentions
     mentions_context: Optional[str] = None
     # Entities context rendered from catalog search

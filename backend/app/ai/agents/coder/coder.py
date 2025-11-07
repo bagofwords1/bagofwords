@@ -450,7 +450,6 @@ class Coder:
 
             Now produce ONLY the Python function code as described. No markdown or extra text.
             """
-            breakpoint()
             result = self.llm.inference(text)
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)
