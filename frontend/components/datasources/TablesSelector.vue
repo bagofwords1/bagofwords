@@ -53,11 +53,38 @@
                   <span class="text-sm text-gray-800 truncate">{{ table.name }}</span>
                   <span v-if="!table.is_active && canUpdate" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
                 </div>
-                <span v-if="props.showStats && (table.usage_count !== undefined || table.centrality_score !== undefined)" class="ml-2 text-[11px] text-gray-500 whitespace-nowrap">
-                  <template v-if="table.usage_count !== undefined">usage {{ table.usage_count }}</template>
-                  <template v-if="table.usage_count !== undefined && table.centrality_score !== undefined"> · </template>
-                  <template v-if="table.centrality_score !== undefined">centrality {{ formatCentrality(table.centrality_score) }}</template>
-                </span>
+                <span v-if="props.showStats && (table.usage_count !== undefined)" class="ml-2 text-[11px] text-gray-500 whitespace-nowrap flex items-center gap-2">
+                  <span>usage {{ table.usage_count }}</span>
+
+                    <UTooltip text="Successful executed queries">
+                  <span class="inline-flex items-center gap-1">
+                    <UIcon name="heroicons-check-circle" class="w-3 h-3 text-green-600" />
+                    <span>{{ table.success_count ?? 0 }}</span>
+                  </span>
+
+                    </UTooltip>
+
+                    <UTooltip text="Failed executed queries">
+                  <span class="inline-flex items-center gap-1">
+                    <UIcon name="heroicons-x-circle" class="w-3 h-3 text-red-600" />
+                    <span>{{ table.failure_count ?? 0 }}</span>
+                    </span>
+                  </UTooltip>
+
+                    <UTooltip text="Positive feedback">
+                  <span class="inline-flex items-center gap-1">
+                    <UIcon name="heroicons-hand-thumb-up" class="w-3 h-3 text-green-600" />
+                    <span>{{ table.pos_feedback_count ?? 0 }}</span>
+                  </span>
+                  </UTooltip>
+
+                    <UTooltip text="Negative feedback">
+                  <span class="inline-flex items-center gap-1">
+                    <UIcon name="heroicons-hand-thumb-down" class="w-3 h-3 text-red-600" />
+                    <span>{{ table.neg_feedback_count ?? 0 }}</span>
+                  </span>
+                </UTooltip>
+              </span>
               </button>
               </div>
               <div v-if="expandedTables[table.name] && table.columns" class="mt-2 ml-7">
@@ -93,7 +120,7 @@
 import Spinner from '@/components/Spinner.vue'
 
 type Column = { name: string; dtype?: string; type?: string }
-type Table = { name: string; is_active: boolean; columns?: Column[]; pks?: any[]; fks?: any[]; usage_count?: number; centrality_score?: number }
+type Table = { name: string; is_active: boolean; columns?: Column[]; pks?: any[]; fks?: any[]; usage_count?: number; success_count?: number; failure_count?: number; pos_feedback_count?: number; neg_feedback_count?: number }
 
 const props = withDefaults(defineProps<{ dsId: string; schema: 'full' | 'user'; canUpdate?: boolean; showRefresh?: boolean; refreshIconOnly?: boolean; showSave?: boolean; saveLabel?: string; maxHeight?: string; showHeader?: boolean; headerTitle?: string; headerSubtitle?: string; showStats?: boolean }>(), { canUpdate: true, showRefresh: true, refreshIconOnly: false, showSave: true, saveLabel: 'Save', maxHeight: '50vh', showHeader: false, headerTitle: 'Select tables', headerSubtitle: 'Choose which tables to enable', showStats: false })
 const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void }>()
@@ -152,10 +179,7 @@ function toggleTable(table: Table) {
   expandedTables.value[table.name] = !current
 }
 
-function formatCentrality(value?: number) {
-  if (value === undefined || value === null || !Number.isFinite(value)) return '—'
-  return Number(value).toFixed(2)
-}
+// (centrality hidden for now)
 
 async function onSave() {
   if (saving.value) return
