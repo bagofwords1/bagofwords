@@ -171,8 +171,8 @@ class LLMService:
         
         models = provider.models
         for model in models:
-            if model.is_default:
-                raise HTTPException(status_code=400, detail="Cannot delete default models")
+            if model.is_default or model.is_small_default:
+                raise HTTPException(status_code=400, detail="Cannot delete models that are set as default or small default")
 
         provider.deleted_at = datetime.now()
         provider.is_enabled = False
@@ -299,8 +299,8 @@ class LLMService:
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
         
-        if model.is_default:
-            raise HTTPException(status_code=400, detail="Cannot disable default models")
+        if model.is_default or model.is_small_default:
+            raise HTTPException(status_code=400, detail="Cannot disable models that are set as default or small default")
         
         model.is_enabled = enabled
         await db.commit()
@@ -321,6 +321,13 @@ class LLMService:
             .filter(LLMModel.is_default == True)
         )
         has_default_model = existing_default.scalar_one_or_none() is not None
+        # And whether org already has a small default model
+        existing_small_default = await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(getattr(LLMModel, "is_small_default") == True)
+        )
+        has_small_default_model = existing_small_default.scalar_one_or_none() is not None
 
         for model in models:
             db_model = LLMModel(**model)
@@ -342,6 +349,13 @@ class LLMService:
                 has_default_model = True
             else:
                 db_model.is_default = False
+            
+            # Only set as small default if there's no existing small default and this model should be small default
+            if model_details and model_details.get("is_small_default", False) and not has_small_default_model:
+                setattr(db_model, "is_small_default", True)
+                has_small_default_model = True
+            else:
+                setattr(db_model, "is_small_default", False)
                 
             db.add(db_model)
 
@@ -427,6 +441,17 @@ class LLMService:
                 if db_model.is_enabled != model.is_enabled:
                     db_model.is_enabled = model.is_enabled
                     db.add(db_model)
+                
+                # Optional token/pricing fields
+                if getattr(model, "context_window_tokens", None) is not None:
+                    db_model.context_window_tokens = model.context_window_tokens
+                if getattr(model, "max_output_tokens", None) is not None:
+                    db_model.max_output_tokens = model.max_output_tokens
+                if getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
+                    db_model.input_cost_per_million_tokens_usd = model.input_cost_per_million_tokens_usd
+                if getattr(model, "output_cost_per_million_tokens_usd", None) is not None:
+                    db_model.output_cost_per_million_tokens_usd = model.output_cost_per_million_tokens_usd
+                db.add(db_model)
             else:
                 # If model doesn't have an ID, create new model
                 db_model = LLMModel(
@@ -437,7 +462,11 @@ class LLMService:
                     is_enabled=model.is_enabled,
                     is_custom=model.is_custom,
                     is_preset=model.is_preset,
-                    is_default=False  # New models are not default by default
+                    is_default=False,  # New models are not default by default
+                    context_window_tokens=getattr(model, "context_window_tokens", None),
+                    max_output_tokens=getattr(model, "max_output_tokens", None),
+                    input_cost_per_million_tokens_usd=getattr(model, "input_cost_per_million_tokens_usd", None),
+                    output_cost_per_million_tokens_usd=getattr(model, "output_cost_per_million_tokens_usd", None),
                 )
                 db.add(db_model)
 
@@ -448,7 +477,8 @@ class LLMService:
         db: AsyncSession,
         current_user: User,
         organization: Organization,
-        model_id: str
+        model_id: str,
+        small: bool = False
     ):
         default_model = await db.execute(
             select(LLMModel).filter(LLMModel.id == model_id)
@@ -466,15 +496,47 @@ class LLMService:
         )
         org_models = org_models.unique().scalars().all()
 
-        for model in org_models:
-            model.is_default = False
-            db.add(model)
-
-        default_model.is_default = True
+        if small:
+            for model in org_models:
+                model.is_small_default = False
+                db.add(model)
+            default_model.is_small_default = True
+        else:
+            for model in org_models:
+                model.is_default = False
+                db.add(model)
+            default_model.is_default = True
 
         db.add(default_model)
         await db.commit()
         return {"success": True }
+    
+    async def get_default_model(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        is_small: bool = False
+    ):
+        """Get the default model for an organization. If is_small=True, prefer small default, fallback to regular."""
+        if is_small:
+            small_default = await db.execute(
+                select(LLMModel)
+                .filter(LLMModel.organization_id == organization.id)
+                .filter(getattr(LLMModel, "is_small_default") == True)
+                .filter(LLMModel.is_enabled == True)
+            )
+            small_default = small_default.scalar_one_or_none()
+            if small_default:
+                return small_default
+        # Regular default
+        default = await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.is_default == True)
+            .filter(LLMModel.is_enabled == True)
+        )
+        return default.scalar_one_or_none()
     
     async def set_default_models_from_config(
         self,
@@ -507,6 +569,7 @@ class LLMService:
                 model_name = model_config.model_name
                 is_default = model_config.is_default
                 is_enabled = model_config.is_enabled
+                is_small_default = model_config.is_small_default
 
                 model = LLMModel(
                     name=model_name,
@@ -515,7 +578,8 @@ class LLMService:
                     organization_id=organization.id,
                     is_preset=True,
                     is_enabled=is_enabled,
-                    is_default=is_default
+                    is_default=is_default,
+                    is_small_default=is_small_default
                 )
                 db.add(model)
 
@@ -540,6 +604,13 @@ class LLMService:
             .filter(LLMModel.provider_id == provider.id)
         )
         existing_model_ids = {model[0] for model in existing_models}
+        # Determine if org already has a small default model
+        existing_small_default = await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.is_small_default == True)
+        )
+        has_small_default_model = existing_small_default.scalar_one_or_none() is not None
 
         # Add any missing models
         for model_data in available_models:
@@ -550,8 +621,11 @@ class LLMService:
                     is_preset=model_data["is_preset"],
                     is_enabled=model_data["is_enabled"],
                     provider=provider,
-                    organization_id=organization.id
+                    organization_id=organization.id,
+                    is_small_default=(model_data["is_small_default"] and not has_small_default_model)
                 )
+                if model.is_small_default:
+                    has_small_default_model = True
                 db.add(model)
         
     async def test_connection(

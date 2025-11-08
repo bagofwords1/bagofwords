@@ -167,9 +167,10 @@ async def toggle_model(
 @requires_permission('manage_llm_settings')
 async def set_default_model(
     model_id: str,
+    small: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Set a model as the default model for the organization"""
-    return await llm_service.set_default_model(db, current_user, organization, model_id)
+    """Set a model as the default model for the organization. Use small=true for small default."""
+    return await llm_service.set_default_model(db, current_user, organization, model_id, small=small)

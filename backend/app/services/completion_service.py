@@ -45,7 +45,6 @@ from sqlalchemy import select, update, func
 from fastapi import BackgroundTasks, HTTPException
 from app.core.telemetry import telemetry
 
-from app.ai.agent import Agent
 from app.ai.agent_v2 import AgentV2
 
 # Models used for v2 assembly
@@ -204,6 +203,8 @@ class CompletionService:
             else:
                 model = await organization.get_default_llm_model(db)
             
+            small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
+            
             if not model:
                 raise HTTPException(
                     status_code=400,
@@ -294,6 +295,7 @@ class CompletionService:
                                 organization=organization,
                                 organization_settings=org_settings,
                                 model=model,
+                                small_model=small_model,
                                 report=report_obj,
                                 messages=[],
                                 head_completion=head_obj,
@@ -339,6 +341,7 @@ class CompletionService:
                         organization=organization,
                         organization_settings=org_settings,
                         model=model,
+                        small_model=small_model,
                         report=report,
                         messages=[],
                         head_completion=head_completion,
@@ -839,6 +842,8 @@ class CompletionService:
                     detail="No default LLM model configured. Please configure a default model in organization settings."
                 )
 
+            small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
+
             # Create user completion
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
@@ -938,6 +943,7 @@ class CompletionService:
                             organization=organization,
                             organization_settings=org_settings,
                             model=model,
+                            small_model=small_model,
                             mode=completion_data.prompt.mode,
                             report=report_obj,
                             messages=[],

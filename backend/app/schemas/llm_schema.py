@@ -101,6 +101,11 @@ class LLMModelBase(BaseModel):
     name: str = None
     model_id: str
     is_default: bool = False
+    is_small_default: bool = False
+    context_window_tokens: Optional[int] = None
+    max_output_tokens: Optional[int] = None
+    input_cost_per_million_tokens_usd: Optional[float] = None
+    output_cost_per_million_tokens_usd: Optional[float] = None
     config: Optional[Dict[str, Any]] = None
 
 class LLMModelSchema(LLMModelBase):

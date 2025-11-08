@@ -37,7 +37,7 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None):
+                 model=None, small_model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None):
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
@@ -48,6 +48,7 @@ class AgentV2:
 
         self.report = report
         self.model = model
+        self.small_model = small_model
         self.head_completion = head_completion
         self.system_completion = system_completion
         self.widget = widget
@@ -127,12 +128,12 @@ class AgentV2:
         )
         
         # Initialize Reporter for title generation
-        self.reporter = Reporter(model=self.model)
+        self.reporter = Reporter(model=self.small_model)
         # Initialize Judge using ContextHub's instruction builder
-        self.judge = Judge(model=self.model, organization_settings=self.organization_settings, instruction_context_builder=self.context_hub.instruction_builder)
+        self.judge = Judge(model=self.small_model, organization_settings=self.organization_settings, instruction_context_builder=self.context_hub.instruction_builder)
 
         # Initialize SuggestInstructions agent for post-analysis suggestions
-        self.suggest_instructions = SuggestInstructions(model=self.model)
+        self.suggest_instructions = SuggestInstructions(model=self.small_model)
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
@@ -1270,7 +1271,7 @@ class AgentV2:
                     stmt_cw_current = (
                         select(ToolExecution.id)
                         .where(ToolExecution.agent_execution_id == str(self.current_execution.id))
-                        .where(ToolExecution.tool_name == "create_widget")
+                        .where(ToolExecution.tool_name == "create_data")
                         .limit(1)
                     )
                     res_cw_current = await self.db.execute(stmt_cw_current)
@@ -1288,7 +1289,7 @@ class AgentV2:
                     stmt_successes = (
                         select(ToolExecution.result_json)
                         .where(ToolExecution.agent_execution_id == str(self.current_execution.id))
-                        .where(ToolExecution.tool_name == "create_widget")
+                        .where(ToolExecution.tool_name == "create_data")
                         .where((ToolExecution.success == True) | (ToolExecution.status == "success"))
                         .order_by(ToolExecution.started_at.desc())
                         .limit(10)

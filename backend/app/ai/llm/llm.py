@@ -13,7 +13,6 @@ class LLM:
         self.model_id = model.model_id
         self.provider = model.provider.provider_type
         self.api_key = self.model.provider.decrypt_credentials()[0]
-
         if self.provider == "openai":
             base_url = None
             if self.model.provider.additional_config:

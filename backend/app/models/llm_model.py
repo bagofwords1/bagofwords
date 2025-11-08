@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, JSON, ForeignKey, Boolean
+from sqlalchemy import Column, String, JSON, ForeignKey, Boolean, Integer, Float
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
@@ -25,7 +25,8 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": False
+        "is_default": False,
+        "is_small_default": True
     },
     {
         "name": "Claude 4.5 Sonnet",
@@ -51,6 +52,15 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True
     },
+    {
+        "name": "Claude 4.5 Haiku",
+        "model_id": "claude-haiku-4-5-20251001",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_small_default": True,
+        "is_default": False
+    },
 
     {
         "name": "Gemini 2.5 Pro",
@@ -65,7 +75,8 @@ LLM_MODEL_DETAILS = [
         "model_id": "gemini-2.5-flash",
         "provider_type": "google",
         "is_preset": True,
-        "is_enabled": True
+        "is_enabled": True,
+        "is_small_default": True
     },
     {
         "name": "BOW Small",
@@ -86,6 +97,13 @@ class LLMModel(BaseSchema):
     is_preset = Column(Boolean, default=False, nullable=False)  # If True, cannot be deleted
     is_enabled = Column(Boolean, default=True, nullable=False)  # Can be disabled but not deleted
     is_default = Column(Boolean, default=False, nullable=False)  # If True, this is the default model for the organization
+    is_small_default = Column(Boolean, default=False, nullable=False)  # Optional small default model per organization
+    # Token limits
+    context_window_tokens = Column(Integer, nullable=True)  # Max prompt+completion tokens
+    max_output_tokens = Column(Integer, nullable=True)  # Max model output tokens
+    # Pricing (USD per million tokens)
+    input_cost_per_million_tokens_usd = Column(Float, nullable=True)
+    output_cost_per_million_tokens_usd = Column(Float, nullable=True)
     
     provider_id = Column(String, ForeignKey('llm_providers.id'), nullable=False)
     provider = relationship("LLMProvider", back_populates="models", lazy="selectin")
