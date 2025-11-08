@@ -142,7 +142,7 @@ class ResourceContextBuilder:
         for resource in resources:
             # Create a searchable text from the resource
             # Include resource_type in searchable text
-            searchable_text = f"{resource.name} {resource.resource_type} {resource.description or ''} {resource.sql_content or ''}"
+            searchable_text = f"{resource.name} {resource.resource_type} {resource.description or ''} {resource.sql_content or ''} {resource.path or ''}"
             
             # Check if any keyword is in the searchable text
             if any(keyword.lower() in searchable_text.lower() for keyword in keywords):

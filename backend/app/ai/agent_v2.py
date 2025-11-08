@@ -29,7 +29,7 @@ from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstr
 from app.settings.database import create_async_session_factory
 from app.core.telemetry import telemetry
 
-TOP_K_PER_DS = 30  # Number of tables to sample per data source
+TOP_K_PER_DS = 20  # Number of tables to sample per data source
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 
 

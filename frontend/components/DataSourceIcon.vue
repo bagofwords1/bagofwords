@@ -14,9 +14,16 @@ const props = defineProps<{
 // Computed property to generate the icon path
 const iconPath = computed(() => {
     if (!props.type) {
-        return '/data_sources_icons/document.png';
+        return '/icons/document.png';
     }
-    return `/data_sources_icons/${props.type.toLowerCase()}.png`;
+    const t = String(props.type || '').toLowerCase();
+    // Prefer tool/resource icons when available
+    const toolIconTypes = new Set(['dbt', 'lookml', 'markdown', 'resource', 'tableau']);
+    if (toolIconTypes.has(t)) {
+        return `/icons/${t}.png`;
+    }
+    // Fallback to data source icons set
+    return `/data_sources_icons/${t}.png`;
 });
 
 // Combine the passed class with any other classes you might want

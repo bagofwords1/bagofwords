@@ -26,4 +26,33 @@ class DescribeTablesOutput(BaseModel):
     searched_tables_est: int = Field(..., description="Estimated total number of matched tables across sources")
     errors: List[str] = Field(default_factory=list, description="Non-fatal errors encountered while rendering")
 
+    # Echoed input for UI hydration (can be a list or string)
+    search_query: Optional[Union[str, List[str]]] = Field(default=None, description="Original query echoed for UI display")
+
+    # Lightweight preview for UI: top tables across data sources
+    class TableColumnPreview(BaseModel):
+        name: str
+        dtype: Optional[str] = None
+
+    class TableUsagePreview(BaseModel):
+        usage_count: Optional[int] = None
+        success_count: Optional[int] = None
+        failure_count: Optional[int] = None
+        success_rate: Optional[float] = None
+        last_used_at: Optional[str] = None
+        score: Optional[float] = None
+
+    class TablePreview(BaseModel):
+        data_source_id: Optional[str] = None
+        data_source_name: Optional[str] = None
+        data_source_type: Optional[str] = None
+        schema: Optional[str] = None  # optional; not all backends provide this
+        name: str
+        full_name: Optional[str] = None
+        description: Optional[str] = None
+        columns: List["DescribeTablesOutput.TableColumnPreview"] = Field(default_factory=list)
+        usage: Optional["DescribeTablesOutput.TableUsagePreview"] = None
+
+    top_tables: List[TablePreview] = Field(default_factory=list, description="Flattened sample of top tables with basic columns and usage")
+
 

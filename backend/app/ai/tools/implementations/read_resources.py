@@ -18,6 +18,7 @@ from app.ai.context.sections.resources_section import ResourcesSection
 # ORM models
 # NOTE: Import SQLAlchemy and ORM models lazily inside run_stream to avoid
 # import-time failures during registry auto-discovery.
+from app.ai.tools.schemas.read_resources import ResourcePreview
 
 
 TOP_K_PER_REPO_DEFAULT = 20
@@ -84,15 +85,24 @@ class ReadResourcesTool(Tool):
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "resolving_patterns"})
         name_patterns: List[str] = []
         try:
-            special = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
+            # Consider a token as an explicit regex only if it has anchors or advanced constructs.
+            # Plain '.' should not force regex mode so that file names like 'orders.sql' are treated literally.
+            regex_indicators = re.compile(r"(^\^|\$|(\.\*)|[\[\]\(\)\{\}\|\+\?])")
             for q in queries:
                 if not isinstance(q, str):
                     continue
-                if special.search(q or ""):
-                    name_patterns.append(q)
+                token = q or ""
+                if regex_indicators.search(token):
+                    # Explicit regex provided by user
+                    name_patterns.append(token)
                 else:
-                    esc = re.escape(q)
-                    name_patterns.append(f"(?i)(?:^|\\.){esc}(?:$|\\b|_)")
+                    esc = re.escape(token)
+                    # For path-like or file-like tokens, match anywhere case-insensitively
+                    if "/" in token or "\\" in token or "." in token:
+                        name_patterns.append(f"(?i){esc}")
+                    else:
+                        # Keep earlier name-friendly behavior for simple identifiers
+                        name_patterns.append(f"(?i)(?:^|\\.){esc}(?:$|\\b|_)")
         except Exception:
             # Best effort, pass raw tokens
             name_patterns = [q for q in queries if isinstance(q, str)]
@@ -107,6 +117,7 @@ class ReadResourcesTool(Tool):
         repositories: List[ResourcesSection.Repository] = []
         searched_repos = 0
         matched_resources_total = 0
+        top_results: List[ResourcePreview] = []
 
         try:
             from sqlalchemy import select  # lazy import
@@ -127,15 +138,22 @@ class ReadResourcesTool(Tool):
             # Index by data_source for grouping and to compute names
             ds_id_to_resources: Dict[str, List[MetadataResource]] = {}
             for r in rows:
-                # Apply name regex patterns in Python
+                # Apply regex patterns across name OR path in Python
                 if name_patterns:
                     name_val = (getattr(r, "name", "") or "")
-                    try:
-                        if not any(re.search(p, name_val) for p in name_patterns):
+                    path_val = (getattr(r, "path", "") or "")
+                    candidate = f"{name_val}\n{path_val}"
+                    matched = False
+                    for p in name_patterns:
+                        try:
+                            if re.search(p, candidate):
+                                matched = True
+                                break
+                        except Exception:
+                            # Ignore invalid pattern and continue
                             continue
-                    except Exception:
-                        # On invalid pattern, skip filtering for that token
-                        pass
+                    if not matched:
+                        continue
                 ds_id = str(getattr(r, "data_source_id", ""))
                 ds_id_to_resources.setdefault(ds_id, []).append(r)
 
@@ -174,6 +192,21 @@ class ReadResourcesTool(Tool):
                         resources=payload,
                     )
                 )
+                # Accumulate preview items for top_results
+                try:
+                    for r in res_list:
+                        top_results.append(ResourcePreview(
+                            name=getattr(r, "name", None),
+                            resource_type=getattr(r, "resource_type", None),
+                            path=getattr(r, "path", None),
+                            description=getattr(r, "description", None),
+                            source_name=getattr(r, "source_name", None),
+                            database=getattr(r, "database", None),
+                            schema=getattr(r, "schema", None),
+                            raw_data=getattr(r, "raw_data", None),
+                        ))
+                except Exception:
+                    pass
         except Exception as e:
             errors.append(str(e))
 
@@ -234,6 +267,7 @@ class ReadResourcesTool(Tool):
             searched_resources_est=matched_resources_total,
             errors=errors,
             search_query=data.query,
+            top_results=top_results[:5],
         ).model_dump()
 
         observation = {
