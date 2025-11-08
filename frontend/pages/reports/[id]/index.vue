@@ -1056,9 +1056,18 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		case 'tool.finished':
 			// Update tool execution status
 			if (payload.tool_name && payload.status) {
-				const blockWithTool = sysMessage.completion_blocks?.find(b => 
-					b.tool_execution?.tool_name === payload.tool_name
-				)
+				// Prefer precise targeting when identifiers are available
+				const blocks = sysMessage.completion_blocks || []
+				let blockWithTool = blocks.find(b => (payload.block_id && b.id === payload.block_id)) 
+					|| blocks.find(b => (payload.tool_execution_id && b.tool_execution?.id === payload.tool_execution_id))
+					// Fallback: choose the most recent running/in-progress block for this tool
+					|| [...blocks].reverse().find(b => 
+						b.tool_execution?.tool_name === payload.tool_name && 
+						(b.tool_execution?.status === 'running' || b.status === 'in_progress')
+					)
+					// Last fallback: most recent block with matching tool name
+					|| [...blocks].reverse().find(b => b.tool_execution?.tool_name === payload.tool_name)
+
 				if (blockWithTool?.tool_execution) {
 					blockWithTool.tool_execution.status = payload.status
 					blockWithTool.status = payload.status === 'success' ? 'success' : 'error'
