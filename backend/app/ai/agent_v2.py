@@ -29,7 +29,7 @@ from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstr
 from app.settings.database import create_async_session_factory
 from app.core.telemetry import telemetry
 
-TOP_K_PER_DS = 30  # Number of tables to sample per data source
+TOP_K_PER_DS = 20  # Number of tables to sample per data source
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 
 
@@ -277,6 +277,16 @@ class AgentV2:
                 schemas_excerpt = combined_schemas
             except Exception:
                 schemas_excerpt = view.static.schemas.render() if view.static.schemas else ""
+            # Resources combined (sample + index)
+            try:
+                resources_ctx = await self.context_hub.resource_builder.build()
+                resources_combined = resources_ctx.render_combined(top_k_per_repo=TOP_K_PER_DS, index_limit=INDEX_LIMIT)
+            except Exception:
+                try:
+                    resources_section_fallback = await self.context_hub.resource_builder.build()
+                    resources_combined = resources_section_fallback.render()
+                except Exception:
+                    resources_combined = ""
             # History summary based on observation context only
             history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
@@ -348,6 +358,11 @@ class AgentV2:
                     # Get resources context from metadata resources
                     resources_section = await self.context_hub.resource_builder.build()
                     resources_context = resources_section.render()
+                    # Smaller combined excerpt to control tokens per-iteration
+                    try:
+                        resources_combined_small = resources_section.render_combined(top_k_per_repo=10, index_limit=200)
+                    except Exception:
+                        resources_combined_small = resources_context
                     # Files context (uploaded files schemas/metadata)
                     files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
                     # Mentions context (current user turn mentions)
@@ -369,6 +384,7 @@ class AgentV2:
                         history_summary=history_summary,
                         messages_context=messages_context,
                         resources_context=resources_context,
+                        resources_combined=(resources_combined_small if 'resources_combined' not in locals() else resources_combined),
                         last_observation=observation,
                         past_observations=self.context_hub.observation_builder.tool_observations,
                         external_platform=getattr(self.head_completion, "external_platform", None),
@@ -793,6 +809,20 @@ class AgentV2:
                             }
                             continue  # Continue to next iteration with error observation
 
+                        # Reset artifact state for tools that can create/update steps/visualizations
+                        try:
+                            if tool_name in [
+                                "create_widget",
+                                "create_data",
+                                "create_and_execute_code",
+                            ]:
+                                self.current_query = None
+                                self.current_step = None
+                                self.current_step_id = None
+                                self.current_visualization = None
+                        except Exception:
+                            pass
+
                         # Start tool execution tracking
                         tool_execution = await self.project_manager.start_tool_execution_from_models(
                             self.db,
@@ -938,6 +968,11 @@ class AgentV2:
 
                         # Capture post-tool context snapshot
                         await self.context_hub.refresh_warm()
+                        # Refresh static sections (schemas with stats) so post_tool snapshot reflects latest table usage
+                        try:
+                            await self.context_hub.build_context()
+                        except Exception:
+                            pass
                         post_view = self.context_hub.get_view()
                         post_snap = await self.project_manager.save_context_snapshot(
                             self.db,
@@ -1013,7 +1048,8 @@ class AgentV2:
                                 "tool_name": tool_name,
                                 "status": "success" if observation and not observation.get("error") else "error",
                                 "result_summary": observation.get("summary", "") if observation else "",
-                                "result_json": safe_result_json,
+                                # Include query_id for hydration in frontend previews when available
+                                "result_json": ({**safe_result_json, "query_id": (str(self.current_query.id) if getattr(self, "current_query", None) else None)} if isinstance(safe_result_json, dict) else safe_result_json),
                                 "duration_ms": tool_execution.duration_ms,
                                 "created_widget_id": created_widget_id,
                                 "created_step_id": created_step_id,
@@ -1298,13 +1334,18 @@ class AgentV2:
         stage = payload.get("stage")
         
         try:
-            if tool_name in ["create_data_model", "create_widget"]:
+            if tool_name in ["create_widget", "create_data"]:
                 if stage == "data_model_type_determined":
                     # Create Query, Step and Visualization early when we know the type
                     data_model_type = payload.get("data_model_type")
-                    query_title = (tool_input and tool_input.get("widget_title")) or "Untitled Query"
+                    # Accept either payload.query_title (preferred) or tool_input.title/widget_title for backward-compat
+                    query_title = (
+                        (payload.get("query_title") if isinstance(payload, dict) else None)
+                        or (tool_input and (tool_input.get("title") or tool_input.get("widget_title")))
+                        or "Untitled Query"
+                    )
 
-                    if data_model_type and self.report:
+                    if data_model_type and self.report and not self.current_step:
                         # Create query (transitional service may still create a widget under the hood)
                         try:
                             self.current_query = await self.project_manager.create_query_v2(
@@ -1480,44 +1521,79 @@ class AgentV2:
                                 await self._emit_sse_event(SSEEvent(event="visualization.created", completion_id=str(self.system_completion.id), agent_execution_id=str(self.current_execution.id), seq=seq, data={"visualization_id": str(self.current_visualization.id), "query_id": str(self.current_query.id), "report_id": str(self.report.id), "step_id": str(self.current_step.id), "view": {"type": data_model.get("type")}}))
                         except Exception:
                             pass
+            elif tool_name == "create_data":
+                # Code-first path: create query/step/visualization early so outputs can be persisted
+                if stage in ["generated_code", "executing_code"]:
+                    try:
+                        query_title = (tool_input and (tool_input.get("title") or tool_input.get("widget_title"))) or "Untitled Query"
+                        if not self.current_step and self.report:
+                            # Create query and step with a default table view
+                            try:
+                                self.current_query = await self.project_manager.create_query_v2(
+                                    self.db, self.report, query_title
+                                )
+                            except Exception:
+                                self.current_query = None
 
-                    if data_model and self.current_step:
-                        # Update step with final data_model
-                        await self.project_manager.update_step_with_data_model(
-                            self.db, self.current_step, data_model
-                        )
-                        
-                        # Emit data model completion event to UI
-                        seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        await self._emit_sse_event(SSEEvent(
-                            event="data_model.completed",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=seq,
-                            data={
-                                "query_id": str(self.current_query.id) if self.current_query else None,
-                                "step_id": str(self.current_step.id),
-                                "data_model": data_model,
-                            }
-                        ))
-                        # Also emit a consolidated artifact snapshot delta
-                        try:
-                            change = ArtifactChangeSchema(
-                                type="step",
-                                step_id=str(self.current_step.id),
-                                partial=False,
-                                changed_fields=["data_model"],
-                                fields={"data_model": data_model},
+                            self.current_step = await self.project_manager.create_step_for_query(
+                                self.db,
+                                self.current_query,
+                                query_title,
+                                "chart",
+                                {"type": "table", "columns": [], "series": []},
                             )
-                            await self._emit_sse_event(SSEEvent(
-                                event="block.delta.artifact",
-                                completion_id=str(self.system_completion.id),
-                                agent_execution_id=str(self.current_execution.id),
-                                seq=seq,
-                                data={"change": change.model_dump()}
-                            ))
-                        except Exception:
-                            pass
+                            self.current_step_id = str(self.current_step.id)
+                            await self.project_manager.set_query_default_step_if_empty(self.db, self.current_query, self.current_step_id)
+
+                            # Create a draft visualization with table view
+                            try:
+                                self.current_visualization = await self.project_manager.create_visualization_v2(
+                                    self.db,
+                                    str(self.report.id),
+                                    str(self.current_query.id),
+                                    query_title,
+                                    view={"type": "table"},
+                                    status="draft",
+                                )
+                            except Exception:
+                                self.current_visualization = None
+
+                            # Emit creation events
+                            try:
+                                seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                await self._emit_sse_event(SSEEvent(
+                                    event="query.created",
+                                    completion_id=str(self.system_completion.id),
+                                    agent_execution_id=str(self.current_execution.id),
+                                    seq=seq,
+                                    data={
+                                        "query_id": str(self.current_query.id) if self.current_query else None,
+                                        "report_id": str(self.report.id),
+                                        "title": query_title,
+                                    }
+                                ))
+                            except Exception:
+                                pass
+                            try:
+                                if self.current_visualization:
+                                    seq = await self.project_manager.next_seq(self.db, self.current_execution)
+                                    await self._emit_sse_event(SSEEvent(
+                                        event="visualization.created",
+                                        completion_id=str(self.system_completion.id),
+                                        agent_execution_id=str(self.current_execution.id),
+                                        seq=seq,
+                                        data={
+                                            "visualization_id": str(self.current_visualization.id),
+                                            "query_id": str(self.current_query.id) if self.current_query else None,
+                                            "report_id": str(self.report.id),
+                                            "step_id": str(self.current_step.id),
+                                            "view": {"type": "table"},
+                                        }
+                                    ))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
             
             elif tool_name == "create_dashboard":
                 # Stream-only handling: append blocks into active layout via ProjectManager
@@ -1546,39 +1622,39 @@ class AgentV2:
             return  # Don't process failed tool executions
             
         try:
-            if tool_name == "create_data_model":
-                # Widget/step creation already handled in streaming
-                # Refresh current_step from database to get updated data_model
-                if self.current_widget and self.current_step:
-                    await self.db.refresh(self.current_step)
-                    observation["widget_id"] = str(self.current_widget.id)
-                    observation["step_id"] = str(self.current_step.id)
-                    observation["data_model"] = getattr(self.current_step, "data_model", {})
-            
-            elif tool_name == "modify_data_model":
-                # Update current step's data_model using tool_output
-                if tool_output:
-                    data_model = tool_output.get("data_model", {})
-                    
-                    if data_model and self.current_step:
-                        await self.project_manager.update_step_with_data_model(
-                            self.db, self.current_step, data_model
-                        )
-                    
-            elif tool_name in ["create_and_execute_code", "create_widget"]:
+            if tool_name in ["create_and_execute_code", "create_widget", "create_data"]:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return
                 
                 code = tool_output.get("code", "")
-                widget_data = tool_output.get("widget_data", {})
+                widget_data = tool_output.get("widget_data", {}) or tool_output.get("data", {})
                 success = tool_output.get("success", False)
+                data_model_from_tool = tool_output.get("data_model") or {}
+                view_options_from_tool = tool_output.get("view_options") or {}
                 
                 step_obj = None
                 if self.current_step_id:
                     step_obj = await self.db.get(Step, self.current_step_id)
                 
                 if step_obj and success and widget_data:
+                    # If tool provided a minimal data_model (type/series), merge it into the step before deriving view
+                    try:
+                        if isinstance(data_model_from_tool, dict) and data_model_from_tool:
+                            existing_dm = (getattr(step_obj, "data_model", {}) or {}).copy()
+                            merged = existing_dm.copy()
+                            # Preserve existing type; only set if missing
+                            if not merged.get("type") and data_model_from_tool.get("type"):
+                                merged["type"] = data_model_from_tool.get("type")
+                            # Merge series/grouping fields
+                            for key in ("series", "group_by", "sort", "limit"):
+                                if data_model_from_tool.get(key) is not None:
+                                    merged[key] = data_model_from_tool.get(key)
+                            await self.project_manager.update_step_with_data_model(self.db, step_obj, merged)
+                            # Refresh the object to read the updated data_model
+                            await self.db.refresh(step_obj)
+                    except Exception:
+                        pass
                     # Update step with code
                     await self.project_manager.update_step_with_code(
                         self.db, step_obj, code
@@ -1606,6 +1682,27 @@ class AgentV2:
                     except Exception:
                         pass
 
+                    # Fallback for create_data: if no columns in data_model, emit usage from tool_input.tables_by_source
+                    try:
+                        if tool_name == "create_data":
+                            dm = getattr(step_obj, "data_model", {}) or {}
+                            cols = dm.get("columns") if isinstance(dm, dict) else None
+                            has_columns = isinstance(cols, list) and len(cols) > 0
+                            if not has_columns and isinstance(tool_input, dict):
+                                tbs = tool_input.get("tables_by_source")
+                                if tbs:
+                                    await self.project_manager.emit_table_usage_from_tables_by_source(
+                                        db=self.db,
+                                        report=self.report,
+                                        step=step_obj,
+                                        tables_by_source=tbs,
+                                        user_id=str(getattr(self.head_completion, "user_id", None)) if hasattr(self.head_completion, "user_id") and self.head_completion.user_id else None,
+                                        user_role=None,
+                                        source_type="sql",
+                                    )
+                    except Exception:
+                        pass
+
                     # Finalize visualization view.encoding and status
                     try:
                         # Compute encoding from step.data_model.series
@@ -1615,6 +1712,14 @@ class AgentV2:
                             view = {"type": dm.get("type")}
                             if enc:
                                 view["encoding"] = enc
+                            # Merge any tool-provided view options (e.g., colors palette)
+                            try:
+                                if isinstance(view_options_from_tool, dict) and view_options_from_tool:
+                                    current_options = (view.get("options") or {})
+                                    merged_options = {**current_options, **view_options_from_tool}
+                                    view["options"] = merged_options
+                            except Exception:
+                                pass
                             await self.project_manager.update_visualization_view(self.db, self.current_visualization, view)
                             await self.project_manager.set_visualization_status(self.db, self.current_visualization, "success")
                             # Emit visualization.updated

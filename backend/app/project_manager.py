@@ -69,6 +69,86 @@ class ProjectManager:
         except Exception as e:
             self.logger.warning(f"emit_table_usage failed: {e}")
 
+    async def emit_table_usage_from_tables_by_source(self, db, report: Report, step: Step, tables_by_source: list[dict] | None, user_id: str | None = None, user_role: str | None = None, source_type: str | None = "sql"):
+        """Fallback emission when Step.data_model has no columns.
+
+        Uses tool_input.tables_by_source to emit TableUsageEvent rows and upsert TableStats.
+        - Skips entries without a resolvable data_source_id (unless the report has exactly one DS).
+        - Looks up datasource_table_id for enrichment when possible.
+        """
+        try:
+            if not tables_by_source or not isinstance(tables_by_source, list):
+                return
+
+            # Determine single-DS fallback if applicable
+            report_ds_ids = [str(ds.id) for ds in (getattr(report, 'data_sources', []) or [])]
+
+            # Local import to avoid broader import side-effects
+            from sqlalchemy import select as _select, func as _func
+            from app.models.datasource_table import DataSourceTable
+
+            for group in tables_by_source:
+                if not isinstance(group, dict):
+                    continue
+                ds_id = group.get("data_source_id")
+                tables = group.get("tables") or []
+
+                # Fallback to the sole report DS when not specified
+                if not ds_id and len(report_ds_ids) == 1:
+                    ds_id = report_ds_ids[0]
+                if not ds_id:
+                    # Cannot validate/access without a concrete data source id
+                    continue
+
+                for t in tables:
+                    if not isinstance(t, str):
+                        continue
+                    table_name = t.strip()
+                    if not table_name:
+                        continue
+
+                    # Resolve datasource_table_id when present in catalog
+                    ds_table_id = None
+                    resolved_fqn = table_name.lower()
+                    try:
+                        table_lower = table_name.lower()
+                        stmt = _select(DataSourceTable).where(
+                            DataSourceTable.datasource_id == ds_id,
+                            (
+                                (_func.lower(DataSourceTable.name) == table_lower)
+                                | (_func.lower(DataSourceTable.name).like(f'%.{table_lower}'))
+                            )
+                        )
+                        res = await db.execute(stmt)
+                        row = res.scalar_one_or_none()
+                        if row:
+                            ds_table_id = str(row.id)
+                            # Prefer the canonical name from catalog (often includes schema, e.g., 'public.customer')
+                            try:
+                                resolved_fqn = str(getattr(row, "name", resolved_fqn) or resolved_fqn).lower()
+                            except Exception:
+                                pass
+                    except Exception:
+                        ds_table_id = None
+
+                    payload = TableUsageEventCreate(
+                        org_id=str(report.organization_id),
+                        report_id=str(report.id),
+                        data_source_id=ds_id,
+                        step_id=str(step.id),
+                        user_id=user_id,
+                        table_fqn=resolved_fqn,
+                        datasource_table_id=ds_table_id,
+                        source_type=source_type or "sql",
+                        columns=[],
+                        success=(step.status == "success"),
+                        user_role=user_role,
+                        role_weight=None,
+                    )
+                    await self.table_usage_service.record_usage_event(db=db, payload=payload)
+        except Exception as e:
+            self.logger.warning(f"emit_table_usage_from_tables_by_source failed: {e}")
+
     async def create_error_completion(self, db, head_completion, error):
         error_completion = Completion(model=head_completion.model,completion={"content": error, "error": True},
             prompt=None,

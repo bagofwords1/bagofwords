@@ -96,6 +96,7 @@ class DescribeTablesTool(Tool):
                 # Fallback to whatever is in the current context view
                 _schemas_section_obj = getattr(context_view.static, "schemas", None) if context_view else None
                 schemas_excerpt = _schemas_section_obj.render() if _schemas_section_obj else ""
+                ctx = None
             else:
                 builder = context_hub.schema_builder
                 # Build without top_k slicing so we can compute truncation accurately
@@ -141,6 +142,53 @@ class DescribeTablesTool(Tool):
             searched_tables_est=matched_tables_total,
             errors=errors,
         ).model_dump()
+
+        # Lightweight preview for UI: gather top tables across data sources
+        try:
+            top_tables: list[dict[str, Any]] = []
+            if locals().get("ctx") is not None:
+                per_ds_cap = max(1, int(getattr(data, "limit", 10) or 10))
+                for ds in (getattr(ctx, "data_sources", []) or []):
+                    ds_info = getattr(ds, "info", None)
+                    ds_id = getattr(ds_info, "id", None)
+                    ds_name = getattr(ds_info, "name", None)
+                    ds_type = getattr(ds_info, "type", None)
+                    for t in (getattr(ds, "tables", []) or [])[:per_ds_cap]:
+                        # Columns preview
+                        col_items: list[dict[str, Any]] = []
+                        try:
+                            for c in (getattr(t, "columns", []) or []):
+                                col_items.append({
+                                    "name": getattr(c, "name", None),
+                                    "dtype": getattr(c, "dtype", None),
+                                })
+                        except Exception:
+                            col_items = []
+                        # Usage preview
+                        usage = {
+                            "usage_count": getattr(t, "usage_count", None),
+                            "success_count": getattr(t, "success_count", None),
+                            "failure_count": getattr(t, "failure_count", None),
+                            "success_rate": getattr(t, "success_rate", None),
+                            "last_used_at": getattr(t, "last_used_at", None),
+                            "score": getattr(t, "score", None),
+                        }
+                        if not any(v is not None for v in usage.values()):
+                            usage = None
+                        top_tables.append({
+                            "data_source_id": ds_id,
+                            "data_source_name": ds_name,
+                            "data_source_type": ds_type,
+                            "schema": None,
+                            "name": getattr(t, "name", None),
+                            "full_name": None,
+                            "description": None,
+                            "columns": col_items,
+                            "usage": usage,
+                        })
+            output["top_tables"] = top_tables
+        except Exception:
+            output["top_tables"] = []
 
         # Include the original query explicitly for UI display after reloads
         try:

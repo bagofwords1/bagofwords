@@ -12,7 +12,37 @@
                         @click="closeModal"
                     />
                 </div>
-                <div class="text-sm text-gray-500 mt-1">Report ID: {{ reportId }}</div>
+                <div class="flex items-start justify-between mt-1">
+                    <div class="text-sm text-gray-500">Report ID: {{ reportId }}</div>
+                    <!-- Header AI scoring (pastel badges) -->
+                    <div
+                        v-if="isJudgeEnabled && traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)"
+                        class="flex items-center gap-2"
+                    >
+                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mr-1">AI Scoring</div>
+                        <div
+                            v-if="traceData.agent_execution.instructions_effectiveness !== null"
+                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-blue-50 text-blue-700 border-blue-200"
+                        >
+                            <span class="mr-1">Instructions</span>
+                            <span class="font-semibold">{{ traceData.agent_execution.instructions_effectiveness }}/5</span>
+                        </div>
+                        <div
+                            v-if="traceData.agent_execution.context_effectiveness !== null"
+                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-purple-50 text-purple-700 border-purple-200"
+                        >
+                            <span class="mr-1">Context</span>
+                            <span class="font-semibold">{{ traceData.agent_execution.context_effectiveness }}/5</span>
+                        </div>
+                        <div
+                            v-if="traceData.agent_execution.response_score !== null"
+                            class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-green-50 text-green-700 border-green-200"
+                        >
+                            <span class="mr-1">Response</span>
+                            <span class="font-semibold">{{ traceData.agent_execution.response_score }}/5</span>
+                        </div>
+                    </div>
+                </div>
             </template>
 
             <!-- Content -->
@@ -30,16 +60,26 @@
                     <!-- Left Pane: Minimal Block List (2/5 width) -->
                     <div class="col-span-2 border-r border-gray-200 pr-4 flex flex-col min-h-0">
                         <div class="text-xs text-gray-600 mb-2">Execution Blocks</div>
-                        <div class="flex-1 min-h-0 overflow-y-auto pr-2 space-y-1">
-                            <div v-for="item in leftItems" :key="item.id" :class="[
+                        <div class="flex-1 min-h-0 overflow-y-auto pr-2">
+                            <div v-for="(item, index) in leftItems" :key="item.id" class="mb-2">
+                                <div :class="[
                                 'px-3 py-2 rounded border cursor-pointer text-xs',
                                 selectedItem?.id === item.id ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
                             ]" @click="selectLeftItem(item)">
-                                <div class="flex items-center justify-between">
-                                    <div class="font-medium text-gray-900 truncate">{{ item.title }}</div>
-                                    <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
+                                    <div class="flex items-center justify-between">
+                                        <div class="font-medium text-gray-900 truncate">{{ item.title }}</div>
+                                        <UIcon :name="getLeftItemIcon(item)" :class="getLeftItemIconClass(item)" />
+                                    </div>
+                                    <div v-if="item.subtitle" class="text-gray-500 truncate mt-0.5">{{ item.subtitle }}</div>
+                                    <div v-if="getItemDurationMs(item) !== null" class="mt-1 flex items-center justify-end text-[10px] text-gray-500">
+                                        <UIcon name="i-heroicons-bolt" class="w-3 h-3 mr-1 text-gray-400" />
+                                        <span>{{ formatDuration(getItemDurationMs(item) || 0) }}</span>
+                                    </div>
                                 </div>
-                                <div v-if="item.subtitle" class="text-gray-500 truncate mt-0.5">{{ item.subtitle }}</div>
+                                <!-- Arrow between blocks -->
+                                <div v-if="index < leftItems.length - 1" class="flex justify-center my-1">
+                                    <UIcon name="i-heroicons-arrow-long-down-20-solid" class="w-5 h-5 text-gray-400" />
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -71,29 +111,6 @@
                                 <template v-if="selectedItem.id === 'user_prompt'">
                                     <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1">User Prompt</div>
                                     <pre class="text-xs text-gray-900 font-sans">{{ traceData?.head_prompt_snippet || '—' }}</pre>
-                                    
-                                    <!-- AI Scoring section -->
-                                    <div v-if="isJudgeEnabled && traceData?.agent_execution && hasAnyCompletionScores(traceData.agent_execution)" class="mt-4">
-                                        <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">AI Scoring</div>
-                                        <div class="grid grid-cols-3 gap-3">
-                                            <div v-if="traceData.agent_execution.instructions_effectiveness !== null" class="text-center">
-                                                <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Instructions</div>
-                                                <div class="text-sm font-medium text-gray-900">{{ traceData.agent_execution.instructions_effectiveness }}/5</div>
-                                            </div>
-                                            <div v-if="traceData.agent_execution.context_effectiveness !== null" class="text-center">
-                                                <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Context</div>
-                                                <div class="text-sm font-medium text-gray-900">{{ traceData.agent_execution.context_effectiveness }}/5</div>
-                                            </div>
-                                            <div v-if="traceData.agent_execution.response_score !== null" class="text-center">
-                                                <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Response</div>
-                                                <div class="text-sm font-medium text-gray-900">{{ traceData.agent_execution.response_score }}/5</div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div v-else class="mt-4 text-xs text-gray-500 flex items-center">
-                                        <span>LLM Judge agent is turned off</span>
-                                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400" />
-                                    </div>
                                     
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
                                         <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Context</div>
@@ -234,7 +251,6 @@
 import RenderTable from '../RenderTable.vue'
 import ContextBrowser from './ContextBrowser.vue'
 import GenericTool from '../tools/GenericTool.vue'
-import CreateDataModelTool from '../tools/CreateDataModelTool.vue'
 import ExecuteCodeTool from '../tools/ExecuteCodeTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
 import Spinner from '../Spinner.vue'
@@ -244,6 +260,8 @@ interface ToolExecutionUI {
     tool_name: string
     tool_action?: string
     result_json?: any
+    duration_ms?: number
+    status?: string
 }
 
 interface CompletionFeedbackUI {
@@ -431,6 +449,23 @@ const selectLeftItem = (item: any) => {
     }
 }
 
+function getItemDurationMs(item: any): number | null {
+    const block = item?.ref || item
+    if (!block) return null
+    const te = block.tool_execution
+    if (te && typeof te.duration_ms === 'number') return te.duration_ms
+    if (typeof block.duration_ms === 'number') return block.duration_ms
+    return null
+}
+
+function formatDuration(ms: number): string {
+    if (ms < 1000) return `${Math.round(ms)} ms`
+    const seconds = ms / 1000
+    if (seconds < 60) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} s`
+    const minutes = seconds / 60
+    return `${minutes.toFixed(1)} m`
+}
+
 const getStepsForCompletion = (_completionId: string) => []
 const getFeedbackForCompletion = (_completionId: string) => []
 
@@ -526,8 +561,6 @@ const hasAnyCompletionScores = (completion: any) => {
 // Tool component helpers (matching index.vue)
 function getToolComponent(toolName: string) {
     switch (toolName) {
-        case 'create_data_model':
-            return CreateDataModelTool
         case 'create_widget':
             return CreateWidgetTool
         case 'create_and_execute_code':

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    OracleConfig,
     SnowflakeConfig,
     BigQueryConfig,
     NetSuiteConfig,
@@ -22,6 +23,7 @@ from app.schemas.data_sources.configs import (
     TableauConfig,
     SalesforceConfig,
     ClickhouseConfig,
+    PinotConfig,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -30,6 +32,7 @@ from app.schemas.data_sources.configs import (
     DuckDBAzureCredentials,
     # Credentials
     PostgreSQLCredentials,
+    OracleCredentials,
     SnowflakeCredentials,
     BigQueryCredentials,
     NetSuiteCredentials,
@@ -95,6 +98,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         config_schema=PostgreSQLConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system","user"])
+        }),
+        client_path=None
+    ),
+    "oracledb": DataSourceRegistryEntry(
+        type="oracledb",
+        title="Oracle Database",
+        description="Enterprise-grade relational database. Connect via service name; optional schema scoping.",
+        config_schema=OracleConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=OracleCredentials, scopes=["system","user"])
         }),
         client_path=None
     ),
@@ -190,6 +203,17 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
         client_path=None,
+    ),
+    "pinot": DataSourceRegistryEntry(
+        type="pinot",
+        title="Apache Pinot",
+        description="Real-time OLAP datastore queried via Broker SQL API.",
+        config_schema=PinotConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
+        }),
+        client_path=None,
+        version="beta",
     ),
     "aws_cost": DataSourceRegistryEntry(
         type="aws_cost",

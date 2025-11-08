@@ -3,6 +3,7 @@ import sys
 import pandas as pd
 import numpy as np
 import datetime
+import json
 import uuid
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
@@ -10,6 +11,7 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
+from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 
 class CodeExecutionManager:
     """
@@ -79,6 +81,47 @@ class StreamingCodeExecutor:
             if isinstance(obj, np.ndarray):
                 return obj.tolist()
             return obj
+        def make_hashable(value: Any) -> Any:
+            """
+            Convert potentially unhashable values (dict, list, set, ndarray, Timestamp)
+            into a hashable representation so nunique/value_counts won't crash.
+            """
+            try:
+                # Fast path: already hashable
+                hash(value)
+                return value
+            except Exception:
+                pass
+            # Normalize common container types
+            if isinstance(value, (pd.Timestamp, datetime.date)):
+                return pd.Timestamp(value).isoformat()
+            if isinstance(value, np.ndarray):
+                return tuple(value.tolist())
+            if isinstance(value, (list, tuple)):
+                try:
+                    return tuple(make_hashable(v) for v in value)
+                except Exception:
+                    return tuple(str(v) for v in value)
+            if isinstance(value, set):
+                try:
+                    return tuple(sorted(make_hashable(v) for v in value))
+                except Exception:
+                    return tuple(sorted(str(v) for v in value))
+            if isinstance(value, dict):
+                try:
+                    # Stable, readable representation
+                    return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+                except Exception:
+                    # Fallback to tuple of items
+                    try:
+                        return tuple(sorted((str(k), str(v)) for k, v in value.items()))
+                    except Exception:
+                        return str(value)
+            # Final fallback
+            try:
+                return str(value)
+            except Exception:
+                return None
 
         info_dict = {
             "total_rows": int(len(df)),
@@ -87,18 +130,35 @@ class StreamingCodeExecutor:
             "memory_usage": int(df.memory_usage(deep=True).sum()),
             "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().items()},
         }
-        desc_dict = df.describe(include='all').to_dict()
+        # describe(include='all') may fail on unhashable objects (e.g., dict cells). Guard it.
+        try:
+            desc_dict = df.describe(include='all').to_dict()
+        except Exception:
+            desc_dict = {}
         for column in df.columns:
             column_info = {
                 "dtype": str(df[column].dtype),
                 "non_null_count": int(df[column].count()),
                 "memory_usage": int(df[column].memory_usage(deep=True)),
                 "null_count": int(df[column].isna().sum()),
-                "unique_count": int(df[column].nunique()),
+                # nunique may fail for unhashable objects; fall back to a hashable projection
+                "unique_count": 0,
             }
+            try:
+                column_info["unique_count"] = int(df[column].nunique(dropna=True))
+            except Exception:
+                try:
+                    projected = df[column].map(make_hashable)
+                    column_info["unique_count"] = int(projected.nunique(dropna=True))
+                except Exception:
+                    column_info["unique_count"] = 0
             if column in desc_dict:
-                stats = {stat: convert_to_native(value) for stat, value in desc_dict[column].items() if pd.notna(value)}
-                column_info.update(stats)
+                try:
+                    stats = {stat: convert_to_native(value) for stat, value in desc_dict[column].items() if pd.notna(value)}
+                    column_info.update(stats)
+                except Exception:
+                    # Best-effort; skip stats if conversion fails
+                    pass
             info_dict["column_info"][column] = column_info
         return info_dict
 
@@ -282,6 +342,141 @@ class StreamingCodeExecutor:
                 }
             else:
                 # Emit a final done event carrying the results instead of returning values
+                yield {
+                    "type": "done",
+                    "payload": {
+                        "df": exec_df,
+                        "code": final_code,
+                        "errors": code_and_error_messages,
+                        "execution_log": execution_log,
+                    },
+                }
+
+    async def generate_and_execute_stream_v2(
+        self,
+        *,
+        request: CodeGenRequest,
+        ds_clients: Dict,
+        excel_files: List,
+        code_context_builder: Optional['CodeContextBuilder'] = None,
+        code_generator_fn: Callable = None,
+        validator_fn: Optional[Callable] = None,
+        sigkill_event=None,
+    ):
+        """
+        V2: Typed context-based generator. Yields the same event shapes as v1.
+        """
+        retries = 0
+        max_retries = int(getattr(request, "retries", 2) or 2)
+        code_and_error_messages: List[Tuple[str, str]] = []
+        final_code = ""
+        exec_df = pd.DataFrame()
+        execution_log = ""
+        executed_successfully = False
+        ctx: CodeGenContext = request.context
+        # Derive prompt/schemas for legacy generator signature
+        derived_prompt = ctx.user_prompt
+        derived_interpreted_prompt = ctx.interpreted_prompt
+        derived_schemas = ctx.schemas_excerpt
+
+        while retries < max_retries:
+            if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                break
+            yield {"type": "progress", "payload": {"stage": "generating_code", "attempt": retries}}
+            try:
+                if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                    break
+                # Call code generator with typed context and legacy params populated from context
+                final_code = await code_generator_fn(
+                    data_model={},
+                    prompt=derived_prompt,
+                    interpreted_prompt=derived_interpreted_prompt,
+                    schemas=derived_schemas,
+                    ds_clients=ds_clients,
+                    excel_files=excel_files,
+                    code_and_error_messages=code_and_error_messages,
+                    memories="",
+                    previous_messages="",
+                    retries=retries,
+                    prev_data_model_code_pair=None,
+                    sigkill_event=sigkill_event,
+                    code_context_builder=None,
+                    context=ctx,
+                )
+                yield {"type": "progress", "payload": {"stage": "generated_code", "attempt": retries}}
+            except Exception as e:
+                msg = f"Code generation error: {str(e)}"
+                code_and_error_messages.append((final_code, msg))
+                yield {"type": "stdout", "payload": msg}
+                retries += 1
+                if retries < max_retries:
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                continue
+
+            if validator_fn:
+                try:
+                    yield {"type": "progress", "payload": {"stage": "validating_code", "attempt": retries}}
+                    validation = await validator_fn(final_code, {})
+                    if not validation.get("valid", True):
+                        error_msg = validation.get('reasoning', 'Validation failed')
+                        yield {"type": "progress", "payload": {"stage": "validated_code", "valid": False, "error": error_msg, "attempt": retries}}
+                        code_and_error_messages.append((final_code, error_msg))
+                        retries += 1
+                        if retries < max_retries:
+                            yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
+                        continue
+                    else:
+                        yield {"type": "progress", "payload": {"stage": "validated_code", "valid": True, "attempt": retries}}
+                except Exception as e:
+                    msg = f"Validation error: {str(e)}"
+                    code_and_error_messages.append((final_code, msg))
+                    yield {"type": "stdout", "payload": msg}
+                    retries += 1
+                    if retries < max_retries:
+                        yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
+                    continue
+
+            yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
+            try:
+                if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+                    break
+                exec_df, execution_log = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                executed_successfully = True
+                break
+            except Exception as e:
+                import traceback
+                trace = traceback.format_exc()
+                msg = f"Execution error: {str(e)}\n{trace}"
+                code_and_error_messages.append((final_code, msg))
+                yield {"type": "stdout", "payload": msg}
+                retries += 1
+                if retries < max_retries:
+                    yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
+                continue
+
+        if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+            yield {
+                "type": "done",
+                "payload": {
+                    "df": pd.DataFrame(),
+                    "code": final_code,
+                    "errors": code_and_error_messages,
+                    "execution_log": execution_log,
+                },
+            }
+            return
+        else:
+            if not executed_successfully and code_and_error_messages:
+                yield {
+                    "type": "done",
+                    "payload": {
+                        "df": None,
+                        "code": final_code,
+                        "errors": code_and_error_messages,
+                        "execution_log": execution_log,
+                    },
+                }
+            else:
                 yield {
                     "type": "done",
                     "payload": {

@@ -305,6 +305,33 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
+        # Persist connectivity for system-only sources when viewing details
+        # This ensures UI status aligns with org-level is_active
+        try:
+            await self.test_data_source_connection(
+                db=db,
+                data_source_id=str(data_source.id),
+                organization=organization,
+                current_user=current_user or User(),
+            )
+            # After commit in test, relationships may be expired; reload with eager options
+            try:
+                stmt = (
+                    select(DataSource)
+                    .options(
+                        selectinload(DataSource.git_repository),
+                        selectinload(DataSource.data_source_memberships)
+                    )
+                    .where(DataSource.id == data_source.id)
+                )
+                refreshed_res = await db.execute(stmt)
+                data_source = refreshed_res.scalar_one()
+            except Exception:
+                pass
+        except Exception:
+            # Non-fatal: keep serving the resource even if the live check fails
+            pass
+
         schema = DataSourceSchema.from_orm(data_source)
         # Attach user_status via user creds service when a user context exists
         try:
@@ -562,9 +589,15 @@ class DataSourceService:
             # Test the connection
             connection_status = client.test_connection()
 
+            # Normalize success value for robust handling
+            try:
+                success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
+            except Exception:
+                success = False
+
             # Reflect connectivity on org-wide flag only for system creds
             if getattr(data_source, "auth_policy", "system_only") == "system_only":
-                if connection_status.get("success") is False:
+                if not success:
                     data_source.is_active = False
                     await db.commit()
                     await db.refresh(data_source)
@@ -795,7 +828,7 @@ class DataSourceService:
             print(f"Error getting data source schema: {e}")
             raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
     
-    async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None):
+    async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None, with_stats: bool = False):
         result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
         data_source = result.scalar_one_or_none()
         
@@ -810,7 +843,7 @@ class DataSourceService:
                 # Fallback to canonical schema if user overlay fetch fails
                 pass
 
-        schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive)
+        schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)
 
         return schemas
 

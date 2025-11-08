@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from typing import Optional
@@ -121,21 +121,23 @@ async def update_data_source(
 @requires_permission('view_data_source', model=DataSource)
 async def get_data_source_schema(
     data_source_id: str,
+    with_stats: bool = Query(False),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user)
+    return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
 
 @router.get("/data_sources/{data_source_id}/full_schema", response_model=list)
 @requires_permission('view_data_source_full_schema', model=DataSource)
 async def get_data_source_full_schema(
     data_source_id: str,
+    with_stats: bool = Query(False),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=True, organization=organization, current_user=current_user)
+    return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=True, organization=organization, current_user=current_user, with_stats=with_stats)
 
 @router.put("/data_sources/{data_source_id}/update_schema", response_model=DataSourceSchema)
 @requires_permission('view_data_source_full_schema', model=DataSource)

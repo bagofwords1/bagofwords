@@ -176,7 +176,13 @@ class DataSource(BaseSchema):
                 pks=table.pks,
                 fks=table.fks,
                 is_active=table.is_active,
-                metadata_json=table.metadata_json
+                metadata_json=table.metadata_json,
+                # expose structural metrics so callers (UI) can render centrality/related stats
+                centrality_score=float(getattr(table, 'centrality_score', 0.0) or 0.0),
+                richness=getattr(table, 'richness', None),
+                degree_in=getattr(table, 'degree_in', None),
+                degree_out=getattr(table, 'degree_out', None),
+                entity_like=getattr(table, 'entity_like', None),
             )
             if with_stats:
                 key = (table.name or '').lower()
@@ -217,6 +223,11 @@ class DataSource(BaseSchema):
                 else:
                     structural_signal = (float(table.centrality_score or 0.0) + float(table.richness or 0.0) + (0.5 if table.entity_like else 0.0))
                     score = 0.1 * structural_signal
+                    # Default usage metrics to zero when stats are absent
+                    tbl.usage_count = 0
+                    tbl.success_count = 0
+                    tbl.failure_count = 0
+                    tbl.weighted_usage_count = 0.0
                     tbl.score = float(round(score, 6))
                     scored.append((tbl.score or 0.0, tbl))
             else:

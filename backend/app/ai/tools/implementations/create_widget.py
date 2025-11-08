@@ -79,6 +79,7 @@ class CreateWidgetTool(Tool):
             max_retries=0,
             timeout_seconds=180,
             idempotent=False,
+            is_active=False,
             required_permissions=[],
             tags=["widget", "data-model", "code", "execution"],
         )

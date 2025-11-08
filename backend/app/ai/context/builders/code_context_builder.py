@@ -249,6 +249,120 @@ class CodeContextBuilder:
         ranked.sort(key=lambda x: x[0], reverse=True)
         return [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
 
+    async def get_top_successful_snippets_for_tables(
+        self,
+        tables_by_source: list[Dict],
+        *,
+        top_k: int = 2,
+        time_window_days: Optional[int] = None,
+    ) -> List[Dict]:
+        """Return top successful code snippets filtered by targeted tables (and optional ds ids).
+
+        Uses TableUsageEvent to filter steps that successfully used any of the requested tables.
+        Ranks primarily by success rate, recency, and positive feedback.
+        """
+        allowed_ds_ids, since_ts, now_utc = await self._get_access_and_time(time_window_days)
+        if not allowed_ds_ids:
+            return []
+        # Normalize targets: list of (ds_id or None, table_name_lower)
+        targets: list[tuple[Optional[str], str]] = []
+        for group in (tables_by_source or []):
+            if not isinstance(group, dict):
+                continue
+            ds_id = group.get("data_source_id")
+            tbls = group.get("tables") or []
+            for t in tbls:
+                if isinstance(t, str) and t.strip():
+                    targets.append((str(ds_id) if ds_id else None, t.strip().lower()))
+        if not targets:
+            return []
+
+        # Build filters for TableUsageEvent
+        usage_filters = [
+            TableUsageEvent.org_id == str(self.organization.id),
+            TableUsageEvent.data_source_id.in_(allowed_ds_ids),
+        ]
+        if since_ts is not None:
+            usage_filters.append(TableUsageEvent.used_at >= since_ts)
+        # Target matching: (optional ds match) AND table_fqn equals/lower like %.table
+        from sqlalchemy import or_, and_
+        match_clauses = []
+        for ds_id, tname in targets:
+            tfqn = func.lower(TableUsageEvent.table_fqn)
+            name_eq = (tfqn == tname)
+            # SQLite does not support CONCAT; build the pattern in Python
+            name_like = tfqn.like(f'%.{tname}')
+            name_clause = or_(name_eq, name_like)
+            if ds_id:
+                match_clauses.append(and_(TableUsageEvent.data_source_id == ds_id, name_clause))
+            else:
+                match_clauses.append(name_clause)
+        if not match_clauses:
+            return []
+
+        # Aggregate usage restricted to target tables
+        usage_subq = (
+            select(
+                TableUsageEvent.step_id.label("step_id"),
+                func.max(TableUsageEvent.used_at).label("last_used_at"),
+                func.sum(case((TableUsageEvent.success == True, 1), else_=0)).label("succ"),
+                func.sum(case((TableUsageEvent.success == False, 1), else_=0)).label("fail"),
+                func.count().label("attempts"),
+            )
+            .where(*usage_filters)
+            .where(or_(*match_clauses))
+            .group_by(TableUsageEvent.step_id)
+            .subquery()
+        )
+        # Candidate successful steps joined with filtered usage
+        step_rows = (
+            await self.db.execute(
+                select(
+                    Step.id,
+                    Step.code,
+                    usage_subq.c.last_used_at,
+                    usage_subq.c.succ,
+                    usage_subq.c.fail,
+                    usage_subq.c.attempts,
+                )
+                .join(usage_subq, usage_subq.c.step_id == Step.id)
+                .where(func.lower(Step.status) == "success")
+            )
+        ).all()
+        if not step_rows:
+            return []
+
+        # Feedback map for ranking
+        fb_map = await self._load_feedback_map(allowed_ds_ids, since_ts)
+
+        ranked: List[Tuple[float, Dict]] = []
+        for step_id, step_code, last_used_at, succ, fail, attempts in step_rows:
+            sid = str(step_id)
+            pos, neg = fb_map.get(sid, (0, 0))
+            attempts_n = float(attempts or 0)
+            success_rate = float(succ or 0) / attempts_n if attempts_n > 0 else 0.0
+            recency, last_used_str = self._recency(now_utc, last_used_at)
+            feedback_score = float(pos - neg)
+
+            # Composite score tuned for table targeting (no column similarity here)
+            score = 0.55 * success_rate + 0.35 * recency + 0.10 * feedback_score
+
+            code_str = self._trim_code(step_code, 3000)
+            ranked.append((
+                score,
+                {
+                    "step_id": sid,
+                    "score": round(score, 6),
+                    "success_rate": round(success_rate, 4),
+                    "feedback": {"positive": int(pos or 0), "negative": int(neg or 0)},
+                    "last_used_at": last_used_str,
+                    "code": code_str,
+                },
+            ))
+
+        ranked.sort(key=lambda x: x[0], reverse=True)
+        return [item for _, item in (ranked[:top_k] if top_k and top_k > 0 else ranked)]
+
 
     def _extract_generated_columns(self, data_model: Dict) -> Set[str]:
         try:

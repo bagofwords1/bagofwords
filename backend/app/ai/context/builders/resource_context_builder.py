@@ -20,6 +20,7 @@ class ResourceContextBuilder:
     async def build_context(self):
         """Build context from resources based on the prompt content (string)."""
         context = []
+        repositories: list[ResourcesSection.Repository] = []
         # Extract keywords from the prompt
         keywords = self._extract_keywords_from_prompt(self.prompt_content)
         # For each data source, check if there's a git repository
@@ -69,11 +70,56 @@ class ResourceContextBuilder:
                     context.append(formatted_resource)
                     
                 context.append("</relevant_metadata_resources>")
+
+            # Build structured repository entry for combined renderers
+            try:
+                ds_name = getattr(data_source, 'name', None) or "Data Source"
+                repo_name = f"{ds_name} Metadata Resources"
+                repo_id = str(getattr(git_repository, 'id', None)) if getattr(git_repository, 'id', None) else None
+                ds_id = str(getattr(data_source, 'id', None)) if getattr(data_source, 'id', None) else None
+
+                resources_payload: list[dict] = []
+                for res in all_resources:
+                    try:
+                        resources_payload.append({
+                            "name": getattr(res, 'name', None),
+                            "resource_type": (getattr(res, 'resource_type', None) or ""),
+                            "path": getattr(res, 'path', None),
+                            "description": getattr(res, 'description', None),
+                            "sql_content": getattr(res, 'sql_content', None),
+                            "source_name": getattr(res, 'source_name', None),
+                            "database": getattr(res, 'database', None),
+                            "schema": getattr(res, 'schema', None),
+                            "columns": getattr(res, 'columns', None),
+                            "depends_on": getattr(res, 'depends_on', None),
+                            "raw_data": getattr(res, 'raw_data', None),
+                        })
+                    except Exception:
+                        continue
+
+                repositories.append(ResourcesSection.Repository(
+                    name=repo_name,
+                    id=repo_id,
+                    data_source_id=ds_id,
+                    resources=resources_payload,
+                ))
+            except Exception:
+                # Structured section is best-effort; keep legacy content regardless
+                pass
         
-        return "\n".join(context)
+        # Return both legacy pre-rendered content and structured repositories
+        return "\n".join(context), repositories
 
     async def build(self) -> ResourcesSection:
-        content = await self.build_context()
+        result = await self.build_context()
+        if isinstance(result, tuple):
+            content, repositories = result
+            try:
+                return ResourcesSection(content=content, repositories=repositories)
+            except Exception:
+                return ResourcesSection(content=content)
+        # Back-compat if older signature is returned
+        content = result
         return ResourcesSection(content=content)
 
     def _extract_keywords_from_prompt(self, prompt_data):
@@ -96,7 +142,7 @@ class ResourceContextBuilder:
         for resource in resources:
             # Create a searchable text from the resource
             # Include resource_type in searchable text
-            searchable_text = f"{resource.name} {resource.resource_type} {resource.description or ''} {resource.sql_content or ''}"
+            searchable_text = f"{resource.name} {resource.resource_type} {resource.description or ''} {resource.sql_content or ''} {resource.path or ''}"
             
             # Check if any keyword is in the searchable text
             if any(keyword.lower() in searchable_text.lower() for keyword in keywords):

@@ -75,6 +75,7 @@ AGENT LOOP (single-cycle planning; one tool per iteration)
 PLAN TYPE DECISION FRAMEWORK
 - You must review user message, the chat's previous messages and activity, inspect schemas or gather context first
 - If the user's message is a greeting/thanks/farewell, do not call any tool; respond briefly.
+- Use describe_tables and read_resources tools to get more information about the resources names, context, semantic layers, etc before the next step (clarify/create_data/answer etc)
 - If schemas are empty/insufficient, use the clarify tool to ask targeted clarifying questions via assistant_message.
 - If the user's request is ambiguous, trigger the clarify tool.
 - If you have enough information, go ahead and execute the plan.
@@ -90,9 +91,10 @@ ERROR HANDLING (robust; no blind retries)
 ANALYTICS & RELIABILITY
 - Ground reasoning in provided context (schemas, history, last_observation). If not present, ask a clarifying question via assistant_message.
 - Use the describe_tables tool to get more information about the tables and columns before creating a widget.
+- Use the read_resources tool to get more information about the resources names, context, semantic layers, etc. Always bias to use this tool before the next step (clarify/create_data/answer etc)
 - Prefer the smallest next action that produces observable progress.
 - Do not include sample/fabricated data in final_answer.
-- If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_widget tool.
+- If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
 - A widget should represent a SINGLE piece of data or analysis (a single metric, a single table, a single chart, etc).
 - If the user asks for a dashboard/report/etc, create all the widgets first, then call the create_dashboard tool once all queries were created.
 - If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_dashboard tool immediately.
@@ -145,9 +147,9 @@ INPUT ENVELOPE
   {planner_input.instructions}
   {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
   {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
+  {planner_input.resources_combined if getattr(planner_input, 'resources_combined', None) else ''}
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
-  {planner_input.resources_context if planner_input.resources_context else 'No metadata resources available'}
   {planner_input.history_summary}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
   <past_observations>{json.dumps(planner_input.past_observations) if planner_input.past_observations else '[]'}</past_observations>
@@ -176,6 +178,7 @@ EXPECTED JSON OUTPUT (strict):
   "final_answer": string | null
 }}
 """
+
         return prompt
     
     @staticmethod
@@ -185,7 +188,7 @@ EXPECTED JSON OUTPUT (strict):
             return 0
         
         # Simple heuristic: count research tool mentions
-        research_keywords = ['read_file', 'answer_question', 'research']
+        research_keywords = ['answer_question', 'research']
         count = 0
         for keyword in research_keywords:
             count += history_summary.lower().count(keyword)

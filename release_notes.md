@@ -1,5 +1,20 @@
 # Release Notes
 
+## Version 0.0.231 (November 8, 2025)
+- Enhanced the UI for agentic retrieval and search for greater clarity and usability
+- Refined the agent head prompt to more effectively leverage and guide the use of search tools
+- Improved the agent trace user interface for better readability and interaction
+
+## Version 0.0.230 (November 6, 2025)
+- Introduced a new create_data tool that is more robust, reliable and accurate data generation
+- Enhanced code generation for more accurate and robust SQL and Python outputs
+- Improved chart visualizations for clearer and more informative data presentation
+- Added new data source integration support: Apache Pinot and Oracle DB
+- Table browsing now displays detailed statistics, including usage frequency, scoring, and feedback metrics
+- Launched the new `read_resources` tool for intelligent, on-demand searching across all metadata resources
+- Added successful executed queries in the same tables for when agent is generating code
+
+
 ## Version 0.0.220 (November 4, 2025)
 - Added BigQuery support for `maximum_bytes_billed` for cost guardrails and support for `use_query_cache`
 - Improved main AI loop with additional observations from sub-agent create data (code, errors, etc)

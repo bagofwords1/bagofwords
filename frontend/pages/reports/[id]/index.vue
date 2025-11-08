@@ -325,11 +325,12 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, watch, computed } from 'vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
-import CreateDataModelTool from '~/components/tools/CreateDataModelTool.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
+import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
+import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -492,10 +493,11 @@ function hasCompletedContent(block: CompletionBlock): boolean {
 
 function getToolComponent(toolName: string) {
 	switch (toolName) {
-		case 'create_data_model':
-			return CreateDataModelTool
+    // 'create_data_model' removed
 		case 'create_widget':
 			return CreateWidgetTool
+    case 'create_data':
+      return CreateDataTool
 			case 'describe_tables':
 				return DescribeTablesTool
 		case 'create_and_execute_code':
@@ -504,6 +506,8 @@ function getToolComponent(toolName: string) {
 			return CreateDashboardTool
 		case 'answer_question':
 			return AnswerQuestionTool
+		case 'read_resources':
+			return ReadResourcesTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'execute_code':
@@ -521,8 +525,9 @@ function shouldUseToolComponent(toolExecution: ToolCall): boolean {
 function shouldShowToolWidgetPreview(toolExecution: ToolCall | undefined): boolean {
 	if (!toolExecution) return false
 	
-	// Only show for create_and_execute_code or execute_code tools with success status
-	const showForTools = ['create_and_execute_code', 'execute_code', 'execute_sql']
+  // Only show for generic code-execution tools with success status.
+  // Tools with a specialized component (e.g., create_widget, create_data) handle their own preview.
+  const showForTools = ['create_and_execute_code', 'execute_code', 'execute_sql']
 	return showForTools.includes(toolExecution.tool_name) && 
 	       toolExecution.status === 'success' &&
 	       (toolExecution.created_widget || toolExecution.created_step)
@@ -922,6 +927,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							;(lastBlock.tool_execution.result_json as any).search_query = q
 							lastBlock.tool_execution.result_summary = `Searching ${qStr}…`
 						}
+						if (payload.tool_name === 'read_resources' && payload.arguments) {
+							const q = payload.arguments.query
+							const qStr = Array.isArray(q) ? q.join(', ') : (typeof q === 'string' ? q : (q ? JSON.stringify(q) : 'resources'))
+							;(lastBlock.tool_execution.result_json as any).search_query = q
+							lastBlock.tool_execution.result_summary = `Searching ${qStr}…`
+						}
 					} catch {}
 					lastBlock.status = 'in_progress'
 				}
@@ -946,10 +957,15 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					// Record progress stage for tool-specific UIs
 					if (payload.payload && lastBlock.tool_execution) {
 						;(lastBlock.tool_execution as any).progress_stage = payload.payload.stage || null
+						// Capture icon for read_resources submit_search stage if provided
+						if (payload.tool_name === 'read_resources' && payload.payload.stage === 'submit_search' && payload.payload.icon) {
+							lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
+							;(lastBlock.tool_execution.result_json as any).icon = payload.payload.icon
+						}
 					}
 
-					// Progressive data model updates for create_data_model/create_widget tools
-					if ((payload.tool_name === 'create_data_model' || payload.tool_name === 'create_widget') && payload.payload) {
+          // Progressive data model updates for create_widget tool
+          if ((payload.tool_name === 'create_widget') && payload.payload) {
 						const p = payload.payload
 						// Ensure result_json.data_model structure exists
 						lastBlock.tool_execution.result_json = lastBlock.tool_execution.result_json || {}
@@ -1040,9 +1056,18 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		case 'tool.finished':
 			// Update tool execution status
 			if (payload.tool_name && payload.status) {
-				const blockWithTool = sysMessage.completion_blocks?.find(b => 
-					b.tool_execution?.tool_name === payload.tool_name
-				)
+				// Prefer precise targeting when identifiers are available
+				const blocks = sysMessage.completion_blocks || []
+				let blockWithTool = blocks.find(b => (payload.block_id && b.id === payload.block_id)) 
+					|| blocks.find(b => (payload.tool_execution_id && b.tool_execution?.id === payload.tool_execution_id))
+					// Fallback: choose the most recent running/in-progress block for this tool
+					|| [...blocks].reverse().find(b => 
+						b.tool_execution?.tool_name === payload.tool_name && 
+						(b.tool_execution?.status === 'running' || b.status === 'in_progress')
+					)
+					// Last fallback: most recent block with matching tool name
+					|| [...blocks].reverse().find(b => b.tool_execution?.tool_name === payload.tool_name)
+
 				if (blockWithTool?.tool_execution) {
 					blockWithTool.tool_execution.status = payload.status
 					blockWithTool.status = payload.status === 'success' ? 'success' : 'error'

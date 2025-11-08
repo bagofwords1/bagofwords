@@ -162,6 +162,44 @@ class MessageContextBuilder:
                                         except Exception:
                                             pass
                                     tool_info += " - " + "; ".join(digest_parts)
+                                # Digest for create_data results (same style as create_widget)
+                                elif tool_execution.tool_name == 'create_data' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    data_obj = rj.get('data') or {}
+                                    columns = data_obj.get('columns', []) or []
+                                    rows = data_obj.get('rows', []) or []
+                                    col_names = [
+                                        (c.get('field') or c.get('headerName'))
+                                        for c in columns
+                                        if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
+                                    ]
+                                    row_count = len(rows)
+                                    sample_row = None
+                                    if allow_llm_see_data:
+                                        preview = rj.get('data_preview', {}) or {}
+                                        preview_rows = preview.get('rows') or []
+                                        if preview_rows:
+                                            sample_row = preview_rows[0]
+                                        elif rows:
+                                            sample_row = rows[0]
+                                    digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
+                                    if col_names:
+                                        head_cols = ", ".join(col_names[:3])
+                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                    # If a non-table viz was inferred, surface it concisely
+                                    try:
+                                        dm = rj.get('data_model') or {}
+                                        dm_type = str(dm.get('type') or '').strip()
+                                        if dm_type and dm_type != 'table':
+                                            digest_parts.append(f"chart: {dm_type}")
+                                    except Exception:
+                                        pass
+                                    if sample_row:
+                                        try:
+                                            digest_parts.append(f"top row: {json.dumps(sample_row)}")
+                                        except Exception:
+                                            pass
+                                    tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
                                     # Show table names extracted from schemas excerpt; fallback to query/arguments
                                     rj = tool_execution.result_json or {}
@@ -485,6 +523,39 @@ class MessageContextBuilder:
                                             digest_parts.append(f"top row: {json.dumps(sample_row)}")
                                         except Exception:
                                             pass
+                                tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'create_data' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                data_obj = rj.get('data') or {}
+                                columns = data_obj.get('columns', []) or []
+                                rows = data_obj.get('rows', []) or []
+                                col_names = [
+                                    (c.get('field') or c.get('headerName'))
+                                    for c in columns
+                                    if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
+                                ]
+                                row_count = len(rows)
+                                digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
+                                if col_names:
+                                    head_cols = ", ".join(col_names[:3])
+                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 3 else ''}")
+                                if allow_llm_see_data:
+                                    preview = rj.get('data_preview', {}) or {}
+                                    preview_rows = preview.get('rows') or []
+                                    sample_row = preview_rows[0] if preview_rows else (rows[0] if rows else None)
+                                    if sample_row:
+                                        try:
+                                            digest_parts.append(f"top row: {json.dumps(sample_row)}")
+                                        except Exception:
+                                            pass
+                                # If a non-table viz was inferred, surface it concisely
+                                try:
+                                    dm = rj.get('data_model') or {}
+                                    dm_type = str(dm.get('type') or '').strip()
+                                    if dm_type and dm_type != 'table':
+                                        digest_parts.append(f"chart: {dm_type}")
+                                except Exception:
+                                    pass
                                 tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
                                 # Show table names extracted from schemas excerpt; fallback to query/arguments
