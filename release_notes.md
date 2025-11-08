@@ -1,9 +1,9 @@
 # Release Notes
 
 ## Version 0.0.231 (November 8, 2025)
-- Improve UI for agentic retrieval and search
-- Improve agent head prompt to use the search tools
-- Improve UI of agent traces
+- Enhanced the UI for agentic retrieval and search for greater clarity and usability
+- Refined the agent head prompt to more effectively leverage and guide the use of search tools
+- Improved the agent trace user interface for better readability and interaction
 
 ## Version 0.0.230 (November 6, 2025)
 - Introduced a new create_data tool that is more robust, reliable and accurate data generation
