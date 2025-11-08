@@ -381,7 +381,6 @@ class Coder:
                             similar_successful_code_snippets = ""
             except Exception:
                 similar_successful_code_snippets = ""
-            breakpoint()
             text = f"""
             You are a highly skilled data engineer and data scientist.
 
