@@ -41,6 +41,11 @@
                                     <div class="text-sm font-medium text-gray-900">
                                         {{ model.name }}
                                         <span v-if="model.is_default" class="text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-md">Default</span>
+                                        <span v-if="model.is_small_default" class="text-xs bg-green-500 text-white px-1.5 py-0.5 rounded-md ml-1">
+                                            <UTooltip text="Used for LLM Judge, tests, and other small tasks">
+                                            Small default
+                                        </UTooltip>
+                                        </span>
                                     </div>
                                     <div v-if="model.model_id !== model.name" class="text-xs text-gray-500">
                                         Model ID: {{ model.model_id }}
@@ -52,7 +57,11 @@
                             {{ model.provider.name }}
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm">
-                            <UToggle v-model="model.is_enabled" @change="toggleModel(model.id, $event)" :disabled="!useCan('manage_llm_settings')" />
+                            <UToggle 
+                                v-model="model.is_enabled" 
+                                @change="toggleModel(model.id, $event)" 
+                                :disabled="!useCan('manage_llm_settings') || model.is_default || model.is_small_default" 
+                            />
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm" v-if="useCan('manage_llm_settings')">
                             <UDropdown :items="getDropdownItems(model)">
@@ -108,6 +117,7 @@ type Model = {
   name: string;
   model_id: string;
   is_default: boolean;
+  is_small_default: boolean;
   is_enabled: boolean;
   provider: Provider;
 };
@@ -157,9 +167,10 @@ const handleProviderModalClose = async (value: boolean) => {
     }
 };
 
-const setDefaultModel = async (modelId: string) => {
+const setDefaultModel = async (modelId: string, small = false) => {
     const response = await useMyFetch(`/llm/models/${modelId}/set_default`, {
         method: 'POST',
+        query: { small }
     });
     if (response.status.value === 'success') {
         await getModels();
@@ -210,7 +221,13 @@ const getDropdownItems = (model: Model) => {
         {
             label: 'Make Default',
             click: () => {
-                setDefaultModel(model.id);
+                setDefaultModel(model.id, false);
+            }
+        },
+        {
+            label: 'Make Small Default',
+            click: () => {
+                setDefaultModel(model.id, true);
             }
         }
     ]];
