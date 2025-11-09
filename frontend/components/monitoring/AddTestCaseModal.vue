@@ -15,20 +15,23 @@
                 <div class="border border-gray-200 rounded-lg overflow-hidden">
                     <div class="px-3 py-2 border-b border-gray-200 text-xs text-gray-600">Prompt</div>
                     <div class="p-2">
-                        <PromptBoxV2
+                        <TestPromptBox
                             :textareaContent="promptText"
                             @update:modelValue="(v:string) => promptText = v"
-                            :latestInProgressCompletion="{ id: 'disabled' }"
+                            @update:selectedDataSources="(v:any[]) => testSelectedDataSources = v"
+                            @update:selectedModelId="(v:string) => testSelectedModelId = v"
+                            @update:uploadedFiles="(v:any[]) => testUploadedFiles = v"
+                            @update:mentions="(v:any[]) => testMentions = v"
                         />
                     </div>
                 </div>
 
-                <!-- Right: Rules Builder -->
+                <!-- Right: Expectations Builder -->
                 <div class="border border-gray-100 rounded-lg overflow-hidden flex flex-col max-h-[70vh]">
-                    <div class="px-3 py-2 border-b border-gray-100 text-xs text-gray-700">Test Cases</div>
+                    <div class="px-3 py-2 border-b border-gray-100 text-xs text-gray-700">Expectations</div>
                     <div class="p-3 flex-1 flex flex-col space-y-3 overflow-y-auto">
                         <div class="flex items-center gap-2">
-                            <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add Test Case</UButton>
+                            <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add rule</UButton>
                             <div class="text-[11px] text-gray-500 ml-auto" v-if="catalogLoading">Loading catalog…</div>
                         </div>
 
@@ -44,7 +47,11 @@
                                   option-attribute="label"
                                   value-attribute="id"
                                   size="xs"
-                                  class="text-xs"
+                                  class="text-xs w-32"
+                                  :ui="{ content: 'w-56' }"
+                                  :uiMenu="{
+                                    base: 'w-56',
+                                  }"
                                   @change="() => onChangeCategory(cat)"
                                 >
                                   <template #option="{ option }">
@@ -73,6 +80,13 @@
                                   class="border border-gray-300 rounded px-2 py-1 text-xs w-full"
                                   placeholder="Write the evaluation prompt..."
                                 />
+                              </div>
+                              <div class="space-y-1">
+                                <div class="text-[11px] text-gray-500 mb-1">Output</div>
+                                <div class="flex items-center gap-2">
+                                  <span class="bg-green-100 text-green-800 text-xs px-2 py-1 rounded-md">Pass</span>
+                                  <span class="bg-red-100 text-red-800 text-xs px-2 py-1 rounded-md">Fail</span>
+                                </div>
                               </div>
                               <!-- Judge model selector (popover UI like PromptBoxV2) -->
                               <div class="space-y-1">
@@ -114,6 +128,9 @@
                                     size="xs"
                                     class="text-xs"
                                     :ui="{ width: 'w-72' }"
+                                    :uiMenu="{
+                                      base: 'w-56',
+                                    }"
                                     @change="() => onChangeField(cat, fr)"
                                   >
                                     <template #option="{ option }">
@@ -132,6 +149,9 @@
                                     size="xs"
                                     class="text-xs"
                                     :ui="{ width: 'w-72' }"
+                                    :uiMenu="{
+                                      base: 'w-56',
+                                    }"
                                     @change="() => onChangeOp(fr)"
                                   >
                                     <template #option="{ option }">
@@ -179,7 +199,7 @@
                                 </div>
                               </div>
                               <div class="pt-1" v-if="cat.categoryId !== 'judge'">
-                                <UButton color="gray" variant="soft" size="xs" icon="i-heroicons-plus" @click="addField(cat)">Add field</UButton>
+                                <UButton color="gray" variant="soft" size="xs" icon="i-heroicons-plus" @click="addField(cat)">Add condition</UButton>
                               </div>
                             </div>
                           </div>
@@ -200,7 +220,7 @@
 </template>
 
 <script setup lang="ts">
-import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
+import TestPromptBox from '~/components/monitoring/TestPromptBox.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 
 const props = defineProps<{ modelValue: boolean, suiteId: string }>()
@@ -209,6 +229,11 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void; (e: 'crea
 const isOpen = computed({ get: () => props.modelValue, set: (v) => emit('update:modelValue', v) })
 const promptText = ref('')
 const isSaving = ref(false)
+// Test prompt context
+const testSelectedDataSources = ref<any[]>([])
+const testSelectedModelId = ref<string>('')
+const testUploadedFiles = ref<any[]>([])
+const testMentions = ref<any[]>([])
 // Catalog and targets (Category → Field)
 type AllowedOp = 'text.contains' | 'text.not_contains' | 'text.equals' | 'text.regex' | 'number.cmp' | 'list.contains' | 'list.contains_any' | 'list.contains_all' | 'length.cmp'
 type ValueType = 'text' | 'number' | 'list<string>' | 'list<object>' | 'object'
@@ -425,8 +450,9 @@ function setJudgeModel(cat: CategoryRuleUI, m: any) {
 function ensureDefaultJudgeModel(cat: CategoryRuleUI) {
   const currentVal = (getJudgeRule(cat, 'model_id').matcher as any).value
   if (currentVal) return
-  const def = (judgeModels.value || []).find((m: any) => m.is_default)
-  const pick = def || (judgeModels.value || [])[0]
+  const small = (judgeModels.value || []).find((m: any) => m.is_small_default)
+  const reg = (judgeModels.value || []).find((m: any) => m.is_default)
+  const pick = small || reg || (judgeModels.value || [])[0]
   if (pick) {
     (getJudgeRule(cat, 'model_id').matcher as any).value = pick.model_id || pick.value || ''
   }
@@ -485,7 +511,6 @@ const normalizeMatcher = (m: any) => {
 const close = () => emit('update:modelValue', false)
 
 const save = async () => {
-  if (!promptText.value.trim()) return
   isSaving.value = true
   try {
     const flatRules: any[] = []
@@ -495,13 +520,29 @@ const save = async () => {
       }
     }
     const expectations = { spec_version: 1, rules: flatRules }
-    const name = promptText.value.trim().slice(0, 60)
+    const trimmed = promptText.value.trim()
+    const name = (trimmed.length > 0 ? trimmed : 'Untitled test').slice(0, 60)
+    // Build mentions grouped like PromptBoxV2
+    const mentionsByType = {
+      data_sources: (testMentions.value || []).filter((m: any) => m.type === 'data_source'),
+      tables: (testMentions.value || []).filter((m: any) => m.type === 'datasource_table'),
+      files: (testMentions.value || []).filter((m: any) => m.type === 'file'),
+      entities: (testMentions.value || []).filter((m: any) => m.type === 'entity')
+    }
+    const mentions = [
+      { name: 'DATA SOURCES', items: mentionsByType.data_sources },
+      { name: 'TABLES', items: mentionsByType.tables },
+      { name: 'FILES', items: mentionsByType.files },
+      { name: 'ENTITIES', items: mentionsByType.entities }
+    ]
+    const fileIds = (testUploadedFiles.value || []).map((f: any) => f.id).filter(Boolean)
     const res = await useMyFetch(`/api/test/suites/${props.suiteId}/cases`, {
       method: 'POST',
       body: {
         name,
-        prompt_json: { content: promptText.value },
-        expectations_json: expectations
+        prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, mentions, files: fileIds },
+        expectations_json: expectations,
+        data_source_ids_json: (testSelectedDataSources.value || []).map((ds: any) => ds.id)
       }
     })
     if ((res as any)?.error?.value) throw (res as any).error.value

@@ -4,7 +4,7 @@
       ref="inputRef"
       contenteditable="true"
       class="w-full text-sm outline-none resize-none bg-transparent text-gray-900 placeholder-gray-400 min-h-[40px] text-left"
-      :style="{ maxHeight: maxHeight }"
+      :style="{ minHeight: minHeight, maxHeight: maxHeight }"
       @input="handleInput"
       @keydown="handleKeydown"
       @paste.prevent="handlePaste"
@@ -209,9 +209,9 @@ const dropdownPosition = ref({ top: '0px', left: '0px' })
 const allCategories = ref<MentionCategory[]>([])
 const isLoadingMentions = ref(false)
 
-const maxHeight = computed(() => {
-  return props.rows === 2 ? '80px' : `${props.rows * 24}px`
-})
+const lineHeightPx = 24
+const minHeight = computed(() => `${Math.max(2, props.rows) * lineHeightPx}px`)
+const maxHeight = computed(() => `${Math.max(2, props.rows) * lineHeightPx}px`)
 
 const filteredCategories = computed(() => {
   if (currentMentionStartIndex.value === -1) return []

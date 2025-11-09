@@ -32,11 +32,6 @@ class NumberCmp(BaseModel):
     value: float
 
 
-class ListContains(BaseModel):
-    type: Literal["list.contains"] = "list.contains"
-    value: Any
-
-
 class ListContainsAny(BaseModel):
     type: Literal["list.contains_any"] = "list.contains_any"
     values: List[Any]
@@ -59,7 +54,6 @@ Matcher = Union[
     TextEquals,
     TextRegex,
     NumberCmp,
-    ListContains,
     ListContainsAny,
     ListContainsAll,
     LengthCmp,
@@ -145,7 +139,6 @@ AllowedMatcher = Literal[
     "text.equals",
     "text.regex",
     "number.cmp",
-    "list.contains",
     "list.contains_any",
     "list.contains_all",
     "length.cmp",
@@ -196,16 +189,24 @@ def default_test_catalog() -> TestCatalog:
     categories: List[CategoryDescriptor] = []
 
     categories.append(CategoryDescriptor(
-        id="tool:create_widget",
-        label="Create Widget",
+        id="tool:create_data",
+        label="Create Data",
         kind="tool",
-        tool_name="create_widget",
+        tool_name="create_data",
         fields=[
+            FieldDescriptor(
+                key="tables",
+                label="Used tables",
+                value_type="list<string>",
+                allowed_ops=["list.contains_any", "list.contains_all"],
+                io="input",
+                examples=[["table1", "table2"]],
+            ),
             FieldDescriptor(
                 key="columns",
                 label="Columns — names",
                 value_type="list<string>",
-                allowed_ops=["list.contains", "list.contains_any", "list.contains_all", "length.cmp"],
+                allowed_ops=["list.contains_any", "list.contains_all"],
                 io="output",
                 examples=["amount", "order_date"],
             ),
@@ -235,11 +236,12 @@ def default_test_catalog() -> TestCatalog:
         tool_name="clarify",
         fields=[
             FieldDescriptor(
-                key="final_answer",
-                label="Final answer",
+                key="question",
+                label="Question",
                 value_type="text",
                 allowed_ops=["text.contains", "text.equals", "text.regex"],
                 io="output",
+                examples=[["What do you mean by 'total revenue'?"]],
             )
         ]
     ))

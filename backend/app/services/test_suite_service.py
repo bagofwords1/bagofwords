@@ -70,7 +70,20 @@ class TestSuiteService:
             models = await llm_service.get_models(db, organization=_Org(organization_id), current_user=current_user, is_enabled=True)
             # Build options: label as "<Provider> — <Model Name>", value as model_id
             model_options = []
-            for m in models or []:
+            # Prefer small default first, then regular default, then alphabetically
+            def _sort_key(m):
+                try:
+                    provider_name = getattr(getattr(m, 'provider', None), 'name', '') or ''
+                except Exception:
+                    provider_name = ''
+                model_name = getattr(m, 'name', None) or getattr(m, 'model_id', '')
+                return (
+                    0 if getattr(m, 'is_small_default', False) else 1,
+                    0 if getattr(m, 'is_default', False) else 1,
+                    provider_name.lower(),
+                    str(model_name).lower(),
+                )
+            for m in sorted(models or [], key=_sort_key):
                 try:
                     provider_name = getattr(getattr(m, 'provider', None), 'name', None) or getattr(m, 'provider', None) or ''
                 except Exception:

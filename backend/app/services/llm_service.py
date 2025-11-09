@@ -223,7 +223,22 @@ class LLMService:
             query = query.filter(LLMModel.is_enabled == is_enabled)
         
         result = await db.execute(query)
-        return result.unique().scalars().all()
+        models = result.unique().scalars().all()
+        # Prefer small default models first, then regular default, then by provider/name
+        def _sort_key(m):
+            try:
+                provider_name = getattr(getattr(m, "provider", None), "name", "") or ""
+            except Exception:
+                provider_name = ""
+            model_name = getattr(m, "name", None) or getattr(m, "model_id", "")
+            # False > True when cast to int, so invert using not
+            return (
+                0 if getattr(m, "is_small_default", False) else 1,
+                0 if getattr(m, "is_default", False) else 1,
+                provider_name.lower(),
+                str(model_name).lower(),
+            )
+        return sorted(models, key=_sort_key)
 
     async def setup_default_providers(
         self,
