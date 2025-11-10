@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from app.models.test_suite import TestSuite
 from fastapi import HTTPException
@@ -20,6 +20,18 @@ class TestSuiteService:
         await db.refresh(suite)
         return suite
 
+    async def ensure_default_for_org(self, db: AsyncSession, organization_id: str, current_user) -> Optional[TestSuite]:
+        """Create a single default suite for the organization if none exist.
+
+        Idempotent: if the org already has any suite, does nothing.
+        """
+        res = await db.execute(select(TestSuite.id).where(TestSuite.organization_id == str(organization_id)))
+        existing = res.scalars().first()
+        if existing:
+            return None
+        # Create minimal default suite
+        return await self.create_suite(db, str(organization_id), current_user, name="Default", description="Auto-created")
+
     async def get_suite(self, db: AsyncSession, organization_id: str, current_user, suite_id: str) -> TestSuite:
         res = await db.execute(select(TestSuite).where(TestSuite.id == suite_id, TestSuite.organization_id == str(organization_id)))
         suite = res.scalar_one_or_none()
@@ -36,6 +48,12 @@ class TestSuiteService:
         stmt = stmt.order_by(TestSuite.created_at.desc()).offset((page - 1) * limit).limit(limit)
         res = await db.execute(stmt)
         return res.scalars().all()
+
+    async def list_suite_id_name_map(self, db: AsyncSession, organization_id: str, current_user) -> Dict[str, str]:
+        """Convenience helper returning {suite_id: suite_name} for fast lookups in UIs."""
+        res = await db.execute(select(TestSuite).where(TestSuite.organization_id == str(organization_id)))
+        suites = res.scalars().all()
+        return {str(s.id): s.name for s in suites}
 
     async def update_suite(self, db: AsyncSession, organization_id: str, current_user, suite_id: str, name: Optional[str], description: Optional[str]) -> TestSuite:
         suite = await self.get_suite(db, organization_id, current_user, suite_id)

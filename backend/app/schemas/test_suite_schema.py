@@ -56,9 +56,10 @@ class TestCaseUpdate(BaseModel):
 
 class TestRunSchema(BaseModel):
     id: str
-    suite_id: str
+    suite_ids: Optional[str] = None
     requested_by_user_id: Optional[str] = None
     trigger_reason: Optional[str] = None
+    title: Optional[str] = None
     status: str
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
@@ -70,21 +71,10 @@ class TestRunSchema(BaseModel):
         from_attributes = True
 
 
-class TestResultSchema(BaseModel):
-    id: str
-    run_id: str
-    case_id: str
-    head_completion_id: str
-    report_id: Optional[str] = None
-    status: str
-    failure_reason: Optional[str] = None
-    agent_execution_id: Optional[str] = None
-    diffs_json: Optional[List[Dict[str, Any]]] = None
-    metrics_json: Optional[Dict[str, Any]] = None
-    created_at: datetime
-    updated_at: datetime
+class TestRunCreate(BaseModel):
+    case_ids: Optional[List[str]] = None
+    trigger_reason: Optional[str] = "manual"
 
-    class Config:
-        from_attributes = True
+
 
 

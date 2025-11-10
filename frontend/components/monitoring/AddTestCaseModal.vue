@@ -1,16 +1,38 @@
 <template>
-    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-6xl' }">
+    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-6xl' }" :prevent-close="showCreateSuiteModal">
         <UCard>
             <template #header>
                 <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900">Add Test Case</h3>
+                    <h3 class="text-lg font-semibold text-gray-900">{{ isEditing ? 'Edit Test Case' : 'Add Test Case' }}</h3>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
                 </div>
-                <div class="text-xs text-gray-500 mt-1">Suite: {{ suiteId }}</div>
+                <div class="mt-2">
+                    <div class="flex flex-col md:flex-row md:items-center gap-2">
+                        <div class="text-xs text-gray-600 md:w-20">Suite</div>
+                        <div class="flex-1">
+                            <USelectMenu
+                                v-model="selectedSuiteIdLocal"
+                                :options="suiteOptions"
+                                option-attribute="label"
+                                value-attribute="value"
+                                size="xs"
+                                class="text-xs w-full md:w-64"
+                                @change="onSuiteMenuChanged"
+                            >
+                                <template #option="{ option }">
+                                    <div class="text-xs truncate">{{ option.label }}</div>
+                                </template>
+                            </USelectMenu>
+                        </div>
+                    </div>
+                    <div class="text-[11px] text-gray-400 mt-1">
+                        Select an existing suite{{ isEditing ? '' : ' or choose "Create New Suite…" to add one' }}.
+                    </div>
+                </div>
             </template>
 
-            <div class="max-h-[70vh] overflow-hidden pr-1">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[520px]">
+            <div class="max-h-[62vh] overflow-hidden pr-1">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 min-h-[420px]">
                 <!-- Left: Prompt -->
                 <div class="border border-gray-200 rounded-lg overflow-hidden">
                     <div class="px-3 py-2 border-b border-gray-200 text-xs text-gray-600">Prompt</div>
@@ -27,7 +49,7 @@
                 </div>
 
                 <!-- Right: Expectations Builder -->
-                <div class="border border-gray-100 rounded-lg overflow-hidden flex flex-col max-h-[70vh]">
+                <div class="border border-gray-100 rounded-lg overflow-hidden flex flex-col max-h-[58vh]">
                     <div class="px-3 py-2 border-b border-gray-100 text-xs text-gray-700">Expectations</div>
                     <div class="p-3 flex-1 flex flex-col space-y-3 overflow-y-auto">
                         <div class="flex items-center gap-2">
@@ -213,22 +235,65 @@
                 <div class="flex items-center justify-end space-x-2">
                     <UButton color="gray" variant="soft" @click="close">Cancel</UButton>
                     <UButton :loading="isSaving" class="!bg-blue-500 !text-white" @click="save">Save</UButton>
+                    <UButton :loading="isRunning" color="green" @click="runNow">Run Test Now</UButton>
                 </div>
             </template>
         </UCard>
     </UModal>
+    <!-- Create Suite small modal (teleported to body to avoid nested modal close issues) -->
+    <Teleport to="body">
+        <UModal v-model="showCreateSuiteModal" :ui="{ width: 'sm:max-w-md' }" :prevent-close="true">
+            <UCard>
+                <template #header>
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-base font-semibold text-gray-900">Create Suite</h3>
+                        <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="showCreateSuiteModal = false" />
+                    </div>
+                </template>
+                <div class="space-y-2">
+                    <label class="text-xs text-gray-600">Name</label>
+                    <input
+                        v-model="createSuiteName"
+                        type="text"
+                        placeholder="Suite name"
+                        class="border border-gray-300 rounded px-2 py-1 text-xs w-full"
+                    />
+                </div>
+                <template #footer>
+                    <div class="flex items-center justify-end gap-2">
+                        <UButton color="gray" variant="soft" @click="showCreateSuiteModal = false">Cancel</UButton>
+                        <UButton :loading="createSuiteLoading" class="!bg-blue-500 !text-white" @click="createSuite">Create</UButton>
+                    </div>
+                </template>
+            </UCard>
+        </UModal>
+    </Teleport>
 </template>
 
 <script setup lang="ts">
 import TestPromptBox from '~/components/monitoring/TestPromptBox.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
 
-const props = defineProps<{ modelValue: boolean, suiteId: string }>()
+const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void; (e: 'created', payload: any): void }>()
 
 const isOpen = computed({ get: () => props.modelValue, set: (v) => emit('update:modelValue', v) })
+const isEditing = computed(() => !!props.caseId)
 const promptText = ref('')
 const isSaving = ref(false)
+const isRunning = ref(false)
+const router = useRouter()
+// Suites
+const suitesLoading = ref(false)
+const suites = ref<Array<{ id: string, name: string }>>([])
+const selectedSuiteIdLocal = ref<string>(props.suiteId || '')
+const suiteOptions = computed(() => {
+  const base = (suites.value || []).map(s => ({ label: s.name, value: s.id }))
+  return [...base, { label: 'Create New Suite…', value: '__create__' }]
+})
+const showCreateSuiteModal = ref(false)
+const createSuiteName = ref('')
+const createSuiteLoading = ref(false)
 // Test prompt context
 const testSelectedDataSources = ref<any[]>([])
 const testSelectedModelId = ref<string>('')
@@ -315,7 +380,7 @@ const opOptionsFor = (cat: CategoryRuleUI, r: FieldRuleUI) => {
 const loadCatalog = async () => {
   catalogLoading.value = true
   try {
-    const res: any = await useMyFetch('/api/test/catalog')
+    const res: any = await useMyFetch('/api/tests/catalog')
     if (res?.error?.value) throw res.error.value
     const data = (res?.data?.value || {}) as TestCatalog
     categories.value = data.categories || []
@@ -327,10 +392,84 @@ const loadCatalog = async () => {
 }
 
 onMounted(async () => {
+  await loadSuites()
   await loadCatalog()
   await loadJudgeModels()
   if (categoryRules.value.length === 0) addCategory()
+  // Prepopulate when editing
+  if (isEditing.value && props.caseId) {
+    await loadCaseForEdit(props.caseId)
+  }
 })
+
+watch(() => props.suiteId, (v) => {
+  if (v && !selectedSuiteIdLocal.value) selectedSuiteIdLocal.value = v
+})
+
+// Ensure we fetch latest case data when the modal opens or caseId changes
+watch([() => props.caseId, isOpen], async ([cid, open]) => {
+  if (open && cid) {
+    // Ensure dependencies are loaded
+    if ((categories.value || []).length === 0) await loadCatalog()
+    if ((suites.value || []).length === 0) await loadSuites()
+    await loadCaseForEdit(String(cid))
+  }
+})
+
+async function loadSuites() {
+  suitesLoading.value = true
+  try {
+    const res: any = await useMyFetch('/api/tests/suites?limit=100')
+    suites.value = (res?.data?.value || []) as Array<{ id: string, name: string }>
+  } catch (e) {
+    suites.value = []
+  } finally {
+    suitesLoading.value = false
+  }
+}
+
+async function ensureSuiteId(): Promise<string> {
+  // Prefer explicit selection
+  if (selectedSuiteIdLocal.value) return selectedSuiteIdLocal.value
+  if (props.suiteId) return props.suiteId
+  throw new Error('Please select an existing suite or provide a name for a new suite.')
+}
+
+function onSuiteMenuChanged() {
+  if (selectedSuiteIdLocal.value === '__create__') {
+    // reset selection and open create modal
+    selectedSuiteIdLocal.value = props.suiteId || ''
+    createSuiteName.value = ''
+    showCreateSuiteModal.value = true
+  }
+}
+
+async function createSuite() {
+  if (createSuiteLoading.value) return
+  const name = (createSuiteName.value || '').trim()
+  if (name.length === 0) return
+  createSuiteLoading.value = true
+  try {
+    const res: any = await useMyFetch('/api/tests/suites', {
+      method: 'POST',
+      body: { name }
+    })
+    if (res?.error?.value) throw res.error.value
+    const suite = res?.data?.value as any
+    if (suite?.id) {
+      // update list and select
+      const exists = (suites.value || []).some(s => s.id === suite.id)
+      if (!exists) suites.value = [...suites.value, { id: suite.id, name: suite.name }]
+      selectedSuiteIdLocal.value = suite.id
+      showCreateSuiteModal.value = false
+      createSuiteName.value = ''
+    }
+  } catch (e) {
+    // silent fail; could add toast later
+  } finally {
+    createSuiteLoading.value = false
+  }
+}
 
 const defaultMatcherFor = (field: FieldDescriptor): Matcher => {
   const op = field.allowed_ops[0]
@@ -513,45 +652,176 @@ const close = () => emit('update:modelValue', false)
 const save = async () => {
   isSaving.value = true
   try {
-    const flatRules: any[] = []
-    for (const cat of categoryRules.value) {
-      for (const r of cat.fieldRules) {
-        flatRules.push({ type: 'field', target: r.target, matcher: normalizeMatcher(r.matcher) })
-      }
+    if (isEditing.value && props.caseId) {
+      const updated = await updateCase(props.caseId)
+      const res = updated?.raw
+      if (!updated?.case) throw new Error('Failed to update case')
+      // Emit created as well for backward compatibility and updated explicitly
+      emit('created', (res as any)?.data?.value)
+      // @ts-ignore - extended event
+      emit('updated' as any, (res as any)?.data?.value)
+      if ((res as any)?.error?.value) throw (res as any).error.value
+    } else {
+      const created = await createCase()
+      const res = created?.raw
+      if (!created?.case) throw new Error('Failed to create case')
+      emit('created', (res as any)?.data?.value)
+      if ((res as any)?.error?.value) throw (res as any).error.value
     }
-    const expectations = { spec_version: 1, rules: flatRules }
-    const trimmed = promptText.value.trim()
-    const name = (trimmed.length > 0 ? trimmed : 'Untitled test').slice(0, 60)
-    // Build mentions grouped like PromptBoxV2
-    const mentionsByType = {
-      data_sources: (testMentions.value || []).filter((m: any) => m.type === 'data_source'),
-      tables: (testMentions.value || []).filter((m: any) => m.type === 'datasource_table'),
-      files: (testMentions.value || []).filter((m: any) => m.type === 'file'),
-      entities: (testMentions.value || []).filter((m: any) => m.type === 'entity')
-    }
-    const mentions = [
-      { name: 'DATA SOURCES', items: mentionsByType.data_sources },
-      { name: 'TABLES', items: mentionsByType.tables },
-      { name: 'FILES', items: mentionsByType.files },
-      { name: 'ENTITIES', items: mentionsByType.entities }
-    ]
-    const fileIds = (testUploadedFiles.value || []).map((f: any) => f.id).filter(Boolean)
-    const res = await useMyFetch(`/api/test/suites/${props.suiteId}/cases`, {
-      method: 'POST',
-      body: {
-        name,
-        prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, mentions, files: fileIds },
-        expectations_json: expectations,
-        data_source_ids_json: (testSelectedDataSources.value || []).map((ds: any) => ds.id)
-      }
-    })
-    if ((res as any)?.error?.value) throw (res as any).error.value
-    emit('created', (res as any)?.data?.value)
     close()
   } catch (e) {
     console.error('Failed to create test case', e)
   } finally {
     isSaving.value = false
+  }
+}
+
+// Helper used by both save() and runNow()
+const createCase = async (): Promise<{ case: any | null, raw: any } | null> => {
+  const flatRules: any[] = []
+  for (const cat of categoryRules.value) {
+    for (const r of cat.fieldRules) {
+      flatRules.push({ type: 'field', target: r.target, matcher: normalizeMatcher(r.matcher) })
+    }
+  }
+  const expectations = { spec_version: 1, rules: flatRules }
+  const trimmed = promptText.value.trim()
+  const name = (trimmed.length > 0 ? trimmed : 'Untitled test').slice(0, 60)
+  // Build mentions grouped like PromptBoxV2
+  const mentionsByType = {
+    data_sources: (testMentions.value || []).filter((m: any) => m.type === 'data_source'),
+    tables: (testMentions.value || []).filter((m: any) => m.type === 'datasource_table'),
+    files: (testMentions.value || []).filter((m: any) => m.type === 'file'),
+    entities: (testMentions.value || []).filter((m: any) => m.type === 'entity')
+  }
+  const mentions = [
+    { name: 'DATA SOURCES', items: mentionsByType.data_sources },
+    { name: 'TABLES', items: mentionsByType.tables },
+    { name: 'FILES', items: mentionsByType.files },
+    { name: 'ENTITIES', items: mentionsByType.entities }
+  ]
+  const fileIds = (testUploadedFiles.value || []).map((f: any) => f.id).filter(Boolean)
+  const suiteId = await ensureSuiteId()
+  const res = await useMyFetch(`/api/tests/suites/${suiteId}/cases`, {
+    method: 'POST',
+    body: {
+      name,
+      prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, mentions, files: fileIds },
+      expectations_json: expectations,
+      data_source_ids_json: (testSelectedDataSources.value || []).map((ds: any) => ds.id)
+    }
+  })
+  const created = (res as any)?.data?.value
+  return { case: created || null, raw: res }
+}
+
+const updateCase = async (caseId: string): Promise<{ case: any | null, raw: any } | null> => {
+  const flatRules: any[] = []
+  for (const cat of categoryRules.value) {
+    for (const r of cat.fieldRules) {
+      flatRules.push({ type: 'field', target: r.target, matcher: normalizeMatcher(r.matcher) })
+    }
+  }
+  const expectations = { spec_version: 1, rules: flatRules }
+  const trimmed = promptText.value.trim()
+  const name = (trimmed.length > 0 ? trimmed : 'Untitled test').slice(0, 60)
+  // Reuse mentions/files/data sources captured from PromptBox session (best-effort)
+  const mentions = testMentions.value || []
+  const fileIds = (testUploadedFiles.value || []).map((f: any) => f.id).filter(Boolean)
+  const suiteId = await ensureSuiteId()
+  const res = await useMyFetch(`/api/tests/cases/${caseId}`, {
+    method: 'PATCH',
+    body: {
+      name,
+      prompt_json: { content: promptText.value, model_id: testSelectedModelId.value || undefined, mentions, files: fileIds },
+      expectations_json: expectations,
+      data_source_ids_json: (testSelectedDataSources.value || []).map((ds: any) => ds.id),
+    }
+  })
+  const updated = (res as any)?.data?.value
+  return { case: updated || null, raw: res }
+}
+
+const runNow = async () => {
+  if (isRunning.value) return
+  isRunning.value = true
+  try {
+    let caseId: string | null = null
+    if (isEditing.value && props.caseId) {
+      // Update then run
+      const updated = await updateCase(props.caseId)
+      if (!updated?.case?.id) throw new Error('Failed to update case')
+      // Emit both for consumers
+      emit('created', updated.case)
+      // @ts-ignore
+      emit('updated' as any, updated.case)
+      caseId = updated.case.id
+    } else {
+      const created = await createCase()
+      if (!created?.case?.id) throw new Error('Failed to create case')
+      emit('created', created.case)
+      caseId = created.case.id
+    }
+    // Create the run for this single case
+      const runRes: any = await useMyFetch('/api/tests/runs', {
+      method: 'POST',
+      body: { case_ids: [caseId], trigger_reason: 'manual' }
+    })
+    if (runRes?.error?.value) throw runRes.error.value
+    const run = runRes?.data?.value
+    // 3) Navigate to run details
+    if (run?.id) {
+      close()
+      router.push(`/monitoring/tests/runs/${run.id}`)
+    }
+  } catch (e) {
+    console.error('Failed to run test now', e)
+  } finally {
+    isRunning.value = false
+  }
+}
+
+async function loadCaseForEdit(caseId: string) {
+  try {
+    const res: any = await useMyFetch(`/api/tests/cases/${caseId}`)
+    const c = res?.data?.value
+    if (!c) return
+    // Suite
+    selectedSuiteIdLocal.value = c.suite_id || selectedSuiteIdLocal.value
+    // Prompt
+    promptText.value = (c.prompt_json?.content || '').trim()
+    testSelectedModelId.value = c.prompt_json?.model_id || ''
+    // Data sources (best-effort; PromptBox does not accept initial props)
+    testSelectedDataSources.value = Array.isArray(c.data_source_ids_json) ? c.data_source_ids_json.map((id: string) => ({ id })) : []
+    // Rules → UI
+    const rules = Array.isArray(c.expectations_json?.rules) ? c.expectations_json.rules : []
+    const grouped: Record<string, CategoryRuleUI> = {}
+    for (const r of rules) {
+      if (r?.type !== 'field') continue
+      const catId = r?.target?.category
+      const fieldKey = r?.target?.field
+      if (!catId || !fieldKey) continue
+      const catMeta = categoryById.value[catId]
+      const field = catMeta?.fields.find(f => f.key === fieldKey)
+      if (!catMeta || !field) continue
+      if (!grouped[catId]) {
+        grouped[catId] = {
+          key: `${catId}:${Date.now()}:${Math.random().toString(36).slice(2,6)}`,
+          categoryId: catId,
+          categoryKind: catMeta.kind,
+          fieldRules: []
+        }
+      }
+      const fr = makeFieldRuleFor(catMeta, field)
+      // Overwrite matcher and target occurrence if present
+      fr.matcher = r.matcher || fr.matcher
+      if (typeof r?.target?.occurrence === 'number') fr.target.occurrence = r.target.occurrence
+      grouped[catId].fieldRules.push(fr)
+    }
+    const groups = Object.values(grouped)
+    categoryRules.value = groups.length ? groups : categoryRules.value
+  } catch (e) {
+    console.error('Failed to load case for edit', e)
   }
 }
 </script>

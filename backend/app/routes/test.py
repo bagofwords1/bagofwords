@@ -17,12 +17,16 @@ from app.schemas.test_suite_schema import (
     TestCaseCreate,
     TestCaseUpdate,
     TestRunSchema,
-    TestResultSchema,
+    TestRunCreate,
 )
 from app.schemas.test_dashboard_schema import TestMetricsSchema, TestSuiteSummarySchema
 from app.services.test_suite_service import TestSuiteService
 from app.services.test_case_service import TestCaseService
 from app.services.test_run_service import TestRunService
+from app.schemas.test_run_schema import (
+    TestRunBatchCreate,
+)
+from app.schemas.test_results_schema import TestRunStatusResponse, TestResultSchema
 from app.schemas.test_expectations import (
     ExpectationsSpec,
     FieldRule,
@@ -33,7 +37,7 @@ from app.schemas.test_expectations import (
 from app.ai.registry import ToolRegistry
 
 
-router = APIRouter(prefix="/test", tags=["test"])
+router = APIRouter(prefix="/tests", tags=["tests"])
 
 suite_service = TestSuiteService()
 case_service = TestCaseService()
@@ -108,6 +112,23 @@ async def list_cases(suite_id: str, db: AsyncSession = Depends(get_async_db), or
     return await case_service.list_cases(db, str(organization.id), current_user, suite_id)
 
 
+@router.get("/cases", response_model=List[TestCaseSchema])
+@requires_permission('manage_tests')
+async def list_cases_across_suites(
+    suite_id: Optional[str] = None,
+    search: Optional[str] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(100, ge=1, le=1000),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """List test cases across suites with optional suite and text search filters."""
+    if suite_id:
+        return await case_service.list_cases(db, str(organization.id), current_user, suite_id)
+    return await case_service.list_cases_multi(db, str(organization.id), current_user, suite_ids=None, search=search, page=page, limit=limit)
+
+
 @router.get("/cases/{case_id}", response_model=TestCaseSchema)
 @requires_permission('manage_tests')
 async def get_case(case_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
@@ -130,8 +151,15 @@ async def delete_case(case_id: str, db: AsyncSession = Depends(get_async_db), or
 # Runs
 @router.post("/suites/{suite_id}/runs", response_model=TestRunSchema)
 @requires_permission('manage_tests')
-async def run_suite(suite_id: str, background: bool = Query(True), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), user: User = Depends(current_user)):
-    run = await run_service.run_suite(db, organization, user, suite_id, background=background)
+async def run_suite(suite_id: str, background: bool = Query(True), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    run = await run_service.run_suite(db, organization, current_user, suite_id, background=background)
+    return run
+
+
+@router.post("/runs", response_model=TestRunSchema)
+@requires_permission('manage_tests')
+async def create_run(payload: TestRunCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    run = await run_service.create_run(db, organization, current_user, case_ids=payload.case_ids, trigger_reason=payload.trigger_reason or "manual")
     return run
 
 
@@ -154,6 +182,11 @@ async def list_runs(
 @requires_permission('manage_tests')
 async def get_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await run_service.get_run(db, str(organization.id), current_user, run_id)
+
+@router.post("/runs/{run_id}/stop", response_model=TestRunSchema)
+@requires_permission('manage_tests')
+async def stop_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    return await run_service.stop_run(db, str(organization.id), current_user, run_id)
 
 
 @router.get("/runs/{run_id}/results", response_model=List[TestResultSchema])
@@ -278,6 +311,42 @@ async def get_rules_catalog(db: AsyncSession = Depends(get_async_db), organizati
 @requires_permission('manage_tests')
 async def get_test_catalog(db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
     return await suite_service.get_test_catalog(db, str(organization.id), current_user)
+
+
+# ---------------- New Run APIs ----------------
+
+@router.post("/runs/batch", response_model=TestRunSchema)
+@requires_permission('manage_tests')
+async def create_run_batch(payload: TestRunBatchCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    run, _results = await run_service.create_and_execute_background(
+        db, organization, current_user,
+        case_ids=payload.case_ids,
+        suite_id=payload.suite_id,
+        trigger_reason=payload.trigger_reason or "manual",
+    )
+    return run
+
+
+@router.get("/runs/{run_id}/status", response_model=TestRunStatusResponse)
+@requires_permission('manage_tests')
+async def get_run_status(run_id: str, limit: int = Query(50, ge=1, le=200), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    run, items = await run_service.get_run_status_with_completions(db, organization, current_user, run_id, limit=limit)
+    # Convert to pydantic response
+    from app.schemas.test_results_schema import TestRunResultWithCompletions
+    results = []
+    for it in items:
+        results.append(TestRunResultWithCompletions(
+            result=it["result"],
+            report_id=it["report_id"],
+            completions=it["completions"],
+        ))
+    return TestRunStatusResponse(run=run, results=results)
+
+
+@router.post("/runs/{run_id}/stream")
+@requires_permission('manage_tests')
+async def stream_run(run_id: str, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
+    return await run_service.stream_run(db, organization, current_user, run_id)
 
 
 

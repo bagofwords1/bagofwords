@@ -12,6 +12,38 @@ class Judge:
     def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder=None) -> None:
         self.llm = LLM(model)
         self.organization_settings = organization_settings
+    
+    async def judge_test_case(self, test_case_prompt: str, trace: any): 
+
+        judge_prompt = f"""
+        You are an expert evaluator assessing the quality and relevance of instructions and context for a data analytics request.
+
+        **USER'S REQUEST:**
+        {test_case_prompt}
+
+        **TRACE:**
+        {trace}
+
+        **EVALUATION CRITERIA:**
+        - The test case passed if the trace contains a valid response to the user's request.
+        - The test case failed if the trace does not contain a valid response to the user's request.
+
+        Return a JSON object with the following fields:
+        {{
+            "passed": boolean,
+            "reasoning": "Brief explanation of the pass/fail reason"
+        }}
+        """
+
+        response = await asyncio.to_thread(self.llm.inference, judge_prompt)
+        try:
+            result = json.loads(response)
+            passed = result["passed"]
+            reasoning = result["reasoning"]
+            return passed, reasoning
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return False, "Failed to parse response from the LLM"
+        
         
     async def score_instructions_and_context(self, prompt, instructions_context, schemas, previous_messages) -> tuple[int, int]:
         """

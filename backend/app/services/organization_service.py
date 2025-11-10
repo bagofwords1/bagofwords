@@ -14,6 +14,7 @@ from sqlalchemy.orm import selectinload
 from fastapi import HTTPException
 from sqlalchemy import delete
 from app.services.llm_service import LLMService
+from app.services.test_suite_service import TestSuiteService
 from app.settings.config import settings
 from fastapi import Request
 from fastapi_mail import FastMail, MessageSchema
@@ -29,6 +30,7 @@ class OrganizationService:
     def __init__(self):
         self.llm_service = LLMService()
         self.organization_settings_service = OrganizationSettingsService()
+        self.test_suite_service = TestSuiteService()
     async def create_organization(self, db: AsyncSession, organization_data: OrganizationCreate, current_user: User) -> OrganizationSchema:
 
         total_orgs = await db.execute(select(Organization))
@@ -58,6 +60,7 @@ class OrganizationService:
         await self.organization_settings_service.create_default_settings(db, organization, current_user)
         await self.add_member(db, MembershipCreate(role="admin", user_id=current_user.id, organization_id=organization.id), current_user)
         await self.llm_service.set_default_models_from_config(db, organization, current_user)
+        await self.test_suite_service.ensure_default_for_org(db, organization.id, current_user)
 
         return OrganizationSchema.from_orm(organization)
 

@@ -35,7 +35,10 @@ class TestCase(BaseSchema):
 class TestRun(BaseSchema):
     __tablename__ = "test_runs"
 
-    suite_id = Column(String(36), ForeignKey('test_suites.id'), nullable=False, index=True)
+    title = Column(String, nullable=False)
+    # Comma-separated list of suite IDs participating in this run.
+    # Chosen for portability across SQLite and Postgres without JSON/ARRAY types.
+    suite_ids = Column(String, nullable=False)
     requested_by_user_id = Column(String(36), ForeignKey('users.id'), nullable=True, index=True)
     trigger_reason = Column(String, nullable=True)  # 'manual' | 'context_change' | 'schedule'
     status = Column(String, nullable=False, default="in_progress")  # in_progress | success | error
@@ -62,8 +65,7 @@ class TestResult(BaseSchema):
     # Optional: report associated with this run/result
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
 
-    # Assertion diffs and basic metrics
-    diffs_json = Column(JSON, nullable=True, default=list)
-    metrics_json = Column(JSON, nullable=True, default=dict)
+    # Assertion result
+    result_json = Column(JSON, nullable=True, default=dict)
 
 

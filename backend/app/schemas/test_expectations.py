@@ -247,22 +247,6 @@ def default_test_catalog() -> TestCatalog:
     ))
 
     categories.append(CategoryDescriptor(
-        id="tool:describe_table",
-        label="Describe Table",
-        kind="tool",
-        tool_name="describe_table",
-        fields=[
-            FieldDescriptor(
-                key="name",
-                label="Table name",
-                value_type="text",
-                allowed_ops=["text.equals", "text.contains"],
-                io="input",
-            )
-        ]
-    ))
-
-    categories.append(CategoryDescriptor(
         id="metadata",
         label="Metadata",
         kind="metadata",

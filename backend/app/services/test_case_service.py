@@ -1,6 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import List, Optional
+from sqlalchemy import select, or_
+from typing import List, Optional, Sequence
 from fastapi import HTTPException
 
 from app.models.test_suite import TestCase, TestSuite
@@ -77,4 +77,38 @@ class TestCaseService:
         await db.delete(case)
         await db.commit()
 
+    async def list_cases_multi(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        current_user,
+        suite_ids: Optional[Sequence[str]] = None,
+        search: Optional[str] = None,
+        page: int = 1,
+        limit: int = 50,
+    ) -> List[TestCase]:
+        """List cases across suites with optional filters. Joins through TestSuite to enforce org scope.
 
+        Note: This method is provided for future endpoints and UI filters; current UI composes
+        per-suite requests client-side. Searching matches against TestCase.name and a coarse
+        string match on prompt_json (DB-dependent JSON LIKE behavior).
+        """
+        # Ensure suites belong to org when filtering
+        if suite_ids:
+            # Validate all suites
+            for sid in suite_ids:
+                await self._get_suite(db, organization_id, current_user, str(sid))
+        # Base: suites in org
+        from sqlalchemy import cast, String
+        stmt = select(TestCase).join(TestSuite, TestCase.suite_id == TestSuite.id).where(
+            TestSuite.organization_id == str(organization_id)
+        )
+        if suite_ids:
+            stmt = stmt.where(TestCase.suite_id.in_([str(s) for s in suite_ids]))
+        if search:
+            like = f"%{search}%"
+            # Coarse match on prompt_json string representation; portable enough for SQLite/postgres
+            stmt = stmt.where(or_(TestCase.name.ilike(like), cast(TestCase.prompt_json, String).ilike(like)))
+        stmt = stmt.order_by(TestCase.created_at.desc()).offset((page - 1) * limit).limit(limit)
+        res = await db.execute(stmt)
+        return res.scalars().all()

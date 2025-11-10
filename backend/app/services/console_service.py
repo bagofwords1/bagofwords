@@ -801,7 +801,7 @@ class ConsoleService:
 
         # Define target tools and labels
         target_labels = {
-            'create_widget': 'Create Data',
+            'create_data': 'Create Data',
             'clarify': 'Request Clarification',
             'answer_question': 'Search Context',
             "create_dashboard": "Create Dashboard"
