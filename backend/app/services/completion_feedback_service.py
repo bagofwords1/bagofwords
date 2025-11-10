@@ -15,10 +15,10 @@ from app.schemas.completion_feedback_schema import (
 )
 from app.services.table_usage_service import TableUsageService
 from app.schemas.table_usage_schema import TableFeedbackEventCreate
-from app.utils.lineage import extract_tables_from_data_model
 from app.models.completion_block import CompletionBlock
 from app.models.tool_execution import ToolExecution
 from app.models.step import Step
+from app.models.table_usage_event import TableUsageEvent
 from app.core.telemetry import telemetry
 
 
@@ -88,20 +88,35 @@ class CompletionFeedbackService:
             direction = 'positive' if feedback.direction == 1 else 'negative'
 
             for step in target_steps:
-                if not (step and isinstance(step.data_model, dict)):
+                if not step:
+                    continue
+                
+                # Attribute feedback exclusively from recorded table usage for this step (ground truth)
+                try:
+                    usage_stmt = select(TableUsageEvent).where(
+                        TableUsageEvent.step_id == str(step.id),
+                        TableUsageEvent.success == True,
+                    )
+                    usage_res = await db.execute(usage_stmt)
+                    usage_rows = usage_res.scalars().all()
+                except Exception:
+                    usage_rows = []
+
+                if not usage_rows:
                     continue
 
-                # Derive one feedback event per table using per-column source_data_source_id
-                lineage_entries = await extract_tables_from_data_model(db, step.data_model, [])
-                if not lineage_entries:
-                    continue
-
-                for entry in lineage_entries:
-                    ds_id = entry.get('datasource_id')
-                    table_name = entry.get('table_name')
-                    if not ds_id or not table_name:
+                # Deduplicate by (data_source_id, table_fqn)
+                seen_pairs: set[tuple[str, str]] = set()
+                for u in usage_rows:
+                    ds_id = getattr(u, "data_source_id", None)
+                    table_fqn = (getattr(u, "table_fqn", None) or "").lower()
+                    if not ds_id or not table_fqn:
                         continue
-                    table_fqn = table_name.lower()
+                    pair = (ds_id, table_fqn)
+                    if pair in seen_pairs:
+                        continue
+                    seen_pairs.add(pair)
+
                     payload = TableFeedbackEventCreate(
                         org_id=str(organization.id),
                         report_id=str(completion.report_id) if completion.report_id else None,
@@ -109,7 +124,7 @@ class CompletionFeedbackService:
                         step_id=str(step.id),
                         completion_feedback_id=str(feedback.id),
                         table_fqn=table_fqn,
-                        datasource_table_id=entry.get('datasource_table_id'),
+                        datasource_table_id=getattr(u, "datasource_table_id", None),
                         feedback_type=direction,
                     )
                     await self.table_usage_service.record_feedback_event(

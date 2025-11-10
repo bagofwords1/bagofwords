@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.232 (November 10, 2025)
+- Introduced default small models: you can now designate a default "small" model for back-office operations such as evals, judge tasks, instruction generation, and more
+- User feedback (thumbs up/down) is now attributed at the table level
+
 ## Version 0.0.231 (November 8, 2025)
 - Enhanced the UI for agentic retrieval and search for greater clarity and usability
 - Refined the agent head prompt to more effectively leverage and guide the use of search tools
