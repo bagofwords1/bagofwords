@@ -2,6 +2,10 @@
 
 ## Version 0.0.233 (November 11, 2025)
 - Improved instructions visibility in prompts' context
+- Introduced an "Analysis Panel" for admins when creating or approving instructions:
+  - Impact Score Estimation: Evaluate how the new instruction relates to existing prompts and user questions.
+  - Related Instructions: Identify potential redundancy or conflicts with other instructions.
+  - Related Metadata Resources: Review if the instruction overlaps or conflicts with current enriched context (such as dbt, markdown, etc.).
 
 ## Version 0.0.232 (November 10, 2025)
 - Introduced default small models: you can now designate a default "small" model for back-office operations such as evals, judge tasks, instruction generation, and more

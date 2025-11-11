@@ -174,7 +174,7 @@ async def get_instruction_global_statuses():
 
 
 @router.post("/instructions/analysis", response_model=InstructionAnalysisResponse)
-@requires_permission('view_instructions')
+@requires_permission('create_instructions')
 async def analyze_instruction_endpoint(
     body: InstructionAnalysisRequest,
     current_user: User = Depends(current_user),

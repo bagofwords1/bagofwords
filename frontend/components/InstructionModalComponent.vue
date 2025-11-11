@@ -3,7 +3,7 @@
         <!-- Backdrop -->
         <div class="absolute inset-0 bg-black/50" @click="closeModal"></div>
         <!-- Modal container -->
-        <div class="absolute inset-0 flex items-center justify-center p-4">
+        <div class="absolute inset-0 flex items-center justify-center p-4" @click.self="closeModal">
             <div 
                 class="relative bg-white rounded-lg shadow-xl w-[94vw] h-[85vh] overflow-hidden transition-all z-10"
                 :class="isAnalyzing ? 'max-w-6xl' : 'max-w-3xl'"
@@ -29,6 +29,7 @@
                         <InstructionGlobalCreateComponent 
                             v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
                             :instruction="instruction"
+                            :analyzing="isAnalyzing"
                             :shared-form="sharedForm"
                             :selected-data-sources="selectedDataSources"
                             @instruction-saved="handleInstructionSaved"
@@ -52,23 +53,32 @@
                     </div>
 
                     <!-- Right: Analysis panel -->
-                    <div v-if="isAnalyzing" class="border-t md:border-t-0 md:border-l p-3 bg-gray-50 flex flex-col h-[calc(85vh-56px)]">
-                        <div class="space-y-3 flex-1 overflow-y-auto pb-16 pr-1">
+                    <div v-if="isAnalyzing && useCan('create_instructions')" class="border-t md:border-t-0 md:border-l p-3 bg-gray-50 flex flex-col h-[calc(85vh-56px)]">
+                        <div class="pb-2 flex justify-start shrink-0">
+                            <UButton size="xs" variant="soft" color="blue" @click="refreshAnalysis">Refresh Analysis</UButton>
+                        </div>
+                        <div class="space-y-3 flex-1 overflow-y-auto pr-1">
                             <!-- Impact Estimation -->
                             <div class="rounded-md border bg-white">
                                 <div class="flex items-center justify-between p-2 cursor-pointer" @click="showImpact = !showImpact">
                                     <div class="flex items-center gap-2">
                                         <h3 class="text-xs font-semibold text-gray-900">Impact Estimation</h3>
                                         <span class="text-[11px] text-gray-600">score:</span>
-                                        <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800">
-                                            {{ Math.round(mockImpactScore * 100) }}%
-                                        </span>
+                                        <UTooltip :text="impactTotalCount ? `${impactMatchedCount} of ${impactTotalCount} prompts relevant` : 'No prompts analyzed'">
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800">
+                                                {{ Math.round(mockImpactScore * 100) }}%
+                                            </span>
+                                        </UTooltip>
                                     </div>
                                     <Icon :name="showImpact ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
                                 </div>
-                                <div v-show="showImpact" class="border-t p-2">
+                                <div v-show="showImpact" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
                                     <p class="text-[11px] text-gray-600 mb-2">Sample impacted prompts</p>
-                                    <ul class="divide-y divide-gray-100">
+                                    <div v-if="isLoadingImpact" class="py-6 flex items-center justify-center text-gray-500">
+                                        <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
+                                    </div>
+                                    <div v-else-if="mockImpactedPrompts.length === 0" class="text-xs text-gray-500 py-2">No relevant prompts</div>
+                                    <ul v-else class="divide-y divide-gray-100">
                                         <li v-for="(prompt, idx) in mockImpactedPrompts" :key="idx" class="py-2">
                                             <div class="flex items-start justify-between gap-3">
                                                 <p class="text-xs text-gray-900 flex-1">{{ prompt.content }}</p>
@@ -88,8 +98,12 @@
                                     </div>
                                     <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
                                 </div>
-                                <div v-show="showRelated" class="border-t p-2">
-                                    <ul class="divide-y divide-gray-100">
+                                <div v-show="showRelated" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
+                                    <div v-if="isLoadingRelated" class="py-6 flex items-center justify-center text-gray-500">
+                                        <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
+                                    </div>
+                                    <div v-else-if="mockRelatedInstructions.length === 0" class="text-xs text-gray-500 py-2">No related instructions</div>
+                                    <ul v-else class="divide-y divide-gray-100">
                                         <li v-for="inst in mockRelatedInstructions" :key="inst.id" class="py-2">
                                             <div class="flex-1">
                                                 <p class="text-xs text-gray-900">{{ inst.text }}</p>
@@ -115,23 +129,33 @@
                                     </div>
                                     <Icon :name="showResources ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
                                 </div>
-                                <div v-show="showResources" class="border-t p-2">
-                                    <ul class="divide-y divide-gray-100">
+                                <div v-show="showResources" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
+                                    <div v-if="isLoadingResources" class="py-6 flex items-center justify-center text-gray-500">
+                                        <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
+                                    </div>
+                                    <div v-else-if="mockRelatedResources.length === 0" class="text-xs text-gray-500 py-2">No related metadata resources</div>
+                                    <ul v-else class="divide-y divide-gray-100">
                                         <li v-for="res in mockRelatedResources" :key="res.id" class="py-2">
-                                            <div class="flex items-start justify-between gap-3">
-                                                <div class="min-w-0">
-                                                    <p class="text-xs text-gray-900 truncate">{{ res.name }}</p>
-                                                    <p v-if="res.path" class="text-[10px] text-gray-500 truncate mt-0.5">{{ res.path }}</p>
+                                            <div class="flex items-start justify-between gap-3 cursor-pointer" @click="toggleResource(res.id)">
+                                                <div class="min-w-0 flex items-start">
+                                                    <UIcon :name="resourceExpanded[res.id] ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-500 mr-1 mt-0.5" />
+                                                    <UIcon :name="getResourceIcon(res.resource_type)" class="w-4 h-4 text-gray-500 mr-2 mt-0.5" />
+                                                    <div class="min-w-0">
+                                                        <p class="text-xs text-gray-900 truncate">{{ res.name }}</p>
+                                                        <p v-if="res.path" class="text-[10px] text-gray-500 truncate mt-0.5">{{ res.path }}</p>
+                                                    </div>
                                                 </div>
-                                                <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-800 whitespace-nowrap">{{ res.resource_type }}</span>
+                                                <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-800 whitespace-nowrap">
+                                                    {{ formatResourceType(res.resource_type) }}
+                                                </span>
+                                            </div>
+                                            <div v-if="resourceExpanded[res.id]" class="ml-7 mt-2">
+                                                <ResourceDisplay :resource="res" />
                                             </div>
                                         </li>
                                     </ul>
                                 </div>
                             </div>
-                        </div>
-                        <div class="bg-gray-50 border-t pt-2 pb-2 mt-2 flex justify-start shrink-0 sticky bottom-0">
-                            <UButton size="xs" variant="soft" color="blue" @click="refreshAnalysis">Refresh</UButton>
                         </div>
                         </div>
                     </div>
@@ -144,6 +168,8 @@
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCreateComponent.vue'
 import { usePermissionsLoaded, useCan } from '~/composables/usePermissions'
+import ResourceDisplay from '~/components/ResourceDisplay.vue'
+import Spinner from '~/components/Spinner.vue'
 
 // Define interfaces
 interface DataSource {
@@ -196,6 +222,7 @@ const isAnalyzing = ref(false)
 const showImpact = ref(true)
 const showRelated = ref(true)
 const showResources = ref(true)
+const resourceExpanded = ref<Record<string, boolean>>({})
 
 // Mock data for the analysis pane
 interface PromptSample {
@@ -216,7 +243,18 @@ const mockRelatedInstructions = ref<Array<{ id: string; text: string; status: 'd
 ])
 
 // Mock related metadata resources (subset of backend schema fields)
-const mockRelatedResources = ref<Array<{ id: string; name: string; resource_type: string; path?: string | null }>>([
+type ModalResource = {
+    id: string
+    name: string
+    resource_type: string
+    path?: string
+    description?: string
+    sql_content?: string
+    raw_data?: any
+    columns?: any[]
+    depends_on?: string[]
+}
+const mockRelatedResources = ref<ModalResource[]>([
     { id: 'm1', name: 'model.orders', resource_type: 'model', path: 'models/orders.sql' },
     { id: 'm2', name: 'source.stripe.payments', resource_type: 'source', path: 'sources/stripe.yml' },
     { id: 'm3', name: 'test.assert_positive_amount', resource_type: 'test', path: 'tests/amount_positive.sql' }
@@ -229,9 +267,13 @@ const refreshAnalysis = async () => {
         return
     }
     try {
+        isLoadingImpact.value = true
+        isLoadingRelated.value = true
+        isLoadingResources.value = true
         const body = {
             text,
             include: ['impact', 'related_instructions', 'resources'],
+            instruction_id: props.instruction?.id || undefined,
             limits: { prompts: 5, instructions: 5, resources: 5 }
         }
         const { data, error } = await useMyFetch('/instructions/analysis', {
@@ -243,6 +285,8 @@ const refreshAnalysis = async () => {
             if (res.impact) {
                 mockImpactScore.value = res.impact.score ?? 0
                 mockImpactedPrompts.value = Array.isArray(res.impact.prompts) ? res.impact.prompts : []
+                impactMatchedCount.value = res.impact.matched_count ?? 0
+                impactTotalCount.value = res.impact.total_count ?? 0
             }
             if (res.related_instructions) {
                 mockRelatedInstructions.value = (res.related_instructions.items || []).map((it: any) => ({
@@ -257,13 +301,22 @@ const refreshAnalysis = async () => {
                     id: it.id,
                     name: it.name,
                     resource_type: it.resource_type,
-                    path: it.path || null
+                    path: it.path || undefined,
+                    description: it.description || undefined,
+                    sql_content: it.sql_content || undefined,
+                    raw_data: it.raw_data || undefined,
+                    columns: it.columns || undefined,
+                    depends_on: it.depends_on || undefined
                 }))
             }
         }
     } catch (e) {
         // swallow errors; keep mock data
         console.error('Failed to analyze instruction', e)
+    } finally {
+        isLoadingImpact.value = false
+        isLoadingRelated.value = false
+        isLoadingResources.value = false
     }
 }
 
@@ -280,6 +333,33 @@ const formatDate = (d: string | Date | null | undefined) => {
     if (!(dt instanceof Date) || isNaN(dt.getTime())) return ''
     return dt.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
+
+const getResourceIcon = (type: string) => {
+    // Align with ResourcesSelector.vue
+    if (type === 'model' || type === 'model_config' || type === 'dbt_model') return 'heroicons:cube'
+    if (type === 'metric' || type === 'dbt_metric') return 'heroicons:hashtag'
+    if (type === 'source') return 'heroicons:rectangle-stack'
+    return 'heroicons:document-text'
+}
+
+const formatResourceType = (type: string) => {
+    if (!type) return ''
+    return String(type).replace(/_/g, ' ')
+}
+
+const toggleResource = (id: string) => {
+    resourceExpanded.value[id] = !resourceExpanded.value[id]
+}
+
+// Each section's max height is one third of the right pane's height
+const sectionMaxHeight = 'calc((85vh - 56px) / 3)'
+
+const impactMatchedCount = ref(0)
+const impactTotalCount = ref(0)
+
+const isLoadingImpact = ref(false)
+const isLoadingRelated = ref(false)
+const isLoadingResources = ref(false)
 
 const selectedInstructionType = computed(() => {
     // 1. If we are editing an existing instruction, its status is the source of truth.
@@ -318,6 +398,7 @@ const closeModal = () => {
 }
 
 const toggleAnalyze = () => {
+    if (!useCan('create_instructions')) return
     isAnalyzing.value = !isAnalyzing.value
 }
 
@@ -369,7 +450,12 @@ watch(() => props.instruction, (newInstruction) => {
 
 // Reset the form state only when the modal is closed.
 watch(instructionModalOpen, (isOpen) => {
-    if (!isOpen) {
+    if (isOpen) {
+        if (useCan('create_instructions')) {
+            //isAnalyzing.value = true
+            //refreshAnalysis()
+        }
+    } else {
         resetForm()
         isAnalyzing.value = false
     }

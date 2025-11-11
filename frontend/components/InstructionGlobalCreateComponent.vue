@@ -7,10 +7,10 @@
                     <label class="text-md font-medium text-gray-800">
                         Create Instruction
                     </label>
-                    <UButton size="xs" variant="soft" color="blue" @click="$emit('toggle-analyze')">
+                    <UButton v-if="canAnalyze" size="xs" variant="soft" color="blue" @click="$emit('toggle-analyze')">
                         <span class="inline-flex items-center gap-1">
-                            Open Analysis Panel
-                            <Icon name="heroicons:chevron-double-right" class="w-4 h-4" />
+                            {{ analyzing ? 'Close Analysis Panel' : 'Open Analysis Panel' }}
+                            <Icon name="heroicons:chevron-right" class="w-4 h-4" />
                         </span>
                     </UButton>
                 </div>
@@ -204,6 +204,7 @@
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useCan } from '~/composables/usePermissions'
 
 // Define interfaces
 interface DataSource {
@@ -235,6 +236,7 @@ interface MentionableItem {
 // Props and Emits
 const props = defineProps<{
     instruction?: any
+    analyzing?: boolean
 }>()
 
 const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form'])
@@ -628,6 +630,8 @@ onMounted(() => {
 watch(() => instructionForm.value.text, (val) => {
     emit('update-form', { text: val })
 })
+
+const canAnalyze = computed(() => useCan('create_instructions'))
 watch(() => props.instruction, (newInstruction) => {
     if (newInstruction) {
         instructionForm.value = {

@@ -172,13 +172,34 @@ class InstructionService:
                 organization=organization,
                 current_user=current_user,
                 skip=0,
-                limit=200,
+                limit=500,
                 include_own=True,
                 include_drafts=False,
                 include_archived=False,
                 include_hidden=False,
             )
-            ranked = self._rank_related_instructions(tokens, rel_insts)
+            # Naive token filter similar to prompts matching
+            def text_matches(s: Optional[str]) -> bool:
+                text_l = (s or "").lower()
+                for t in tokens:
+                    if t in text_l:
+                        return True
+                return False
+            filtered = []
+            since_dt = None
+            if request.created_since_days and request.created_since_days > 0:
+                since_dt = datetime.utcnow() - timedelta(days=request.created_since_days)
+            for it in rel_insts:
+                if since_dt and getattr(it, "created_at", None) and it.created_at and it.created_at < since_dt:
+                    continue
+                if text_matches(it.text):
+                    filtered.append(it)
+            # Exclude the same instruction if analyzing an existing one
+            exclude_id = (request.instruction_id or "").strip()
+            # Do NOT fallback to the full list when no matches; return empty when nothing is relevant
+            base_candidates = filtered
+            candidates = [it for it in base_candidates if not exclude_id or str(it.id) != exclude_id]
+            ranked = self._rank_related_instructions(tokens, candidates)
             top_k = ranked[: max(0, request.limits.instructions)]
             items = [
                 RelatedInstructionItem(
@@ -216,6 +237,11 @@ class InstructionService:
                     name=r.name,
                     resource_type=r.resource_type,
                     path=r.path,
+                    description=getattr(r, "description", None),
+                    sql_content=getattr(r, "sql_content", None),
+                    raw_data=getattr(r, "raw_data", None),
+                    columns=getattr(r, "columns", None),
+                    depends_on=getattr(r, "depends_on", None),
                 )
                 for r in resources
             ]
@@ -293,7 +319,12 @@ class InstructionService:
                 continue
 
         score = 0.0 if total_prompts == 0 else min(1.0, matched_prompts / total_prompts)
-        return ImpactEstimation(score=round(score, 4), prompts=sample_prompts)
+        return ImpactEstimation(
+            score=round(score, 4),
+            prompts=sample_prompts,
+            matched_count=matched_prompts,
+            total_count=total_prompts,
+        )
 
     def _tokenize_text(self, text: str) -> set[str]:
         """Very naive tokenizer; lowercase, split on non-alphanum, drop short and common stopwords."""
