@@ -64,7 +64,12 @@ class InstructionContextBuilder:
         List[Instruction]
             Matching Instruction ORM objects.
         """
-        stmt = select(Instruction).where(Instruction.status == status).where(Instruction.organization_id == self.organization.id)
+        stmt = (
+            select(Instruction)
+            .where(Instruction.status == status)
+            .where(Instruction.organization_id == self.organization.id)
+            .where(Instruction.deleted_at.is_(None))
+        )
 
         if category is not None:
             stmt = stmt.where(Instruction.category == category)
