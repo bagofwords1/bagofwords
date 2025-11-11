@@ -170,6 +170,7 @@ import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCr
 import { usePermissionsLoaded, useCan } from '~/composables/usePermissions'
 import ResourceDisplay from '~/components/ResourceDisplay.vue'
 import Spinner from '~/components/Spinner.vue'
+import { onMounted, onUnmounted } from 'vue'
 
 // Define interfaces
 interface DataSource {
@@ -446,5 +447,19 @@ watch(instructionModalOpen, (isOpen) => {
         resetForm()
         isAnalyzing.value = false
     }
+})
+
+// Close on ESC key
+let escHandler: ((e: KeyboardEvent) => void) | null = null
+onMounted(() => {
+    escHandler = (e: KeyboardEvent) => {
+        if (e.key === 'Escape' && instructionModalOpen.value) {
+            closeModal()
+        }
+    }
+    window.addEventListener('keydown', escHandler)
+})
+onUnmounted(() => {
+    if (escHandler) window.removeEventListener('keydown', escHandler)
 })
 </script> 
