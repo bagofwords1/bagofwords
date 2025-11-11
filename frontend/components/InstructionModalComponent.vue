@@ -66,7 +66,7 @@
                                         <span class="text-[11px] text-gray-600">score:</span>
                                         <UTooltip :text="impactTotalCount ? `${impactMatchedCount} of ${impactTotalCount} prompts relevant` : 'No prompts analyzed'">
                                             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800">
-                                                {{ Math.round(mockImpactScore * 100) }}%
+                                                {{ Math.round(impactScore * 100) }}%
                                             </span>
                                         </UTooltip>
                                     </div>
@@ -77,9 +77,9 @@
                                     <div v-if="isLoadingImpact" class="py-6 flex items-center justify-center text-gray-500">
                                         <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
                                     </div>
-                                    <div v-else-if="mockImpactedPrompts.length === 0" class="text-xs text-gray-500 py-2">No relevant prompts</div>
+                                    <div v-else-if="impactedPrompts.length === 0" class="text-xs text-gray-500 py-2">No relevant prompts</div>
                                     <ul v-else class="divide-y divide-gray-100">
-                                        <li v-for="(prompt, idx) in mockImpactedPrompts" :key="idx" class="py-2">
+                                        <li v-for="(prompt, idx) in impactedPrompts" :key="idx" class="py-2">
                                             <div class="flex items-start justify-between gap-3">
                                                 <p class="text-xs text-gray-900 flex-1">{{ prompt.content }}</p>
                                                 <span v-if="prompt.created_at" class="text-[10px] text-gray-500 whitespace-nowrap">{{ formatDate(prompt.created_at) }}</span>
@@ -94,7 +94,7 @@
                                 <div class="flex items-center justify-between p-2 cursor-pointer" @click="showRelated = !showRelated">
                                     <div class="flex items-center gap-2">
                                         <h3 class="text-xs font-semibold text-gray-900">Related Instructions</h3>
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ mockRelatedInstructions.length }}</span>
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ relatedInstructions.length }}</span>
                                     </div>
                                     <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
                                 </div>
@@ -102,9 +102,9 @@
                                     <div v-if="isLoadingRelated" class="py-6 flex items-center justify-center text-gray-500">
                                         <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
                                     </div>
-                                    <div v-else-if="mockRelatedInstructions.length === 0" class="text-xs text-gray-500 py-2">No related instructions</div>
+                                    <div v-else-if="relatedInstructions.length === 0" class="text-xs text-gray-500 py-2">No related instructions</div>
                                     <ul v-else class="divide-y divide-gray-100">
-                                        <li v-for="inst in mockRelatedInstructions" :key="inst.id" class="py-2">
+                                        <li v-for="inst in relatedInstructions" :key="inst.id" class="py-2">
                                             <div class="flex-1">
                                                 <p class="text-xs text-gray-900">{{ inst.text }}</p>
                                                 <div class="mt-1 flex items-center gap-2">
@@ -125,7 +125,7 @@
                                 <div class="flex items-center justify-between p-2 cursor-pointer" @click="showResources = !showResources">
                                     <div class="flex items-center gap-2">
                                         <h3 class="text-xs font-semibold text-gray-900">Related Metadata Resources</h3>
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ mockRelatedResources.length }}</span>
+                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ relatedResources.length }}</span>
                                     </div>
                                     <Icon :name="showResources ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
                                 </div>
@@ -133,9 +133,9 @@
                                     <div v-if="isLoadingResources" class="py-6 flex items-center justify-center text-gray-500">
                                         <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
                                     </div>
-                                    <div v-else-if="mockRelatedResources.length === 0" class="text-xs text-gray-500 py-2">No related metadata resources</div>
+                                    <div v-else-if="relatedResources.length === 0" class="text-xs text-gray-500 py-2">No related metadata resources</div>
                                     <ul v-else class="divide-y divide-gray-100">
-                                        <li v-for="res in mockRelatedResources" :key="res.id" class="py-2">
+                                        <li v-for="res in relatedResources" :key="res.id" class="py-2">
                                             <div class="flex items-start justify-between gap-3 cursor-pointer" @click="toggleResource(res.id)">
                                                 <div class="min-w-0 flex items-start">
                                                     <UIcon :name="resourceExpanded[res.id] ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-500 mr-1 mt-0.5" />
@@ -229,18 +229,9 @@ interface PromptSample {
     content: string
     created_at?: string | Date | null
 }
-const mockImpactScore = ref(0.82)
-const mockImpactedPrompts = ref<PromptSample[]>([
-    { content: 'Find top-paying enterprise customers this quarter.', created_at: new Date().toISOString() },
-    { content: 'Show churn risk cohorts by total spend.', created_at: new Date().toISOString() },
-    { content: 'Alert when customer payments drop below threshold.', created_at: new Date().toISOString() },
-    { content: 'Summarize VIP customer activity across sources.', created_at: new Date().toISOString() }
-])
-const mockRelatedInstructions = ref<Array<{ id: string; text: string; status: 'draft' | 'published' | 'archived'; createdByName: string }>>([
-    { id: '101', text: 'Always aggregate revenue by fiscal quarter unless otherwise specified.', status: 'published', createdByName: 'yochay' },
-    { id: '214', text: 'Use "customer_id" as the join key across payment and invoice tables.', status: 'published', createdByName: 'admin' },
-    { id: '305', text: 'Prefer cohort-based retention definitions for LTV analyses.', status: 'draft', createdByName: 'analyst' }
-])
+const impactScore = ref(0)
+const impactedPrompts = ref<PromptSample[]>([])
+const relatedInstructions = ref<Array<{ id: string; text: string; status: 'draft' | 'published' | 'archived'; createdByName: string }>>([])
 
 // Mock related metadata resources (subset of backend schema fields)
 type ModalResource = {
@@ -254,11 +245,7 @@ type ModalResource = {
     columns?: any[]
     depends_on?: string[]
 }
-const mockRelatedResources = ref<ModalResource[]>([
-    { id: 'm1', name: 'model.orders', resource_type: 'model', path: 'models/orders.sql' },
-    { id: 'm2', name: 'source.stripe.payments', resource_type: 'source', path: 'sources/stripe.yml' },
-    { id: 'm3', name: 'test.assert_positive_amount', resource_type: 'test', path: 'tests/amount_positive.sql' }
-])
+const relatedResources = ref<ModalResource[]>([])
 
 const refreshAnalysis = async () => {
     const text = sharedForm.value?.text || (props.instruction?.text || '')
@@ -283,13 +270,13 @@ const refreshAnalysis = async () => {
         if (!error.value && data.value) {
             const res = data.value as any
             if (res.impact) {
-                mockImpactScore.value = res.impact.score ?? 0
-                mockImpactedPrompts.value = Array.isArray(res.impact.prompts) ? res.impact.prompts : []
+                impactScore.value = res.impact.score ?? 0
+                impactedPrompts.value = Array.isArray(res.impact.prompts) ? res.impact.prompts : []
                 impactMatchedCount.value = res.impact.matched_count ?? 0
                 impactTotalCount.value = res.impact.total_count ?? 0
             }
             if (res.related_instructions) {
-                mockRelatedInstructions.value = (res.related_instructions.items || []).map((it: any) => ({
+                relatedInstructions.value = (res.related_instructions.items || []).map((it: any) => ({
                     id: it.id,
                     text: it.text,
                     status: it.status,
@@ -297,7 +284,7 @@ const refreshAnalysis = async () => {
                 }))
             }
             if (res.resources) {
-                mockRelatedResources.value = (res.resources.items || []).map((it: any) => ({
+                relatedResources.value = (res.resources.items || []).map((it: any) => ({
                     id: it.id,
                     name: it.name,
                     resource_type: it.resource_type,
