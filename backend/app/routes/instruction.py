@@ -19,6 +19,10 @@ from app.schemas.instruction_schema import (
     InstructionCategory
 )
 from app.models.instruction import Instruction
+from app.schemas.instruction_analysis_schema import (
+    InstructionAnalysisRequest,
+    InstructionAnalysisResponse,
+)
 
 router = APIRouter(tags=["instructions"])
 instruction_service = InstructionService()
@@ -167,6 +171,23 @@ async def get_instruction_private_statuses():
 async def get_instruction_global_statuses():
     """Get all available global instruction statuses"""
     return [status.value for status in InstructionGlobalStatus]
+
+
+@router.post("/instructions/analysis", response_model=InstructionAnalysisResponse)
+@requires_permission('create_instructions')
+async def analyze_instruction_endpoint(
+    body: InstructionAnalysisRequest,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Naive analysis for an instruction text (impact, related instructions, related resources)."""
+    return await instruction_service.analyze_instruction(
+        db=db,
+        organization=organization,
+        current_user=current_user,
+        request=body,
+    )
 
 
 # STANDARD CRUD

@@ -23,10 +23,24 @@ from app.schemas.instruction_schema import (
     InstructionListSchema,
 )
 from app.schemas.user_schema import UserSchema
+from app.schemas.instruction_analysis_schema import (
+    InstructionAnalysisRequest,
+    InstructionAnalysisResponse,
+    ImpactEstimation,
+    RelatedInstructionItem,
+    RelatedInstructions,
+    RelatedResourceItem,
+    RelatedResources,
+)
 
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema
 from app.services.instruction_reference_service import InstructionReferenceService
 from app.core.telemetry import telemetry
+from app.models.completion import Completion
+from app.models.report import Report
+from sqlalchemy import select, func, or_, and_
+import re
+from datetime import datetime, timedelta
 
 class InstructionService:
     def __init__(self):
@@ -124,6 +138,214 @@ class InstructionService:
         instruction = fresh_instruction.scalar_one()
         return await self._instruction_to_schema_with_references(db, instruction)
     
+    async def analyze_instruction(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        request: InstructionAnalysisRequest,
+    ) -> InstructionAnalysisResponse:
+        """Naive analysis for instruction text with no external dependencies."""
+        include = set(request.include or ["impact", "related_instructions", "resources"])
+        meta: dict = {}
+        started_at = datetime.utcnow()
+
+        # 1) Tokenize instruction text (very naive)
+        tokens = self._tokenize_text(request.text)
+        if not tokens:
+            impact = ImpactEstimation(score=0.0, prompts=[])
+            result = InstructionAnalysisResponse(impact=impact if "impact" in include else None, meta={"took_ms": 0})
+            return result
+
+        impact_result: ImpactEstimation | None = None
+        related_instructions_result: RelatedInstructions | None = None
+        related_resources_result: RelatedResources | None = None
+
+        # 2) Impact estimation via completions prompts
+        if "impact" in include:
+            impact_result = await self._compute_naive_impact(db, organization, tokens, request)
+
+        # 3) Related instructions (permissions respected via existing query)
+        if "related_instructions" in include:
+            rel_insts = await self.get_instructions(
+                db=db,
+                organization=organization,
+                current_user=current_user,
+                skip=0,
+                limit=500,
+                include_own=True,
+                include_drafts=False,
+                include_archived=False,
+                include_hidden=False,
+            )
+            # Naive token filter similar to prompts matching
+            def text_matches(s: Optional[str]) -> bool:
+                text_l = (s or "").lower()
+                for t in tokens:
+                    if t in text_l:
+                        return True
+                return False
+            filtered = []
+            since_dt = None
+            if request.created_since_days and request.created_since_days > 0:
+                since_dt = datetime.utcnow() - timedelta(days=request.created_since_days)
+            for it in rel_insts:
+                if since_dt and getattr(it, "created_at", None) and it.created_at and it.created_at < since_dt:
+                    continue
+                if text_matches(it.text):
+                    filtered.append(it)
+            # Exclude the same instruction if analyzing an existing one
+            exclude_id = (request.instruction_id or "").strip()
+            # Do NOT fallback to the full list when no matches; return empty when nothing is relevant
+            base_candidates = filtered
+            candidates = [it for it in base_candidates if not exclude_id or str(it.id) != exclude_id]
+            ranked = self._rank_related_instructions(tokens, candidates)
+            top_k = ranked[: max(0, request.limits.instructions)]
+            items = [
+                RelatedInstructionItem(
+                    id=i.id,
+                    text=i.text,
+                    status=i.status,
+                    createdByName=(getattr(i.user, "name", None) or getattr(i.user, "email", None) or None) if getattr(i, "user", None) else None,
+                )
+                for i in top_k
+            ]
+            related_instructions_result = RelatedInstructions(count=len(ranked), items=items)
+
+        # 4) Related metadata resources (very naive name contains)
+        if "resources" in include:
+            # Use simple LIKE matching against MetadataResource name/path for current org
+            query = (
+                select(MetadataResource)
+                .join(DataSource, MetadataResource.data_source_id == DataSource.id)
+                .where(DataSource.organization_id == organization.id)
+            )
+            # Build OR of name/path ILIKE for tokens
+            like_clauses = []
+            for t in tokens:
+                like = f"%{t}%"
+                like_clauses.append(MetadataResource.name.ilike(like))
+                like_clauses.append(MetadataResource.path.ilike(like))
+            if like_clauses:
+                query = query.where(or_(*like_clauses))
+            query = query.limit(max(0, request.limits.resources))
+            result = await db.execute(query)
+            resources = result.scalars().all()
+            items = [
+                RelatedResourceItem(
+                    id=str(r.id),
+                    name=r.name,
+                    resource_type=r.resource_type,
+                    path=r.path,
+                    description=getattr(r, "description", None),
+                    sql_content=getattr(r, "sql_content", None),
+                    raw_data=getattr(r, "raw_data", None),
+                    columns=getattr(r, "columns", None),
+                    depends_on=getattr(r, "depends_on", None),
+                )
+                for r in resources
+            ]
+            related_resources_result = RelatedResources(count=len(items), items=items)
+
+        took_ms = int((datetime.utcnow() - started_at).total_seconds() * 1000)
+        meta["took_ms"] = took_ms
+
+        return InstructionAnalysisResponse(
+            impact=impact_result,
+            related_instructions=related_instructions_result,
+            resources=related_resources_result,
+            meta=meta,
+        )
+
+    async def _compute_naive_impact(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        tokens: set[str],
+        request: InstructionAnalysisRequest,
+    ) -> ImpactEstimation:
+        """Compute naive impact: matched_prompts / total_prompts using simple substring checks in Python."""
+        # Build base query: completions in this org with prompt.content present
+        base_q = (
+            select(Completion)
+            .join(Report, Completion.report_id == Report.id)
+            .where(
+                and_(
+                    Report.organization_id == organization.id,
+                )
+            )
+            .order_by(Completion.created_at.desc())
+            .limit(max(100, min(10000, request.max_prompts_scan)))
+        )
+        # Date filter
+        if request.created_since_days and request.created_since_days > 0:
+            since = datetime.utcnow() - timedelta(days=request.created_since_days)
+            base_q = base_q.where(Completion.created_at >= since)
+
+        result = await db.execute(base_q)
+        completions = result.scalars().all()
+
+        # Count prompts and matches
+        total_prompts = 0
+        matched_prompts = 0
+        sample_prompts: list[dict] = []
+        token_list = list(tokens)
+
+        def content_matches(text: str) -> bool:
+            text_l = (text or "").lower()
+            for t in token_list:
+                if t in text_l:
+                    return True
+            return False
+
+        for c in completions:
+            try:
+                prompt_obj = c.prompt or {}
+                content = ""
+                if isinstance(prompt_obj, dict):
+                    content = prompt_obj.get("content") or ""
+                elif isinstance(prompt_obj, str):
+                    content = prompt_obj
+                else:
+                    content = ""
+                if content:
+                    total_prompts += 1
+                    if content_matches(content):
+                        matched_prompts += 1
+                        if len(sample_prompts) < max(0, request.limits.prompts):
+                            sample_prompts.append({"content": content, "created_at": getattr(c, "created_at", None)})
+            except Exception:
+                # Ignore malformed prompts
+                continue
+
+        score = 0.0 if total_prompts == 0 else min(1.0, matched_prompts / total_prompts)
+        return ImpactEstimation(
+            score=round(score, 4),
+            prompts=sample_prompts,
+            matched_count=matched_prompts,
+            total_count=total_prompts,
+        )
+
+    def _tokenize_text(self, text: str) -> set[str]:
+        """Very naive tokenizer; lowercase, split on non-alphanum, drop short and common stopwords."""
+        s = (text or "").lower()
+        raw = re.split(r"[^a-z0-9_.]+", s)
+        stop = {"the", "a", "an", "of", "and", "for", "to", "in", "by", "with", "on", "is", "are", "be", "this", "that"}
+        tokens = {t for t in raw if t and len(t) >= 3 and t not in stop}
+        return tokens
+
+    def _rank_related_instructions(self, tokens: set[str], items: List[InstructionListSchema]) -> List[InstructionListSchema]:
+        """Rank by naive Jaccard similarity on tokens within text."""
+        def jaccard(a: set[str], b: set[str]) -> float:
+            u = len(a | b)
+            return 0.0 if u == 0 else len(a & b) / u
+        scored: list[tuple[float, InstructionListSchema]] = []
+        for it in items:
+            t = self._tokenize_text(it.text or "")
+            scored.append((jaccard(tokens, t), it))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [it for _, it in scored]
+
     async def get_instructions(
         self, 
         db: AsyncSession, 

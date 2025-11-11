@@ -237,3 +237,29 @@ Recent Messages
                             emitted_indices.add(idx)
                             yielded_count += 1
                             yield {"text": text, "category": category}
+    
+    async def evaluate_instruction(self, instruction: str, context_view: Any = None) -> str:
+        """Evaluate an instruction and return a score.
+
+        Returns a score between 0 and 100.
+        """
+
+        schemas_excerpt = getattr(getattr(context_view, "static", None), "schemas", None)
+        schemas_excerpt = schemas_excerpt.render() if schemas_excerpt else ""
+
+        resources_section = getattr(getattr(context_view, "static", None), "resources", None)
+        resources_context = resources_section.render() if resources_section else ""
+
+        instructions_section = getattr(getattr(context_view, "static", None), "instructions", None)
+        instructions_context = instructions_section.render() if instructions_section else ""
+
+        messages_section = getattr(getattr(context_view, "warm", None), "messages", None)
+        messages_context = messages_section.render() if messages_section else ""
+
+
+        header = f"""
+        You are a helpful analytics assistant. Your goal is to evaluate an instruction and return a score.
+
+        Instruction:
+        {instruction}
+        """

@@ -3,9 +3,17 @@
         <form @submit.prevent="submitForm" class="p-4">
             <!-- Instruction Text -->
             <div class="flex flex-col mx-auto max-w-2xl py-2">
-                <label class="text-md font-medium text-gray-800 mb-4">
-                    Create Instruction
-                </label>
+                <div class="flex items-center justify-between mb-4">
+                    <label class="text-md font-medium text-gray-800">
+                        Create Instruction
+                    </label>
+                    <UButton v-if="canAnalyze" size="xs" variant="soft" color="blue" @click="$emit('toggle-analyze')">
+                        <span class="inline-flex items-center gap-1">
+                            {{ analyzing ? 'Close Analysis Panel' : 'Open Analysis Panel' }}
+                            <Icon name="heroicons:chevron-right" class="w-4 h-4" />
+                        </span>
+                    </UButton>
+                </div>
                 <textarea 
                     v-model="instructionForm.text"
                     :rows="7"
@@ -174,7 +182,7 @@
             </div>
 
             <!-- Form Actions -->
-            <div class="flex justify-between items-center pt-3 mx-auto max-w-2xl">
+            <div class="sticky bottom-0 bg-white border-t flex justify-between items-center pt-3 mx-auto max-w-2xl">
                 <!-- Delete button (only show when editing) -->
                 <UButton 
                     v-if="isEditing"
@@ -196,6 +204,7 @@
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import { useCan } from '~/composables/usePermissions'
 
 // Define interfaces
 interface DataSource {
@@ -227,9 +236,10 @@ interface MentionableItem {
 // Props and Emits
 const props = defineProps<{
     instruction?: any
+    analyzing?: boolean
 }>()
 
-const emit = defineEmits(['instructionSaved', 'cancel'])
+const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form'])
 
 // Reactive state
 const toast = useToast()
@@ -616,6 +626,12 @@ onMounted(() => {
     fetchAvailableReferences().then(() => initReferencesFromInstruction())
 })
 
+// Emit text changes upward so parent modal has current text for analysis
+watch(() => instructionForm.value.text, (val) => {
+    emit('update-form', { text: val })
+})
+
+const canAnalyze = computed(() => useCan('create_instructions'))
 watch(() => props.instruction, (newInstruction) => {
     if (newInstruction) {
         instructionForm.value = {
