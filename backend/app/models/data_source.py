@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, UUID, Boolean, Enum, JSON, DateTime, Text, select
+from sqlalchemy import Column, String, UUID, Boolean, Enum, JSON, DateTime, Text, select, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 from sqlalchemy import ForeignKey
@@ -23,6 +23,9 @@ from app.schemas.data_source_registry import resolve_client_class
 
 class DataSource(BaseSchema):
     __tablename__ = "data_sources"
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'name', name='uq_data_sources_org_name'),
+    )
 
     name = Column(String, nullable=False)
     type = Column(String, nullable=False)

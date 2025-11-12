@@ -1,7 +1,7 @@
 <template>
   <div class="w-full">
     <div v-if="selectedType" class="bg-white rounded-lg p-4">
-      <div class="flex items-center gap-2 mb-3">
+      <div v-if="!hideHeader" class="flex items-center gap-2 mb-3">
         <DataSourceIcon :type="selectedType" class="h-5" />
         <span class="text-sm text-gray-800">{{ selectedTitle }}</span>
       </div>
@@ -96,7 +96,7 @@ function selectProvider(ds: any) {
   }
   handleTypeChange()
 }
-const props = defineProps<{ mode?: 'onboarding'|'create'|'edit', initialType?: string, dataSourceId?: string, initialValues?: any, showTestButton?: boolean, showLLMToggle?: boolean, allowNameEdit?: boolean, forceShowSystemCredentials?: boolean, showRequireUserAuthToggle?: boolean, initialRequireUserAuth?: boolean }>()
+const props = defineProps<{ mode?: 'onboarding'|'create'|'edit', initialType?: string, dataSourceId?: string, initialValues?: any, showTestButton?: boolean, showLLMToggle?: boolean, allowNameEdit?: boolean, forceShowSystemCredentials?: boolean, showRequireUserAuthToggle?: boolean, initialRequireUserAuth?: boolean, hideHeader?: boolean }>()
 const emit = defineEmits<{ (e: 'submitted', payload: any): void; (e: 'success', dataSource: any): void; (e: 'change:type', type: string): void; (e: 'change:auth', authType: string | null): void }>()
 
 const toast = useToast()
@@ -301,7 +301,9 @@ async function onSubmit() {
         const updated = (res.data as any)?.value
         emit('success', updated)
       } else {
-        const detail = (res.error as any)?.value?.data?.detail || 'Failed to update data source'
+        const errAny = (res.error as any)
+        const err = (errAny && (errAny.value || errAny)) || {}
+        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to update data source'
         toast.add({ title: 'Failed to update data source', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else {
@@ -310,7 +312,9 @@ async function onSubmit() {
         const created = (res.data as any)?.value
         emit('success', created)
       } else {
-        const detail = (res.error as any)?.value?.data?.detail || 'Failed to create data source'
+        const errAny = (res.error as any)
+        const err = (errAny && (errAny.value || errAny)) || {}
+        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to create data source'
         toast.add({ title: 'Failed to create data source', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     }

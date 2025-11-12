@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, JSON, ForeignKey, Boolean, Text
+from sqlalchemy import Column, String, JSON, ForeignKey, Boolean, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 import json
@@ -51,6 +51,9 @@ BOW_PROVIDER_DETAILS = {
 
 class LLMProvider(BaseSchema):
     __tablename__ = "llm_providers"
+    __table_args__ = (
+        UniqueConstraint('organization_id', 'name', name='uq_llm_providers_org_name'),
+    )
     
     name = Column(String, nullable=False)
     provider_type = Column(String, nullable=False)  # 'openai', 'anthropic', etc.

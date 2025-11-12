@@ -594,11 +594,10 @@ async function createProvider() {
             });
         }
         else {
-            toast.add({
-                title: 'Error',
-                description: String((response.error as any)?.value || 'Request failed'),
-                color: 'red'
-            });
+            const errAny = (response.error as any)
+            const err = (errAny && (errAny.value || errAny)) || {}
+            const detail = err?.data?.detail || err?.data?.message || err?.message || 'Request failed'
+            toast.add({ title: 'Error', description: String(detail), color: 'red' });
         }
     });
 }
@@ -653,11 +652,10 @@ async function updateProvider() {
             });
         }
         else {
-            toast.add({
-                title: 'Error',
-                description: String((response.error as any)?.value || 'Request failed'),
-                color: 'red'
-            });
+            const errAny = (response.error as any)
+            const err = (errAny && (errAny.value || errAny)) || {}
+            const detail = err?.data?.detail || err?.data?.message || err?.message || 'Request failed'
+            toast.add({ title: 'Error', description: String(detail), color: 'red' });
         }
     });
 }
@@ -851,11 +849,10 @@ async function testConnection() {
                 color: ok ? 'green' : 'red'
             });
         } else {
-            toast.add({
-                title: 'Error',
-                description: String((res.error as any)?.value || 'Request failed'),
-                color: 'red'
-            });
+            const errAny = (res.error as any)
+            const err = (errAny && (errAny.value || errAny)) || {}
+            const detail = err?.data?.detail || err?.data?.message || err?.message || 'Request failed'
+            toast.add({ title: 'Error', description: String(detail), color: 'red' });
         }
     } catch (e: any) {
         toast.add({ title: 'Error', description: String(e?.message || e), color: 'red' });

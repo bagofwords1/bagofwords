@@ -79,7 +79,7 @@ class BigQueryConfig(BaseModel):
     maximum_bytes_billed: Optional[int] = Field(
         None,
         title="Max Bytes Billed",
-        description="Limit the number of bytes billed for the query. Keep blank to disable limit",
+        description="Limit the number of bytes billed for the query. Keep blank to disable",
         json_schema_extra={"ui:type": "number"}
     )
     use_query_cache: bool = Field(

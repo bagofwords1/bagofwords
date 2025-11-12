@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from app.models.llm_provider import LLMProvider
 from app.models.llm_model import LLMModel
@@ -69,11 +70,21 @@ class LLMService:
 
         provider.organization_id = organization.id
 
-        await self._create_models(db, organization, provider, current_user, models)
-
+        # Persist the provider first so duplicate name errors are caught cleanly here
         db.add(provider)
-        await db.commit()
-        await db.refresh(provider)
+        try:
+            await db.commit()
+            await db.refresh(provider)
+        except IntegrityError:
+            await db.rollback()
+            # Likely duplicate (organization_id, name) unique constraint
+            raise HTTPException(
+                status_code=409,
+                detail=f"A provider named '{provider.name}' already exists in this organization. Please choose a different name."
+            )
+
+        # Now create/update models for this provider (commits internally)
+        await self._create_models(db, organization, provider, current_user, models)
 
         # Telemetry: LLM provider created
         try:
@@ -128,8 +139,15 @@ class LLMService:
             self._set_provider_credentials(provider, credentials)
 
         db.add(provider)
-        await db.commit()
-        await db.refresh(provider)
+        try:
+            await db.commit()
+            await db.refresh(provider)
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail=f"A provider with the name '{update_data.get('name', provider.name)}' already exists in this organization."
+            )
 
         return provider
     

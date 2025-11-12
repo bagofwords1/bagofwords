@@ -34,6 +34,7 @@ import json
 from datetime import datetime, timezone
 
 from sqlalchemy import insert, delete, or_, and_
+from sqlalchemy.exc import IntegrityError
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
@@ -107,8 +108,19 @@ class DataSourceService:
         new_data_source.encrypt_credentials(credentials)
         
         db.add(new_data_source)
-        await db.commit()
-        await db.refresh(new_data_source)
+        try:
+            await db.commit()
+            await db.refresh(new_data_source)
+        except IntegrityError as e:
+            # Roll back and surface a friendly conflict error for duplicate names per organization
+            await db.rollback()
+            name = data_source_dict.get("name") or "data source"
+            # SQLite message includes "UNIQUE constraint failed: data_sources.organization_id, data_sources.name"
+            # Normalize to a clear API error
+            raise HTTPException(
+                status_code=409,
+                detail=f"A data source named '{name}' already exists in this organization. Please choose a different name."
+            )
 
         # Telemetry: data source created (minimal fields only)
         try:
@@ -796,6 +808,13 @@ class DataSourceService:
             final_data_source = result.scalar_one()
             
             return final_data_source
+        except IntegrityError as e:
+            await db.rollback()
+            # Conflict on unique constraint (likely name within organization)
+            raise HTTPException(
+                status_code=409,
+                detail="Another data source with this name already exists in this organization."
+            )
         except Exception as e:
             await db.rollback()
             raise HTTPException(status_code=500, detail=f"Failed to update data source: {str(e)}")
