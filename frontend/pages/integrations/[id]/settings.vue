@@ -53,7 +53,7 @@
                         <!-- Danger zone -->
                         <div v-if="canUpdateDataSource" class="border border-red-200 p-4 rounded-lg bg-red-50/40">
                             <div class="text-sm font-medium text-red-700">Danger zone</div>
-                            <div class="text-xs text-gray-600 mt-1">Removing data source connection is irreversible.</div>
+                            <div class="text-xs text-gray-600 mt-1">Removing data source connection will remove the connection to the data source. You can reconnect later.</div>
                             <div class="mt-3">
                                 <button @click="showDelete = true" class="px-3 py-1.5 text-xs border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">Remove data source connection</button>
                             </div>
@@ -61,8 +61,8 @@
 
                         <UModal v-model="showDelete" :ui="{ width: 'sm:max-w-md' }">
                             <div class="p-5">
-                                <div class="text-sm font-medium text-gray-900">Delete data source?</div>
-                                <div class="text-xs text-gray-600 mt-2">This action cannot be undone.</div>
+                                <div class="text-sm font-medium text-gray-900">Remove data source connection?</div>
+                                <div class="text-xs text-gray-600 mt-2">This will remove the connection to the data source. You can reconnect later.</div>
                                 <div class="flex justify-end gap-2 mt-5">
                                     <button @click="showDelete = false" class="px-3 py-1.5 text-xs border border-gray-300 text-gray-700 rounded-lg">Cancel</button>
                                     <button @click="confirmDelete" :disabled="deleting" class="px-3 py-1.5 text-xs border border-red-300 text-red-700 rounded-lg hover:bg-red-50">{{ deleting ? 'Deleting…' : 'Delete' }}</button>
