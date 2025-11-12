@@ -170,6 +170,7 @@ class TestRunService:
                 head_completion_id=str(head.id),
                 status="init",
                 report_id=str(report.id),
+                result_json=None,
             )
             db.add(result)
         await db.commit()
@@ -223,7 +224,15 @@ class TestRunService:
     async def list_results(self, db: AsyncSession, organization_id: str, current_user, run_id: str) -> List[TestResult]:
         _ = await self.get_run(db, organization_id, current_user, run_id)
         res = await db.execute(select(TestResult).where(TestResult.run_id == str(run_id)).order_by(TestResult.created_at.asc()))
-        return res.scalars().all()
+        rows = res.scalars().all()
+        # Normalize empty dicts to None to satisfy response schema when result_json is not populated yet
+        for r in rows:
+            try:
+                if isinstance(getattr(r, "result_json", None), dict) and not getattr(r, "result_json"):
+                    r.result_json = None
+            except Exception:
+                pass
+        return rows
 
     async def get_result(self, db: AsyncSession, organization_id: str, current_user, result_id: str) -> TestResult:
         res = await db.execute(select(TestResult).where(TestResult.id == result_id))
@@ -232,6 +241,12 @@ class TestRunService:
             raise HTTPException(status_code=404, detail="Test result not found")
         # ensure run -> suite in org
         _ = await self.get_run(db, organization_id, current_user, str(result.run_id))
+        # Normalize empty dict to None for response validation
+        try:
+            if isinstance(getattr(result, "result_json", None), dict) and not getattr(result, "result_json"):
+                result.result_json = None
+        except Exception:
+            pass
         return result
 
     async def stop_run(self, db: AsyncSession, organization_id: str, current_user, run_id: str) -> TestRun:
@@ -390,6 +405,7 @@ class TestRunService:
                 head_completion_id=str(head_id) if head_id else str(uuid.uuid4()),  # fallback placeholder
                 status="in_progress",
                 report_id=str(report.id),
+                result_json=None,
             )
             db.add(result)
             created_results.append(result)
@@ -408,6 +424,13 @@ class TestRunService:
         # Get all results
         res = await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)).order_by(TestResult.created_at.asc()))
         results = res.scalars().all()
+        # Normalize empty result_json dicts to None for response validation
+        for r in results:
+            try:
+                if isinstance(getattr(r, "result_json", None), dict) and not getattr(r, "result_json"):
+                    r.result_json = None
+            except Exception:
+                pass
 
         # For each result, fetch completions v2 (limited) and unwrap to list
         from app.schemas.completion_v2_schema import CompletionV2Schema

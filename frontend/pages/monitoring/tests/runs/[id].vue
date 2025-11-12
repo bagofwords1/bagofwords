@@ -66,9 +66,10 @@
               </div>
               <div class="bg-gray-50 rounded p-3 text-xs">
                 <div class="space-y-2">
-                  <div v-for="(m, mi) in mockLogs(row)" :key="mi" class="flex items-start gap-2">
-                    <span class="uppercase text-[10px] font-medium text-gray-500 w-16 shrink-0">{{ m.role }}</span>
-                    <div class="text-gray-800 whitespace-pre-wrap break-words flex-1">{{ m.content }}</div>
+                  <div v-if="(getLogs(row.result.id) || []).length === 0" class="text-gray-500">—</div>
+                  <div v-for="(e, mi) in getLogs(row.result.id)" :key="mi" class="flex items-start gap-2">
+                    <span class="uppercase text-[10px] font-medium text-gray-500 w-32 shrink-0 truncate">{{ e.label }}</span>
+                    <div class="text-gray-800 whitespace-pre-wrap break-words flex-1">{{ e.text }}</div>
                   </div>
                 </div>
               </div>
@@ -206,6 +207,131 @@ const dataSourceById = reactive<Record<string, any>>({})
 const fileList = ref<any[]>([])
 const fileNameById = reactive<Record<string, string>>({})
 
+type RawLog = { ts: string, event: string, data: any, label: string, text: string, group?: string }
+const logsByResultId = reactive<Record<string, RawLog[]>>({})
+
+function ensureLogBuffer(resultId: string) {
+  if (!logsByResultId[resultId]) logsByResultId[resultId] = []
+}
+
+function summarizeEvent(event: string, data: any): { label: string, text: string } {
+  const upper = (s: string) => String(s || '').toUpperCase()
+  const safeStr = (v: any) => {
+    if (v == null) return ''
+    if (typeof v === 'string') return v
+    try { return JSON.stringify(v) } catch { return String(v) }
+  }
+  switch (event) {
+    case 'run.started':
+      return { label: 'RUN', text: 'Started' }
+    case 'run.finished':
+      return { label: 'RUN', text: `Finished${data?.status ? ` · status=${data.status}` : ''}` }
+    case 'completion.started':
+      return { label: 'COMPLETION', text: 'Started' }
+    case 'completion.finished':
+      return { label: 'COMPLETION', text: `Finished${data?.status ? ` · status=${data.status}` : ''}` }
+    case 'completion.error':
+      return { label: 'COMPLETION', text: `Error${data?.error ? ` · ${safeStr(data.error)}` : ''}` }
+    case 'result.update':
+      return { label: 'RESULT', text: `Update${data?.status ? ` · status=${data.status}` : ''}` }
+    case 'block.upsert': {
+      const title = data?.block?.title || data?.block?.id || 'block'
+      const status = data?.block?.status
+      return { label: 'BLOCK', text: `${title}${status ? ` · ${status}` : ''}` }
+    }
+    case 'decision.partial': {
+      const r = (data?.reasoning || data?.plan_decision?.reasoning || data?.plan_reasoning || '')
+      const assistant = data?.assistant
+      const msg = r || assistant || ''
+      return { label: 'DECISION.PARTIAL', text: msg ? String(msg) : '—' }
+    }
+    case 'decision.final': {
+      const finalA = data?.final_answer || data?.assistant || ''
+      return { label: 'DECISION.FINAL', text: finalA ? String(finalA) : '—' }
+    }
+    case 'tool.started':
+      return { label: 'TOOL', text: `${data?.tool_name || 'tool'} started` }
+    case 'tool.progress': {
+      const stage = data?.payload?.stage
+      return { label: 'TOOL', text: `${data?.tool_name || 'tool'}${stage ? ` · ${stage}` : ''}` }
+    }
+    case 'tool.partial': {
+      const answer = (data?.payload?.answer || data?.payload?.delta || '').toString()
+      return { label: 'TOOL', text: `${data?.tool_name || 'tool'} · ${answer}` }
+    }
+    case 'tool.finished': {
+      const summary = data?.result_summary
+      const status = data?.status
+      return { label: 'TOOL', text: `${data?.tool_name || 'tool'} finished${status ? ` · ${status}` : ''}${summary ? ` · ${summary}` : ''}` }
+    }
+    default:
+      return { label: upper(event), text: safeStr(data) }
+  }
+}
+
+function groupFor(event: string, data: any): string | undefined {
+  // Return a stable group key for events that should update in-place
+  switch (event) {
+    case 'run.started':
+    case 'run.finished':
+      return 'RUN'
+    case 'completion.started':
+    case 'completion.finished':
+    case 'completion.error':
+      return 'COMPLETION'
+    case 'result.update':
+      return 'RESULT'
+    case 'decision.partial':
+    case 'decision.final':
+      return 'DECISION'
+    case 'tool.started':
+    case 'tool.progress':
+    case 'tool.partial':
+    case 'tool.finished': {
+      const name = (data?.tool_name || '').toString() || 'TOOL'
+      return `TOOL:${name}`
+    }
+    case 'block.upsert': {
+      const bid = (data?.block?.id || '').toString()
+      return bid ? `BLOCK:${bid}` : 'BLOCK'
+    }
+    default:
+      return undefined
+  }
+}
+
+function pushLog(resultId: string, event: string, data: any) {
+  // Drop extremely noisy token deltas for the mini view
+  if (event === 'block.delta.token') return
+  try {
+    ensureLogBuffer(resultId)
+    const arr = logsByResultId[resultId]
+    const summary = summarizeEvent(event, data)
+    const group = groupFor(event, data)
+    if (group) {
+      // Replace the last entry with the same group (edit-in-place)
+      let idx = -1
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (arr[i].group === group) { idx = i; break }
+      }
+      const item: RawLog = { ts: new Date().toISOString(), event, data, label: summary.label, text: summary.text, group }
+      if (idx >= 0) {
+        arr.splice(idx, 1, item)
+      } else {
+        arr.push(item)
+      }
+    } else {
+      arr.push({ ts: new Date().toISOString(), event, data, label: summary.label, text: summary.text })
+    }
+    // Keep a bounded buffer per result
+    if (arr.length > 200) arr.splice(0, arr.length - 200)
+  } catch {}
+}
+
+function getLogs(resultId: string): RawLog[] {
+  return logsByResultId[resultId] || []
+}
+
 const isExpanded = (resultId: string, idx: number) => {
   return !!expanded.value[`${resultId}:${idx}`]
 }
@@ -232,6 +358,8 @@ const load = async () => {
     ])
     run.value = runRes.data.value as any
     results.value = (resRes.data.value as any[]) || []
+    // Initialize log buffers for all results
+    for (const r of results.value) ensureLogBuffer(String(r.id))
     models.value = (modelsRes.data.value as any[]) || []
     dataSources.value = (dsRes.data.value as any[]) || []
     for (const ds of dataSources.value) dataSourceById[String(ds.id)] = ds
@@ -392,8 +520,9 @@ onMounted(async () => {
     setTimeout(async () => {
       try {
         // Use fetch streaming (POST) - EventSource does not support POST
-        const resp = await useMyFetch(`/api/tests/runs/${runId.value}/stream`, { method: 'POST' })
-        const reader = (resp.data.value as any).body?.getReader?.()
+        const raw: any = await useMyFetch(`/tests/runs/${runId.value}/stream`, { method: 'POST', stream: true } as any)
+        const res: Response = (raw?.data?.value ?? raw?.data) as unknown as Response
+        const reader = res?.body?.getReader?.()
         if (!reader) return
         const decoder = new TextDecoder()
         let buffer = ''
@@ -414,22 +543,48 @@ onMounted(async () => {
             }
             if (!data) continue
             try {
-              const payload = JSON.parse(data)
+              const parsed = JSON.parse(data)
+              const payload = (parsed && typeof parsed === 'object' && 'data' in parsed) ? (parsed as any).data : parsed
               if (eventName === 'run.started') {
                 if (run.value) run.value.status = 'in_progress'
+                // Fan out a log entry to each result in the run
+                const resList = Array.isArray((payload as any)?.results) ? (payload as any).results : []
+                for (const it of resList) {
+                  const rid = String((it as any)?.result_id || '')
+                  if (rid) pushLog(rid, eventName, payload)
+                }
               } else if (eventName === 'result.update') {
-                const rid = String(payload.result_id || '')
+                const rid = String((payload as any).result_id || '')
                 const idx = results.value.findIndex(r => String(r.id) === rid)
                 if (idx >= 0) {
                   const copy = { ...results.value[idx] }
-                  if (payload.status) copy.status = payload.status
-                  if (payload.result_json) copy.result_json = payload.result_json
+                  if ((payload as any).status) (copy as any).status = (payload as any).status
+                  if ((payload as any).result_json) (copy as any).result_json = (payload as any).result_json
                   const tmp = [...results.value]
                   tmp[idx] = copy
                   results.value = tmp
                 }
+                if (rid) pushLog(rid, eventName, payload)
+              } else if (eventName === 'completion.started' || eventName === 'completion.finished' || eventName === 'completion.error') {
+                const rid = String((payload as any)?.result_id || '')
+                if (rid) pushLog(rid, eventName, payload)
               } else if (eventName === 'run.finished') {
-                if (run.value && payload?.status) run.value.status = payload.status
+                if (run.value && (payload as any)?.status) (run.value as any).status = (payload as any).status
+                // Broadcast finished to all known results
+                for (const r of results.value) {
+                  pushLog(String(r.id), eventName, payload)
+                }
+              } else {
+                // Catch-all: record any other events (block.*, decision.*, tool.* etc.)
+                const rid = String((payload as any)?.result_id || '')
+                if (rid) {
+                  pushLog(rid, eventName, payload)
+                } else {
+                  // If no result_id present, fan out to all results to avoid losing context
+                  for (const r of results.value) {
+                    pushLog(String(r.id), eventName, payload)
+                  }
+                }
               }
             } catch {}
           }

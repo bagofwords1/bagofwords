@@ -66,6 +66,6 @@ class TestResult(BaseSchema):
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
 
     # Assertion result
-    result_json = Column(JSON, nullable=True, default=dict)
+    result_json = Column(JSON, nullable=True, default=None)
 
 

@@ -377,6 +377,72 @@ const opOptionsFor = (cat: CategoryRuleUI, r: FieldRuleUI) => {
   return ops.map(op => ({ label: labelFor(op), value: op }))
 }
 
+// Create missing categories/fields dynamically for legacy or custom rules so edit works
+function ensureDynamicCategoryAndField(categoryId: string, fieldKey: string, matcherType?: string) {
+  // If category exists and field exists, nothing to do
+  const existingCat = (categories.value || []).find(c => c.id === categoryId)
+  if (existingCat) {
+    const fieldExists = (existingCat.fields || []).some(f => f.key === fieldKey)
+    if (fieldExists) return
+  }
+  // Build a new or augmented category descriptor
+  const deriveKind = (catId: string): CategoryDescriptor['kind'] => {
+    if (catId === 'completion') return 'completion'
+    if (catId === 'metadata' || catId === 'judge') return 'metadata'
+    return catId.startsWith('tool:') ? 'tool' as const : 'metadata'
+  }
+  const humanize = (s: string) => {
+    try {
+      return s.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
+    } catch {
+      return s
+    }
+  }
+  const valueTypeForMatcher = (m?: string): ValueType => {
+    if (!m) return 'text'
+    if (m === 'number.cmp' || m === 'length.cmp') return 'number'
+    if (m === 'list.contains_any' || m === 'list.contains_all') return 'list<string>'
+    if (m === 'list.contains') return 'text'
+    if (m.startsWith('text.')) return 'text'
+    return 'text'
+  }
+  const allowedOpsForMatcher = (m?: string): AllowedOp[] => {
+    if (!m) return ['text.contains']
+    if (m === 'number.cmp') return ['number.cmp']
+    if (m === 'length.cmp') return ['length.cmp']
+    if (m === 'list.contains_any') return ['list.contains_any']
+    if (m === 'list.contains_all') return ['list.contains_all']
+    if (m === 'list.contains') return ['list.contains']
+    if (m === 'text.regex') return ['text.regex']
+    if (m === 'text.equals') return ['text.equals']
+    if (m === 'text.not_contains') return ['text.not_contains']
+    return ['text.contains']
+  }
+  const newField: FieldDescriptor = {
+    key: fieldKey,
+    label: humanize(fieldKey),
+    value_type: valueTypeForMatcher(matcherType),
+    allowed_ops: allowedOpsForMatcher(matcherType),
+    io: undefined,
+    examples: [],
+    options: [],
+  }
+  if (existingCat) {
+    existingCat.fields = [...existingCat.fields, newField]
+    // trigger reactivity by replacing array
+    categories.value = categories.value.map(c => (c.id === existingCat.id ? existingCat : c))
+  } else {
+    const newCat: CategoryDescriptor = {
+      id: categoryId,
+      label: categoryId.startsWith('tool:') ? humanize(categoryId.split(':')[1] || categoryId) : humanize(categoryId),
+      kind: deriveKind(categoryId),
+      tool_name: categoryId.startsWith('tool:') ? (categoryId.split(':')[1] || undefined) : undefined,
+      fields: [newField],
+    }
+    categories.value = [...categories.value, newCat]
+  }
+}
+
 const loadCatalog = async () => {
   catalogLoading.value = true
   try {
@@ -801,8 +867,10 @@ async function loadCaseForEdit(caseId: string) {
       const catId = r?.target?.category
       const fieldKey = r?.target?.field
       if (!catId || !fieldKey) continue
+      // Ensure catalog has this category/field even if backend catalog doesn't include it (legacy/custom)
+      ensureDynamicCategoryAndField(String(catId), String(fieldKey), r?.matcher?.type)
       const catMeta = categoryById.value[catId]
-      const field = catMeta?.fields.find(f => f.key === fieldKey)
+      const field = catMeta?.fields.find((f: any) => f.key === fieldKey)
       if (!catMeta || !field) continue
       if (!grouped[catId]) {
         grouped[catId] = {
