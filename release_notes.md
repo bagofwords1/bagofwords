@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.234 (November 12, 2025)
+## Version 0.0.235 (November 12, 2025)
 - Added ability to select and deselect items in table and metadata resource selectors
 - Enhanced BigQuery integration to allow connections to multiple datasets
 - Enforced organization-level uniqueness for data source and LLM provider names
