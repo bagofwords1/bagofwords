@@ -53,9 +53,9 @@
                         <!-- Danger zone -->
                         <div v-if="canUpdateDataSource" class="border border-red-200 p-4 rounded-lg bg-red-50/40">
                             <div class="text-sm font-medium text-red-700">Danger zone</div>
-                            <div class="text-xs text-gray-600 mt-1">Deleting a data source is irreversible.</div>
+                            <div class="text-xs text-gray-600 mt-1">Removing data source connection is irreversible.</div>
                             <div class="mt-3">
-                                <button @click="showDelete = true" class="px-3 py-1.5 text-xs border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">Delete data source</button>
+                                <button @click="showDelete = true" class="px-3 py-1.5 text-xs border border-red-300 text-red-700 rounded-lg hover:bg-red-50 transition-colors">Remove data source connection</button>
                             </div>
                         </div>
 

@@ -10,6 +10,23 @@
       <div class="mt-1 text-xs text-gray-500 text-right">{{ filteredResources.length }} of {{ totalResources }} shown</div>
     </div>
 
+    <div v-if="canUpdate" class="mt-2 flex items-center justify-end gap-2">
+      <button
+        @click="selectAll"
+        :disabled="loading || saving"
+        class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+      >
+        Select all
+      </button>
+      <button
+        @click="deselectAll"
+        :disabled="loading || saving"
+        class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+      >
+        Deselect all
+      </button>
+    </div>
+
     <div v-if="loading" class="text-sm text-gray-500 py-10 flex items-center justify-center">
       <Spinner class="w-4 h-4 mr-2" />
       Loading resources...
@@ -90,6 +107,20 @@ const filteredResources = computed(() => {
 
 function toggleResource(res: MetadataResource) {
   expandedResources.value[res.id] = !expandedResources.value[res.id]
+}
+
+function selectAll() {
+  const list = filteredResources.value || []
+  for (const res of list) {
+    res.is_active = true
+  }
+}
+
+function deselectAll() {
+  const list = filteredResources.value || []
+  for (const res of list) {
+    res.is_active = false
+  }
 }
 
 async function fetchResources() {

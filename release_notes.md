@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.234 (November 12, 2025)
+- Add select/deselect to table and metadata resources selectors
+- Improved BigQuery integrations to support multi dataset connections
+
 ## Version 0.0.233 (November 11, 2025)
 - Improved instructions visibility in prompts' context
 - Introduced an "Analysis Panel" for admins when creating or approving instructions:
