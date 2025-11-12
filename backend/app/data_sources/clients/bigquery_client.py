@@ -16,6 +16,17 @@ class BigqueryClient(DataSourceClient):
         self.project_id = project_id
         self.credentials_json = credentials_json
         self.dataset = dataset
+        # Accept comma-separated datasets; normalize and dedupe while preserving order
+        self._datasets = []
+        if isinstance(self.dataset, str) and self.dataset.strip():
+            parts = [s.strip() for s in self.dataset.split(",") if s.strip()]
+            seen = set()
+            for p in parts:
+                if p not in seen:
+                    seen.add(p)
+                    self._datasets.append(p)
+        # Primary dataset for legacy expectations
+        self._primary_dataset = (self._datasets[0] if self._datasets else (self.dataset if isinstance(self.dataset, str) and self.dataset.strip() else None))
         self.maximum_bytes_billed = maximum_bytes_billed
         self.use_query_cache = use_query_cache
 
@@ -77,28 +88,42 @@ class BigqueryClient(DataSourceClient):
             raise e
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns in the specified dataset."""
+        """Get all tables and their columns across one or more datasets.
+        - Supports comma-separated datasets via the existing `dataset` config field.
+        - If no dataset provided, auto-discovers all datasets in the project.
+        - Emits fully qualified table names: DATASET.TABLE
+        """
         try:
             with self.connect() as conn:
-                sql = f"""
-                    SELECT table_name, column_name, data_type
-                    FROM `{self.project_id}.{self.dataset}.INFORMATION_SCHEMA.COLUMNS`
-                    ORDER BY table_name, ordinal_position
-                """
-                query_job = conn.query(sql)
-                results = query_job.result().to_dataframe()
+                # Determine datasets to scan
+                if self._datasets:
+                    datasets = self._datasets
+                else:
+                    datasets = [d.dataset_id for d in conn.list_datasets()]
 
                 tables = {}
-                for _, row in results.iterrows():
-                    table_name = row['table_name']
-                    column_name = row['column_name']
-                    data_type = row['data_type']
+                for ds in datasets:
+                    sql = f"""
+                        SELECT table_name, column_name, data_type
+                        FROM `{self.project_id}.{ds}.INFORMATION_SCHEMA.COLUMNS`
+                        ORDER BY table_name, ordinal_position
+                    """
+                    query_job = conn.query(sql)
+                    results = query_job.result().to_dataframe()
 
-                    if table_name not in tables:
-                        tables[table_name] = Table(
-                            name=table_name, columns=[], pks=None, fks=None)
-                    tables[table_name].columns.append(
-                        TableColumn(name=column_name, dtype=data_type))
+                    for _, row in results.iterrows():
+                        table_name = row["table_name"]
+                        column_name = row["column_name"]
+                        data_type = row["data_type"]
+
+                        key = (ds, table_name)
+                        fqn = f"{ds}.{table_name}"
+                        if key not in tables:
+                            tables[key] = Table(
+                                name=fqn, columns=[], pks=None, fks=None, metadata_json={"dataset": ds}
+                            )
+                        tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
+
                 return list(tables.values())
         except Exception as e:
             print(f"Error retrieving tables: {e}")
@@ -140,6 +165,7 @@ class BigqueryClient(DataSourceClient):
 
     @property
     def description(self):
-        description = f"BigQuery client for project {
-            self.project_id} and dataset {self.dataset}"
-        return description
+        if self._datasets:
+            listed = ", ".join(self._datasets)
+            return f"BigQuery project {self.project_id}; datasets: {listed}"
+        return f"BigQuery project {self.project_id}; datasets: all"
