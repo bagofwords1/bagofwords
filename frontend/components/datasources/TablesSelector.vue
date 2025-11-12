@@ -34,6 +34,23 @@
       <div class="mt-1 text-xs text-gray-500 text-right">{{ selectedCount }} of {{ totalTables }} selected</div>
     </div>
 
+    <div v-if="canUpdate" class="mt-2 flex items-center justify-end gap-2">
+      <button
+        @click="selectAll"
+        :disabled="loading || refreshing"
+        class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+      >
+        Select all
+      </button>
+      <button
+        @click="deselectAll"
+        :disabled="loading || refreshing"
+        class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+      >
+        Deselect all
+      </button>
+    </div>
+
     <div v-if="loading" class="text-sm text-gray-500 py-10 flex items-center justify-center">
       <Spinner class="w-4 h-4 mr-2" />
       Loading schema...
@@ -177,6 +194,20 @@ async function fetchTables() {
 function toggleTable(table: Table) {
   const current = expandedTables.value[table.name]
   expandedTables.value[table.name] = !current
+}
+
+function selectAll() {
+  const list = filteredTables.value || []
+  for (const table of list) {
+    table.is_active = true
+  }
+}
+
+function deselectAll() {
+  const list = filteredTables.value || []
+  for (const table of list) {
+    table.is_active = false
+  }
 }
 
 // (centrality hidden for now)
