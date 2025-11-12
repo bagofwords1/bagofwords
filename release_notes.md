@@ -4,6 +4,7 @@
 - Added ability to select and deselect items in table and metadata resource selectors
 - Enhanced BigQuery integration to allow connections to multiple datasets
 - Enforced organization-level uniqueness for data source and LLM provider names
+- Allow service json for BigQuery required user auth mode
 
 ## Version 0.0.233 (November 11, 2025)
 - Improved instructions visibility in prompts' context

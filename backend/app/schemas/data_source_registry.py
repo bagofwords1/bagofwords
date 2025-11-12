@@ -127,7 +127,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Serverless, highly scalable, and cost-effective multi-cloud data warehouse.",
         config_schema=BigQueryConfig,
         credentials_auth=AuthOptions(default="service_account", by_auth={
-            "service_account": AuthVariant(title="Service Account JSON", schema=BigQueryCredentials, scopes=["system"])  # system-managed only
+            "service_account": AuthVariant(title="Service Account JSON", schema=BigQueryCredentials, scopes=["system", "user"])  # system-managed only
         }),
         client_path=None,
     ),
@@ -159,7 +159,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="AWS Athena is a serverless query service that makes it easy to analyze data in Amazon S3 using standard SQL.",
         config_schema=AWSAthenaConfig,
         credentials_auth=AuthOptions(default="key", by_auth={
-            "key": AuthVariant(title="AWS Keys", schema=AWSAthenaCredentials, scopes=["system"])  # system
+            "key": AuthVariant(title="AWS Keys", schema=AWSAthenaCredentials, scopes=["system", "user"])  # system
         }),
         client_path=None,
         version="beta",
@@ -180,7 +180,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="Cloud-based CRM platform for sales, service, marketing, and more.",
         config_schema=SalesforceConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system"])  # likely system
+            "userpass": AuthVariant(title="Username / Password", schema=SalesforceCredentials, scopes=["system", "user"])  # likely system
         }),
         client_path=None,
     ),
@@ -221,7 +221,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         description="AWS Cost Explorer helps analyze and visualize your AWS spending and usage patterns over time.",
         config_schema=AWSCostConfig,
         credentials_auth=AuthOptions(default="key", by_auth={
-            "key": AuthVariant(title="AWS Keys", schema=AWSCostCredentials, scopes=["system"])  # system
+            "key": AuthVariant(title="AWS Keys", schema=AWSCostCredentials, scopes=["system", "user"])  # system
         }),
         client_path=None,
         version="beta",
@@ -243,8 +243,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         config_schema=AwsRedshiftConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=AwsRedshiftUserPassCredentials, scopes=["system","user"]),
-            "iam": AuthVariant(title="AWS Keys (IAM)", schema=AwsRedshiftIAMCredentials, scopes=["system"]),
-            "arn": AuthVariant(title="Assume Role (ARN)", schema=AwsRedshiftAssumeRoleCredentials, scopes=["system"]),
+            "iam": AuthVariant(title="AWS Keys (IAM)", schema=AwsRedshiftIAMCredentials, scopes=["system", "user"]),
+            "arn": AuthVariant(title="Assume Role (ARN)", schema=AwsRedshiftAssumeRoleCredentials, scopes=["system", "user"]),
         }),
         client_path=None,
     ),
@@ -266,7 +266,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         credentials_auth=AuthOptions(default="none", by_auth={
             "none": AuthVariant(title="No Auth (public/local)", schema=DuckDBNoAuthCredentials, scopes=["system"]),
             "aws": AuthVariant(title="AWS Keys", schema=DuckDBAwsCredentials, scopes=["system"]),
-            "gcp": AuthVariant(title="GCP Service Account", schema=DuckDBGcpCredentials, scopes=["system"]),
+            "gcp": AuthVariant(title="GCP Service Account", schema=DuckDBGcpCredentials, scopes=["system","user"]),
             "azure": AuthVariant(title="Azure Connection String", schema=DuckDBAzureCredentials, scopes=["system"])  
         }),
         client_path="app.data_sources.clients.duckdb_client.DuckDBClient",
