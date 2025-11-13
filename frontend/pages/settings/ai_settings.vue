@@ -39,8 +39,24 @@
                                 :disabled="!feature.editable || feature.state === 'locked'"
                                 @change="updateConfigFeature(key, feature)"
                             />
+                            <UInput
+                                v-else-if="feature.editable && feature.state !== 'locked' && typeof feature.value === 'number'"
+                                v-model.number="feature.value"
+                                type="number"
+                                class="w-28"
+                                @blur="updateConfigFeature(key, feature)"
+                                @keyup.enter="updateConfigFeature(key, feature)"
+                            />
+                            <UInput
+                                v-else-if="feature.editable && feature.state !== 'locked' && typeof feature.value !== 'number'"
+                                v-model="feature.value"
+                                type="text"
+                                class="w-56"
+                                @blur="updateConfigFeature(key, feature)"
+                                @keyup.enter="updateConfigFeature(key, feature)"
+                            />
                             <span v-else class="text-sm text-gray-600">
-                                {{ feature.value }} ({{ feature.editable && feature.state !== 'locked' ? 'Editable via API' : 'Not directly editable' }})
+                                {{ feature.value }} (Not directly editable)
                             </span>
                         </div>
                         <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
@@ -71,8 +87,24 @@
                                 :disabled="!feature.editable || feature.state === 'locked'"
                                 @change="updateAIFeature(key, feature)"
                             />
+                            <UInput
+                                v-else-if="feature.editable && feature.state !== 'locked' && typeof feature.value === 'number'"
+                                v-model.number="feature.value"
+                                type="number"
+                                class="w-28"
+                                @blur="updateAIFeature(key, feature)"
+                                @keyup.enter="updateAIFeature(key, feature)"
+                            />
+                            <UInput
+                                v-else-if="feature.editable && feature.state !== 'locked' && typeof feature.value !== 'number'"
+                                v-model="feature.value"
+                                type="text"
+                                class="w-56"
+                                @blur="updateAIFeature(key, feature)"
+                                @keyup.enter="updateAIFeature(key, feature)"
+                            />
                             <span v-else class="text-sm text-gray-600">
-                                {{ feature.value }} ({{ feature.editable && feature.state !== 'locked' ? 'Editable via API' : 'Not directly editable' }})
+                                {{ feature.value }} (Not directly editable)
                             </span>
                         </div>
                         <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>

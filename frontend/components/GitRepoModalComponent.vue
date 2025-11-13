@@ -37,17 +37,19 @@
                                 <p class="text-gray-500">Custom Host</p>
                                 <p class="font-medium">{{ connectedRepo.custom_host }}</p>
                             </div>
-                            <div v-if="metadata_resources.completed_at">
+                            <div v-if="metadata_resources">
                                 <p class="text-gray-500">Last Indexed</p>
-                                <p class="font-medium">{{ new Date(metadata_resources.completed_at).toLocaleString() }}</p>
+                                <p class="font-medium" v-if="metadata_resources.completed_at">{{ new Date(metadata_resources.completed_at).toLocaleString() }}</p>
+                                <p class="font-medium" v-else>Not indexed yet</p>
                             </div>
                             <div v-if="connectedRepo.last_commit">
                                 <p class="text-gray-500">Last Commit</p>
                                 <p class="font-medium">{{ connectedRepo.last_commit }}</p>
                             </div>
-                            <div v-if="metadata_resources.status">
+                            <div v-if="metadata_resources">
                                 <p class="text-gray-500">Status</p>
-                                <p class="font-medium">{{ metadata_resources.status }}</p>
+                                <p class="font-medium" v-if="metadata_resources.status">{{ metadata_resources.status }}</p>
+                                <p class="font-medium" v-else>Pending</p>
                             </div>
                             <div v-if="metadata_resources.error_message">
                                 <p class="text-gray-500">Error</p>
@@ -67,7 +69,7 @@
                                 :disabled="isReindexing"
                                 icon="heroicons:arrow-path"
                                 color="blue"
-                                class="bg-gray-50 text-sm text-blue-500  hover:bg-gray-100 border border-gray-300 p-2 text-xs rounded-lg flex items-center gap-2"
+                                variant="soft"
                                 size="sm"
                             >
                                 Reindex Repository

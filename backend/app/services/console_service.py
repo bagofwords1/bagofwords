@@ -1444,7 +1444,7 @@ class ConsoleService:
             )
             .select_from(AgentExecution)
             .outerjoin(User, User.id == AgentExecution.user_id)
-            .outerjoin(Report, Report.id == AgentExecution.report_id)
+            .outerjoin(Report, Report.id == AgentExecution.report_id and Report.report_type == 'regular')
             .where(
                 AgentExecution.organization_id == organization.id,
                 AgentExecution.created_at >= start_date,

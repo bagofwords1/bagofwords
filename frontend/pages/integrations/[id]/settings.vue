@@ -21,7 +21,12 @@
 
                 <!-- Right content -->
                 <main class="flex-1 p-6">
-                    <!-- General -->
+                    <div v-if="!ready" class="inline-flex items-center text-gray-500 text-xs">
+                        <Spinner class="w-4 h-4 mr-2" />
+                        Loading settings...
+                    </div>
+                    <template v-else>
+                    <!-- General -->                    
                     <section v-if="activeTab === 'general'" class="space-y-8">
                         <!-- Name -->
                         <div class="space-y-2">
@@ -74,6 +79,10 @@
                     <!-- Members -->
                     <section v-else-if="activeTab === 'members'" class="space-y-4">
                         <div v-if="!original.isPublic">
+                        <div v-if="!ready" class="inline-flex items-center text-gray-500 text-xs">
+                            <Spinner class="w-4 h-4 mr-2" />
+                            Loading members...
+                        </div>
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-sm font-medium text-gray-900">Members</h3>
                             <button v-if="canUpdateDataSource" @click="openAdd" class="px-2.5 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600">Add member</button>
@@ -131,6 +140,7 @@
                         </div>
                     </div>
                     </section>
+                    </template>
                 </main>
             </div>
         </div>
@@ -140,6 +150,7 @@
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'integrations' })
 import { useCan } from '~/composables/usePermissions'
+import Spinner from '@/components/Spinner.vue'
 
 type TabKey = 'general' | 'members'
 const tabs: { key: TabKey, label: string }[] = [

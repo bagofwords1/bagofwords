@@ -33,6 +33,7 @@ from app.settings.logging_config import setup_logging, get_logger
 from app.core.cors import init_cors
 from app.core.scheduler import scheduler
 from app.models.user import User
+from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 
 from app.routes import (
     report,
@@ -280,7 +281,25 @@ async def startup_event():
             "version": settings.PROJECT_VERSION
         }
     )
-    
+
+    # Register daily maintenance jobs
+    try:
+        scheduler.add_job(
+            purge_step_payloads_keep_latest_per_query,
+            trigger="cron",
+            hour=3,
+            minute=0,
+            id="purge_step_payloads_daily",
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+            misfire_grace_time=3600,
+            kwargs={"retention_days": 14, "null_fields": ("data", "data_model", "view")},
+        )
+        logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
+    except Exception as e:
+        logger.error(f"Failed to schedule purge job: {e}")
+
     scheduler.start()
     print(f"""
    ____                       __                         _     

@@ -6,6 +6,9 @@ from .clients.anthropic_client import Anthropic
 from .clients.bow_client import Bow
 from .clients.azure_client import AzureClient
 from app.models.llm_model import LLMModel
+from app.settings.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class LLM:
     def __init__(self, model: LLMModel):
@@ -32,12 +35,12 @@ class LLM:
             raise ValueError(f"Provider {self.provider} not supported")
  
     def inference(self, prompt: str) -> str:
-        print(f"Model: {self.model_id}, prompt: {prompt}")
+        logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
         try:
             response = self.client.inference(model_id=self.model_id, prompt=prompt)
         except Exception as e:
             raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
-        print(f"response: {response}")
+        logger.debug("Response: %s", response)
         try:
             import re
             # Normalize to string if a client returned a non-string type
@@ -58,7 +61,7 @@ class LLM:
         return response
     
     async def inference_stream(self, prompt: str) -> AsyncGenerator[str, None]:
-        print(f"Model: {self.model_id}, prompt: {prompt}")
+        logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
         import re
         started_payload = False
         prefix = ""

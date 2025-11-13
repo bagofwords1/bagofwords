@@ -38,6 +38,9 @@ from sqlalchemy.exc import IntegrityError
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
+from app.models.report_data_source_association import report_data_source_association
+from app.models.instruction import instruction_data_source_association
+from app.models.entity import entity_data_source_association
 
 from typing import List
 from sqlalchemy.orm import selectinload
@@ -537,21 +540,58 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        # 1) Delete dependent metadata resources first (they FK both data source and jobs)
+        # 1) Delete per-user overlay columns and tables (they hard-FK the data source)
+        #    Delete columns via subquery of overlay table ids, then overlay tables.
+        overlay_ids_subq = select(UserOverlayTable.id).where(UserOverlayTable.data_source_id == data_source_id)
+        await db.execute(
+            delete(UserOverlayColumn).where(
+                UserOverlayColumn.user_data_source_table_id.in_(overlay_ids_subq)
+            )
+        )
+        await db.execute(
+            delete(UserOverlayTable).where(UserOverlayTable.data_source_id == data_source_id)
+        )
+
+        # 2) Delete association-table links to avoid FK blockers
+        await db.execute(
+            delete(report_data_source_association).where(
+                report_data_source_association.c.data_source_id == data_source_id
+            )
+        )
+        await db.execute(
+            delete(instruction_data_source_association).where(
+                instruction_data_source_association.c.data_source_id == data_source_id
+            )
+        )
+        await db.execute(
+            delete(entity_data_source_association).where(
+                entity_data_source_association.c.data_source_id == data_source_id
+            )
+        )
+
+        # 3) Remove direct child rows managed by ORM on update but not guaranteed by DB cascades
+        await db.execute(
+            delete(DataSourceMembership).where(DataSourceMembership.data_source_id == data_source_id)
+        )
+        await db.execute(
+            delete(UserDataSourceCredentials).where(UserDataSourceCredentials.data_source_id == data_source_id)
+        )
+
+        # 4) Delete dependent metadata resources first (they FK both data source and jobs)
         resources_q = await db.execute(
             select(MetadataResource).where(MetadataResource.data_source_id == data_source_id)
         )
         for resource in resources_q.scalars().all():
             await db.delete(resource)
 
-        # 2) Delete metadata indexing jobs for this data source
+        # 5) Delete metadata indexing jobs for this data source
         jobs_q = await db.execute(
             select(MetadataIndexingJob).where(MetadataIndexingJob.data_source_id == data_source_id)
         )
         for job in jobs_q.scalars().all():
             await db.delete(job)
 
-        # 3) Delete any linked git repository for this data source
+        # 6) Delete any linked git repository for this data source
         repo_q = await db.execute(
             select(GitRepository).where(
                 GitRepository.data_source_id == data_source_id,
@@ -565,10 +605,10 @@ class DataSourceService:
         # Apply deletions before removing the data source to avoid NULLing non-nullable FKs
         await db.commit()
 
-        # 4) Delete schema tables associated with this data source (commits internally)
+        # 7) Delete schema tables associated with this data source (commits internally)
         await self.delete_data_source_tables(db=db, data_source_id=data_source_id, organization=organization, current_user=current_user)
 
-        # 5) Finally delete the data source
+        # 8) Finally delete the data source
         await db.delete(data_source)
         await db.commit()
         return {"message": "Data source deleted successfully"}

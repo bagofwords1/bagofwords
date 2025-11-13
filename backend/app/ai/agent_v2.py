@@ -29,7 +29,6 @@ from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstr
 from app.settings.database import create_async_session_factory
 from app.core.telemetry import telemetry
 
-TOP_K_PER_DS = 1  # Number of tables to sample per data source
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 
 
@@ -41,6 +40,8 @@ class AgentV2:
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
+        self.top_k_schema = organization_settings.get_config("top_k_schema").value
+        self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
         self.mode = mode
 
 
@@ -275,14 +276,14 @@ class AgentV2:
                     with_stats=True,
                     active_only=True,
                 )
-                combined_schemas = schemas_ctx.render_combined(top_k_per_ds=TOP_K_PER_DS, index_limit=INDEX_LIMIT)
+                combined_schemas = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
                 schemas_excerpt = combined_schemas
             except Exception:
                 schemas_excerpt = view.static.schemas.render() if view.static.schemas else ""
             # Resources combined (sample + index)
             try:
                 resources_ctx = await self.context_hub.resource_builder.build()
-                resources_combined = resources_ctx.render_combined(top_k_per_repo=TOP_K_PER_DS, index_limit=INDEX_LIMIT)
+                resources_combined = resources_ctx.render_combined(top_k_per_repo=self.top_k_metadata_resources, index_limit=INDEX_LIMIT)
             except Exception:
                 try:
                     resources_section_fallback = await self.context_hub.resource_builder.build()

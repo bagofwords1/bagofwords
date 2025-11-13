@@ -33,6 +33,31 @@ from .builders.mention_context_builder import MentionContextBuilder
 from .builders.entity_context_builder import EntityContextBuilder
 
 
+# Default caps to keep planner prompt small and predictable
+DEFAULT_CONTEXT_LIMITS = {
+    "messages_max": 20,        # last N messages
+    "observations_max": 8    # last N observations
+}
+
+
+def _truncate_list(items, max_items):
+    if not isinstance(items, list) or not max_items:
+        return items
+    return items[-max_items:]
+
+
+def _safe_setattr_list(section, attr, max_items):
+    """Safely truncate a list attribute on a section object."""
+    try:
+        if section and hasattr(section, attr):
+            value = getattr(section, attr)
+            if isinstance(value, list):
+                setattr(section, attr, _truncate_list(value, max_items))
+    except Exception:
+        # Best-effort truncation only; never fail the refresh/build
+        pass
+
+
 class ContextHub:
     """
     Central hub for all agent context orchestration.
@@ -166,7 +191,7 @@ class ContextHub:
             if not message_config:
                 # Create config from legacy parameters
                 message_config = MessageContextConfig(
-                    max_messages=spec.max_messages or 20,
+                    max_messages=spec.max_messages or DEFAULT_CONTEXT_LIMITS["messages_max"],
                     role_filter=spec.message_role_filter
                 )
             
@@ -363,7 +388,7 @@ class ContextHub:
 
     async def refresh_warm(self) -> None:
         """Rebuild warm sections each loop (messages, queries, observations)."""
-        messages = await self.message_builder.build(max_messages=20)
+        messages = await self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
         # Deprecate widgets from warm context: keep for backward compatibility but do not rebuild aggressively
         widgets = None
 
@@ -371,6 +396,8 @@ class ContextHub:
         queries = await self.query_builder.build(max_queries=5)
 
         observations = self.observation_builder.build()
+        # Limit observations to the last N to avoid oversized prompt/context
+        _safe_setattr_list(observations, "items", DEFAULT_CONTEXT_LIMITS["observations_max"])
         # Decide mentions data preview from org settings
         include_data_preview = True
         try:

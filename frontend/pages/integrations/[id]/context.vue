@@ -24,20 +24,20 @@
                     </div>
 
                     <div class="mb-4 mt-6">
+                        <div v-if="isLoadingIntegration" class="inline-flex items-center text-gray-500 text-xs">
+                            <Spinner class="w-4 h-4 mr-2" />
+                            Loading repository...
+                        </div>
                         <UTooltip v-if="integration?.git_repository" :text="integration.git_repository.repo_url">
                             <UButton icon="heroicons:code-bracket" color="gray" :label="repoDisplayName" class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs rounded-md hover:bg-gray-200" @click="canUpdateDataSource ? showGitModal = true : null" :disabled="!canUpdateDataSource" />
                         </UTooltip>
-                        <UButton v-else-if="canUpdateDataSource" icon="heroicons:code-bracket" class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50" @click="showGitModal = true">Integrate</UButton>
+                        <UButton v-else-if="canUpdateDataSource && !isLoadingIntegration" icon="heroicons:code-bracket" class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50" @click="showGitModal = true">Integrate</UButton>
                     </div>
                     <ResourcesSelector ref="resourcesRef" :ds-id="String(dsId)" :can-update="canUpdateDataSource" @saved="onResourcesSaved" @error="onResourcesError" />
                 </div>
             </div>
 
-            <UModal v-model="showGitModal" :ui="{ width: 'sm:max-w-2xl' }">
-                <div class="p-4">
                     <GitRepoModalComponent v-model="showGitModal" :datasource-id="String(dsId)" :git-repository="integration?.git_repository" :metadata-resources="metadataResources" @update:modelValue="handleGitModalClose" />
-                </div>
-            </UModal>
         </div>
     </div>
 </template>
@@ -47,6 +47,7 @@ definePageMeta({ auth: true, layout: 'integrations' })
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import ResourcesSelector from '~/components/datasources/ResourcesSelector.vue'
 import { useCan } from '~/composables/usePermissions'
+import Spinner from '@/components/Spinner.vue'
 
 const route = useRoute()
 const dsId = computed(() => String(route.params.id || ''))
@@ -56,6 +57,7 @@ const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const showGitModal = ref(false)
 const enrichmentExpanded = ref(true)
 const isLoadingMetadataResources = ref(false)
+const isLoadingIntegration = ref(false)
 
 const integration = ref<any>(null)
 const metadataResources = ref<any>({ resources: [] })
@@ -69,8 +71,13 @@ const repoDisplayName = computed(() => {
 
 async function fetchIntegration() {
   if (!dsId.value) return
-  const response = await useMyFetch(`/data_sources/${dsId.value}`, { method: 'GET' })
-  if ((response.status as any)?.value === 'success') integration.value = (response.data as any)?.value
+  isLoadingIntegration.value = true
+  try {
+    const response = await useMyFetch(`/data_sources/${dsId.value}`, { method: 'GET' })
+    if ((response.status as any)?.value === 'success') integration.value = (response.data as any)?.value
+  } finally {
+    isLoadingIntegration.value = false
+  }
 }
 
 async function fetchMetadataResources() {

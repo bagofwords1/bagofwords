@@ -16,6 +16,9 @@ from sqlalchemy.orm.exc import DetachedInstanceError
 from app.settings.database import create_async_session_factory
 from app.services.platform_adapters.adapter_factory import PlatformAdapterFactory
 from app.models.external_platform import ExternalPlatform
+from app.settings.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class Completion(BaseSchema):
@@ -79,12 +82,12 @@ async def send_final_slack_dm(completion_id: str):
             system_completion = result.scalar_one_or_none()
 
             if not system_completion:
-                print(f"DM_SENDER: Could not find system_completion with id {completion_id}")
+                logger.error("DM_SENDER: Could not find system_completion with id %s", completion_id)
                 return
 
             # Use the content from the triggering completion directly
             if not (system_completion.completion and system_completion.completion.get('content')):
-                print(f"DM_SENDER: Completion {completion_id} has no content to send.")
+                logger.error("DM_SENDER: Completion %s has no content to send.", completion_id)
                 return
 
             final_answer_text = system_completion.completion.get('content')
@@ -100,7 +103,7 @@ async def send_final_slack_dm(completion_id: str):
             platform = platform_result.scalar_one_or_none()
 
             if not platform:
-                print(f"DM_SENDER: No active Slack platform found for organization {organization_id}")
+                logger.error("DM_SENDER: No active Slack platform found for organization %s", organization_id)
                 return
 
             # Create adapter and send the DM
@@ -108,12 +111,12 @@ async def send_final_slack_dm(completion_id: str):
             success = await adapter.send_dm(external_user_id, final_answer_text)
 
             if success:
-                print(f"DM_SENDER: Successfully sent final answer to Slack user {external_user_id}")
+                logger.debug("DM_SENDER: Successfully sent final answer to Slack user %s", external_user_id)
             else:
-                print(f"DM_SENDER: Failed to send final answer to Slack user {external_user_id}")
+                logger.error("DM_SENDER: Failed to send final answer to Slack user %s", external_user_id)
 
         except Exception as e:
-            print(f"DM_SENDER: Error sending final Slack DM for completion {completion_id}: {e}")
+            logger.error("DM_SENDER: Error sending final Slack DM for completion %s: %s", completion_id, e)
             await db.rollback()
 
 # Callback functions
@@ -124,14 +127,14 @@ async def broadcast_event(data):
         # Extract report_id from the data
         report_id = str(data.get("report_id"))
         if not report_id:
-            print("Error: No report_id found in data")
+            logger.error("Error: No report_id found in data")
             return
             
-        print(f"Broadcasting event to report {report_id}: {data}")
+        logger.debug("Broadcasting event to report %s: %s", report_id, data)
         await websocket_manager.broadcast_to_report(report_id, json.dumps(data))
-        print("Broadcast completed")
+        logger.debug("Broadcast completed")
     except Exception as e:
-        print(f"Error broadcasting event: {e}")
+        logger.error("Error broadcasting event: %s", e)
 
 def after_insert_completion(mapper, connection, target):
     try:
@@ -161,11 +164,11 @@ def after_insert_completion(mapper, connection, target):
         if target.step_id:
             data["step_id"] = str(target.step_id)
         
-        print(f"Triggered after_insert_completion with data: {data}")
+        logger.debug("Triggered after_insert_completion with data: %s", data)
         asyncio.create_task(broadcast_event(data))
 
     except Exception as e:
-        print(f"Error in after_insert_completion: {e}")
+        logger.error("Error in after_insert_completion: %s", e)
 
 def after_update_completion(mapper, connection, target):
     try:
@@ -199,14 +202,14 @@ def after_update_completion(mapper, connection, target):
             target.external_platform == "slack" and
             target.external_user_id is not None):
             
-            print(f"SLACK_SENDER: Triggering completion blocks DM for completion {target.id}")
+            logger.debug("SLACK_SENDER: Triggering completion blocks DM for completion %s", target.id)
             from app.models.completion_block import send_completion_blocks_to_slack
             asyncio.create_task(send_completion_blocks_to_slack(str(target.id)))
 
         asyncio.create_task(broadcast_event(data))
 
     except Exception as e:
-        print(f"Error in after_update_completion: {e}")
+        logger.error("Error in after_update_completion: %s", e)
 
 # Register the event listeners
 event.listen(Completion, 'after_insert', after_insert_completion)

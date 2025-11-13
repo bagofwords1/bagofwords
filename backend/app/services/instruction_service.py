@@ -1055,6 +1055,7 @@ class InstructionService:
                     DataSourceTable.id.label('id'),
                     literal('datasource_table').label('type'),
                     DataSourceTable.name.label('name'),
+                    
                     DataSourceTable.datasource_id.label('data_source_id'),
                     DataSource.name.label('data_source_name'),
                     DataSource.type.label('data_source_type')
@@ -1065,6 +1066,7 @@ class InstructionService:
                         DataSourceTable.datasource_id == DataSource.id
                     )
                 )
+                .filter(DataSourceTable.is_active == True)
                 .filter(DataSourceTable.datasource_id.in_(data_source_access_subquery))
             )
             

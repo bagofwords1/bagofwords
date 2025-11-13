@@ -389,7 +389,8 @@ class GitRepositoryService:
                         clone_dir,
                         branch=repository.branch,
                         depth=1,
-                        env=git_env
+                        env=git_env,
+                        multi_options=["--single-branch", "--no-tags"]
                     )
                 finally:
                     # Clean up SSH directory
@@ -401,7 +402,8 @@ class GitRepositoryService:
                     repository.repo_url,
                     clone_dir,
                     branch=repository.branch,
-                    depth=1
+                    depth=1,
+                    multi_options=["--single-branch", "--no-tags"]
                 )
             
             return repo
