@@ -44,10 +44,15 @@ class RuleEvidence(BaseModel):
     type: Literal["create_data", "clarify", "completion", "judge"]
     occurrence: Optional[int] = None
     step_id: Optional[str] = None
+    # Optional free-form reasoning text, primarily for judge rules
+    reasoning: Optional[str] = None
 
 
 class RuleResult(BaseModel):
     ok: bool
+    # Optional richer status for frontends that support tri-state rendering.
+    # When present and equal to "skipped", consumers should not count it as pass/fail.
+    status: Optional[Literal["pass", "fail", "skipped"]] = None
     message: Optional[str] = None
     actual: Optional[Any] = None
     evidence: Optional[RuleEvidence] = None
@@ -57,6 +62,7 @@ class TestResultTotals(BaseModel):
     total: int = 0
     passed: int = 0
     failed: int = 0
+    skipped: int = 0
     duration_ms: Optional[int] = None
 
 

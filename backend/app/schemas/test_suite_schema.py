@@ -4,6 +4,14 @@ from datetime import datetime
 from app.schemas.test_expectations import ExpectationsSpec
 
 
+class ModelSummary(BaseModel):
+    id: str
+    model_id: str
+    name: Optional[str] = None
+    provider_name: Optional[str] = None
+    provider_type: Optional[str] = None
+
+
 class TestSuiteSchema(BaseModel):
     id: str
     organization_id: str
@@ -33,6 +41,8 @@ class TestCaseSchema(BaseModel):
     prompt_json: Dict[str, Any]
     expectations_json: ExpectationsSpec
     data_source_ids_json: Optional[List[str]] = None
+    # Derived, not persisted: helpful projection for UI fallbacks
+    model_summary: Optional[ModelSummary] = None
     created_at: datetime
     updated_at: datetime
 

@@ -45,7 +45,6 @@ const currentPath = computed(() => route.path)
 const allTabs = [
     { name: '', label: 'Explore', icon: 'i-heroicons-chart-bar', requiredPermission: "view_console" },
     { name: 'diagnosis', label: 'Diagnosis', icon: 'i-heroicons-wrench', requiredPermission: "view_console" },
-    { name: 'tests', label: 'Tests', icon: 'i-heroicons-check-circle', requiredPermission: "view_console" }
 ]
 
 // Filter tabs based on user permissions

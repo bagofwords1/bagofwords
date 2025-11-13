@@ -4,8 +4,10 @@ from datetime import datetime
 
 
 class TestMetricsSchema(BaseModel):
-    total_tests: int
-    success_rate: float  # 0..1
+    total_test_cases: int
+    total_test_runs: int
+    last_result_status: Optional[str] = None  # pass|fail|error|in_progress|success|stopped
+    last_result_at: Optional[datetime] = None
 
 
 class TestSuiteSummarySchema(BaseModel):

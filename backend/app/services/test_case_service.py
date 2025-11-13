@@ -4,6 +4,8 @@ from typing import List, Optional, Sequence
 from fastapi import HTTPException
 
 from app.models.test_suite import TestCase, TestSuite
+from app.models.llm_model import LLMModel
+from app.models.llm_provider import LLMProvider
 
 
 class TestCaseService:
@@ -43,6 +45,32 @@ class TestCaseService:
             raise HTTPException(status_code=404, detail="Test case not found")
         # ensure org
         await self._get_suite(db, organization_id, current_user, str(case.suite_id))
+        # Enrich with derived model summary for UI fallbacks
+        try:
+            model_ref = None
+            pj = case.prompt_json or {}
+            model_ref = str(pj.get("model_id") or "")
+            if model_ref:
+                q = (
+                    select(LLMModel, LLMProvider)
+                    .join(LLMModel.provider)
+                    .where(LLMModel.organization_id == str(organization_id))
+                    .where(or_(LLMModel.id == model_ref, LLMModel.model_id == model_ref))
+                )
+                res2 = await db.execute(q)
+                row = res2.first()
+                if row:
+                    model, provider = row
+                    setattr(case, "model_summary", {
+                        "id": str(model.id),
+                        "model_id": model.model_id,
+                        "name": model.name,
+                        "provider_name": provider.name,
+                        "provider_type": provider.provider_type
+                    })
+        except Exception:
+            # Best-effort enrichment; ignore failures
+            pass
         return case
 
     async def list_cases(self, db: AsyncSession, organization_id: str, current_user, suite_id: str) -> List[TestCase]:

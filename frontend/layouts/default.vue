@@ -163,7 +163,7 @@
           </a>
         </li>
         <li class="" v-if="isAdmin">
-           <a href="/monitoring/tests" :class="[
+           <a href="/evals" :class="[
              'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
              isCollapsed ? 'justify-center' : 'gap-3'
            ]">

@@ -1,4 +1,5 @@
 from typing import Any, Dict, List, Optional, Tuple
+import asyncio
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -7,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.test_suite import TestRun, TestResult, TestCase
 from app.models.agent_execution import AgentExecution
 from app.models.tool_execution import ToolExecution
-from app.models.step import Step
 from app.models.completion import Completion
 from app.schemas.test_expectations import (
     ExpectationsSpec,
@@ -22,6 +22,7 @@ from app.schemas.test_results_schema import (
     RuleEvidence,
     TestResultTotals,
     TestResultJsonSchema,
+    RuleSpec,
 )
 from app.schemas.completion_v2_schema import CompletionsV2Response
 from app.services.completion_service import CompletionService
@@ -88,7 +89,7 @@ class TestEvaluationService:
         Returns:
             {
               "tool_sequence": [str],
-              "create_data": {"columns": [str], "rows_count": int, "code": str},
+              "create_data": {"columns": [str], "rows_count": int, "code": str, "tables": [str]},
               "completion_text": str
             }
         """
@@ -106,58 +107,115 @@ class TestEvaluationService:
         except Exception:
             snapshot["tool_sequence"] = []
 
-        # Latest Step-derived fields for create_data assertions (best-effort)
-        create_data_info = {"columns": [], "rows_count": 0, "code": ""}
+        # Initialize create_data info (tool output will populate this)
+        create_data_info = {"columns": [], "rows_count": 0, "code": "", "tables": []}
+
+        # Try to resolve tables/columns/code from latest create_data tool execution
         try:
-            step = (
+            latest_cd_row = (
                 await db.execute(
-                    select(Step)
-                    .where(Step.report_id == str(report_id))
-                    .order_by(Step.created_at.desc())
+                    select(ToolExecution.arguments_json, ToolExecution.result_json)
+                    .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                    .where(AgentExecution.report_id == str(report_id))
+                    .where(ToolExecution.tool_name == "create_data")
+                    .where((ToolExecution.success == True) | (ToolExecution.status == "success"))
+                    .order_by(ToolExecution.started_at.desc(), ToolExecution.created_at.desc())
                     .limit(1)
                 )
-            ).scalar_one_or_none()
-            if step:
-                # Columns from step.data.columns (support only dicts with 'field' per provided structure)
-                columns = []
+            ).first()
+            tables_list: list[str] = []
+            args = None
+            resj = None
+            if latest_cd_row:
                 try:
-                    data = getattr(step, "data", None) or {}
-                    raw_cols = data.get("columns") if isinstance(data, dict) else None
-                    if isinstance(raw_cols, list):
-                        for col in raw_cols:
-                            if isinstance(col, dict):
-                                f = col.get("field")
-                                if isinstance(f, str) and f:
-                                    columns.append(f)
+                    args, resj = latest_cd_row
+                except Exception:
+                    args = latest_cd_row  # backward compat with scalar_one_or_none
+            if isinstance(args, dict):
+                tbs = args.get("tables_by_source") or args.get("tables")
+                if isinstance(tbs, dict):
+                    # Flatten all table names from all sources
+                    for _, arr in tbs.items():
+                        if isinstance(arr, list):
+                            for t in arr:
+                                if isinstance(t, str) and t:
+                                    tables_list.append(t)
+                elif isinstance(tbs, list):
+                    for entry in tbs:
+                        # Two possible shapes:
+                        # 1) ["public.table1","public.table2", ...]
+                        # 2) [{"data_source_id": "...", "tables": ["public.table1", ...]}, ...]
+                        if isinstance(entry, str):
+                            tables_list.append(entry)
+                        elif isinstance(entry, dict):
+                            arr = entry.get("tables")
+                            if isinstance(arr, list):
+                                for t in arr:
+                                    if isinstance(t, str) and t:
+                                        tables_list.append(t)
+            # Also look in result_json for tables/columns/code if present
+            if isinstance(resj, dict):
+                try:
+                    rt = resj.get("tables")
+                    if isinstance(rt, list):
+                        for t in rt:
+                            if isinstance(t, str) and t:
+                                tables_list.append(t)
                 except Exception:
                     pass
-
-                # Rows count (if step.data exists with rows[])
-                rows_count = 0
+            # Deduplicate while preserving order
+            seen = set()
+            deduped = []
+            for t in tables_list:
+                if t not in seen:
+                    seen.add(t)
+                    deduped.append(t)
+            create_data_info["tables"] = deduped
+            # Fallback columns from result_json if none collected from step
+            if not create_data_info.get("columns"):
                 try:
-                    data = getattr(step, "data", None) or {}
-                    if isinstance(data, dict):
-                        # Prefer info.total_rows when present; else len(rows)
-                        info = data.get("info") or {}
+                    cols = None
+                    if isinstance(resj, dict):
+                        cols = (
+                            resj.get("columns")
+                            or ((resj.get("output") or {}).get("columns"))
+                            or ((resj.get("data") or {}).get("columns"))
+                        )
+                    collected: list[str] = []
+                    if isinstance(cols, list):
+                        for c in cols:
+                            if isinstance(c, str) and c:
+                                collected.append(c)
+                            elif isinstance(c, dict):
+                                for k in ("field", "name", "id"):
+                                    v = c.get(k)
+                                    if isinstance(v, str) and v:
+                                        collected.append(v)
+                                        break
+                    if collected:
+                        create_data_info["columns"] = collected
+                except Exception:
+                    pass
+            # Fallback rows_count from result_json.data.info.total_rows if not set
+            try:
+                if not create_data_info.get("rows_count"):
+                    if isinstance(resj, dict):
+                        info = ((resj.get("data") or {}).get("info")) or {}
                         if isinstance(info, dict) and isinstance(info.get("total_rows"), int):
-                            rows_count = info.get("total_rows") or 0
-                        elif isinstance(data.get("rows"), list):
-                            rows_count = len(data["rows"])
+                            create_data_info["rows_count"] = int(info.get("total_rows") or 0)
+            except Exception:
+                pass
+            # Fallback code from arguments/result_json if empty
+            if not create_data_info.get("code"):
+                try:
+                    code = ""
+                    if isinstance(args, dict):
+                        code = args.get("query") or args.get("code") or ""
+                    if not code and isinstance(resj, dict):
+                        code = resj.get("code") or resj.get("query") or ""
+                    create_data_info["code"] = code or ""
                 except Exception:
                     pass
-
-                # Code, if available
-                code = ""
-                try:
-                    code = getattr(step, "code", "") or ""
-                except Exception:
-                    code = ""
-
-                create_data_info = {
-                    "columns": columns,
-                    "rows_count": rows_count,
-                    "code": code,
-                }
         except Exception:
             pass
         snapshot["create_data"] = create_data_info
@@ -181,6 +239,30 @@ class TestEvaluationService:
         except Exception:
             completion_text = ""
         snapshot["completion_text"] = completion_text
+
+        # Clarify latest question text (optional) - only support arguments_json.questions (array)
+        clarify_info = {"question_text": ""}
+        try:
+            row = (
+                await db.execute(
+                    select(ToolExecution.arguments_json)
+                    .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+                    .where(AgentExecution.report_id == str(report_id))
+                    .where(ToolExecution.tool_name == "clarify")
+                    .order_by(ToolExecution.started_at.desc(), ToolExecution.created_at.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if isinstance(row, dict):
+                qs = row.get("questions")
+                if isinstance(qs, list):
+                    for item in qs:
+                        if isinstance(item, str) and item.strip():
+                            clarify_info["question_text"] = item
+                            break
+        except Exception:
+            pass
+        snapshot["clarify"] = clarify_info
 
         return snapshot
 
@@ -223,6 +305,7 @@ class TestEvaluationService:
         rule_results: List[RuleResult] = []
         passed = 0
         failed = 0
+        skipped = 0
         needs_judge = any(isinstance(r, FieldRule) and getattr(r.target, "category", "") == "judge" for r in rules)
         judge_passed: Optional[bool] = None
         judge_reason: Optional[str] = None
@@ -241,7 +324,14 @@ class TestEvaluationService:
                         trace_payload = _json.dumps(trace_obj.model_dump())
                 except Exception:
                     trace_payload = str(trace_obj) if trace_obj is not None else ""
-                jp, jreason = await judge.judge_test_case(case_prompt_text or "", trace_payload)
+                # Enforce a timeout so judge cannot stall the run
+                try:
+                    jp, jreason = await asyncio.wait_for(
+                        judge.judge_test_case(case_prompt_text or "", trace_payload),
+                        timeout=30.0,
+                    )
+                except asyncio.TimeoutError:
+                    jp, jreason = False, "Judge timeout"
                 judge_passed = bool(jp)
                 judge_reason = jreason
             except Exception:
@@ -251,11 +341,17 @@ class TestEvaluationService:
         # Helper to append aligned result
         def push(ok: bool, message: Optional[str] = None, actual: Any = None, evidence: Optional[RuleEvidence] = None):
             nonlocal passed, failed, rule_results
-            rule_results.append(RuleResult(ok=ok, message=message, actual=actual, evidence=evidence))
+            rule_results.append(RuleResult(ok=ok, status=("pass" if ok else "fail"), message=message, actual=actual, evidence=evidence))
             if ok:
                 passed += 1
             else:
                 failed += 1
+
+        def push_skipped(message: Optional[str] = None, evidence: Optional[RuleEvidence] = None):
+            # Treat unmet/precondition-missing expectations as FAIL per product decision
+            nonlocal failed, rule_results
+            rule_results.append(RuleResult(ok=False, status="fail", message=message or "Expectation not evaluated (unmet condition)", actual=None, evidence=evidence))
+            failed += 1
 
         # Iterate rules 1:1 and build aligned results
         for rule in rules:
@@ -277,7 +373,7 @@ class TestEvaluationService:
 
             # Ordering ignored in v1
             if isinstance(rule, OrderingRule):
-                push(True)  # not evaluated; treat as pass to preserve alignment
+                push_skipped("Ordering not evaluated in v1")
                 continue
 
             # Field-level rules
@@ -290,58 +386,121 @@ class TestEvaluationService:
                     value = ""
                     if field == "text":
                         value = snapshot.get("completion_text") or ""
-                    elif field == "reasoning":
-                        value = ""  # not tracked separately
-                    ok, msg = self._apply_matcher(value, rule.matcher)
-                    ev = RuleEvidence(type="completion") if not ok else None
-                    push(ok, None if ok else msg, actual=(None if ok else value), evidence=ev)
+                        ok, msg = self._apply_matcher(value, rule.matcher)
+                        ev = RuleEvidence(type="completion") if not ok else None
+                        # Always include actual so UI can display it
+                        push(ok, None if ok else msg, actual=value, evidence=ev)
+                    else:
+                        # reasoning and other fields not available -> skipped
+                        push_skipped(f"completion.{field} not available")
                     continue
 
                 # judge.* (Boolean support via integrated judge run)
                 if cat == "judge":
                     if judge_passed is None:
-                        # No judge available → treat as failure with message
-                        push(False, message=judge_reason or "Missing judge result", evidence=RuleEvidence(type="judge"))
+                        # No judge available → skip rather than fail to avoid false negatives
+                        push_skipped(judge_reason or "Judge unavailable", evidence=RuleEvidence(type="judge", reasoning=judge_reason))
                     else:
                         ok = bool(judge_passed)
                         msg = None if ok else (judge_reason or "Judge indicated failure")
-                        ev = RuleEvidence(type="judge") if not ok else None
-                        push(ok, msg, actual=(None if ok else "false"), evidence=ev)
+                        # Always include reasoning, and include boolean actual
+                        ev = RuleEvidence(type="judge", reasoning=judge_reason)
+                        push(ok, msg, actual=ok, evidence=ev)
                     continue
 
                 # tool:create_data.*
                 if cat == "tool:create_data":
                     cd = snapshot.get("create_data") or {}
+                    if field == "tables":
+                        values = cd.get("tables")
+                        if not isinstance(values, list):
+                            push_skipped("create_data.tables not available", evidence=RuleEvidence(type="create_data"))
+                        else:
+                            ok, msg = self._apply_list_matcher(values, rule.matcher)
+                            ev = RuleEvidence(type="create_data") if not ok else None
+                            # Always include actual values for display
+                            push(ok, None if ok else msg, actual=values, evidence=ev)
+                        continue
                     if field == "columns":
-                        values = cd.get("columns") or []
-                        ok, msg = self._apply_list_matcher(values, rule.matcher)
-                        ev = RuleEvidence(type="create_data") if not ok else None
-                        push(ok, None if ok else msg, actual=(None if ok else values), evidence=ev)
+                        values = cd.get("columns")
+                        if not isinstance(values, list):
+                            push_skipped("create_data.columns not available", evidence=RuleEvidence(type="create_data"))
+                        else:
+                            ok, msg = self._apply_list_matcher(values, rule.matcher)
+                            ev = RuleEvidence(type="create_data") if not ok else None
+                            push(ok, None if ok else msg, actual=values, evidence=ev)
                         continue
                     if field == "rows_count":
-                        value = cd.get("rows_count") or 0
-                        ok, msg = self._apply_number_matcher(value, rule.matcher)
-                        ev = RuleEvidence(type="create_data") if not ok else None
-                        push(ok, None if ok else msg, actual=(None if ok else value), evidence=ev)
+                        if not isinstance(cd.get("rows_count", None), (int, float)):
+                            push_skipped("create_data.rows_count not available", evidence=RuleEvidence(type="create_data"))
+                        else:
+                            value = int(cd.get("rows_count") or 0)
+                            ok, msg = self._apply_number_matcher(value, rule.matcher)
+                            ev = RuleEvidence(type="create_data") if not ok else None
+                            push(ok, None if ok else msg, actual=value, evidence=ev)
                         continue
                     if field == "code":
-                        value = cd.get("code") or ""
-                        ok, msg = self._apply_matcher(value, rule.matcher)
-                        ev = RuleEvidence(type="create_data") if not ok else None
-                        push(ok, None if ok else msg, actual=(None if ok else value), evidence=ev)
+                        if not isinstance(cd.get("code", None), str):
+                            push_skipped("create_data.code not available", evidence=RuleEvidence(type="create_data"))
+                        else:
+                            value = cd.get("code") or ""
+                            ok, msg = self._apply_matcher(value, rule.matcher)
+                            ev = RuleEvidence(type="create_data") if not ok else None
+                            push(ok, None if ok else msg, actual=value, evidence=ev)
                         continue
 
+                # tool:clarify.* (support question text checks)
+                if cat == "tool:clarify":
+                    cl = snapshot.get("clarify") or {}
+                    value = (
+                        cl.get("question_text")
+                        if isinstance(cl, dict)
+                        else ""
+                    ) or ""
+                    # Accept multiple field aliases that map to the same value
+                    if field in {"question_text", "text", "question"}:
+                        ok, msg = self._apply_matcher(value, rule.matcher)
+                        ev = RuleEvidence(type="clarify") if not ok else None
+                        push(ok, None if ok else msg, actual=value, evidence=ev)
+                    else:
+                        push_skipped(f"clarify.{field} not available", evidence=RuleEvidence(type="clarify"))
+                    continue
+
                 # Unsupported category/field -> pass (alignment only)
-                push(True)
+                push_skipped("Unsupported rule target (skipped)")
                 continue
 
             # Unknown rule type -> pass (alignment only)
-            push(True)
+            push_skipped("Unknown rule type (skipped)")
 
         total = len(rules)
         status = "pass" if failed == 0 else "fail"
-        totals = TestResultTotals(total=total, passed=passed, failed=failed, duration_ms=run_duration_ms)
-        result_json = TestResultJsonSchema(totals=totals, rule_results=rule_results)
+        # Coerce duration to int to satisfy schema
+        try:
+            duration_coerced = int(round(run_duration_ms)) if isinstance(run_duration_ms, (int, float)) else None
+        except Exception:
+            duration_coerced = None
+        totals = TestResultTotals(total=total, passed=passed, failed=failed, skipped=skipped, duration_ms=duration_coerced)
+        # Build spec snapshot from ExpectationsSpec so rule_results align with UI
+        try:
+            rule_dicts = []
+            for rr in rules:
+                if hasattr(rr, "model_dump"):
+                    rule_dicts.append(rr.model_dump())
+                elif isinstance(rr, dict):
+                    rule_dicts.append(rr)
+                else:
+                    # Fallback: best-effort conversion
+                    rule_dicts.append({})
+            spec_snapshot = RuleSpec(
+                spec_version=getattr(expectations, "spec_version", 1),
+                rules=rule_dicts,
+                order_mode=getattr(expectations, "order_mode", None),
+            )
+        except Exception:
+            spec_snapshot = RuleSpec(spec_version=1, rules=[], order_mode=None)
+
+        result_json = TestResultJsonSchema(spec=spec_snapshot, totals=totals, rule_results=rule_results)
         return status, result_json
 
     async def persist_result_json(
@@ -383,7 +542,30 @@ class TestEvaluationService:
         if t == "text.regex":
             import re
             try:
-                return (isinstance(value, str) and re.search(matcher.pattern, value) is not None), f"must match /{getattr(matcher, 'pattern', '')}/"
+                raw_pat = getattr(matcher, "pattern", None)
+                if raw_pat is None:
+                    raw_pat = getattr(matcher, "value", "")
+                pat = str(raw_pat or "")
+                flags = 0
+                # Support JS-style /pattern/flags input; fall back to raw pattern
+                if pat.startswith("/") and pat.count("/") >= 2:
+                    last = pat.rfind("/")
+                    core = pat[1:last]
+                    fl = pat[last + 1 :]
+                    # Interpret common flags
+                    for ch in fl:
+                        if ch == "i":
+                            flags |= re.IGNORECASE
+                        elif ch == "m":
+                            flags |= re.MULTILINE
+                        elif ch == "s":
+                            flags |= re.DOTALL
+                    pat = core
+                # Treat empty or lone '*' as match-any convenience
+                if pat.strip() in {"", "*"}:
+                    pat = ".*"
+                compiled = re.compile(pat, flags)
+                return (isinstance(value, str) and compiled.search(value) is not None), f"must match /{getattr(matcher, 'pattern', '')}/"
             except Exception:
                 return False, "invalid regex"
 

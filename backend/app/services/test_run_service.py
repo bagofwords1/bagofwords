@@ -7,6 +7,7 @@ import uuid
 
 from app.models.test_suite import TestSuite, TestCase, TestRun, TestResult
 from app.models.report import Report
+from app.services.report_service import ReportService
 from app.models.completion import Completion
 from app.services.completion_service import CompletionService
 from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
@@ -14,11 +15,16 @@ from app.schemas.test_dashboard_schema import TestMetricsSchema, TestSuiteSummar
 from app.streaming.completion_stream import CompletionEventQueue
 from app.settings.database import create_async_session_factory
 from app.ai.agent_v2 import AgentV2
+from app.models.agent_execution import AgentExecution
+from app.services.test_evaluation_service import TestEvaluationService
+from app.ai.agents.judge.judge import Judge
+from app.schemas.test_results_schema import TestResultTotals, TestResultJsonSchema, RuleSpec
 
 
 class TestRunService:
     def __init__(self) -> None:
         self.completions = CompletionService()
+        self.evaluator = TestEvaluationService()
 
     # -------- Helpers --------
     async def _resolve_cases_inputs(self, db: AsyncSession, organization_id: str, case_ids: Optional[List[str]], suite_id: Optional[str]) -> List[TestCase]:
@@ -47,7 +53,7 @@ class TestRunService:
         res = await db.execute(select(TestCase).where(TestCase.suite_id == str(suite_id)).order_by(TestCase.created_at.asc()))
         return res.scalars().all()
 
-    async def _create_stub_report(self, db: AsyncSession, organization_id: str, user_id: str, title: str) -> Report:
+    async def _create_stub_report(self, db: AsyncSession, organization_id: str, user_id: str, title: str, ds_ids: Optional[List[str]] = None) -> Report:
         slug = f"testrun-{uuid.uuid4().hex[:12]}"
         report = Report(
             title=title,
@@ -60,6 +66,14 @@ class TestRunService:
         db.add(report)
         await db.commit()
         await db.refresh(report)
+        # Associate data sources like regular reports
+        try:
+            if ds_ids:
+                svc = ReportService()
+                await svc._associate_data_sources_with_report(db, report, [str(x) for x in ds_ids if x])
+                await db.refresh(report, ["data_sources"])
+        except Exception:
+            pass
         return report
 
     async def _create_head_completion(self, db: AsyncSession, report_id: str, organization, current_user, prompt: Dict[str, Any]) -> Completion:
@@ -161,7 +175,7 @@ class TestRunService:
         # Create placeholder TestResult per case (with stub report + head completion)
         for case in cases:
             report_title = f"Test Run · {case.name}"
-            report = await self._create_stub_report(db, str(organization.id), str(current_user.id), report_title)
+            report = await self._create_stub_report(db, str(organization.id), str(current_user.id), report_title, ds_ids=case.data_source_ids_json)
             head = await self._create_head_completion(db, str(report.id), organization, current_user, prompt=case.prompt_json or {})
 
             # Build initial result_json snapshot from case expectations
@@ -286,8 +300,38 @@ class TestRunService:
 
         if getattr(run, "status", None) != "in_progress":
             return run
-
-        # TODO: do sigkill to all the completions in the run
+        # Send sigkill to any in-progress system completions for this run
+        try:
+            res_results = await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
+            results_for_sigkill = res_results.scalars().all()
+            for r in results_for_sigkill:
+                try:
+                    # Find system completions under the head for this result's report
+                    sys_q = (
+                        select(Completion)
+                        .where(
+                            Completion.report_id == str(r.report_id),
+                            Completion.parent_id == str(r.head_completion_id),
+                            Completion.role == "system",
+                            Completion.status == "in_progress",
+                        )
+                        .order_by(Completion.created_at.desc())
+                    )
+                    res_sys = await db.execute(sys_q)
+                    sys_completions = res_sys.scalars().all()
+                    # Set sigkill timestamp (AgentV2 listens to websocket 'update_completion' with sigkill)
+                    for sc in sys_completions:
+                        try:
+                            sc.sigkill = datetime.utcnow()
+                            db.add(sc)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            await db.commit()
+        except Exception:
+            # Best-effort; proceed to stop run regardless
+            pass
         
         # Mark run as stopped
         run.status = "stopped"
@@ -312,15 +356,54 @@ class TestRunService:
 
     # ---- Dashboard helpers (mock data for MVP) ----
     async def get_dashboard_metrics(self, db: AsyncSession, organization_id: str, current_user) -> TestMetricsSchema:
-        # Mock: count total test cases and estimate success_rate
-        res = await db.execute(select(TestCase).join(TestSuite, TestCase.suite_id == TestSuite.id).where(TestSuite.organization_id == str(organization_id)))
-        total_cases = len(res.scalars().all())
-        # Mock success rate: 0.75 if cases exist, else 0.0
-        success_rate = 0.75 if total_cases > 0 else 0.0
-        return TestMetricsSchema(total_tests=total_cases, success_rate=success_rate)
+        """
+        Return accurate, org-scoped metrics for the dashboard:
+        - total_test_cases: count of TestCase in org
+        - total_test_runs: distinct count of TestRun in org (via results -> cases -> suites)
+        - last_result_status/last_result_at: latest TestResult in org
+        """
+        # Total test cases in organization
+        total_cases_stmt = (
+            select(func.count(TestCase.id))
+            .select_from(TestCase)
+            .join(TestSuite, TestCase.suite_id == TestSuite.id)
+            .where(TestSuite.organization_id == str(organization_id))
+        )
+        total_cases = (await db.execute(total_cases_stmt)).scalar_one() or 0
+
+        # Total distinct runs that belong to organization (via results -> case -> suite filter)
+        total_runs_stmt = (
+            select(func.count(func.distinct(TestRun.id)))
+            .select_from(TestRun)
+            .join(TestResult, TestResult.run_id == TestRun.id)
+            .join(TestCase, TestCase.id == TestResult.case_id)
+            .join(TestSuite, TestSuite.id == TestCase.suite_id)
+            .where(TestSuite.organization_id == str(organization_id))
+        )
+        total_runs = (await db.execute(total_runs_stmt)).scalar_one() or 0
+
+        # Latest test result for the organization
+        latest_result_stmt = (
+            select(TestResult)
+            .join(TestCase, TestCase.id == TestResult.case_id)
+            .join(TestSuite, TestSuite.id == TestCase.suite_id)
+            .where(TestSuite.organization_id == str(organization_id))
+            .order_by(TestResult.created_at.desc())
+            .limit(1)
+        )
+        latest_result = (await db.execute(latest_result_stmt)).scalar_one_or_none()
+        last_status = getattr(latest_result, "status", None) if latest_result else None
+        last_at = getattr(latest_result, "created_at", None) if latest_result else None
+
+        return TestMetricsSchema(
+            total_test_cases=int(total_cases),
+            total_test_runs=int(total_runs),
+            last_result_status=last_status,
+            last_result_at=last_at,
+        )
 
     async def get_suites_summary(self, db: AsyncSession, organization_id: str, current_user) -> List[TestSuiteSummarySchema]:
-        # Return suites with mock counts and last run info
+        # Return suites with counts and last run info
         res = await db.execute(select(TestSuite).where(TestSuite.organization_id == str(organization_id)).order_by(TestSuite.created_at.desc()))
         suites = res.scalars().all()
         summaries: List[TestSuiteSummarySchema] = []
@@ -341,8 +424,8 @@ class TestRunService:
             run = res_run.scalar_one_or_none()
             last_run_at = getattr(run, 'created_at', None)
             last_status = getattr(run, 'status', None) if run else None
-            # mock pass_rate per suite
-            pass_rate = 0.8 if tests_count > 0 else 0.0
+            # pass_rate not computed here (requires aggregating latest run results); leave None
+            pass_rate = None
             summaries.append(TestSuiteSummarySchema(
                 id=str(s.id),
                 name=s.name,
@@ -386,7 +469,7 @@ class TestRunService:
         from app.schemas.completion_v2_schema import CompletionCreate, PromptSchema
         for case in cases:
             report_title = f"Test Run · {case.name}"
-            report = await self._create_stub_report(db, str(organization.id), str(current_user.id), report_title)
+            report = await self._create_stub_report(db, str(organization.id), str(current_user.id), report_title, ds_ids=getattr(case, "data_source_ids_json", None))
 
             # Build prompt schema from case
             p = case.prompt_json or {}
@@ -484,6 +567,25 @@ class TestRunService:
             })
         return run, items
 
+    async def get_test_completions(self, db: AsyncSession, organization, current_user, run_id: str, limit: int = 10):
+        """
+        Lightweight helper that returns recent completions per result for a test run.
+        Shape: [{ 'result_id': str, 'report_id': str, 'completions': [CompletionV2Schema, ...] }, ...]
+        """
+        run, items = await self.get_run_status_with_completions(db, organization, current_user, run_id, limit=limit)
+        out: list[dict] = []
+        for it in items:
+            try:
+                result = it.get("result")
+                out.append({
+                    "result_id": str(getattr(result, "id")),
+                    "report_id": it.get("report_id"),
+                    "completions": it.get("completions") or [],
+                })
+            except Exception:
+                pass
+        return out
+
     # -------- New API: Per-result streaming using existing CompletionService --------
     async def stream_result(self, db: AsyncSession, organization, current_user, result_id: str):
         # Get result, case, report
@@ -552,7 +654,8 @@ class TestRunService:
             org_settings = await organization.get_settings(db)
 
             for r in results:
-                if getattr(r, "status", "") != "init":
+                # Process results that are not terminal; include both 'init' and 'in_progress'
+                if getattr(r, "status", "") in {"pass", "fail", "error", "stopped", "success"}:
                     continue
 
                 # Load case + head completion
@@ -563,6 +666,51 @@ class TestRunService:
                 head = await db.get(Completion, str(r.head_completion_id))
                 if not head:
                     continue
+                # Pre-store expectations spec into result_json so UI shows pending assertions immediately
+                try:
+                    spec_raw = dict(getattr(case, "expectations_json", {}) or {})
+                    rules = list(spec_raw.get("rules") or [])
+                    current_rj = getattr(r, "result_json", None)
+                    if not isinstance(current_rj, dict):
+                        current_rj = {}
+                    # Write spec snapshot
+                    current_rj["spec"] = {
+                        "spec_version": spec_raw.get("spec_version") or 1,
+                        "rules": rules,
+                        "order_mode": spec_raw.get("order_mode"),
+                    }
+                    # Ensure totals present and aligned
+                    totals = dict(current_rj.get("totals") or {})
+                    totals.setdefault("passed", 0)
+                    totals.setdefault("failed", 0)
+                    totals.setdefault("duration_ms", None)
+                    totals["total"] = len(rules)
+                    current_rj["totals"] = totals
+                    # Ensure rule_results exists
+                    if not isinstance(current_rj.get("rule_results"), list):
+                        current_rj["rule_results"] = []
+                    r.result_json = current_rj
+                    db.add(r)
+                    await db.commit()
+                except Exception:
+                    pass
+                # Detect an existing system completion for this head/report (latest)
+                existing_system = None
+                try:
+                    existing_system = (
+                        await db.execute(
+                            select(Completion)
+                            .where(
+                                Completion.report_id == str(head.report_id),
+                                Completion.parent_id == str(head.id),
+                                Completion.role == "system",
+                            )
+                            .order_by(Completion.created_at.desc())
+                            .limit(1)
+                        )
+                    ).scalar_one_or_none()
+                except Exception:
+                    existing_system = None
 
                 p = case.prompt_json or {}
                 prompt = PromptSchema(
@@ -595,7 +743,100 @@ class TestRunService:
                         pass
                     continue
 
-                # Create system completion linked to the existing head
+                # If an existing terminal system completion exists, evaluate immediately and emit update
+                if existing_system and getattr(existing_system, "status", "") in {"success", "error", "stopped"}:
+                    try:
+                        # Evaluate and persist
+                        async_session = create_async_session_factory()
+                        async with async_session() as session:
+                            from app.models.report import Report as _Report
+                            report_obj = await session.get(_Report, head.report_id)
+                            _run, result_row, case_row, expectations = await self.evaluator.resolve_by_run_and_report(
+                                session, str(run.id), str(head.report_id)
+                            )
+                            snapshot = await self.evaluator.build_final_snapshot(session, str(head.report_id))
+                            judge = None
+                            try:
+                                judge = Judge(model=small_model, organization_settings=org_settings)
+                            except Exception:
+                                judge = None
+                            # Determine AgentExecution and duration
+                            agent_execution_id = None
+                            run_duration_ms = None
+                            try:
+                                res_exec = await session.execute(
+                                    select(AgentExecution)
+                                    .where(AgentExecution.completion_id == str(existing_system.id))
+                                    .order_by(AgentExecution.created_at.desc())
+                                    .limit(1)
+                                )
+                                ae = res_exec.scalar_one_or_none()
+                                if ae:
+                                    agent_execution_id = str(ae.id)
+                                    run_duration_ms = getattr(ae, "total_duration_ms", None)
+                            except Exception:
+                                pass
+                            case_prompt_text = ""
+                            try:
+                                cj = getattr(case_row, "prompt_json", None) or {}
+                                case_prompt_text = cj.get("content") or ""
+                            except Exception:
+                                case_prompt_text = ""
+                            status, result_json = await self.evaluator.evaluate_final(
+                                db=session,
+                                expectations=expectations,
+                                snapshot=snapshot,
+                                report_id=str(head.report_id),
+                                case_prompt_text=case_prompt_text,
+                                judge=judge,
+                                organization=organization,
+                                current_user=current_user,
+                                run_duration_ms=run_duration_ms,
+                            )
+                            await self.evaluator.persist_result_json(
+                                db=session,
+                                result=result_row,
+                                status=status,
+                                result_json=result_json,
+                                failure_reason=None,
+                                agent_execution_id=agent_execution_id,
+                            )
+                        # Emit UI update to central queue
+                        try:
+                            payload = {
+                                "result_id": str(r.id),
+                                "status": status,
+                                "result_json": result_json.model_dump(),
+                            }
+                            await central_queue.put((str(r.id), SSEEvent(event="result.update", completion_id=str(existing_system.id), data=payload)))
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                    # Also emit completion.finished mirror
+                    try:
+                        fin = SSEEvent(event="completion.finished", completion_id=str(existing_system.id), data={"result_id": str(r.id), "status": getattr(existing_system, "status", None)})
+                        await central_queue.put((str(r.id), fin))
+                    except Exception:
+                        pass
+                    # Proceed to next result
+                    continue
+
+                # If an existing in-progress system completion exists, emit started and skip new run
+                if existing_system and getattr(existing_system, "status", "") == "in_progress":
+                    try:
+                        start_ev = SSEEvent(
+                            event="completion.started",
+                            completion_id=str(existing_system.id),
+                            data={"result_id": str(r.id), "system_completion_id": str(existing_system.id), "head_completion_id": str(head.id)},
+                        )
+                        await central_queue.put((str(r.id), start_ev))
+                    except Exception:
+                        pass
+                    # Do not start a duplicate agent; rely on other runner to finish, streamer loop will pick result.update if persisted elsewhere
+                    continue
+
+                # Otherwise, create system completion linked to the existing head and start agent
                 system_completion = Completion(
                     prompt=None,
                     completion={"content": ""},
@@ -677,6 +918,111 @@ class TestRunService:
                                 clients=clients,
                             )
                             await agent.main_execution()
+                            # After agent finishes, evaluate assertions and persist TestResult
+                            try:
+                                # Resolve run/result/case/expectations
+                                _run, result_row, case_row, expectations = await self.evaluator.resolve_by_run_and_report(
+                                    session, str(run.id), str(report_obj.id)
+                                )
+                                # Build snapshot for assertions
+                                snapshot = await self.evaluator.build_final_snapshot(session, str(report_obj.id))
+                                # Prepare judge (optional)
+                                try:
+                                    judge = Judge(model=small_model, organization_settings=org_settings)
+                                except Exception:
+                                    judge = None
+                                # Determine AgentExecution and duration
+                                agent_execution_id = None
+                                run_duration_ms = None
+                                try:
+                                    res_exec = await session.execute(
+                                        select(AgentExecution)
+                                        .where(AgentExecution.completion_id == str(system_obj.id))
+                                        .order_by(AgentExecution.created_at.desc())
+                                        .limit(1)
+                                    )
+                                    ae = res_exec.scalar_one_or_none()
+                                    if ae:
+                                        agent_execution_id = str(ae.id)
+                                        run_duration_ms = getattr(ae, "total_duration_ms", None)
+                                except Exception:
+                                    pass
+                                # Case prompt text
+                                case_prompt_text = ""
+                                try:
+                                    cj = getattr(case_row, "prompt_json", None) or {}
+                                    case_prompt_text = cj.get("content") or ""
+                                except Exception:
+                                    case_prompt_text = ""
+                                # Evaluate
+                                status, result_json = await self.evaluator.evaluate_final(
+                                    db=session,
+                                    expectations=expectations,
+                                    snapshot=snapshot,
+                                    report_id=str(report_obj.id),
+                                    case_prompt_text=case_prompt_text,
+                                    judge=judge,
+                                    organization=organization,
+                                    current_user=current_user,
+                                    run_duration_ms=run_duration_ms,
+                                )
+                                # Persist
+                                await self.evaluator.persist_result_json(
+                                    db=session,
+                                    result=result_row,
+                                    status=status,
+                                    result_json=result_json,
+                                    failure_reason=None,
+                                    agent_execution_id=agent_execution_id,
+                                )
+                                # Emit immediate UI update
+                                try:
+                                    payload = {
+                                        "result_id": str(result_row.id),
+                                        "status": status,
+                                        "result_json": result_json.model_dump(),
+                                    }
+                                    await central_queue.put((str(result_row.id), SSEEvent(event="result.update", completion_id=str(system_completion.id), data=payload)))
+                                except Exception:
+                                    pass
+                            except Exception as e:
+                                # Best-effort: mark result as error
+                                try:
+                                    _run, result_row, _case_row, _expectations = await self.evaluator.resolve_by_run_and_report(
+                                        session, str(run.id), str(report_obj.id)
+                                    )
+                                    # Snapshot real expectations into spec for error path
+                                    try:
+                                        rule_spec = RuleSpec(
+                                            spec_version=getattr(_expectations, "spec_version", 1),
+                                            rules=[(rr.model_dump() if hasattr(rr, "model_dump") else dict(rr)) for rr in (getattr(_expectations, "rules", []) or [])],
+                                            order_mode=getattr(_expectations, "order_mode", None),
+                                        )
+                                    except Exception:
+                                        rule_spec = RuleSpec(spec_version=1, rules=[], order_mode=None)
+                                    await self.evaluator.persist_result_json(
+                                        db=session,
+                                        result=result_row,
+                                        status="error",
+                                        result_json=TestResultJsonSchema(
+                                            spec=rule_spec,
+                                            totals=TestResultTotals(total=0, passed=0, failed=0, duration_ms=None),
+                                            rule_results=[],
+                                        ),
+                                        failure_reason=str(e),
+                                        agent_execution_id=None,
+                                    )
+                                    try:
+                                        payload = {
+                                            "result_id": str(result_row.id),
+                                            "status": "error",
+                                            "failure_reason": str(e),
+                                        }
+                                        await central_queue.put((str(result_row.id), SSEEvent(event="result.update", completion_id=str(system_completion.id), data=payload)))
+                                    except Exception:
+                                        pass
+                                except Exception:
+                                    pass
                             finished_ev = SSEEvent(
                                 event="completion.finished",
                                 completion_id=str(system_completion.id),
@@ -712,6 +1058,13 @@ class TestRunService:
             # Track terminal state based on completion.finished/error
             terminal = {"pass", "fail", "error", "stopped", "success"}
             finished: set[str] = set()
+            # Seed finished with any results already in a terminal state
+            try:
+                for r in results:
+                    if getattr(r, "status", "") in terminal:
+                        finished.add(str(r.id))
+            except Exception:
+                pass
             total = len(results)
             # Emit loop: forward completion events and also mirror to result.update when status changes
             terminal = {"pass", "fail", "error", "stopped", "success"}
@@ -740,6 +1093,16 @@ class TestRunService:
                                 yield format_sse_event(SSEEvent(event="result.update", completion_id=res_id, data=payload))
                         except Exception:
                             pass
+                    elif ev.event == "result.update":
+                        # If a terminal status arrives via result.update, count it finished as well
+                        try:
+                            st = None
+                            if isinstance(ev.data, dict):
+                                st = ev.data.get("status")
+                            if st in terminal:
+                                finished.add(res_id)
+                        except Exception:
+                            pass
                     if len(finished) >= total:
                         try:
                             run.finished_at = run.finished_at or datetime.utcnow()
@@ -747,7 +1110,11 @@ class TestRunService:
                             res_ref = await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
                             rows = res_ref.scalars().all()
                             statuses = [getattr(x, "status", "") for x in rows]
-                            run.status = "success" if all(s not in {"fail", "error"} for s in statuses) else "error"
+                            # Preserve 'stopped' if explicitly stopped or any result is stopped
+                            if getattr(run, "status", "") == "stopped" or any(s == "stopped" for s in statuses):
+                                run.status = "stopped"
+                            else:
+                                run.status = "success" if all(s not in {"fail", "error"} for s in statuses) else "error"
                             db.add(run)
                             await db.commit()
                         except Exception:

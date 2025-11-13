@@ -1,6 +1,11 @@
 <template>
   <div class="mt-6">
+
     <!-- Run header -->
+     <NuxtLink :to="'/evals'" class="text-blue-600 text-sm hover:underline ml-2 mt-2" >
+      <Icon name="heroicons-arrow-left" class="w-4 h-4" />
+      Back to Evals
+    </NuxtLink>
     <div class="bg-white border border-gray-200 rounded-xl p-5 mb-6">
       <div class="flex flex-wrap items-start gap-3">
         <div class="min-w-0 flex-1">
@@ -16,9 +21,9 @@
           </div>
         </div>
         <div class="ml-auto flex items-center gap-2">
-          <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(run?.status)">
-            <Spinner v-if="run?.status === 'in_progress'" class="w-3 h-3" />
-            {{ prettyStatus(run?.status) }}
+          <span class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(derivedRunStatus)">
+            <Spinner v-if="derivedRunStatus === 'in_progress'" class="w-3 h-3" />
+            {{ prettyStatus(derivedRunStatus) }}
           </span>
           <UButton v-if="run?.status === 'in_progress'" color="red" size="xs" variant="soft" icon="i-heroicons-stop" @click="stopRun">Stop</UButton>
         </div>
@@ -36,13 +41,24 @@
       <div v-for="row in caseRows" :key="row.result.id" class="bg-white border border-gray-200 rounded-lg shadow-sm overflow-hidden">
         <!-- Collapsed header -->
         <button type="button" class="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50" @click="toggleRow(row.result.id)">
-          <div class="flex items-center gap-3 min-w-0">
-            <span class="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium rounded-full" :class="runStatusClass(row.result.status)">
-              <Spinner v-if="row.result.status === 'in_progress'" class="w-3 h-3" />
-              {{ prettyStatus(row.result.status) }}
+          <div class="flex items-center gap-1 min-w-0">
+            <!-- Pass/Fail icon -->
+            <template v-if="row.result.status === 'in_progress'">
+              <Spinner class="w-4 h-4 text-gray-500" />
+            </template>
+            <template v-else-if="row.result.status === 'pass'">
+              <Icon name="heroicons-check" class="w-4 h-4 text-green-600" />
+            </template>
+            <template v-else-if="row.result.status === 'fail'">
+              <Icon name="heroicons-x-mark" class="w-4 h-4 text-red-600" />
+            </template>
+            <!-- X 4/6 Title -->
+            <span class="text-xs font-regular text-gray-500 truncate">
+              {{ passedAssertions(row) }}/{{ assertionCount(row) }}
             </span>
-            <span class="text-sm font-medium text-gray-900 truncate">{{ row.case.name }}</span>
-            <span class="text-xs text-gray-500">| {{ assertionCount(row) }} assertions</span>
+            <span class="text-sm font-medium text-gray-900 truncate">
+              {{ row.case.name }}
+            </span>
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xs text-gray-500">{{ caseDuration(row) }}</span>
@@ -56,33 +72,49 @@
           <div class="grid grid-cols-1 md:grid-cols-2 md:divide-x md:divide-gray-200">
             <!-- Left: Prompt and metadata -->
             <div class="p-4 space-y-3 text-xs text-gray-800">
-              <!-- Logs -->
-              <div class="flex items-center justify-between">
-                <div class="text-[11px] text-gray-500">Logs</div>
-                <span class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-full" :class="completionStatus(row.result.id).className">
-                  <Spinner v-if="completionStatus(row.result.id).text === 'Running'" class="w-3 h-3" />
-                  {{ completionStatus(row.result.id).text }}
-                </span>
-              </div>
-              <div class="bg-gray-50 rounded p-3 text-xs max-h-80 overflow-y-auto">
-                <div class="space-y-1">
-                  <div v-if="(getLogs(row.result.id) || []).length === 0" class="text-gray-500">—</div>
-                  <div v-for="(e, mi) in getLogs(row.result.id)" :key="mi" class="text-gray-800 whitespace-pre-wrap break-words leading-relaxed">{{ e.text }}</div>
-                </div>
-              </div>
               <div class="flex items-center justify-between">
                 <div class="text-[11px] text-gray-500">Prompt</div>
               </div>
               <pre class="whitespace-pre-wrap break-words bg-gray-50 rounded p-3 text-xs">{{ row.case.prompt_json?.content || '—' }}</pre>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <!-- Logs (now below Prompt) -->
+                <div class="sm:col-span-2">
+                  <div class="flex items-center justify-between">
+                    <div class="text-[11px] text-gray-500">
+                      Logs
+                      <NuxtLink
+                        v-if="row.result.report_id"
+                        :to="`/reports/${row.result.report_id}`"
+                        target="_blank"
+                        class="ml-2 text-blue-600 hover:underline text-[10px]"
+                      >
+                        Open report
+                      </NuxtLink>
+                    </div>
+                    <span class="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-full" :class="completionStatus(row.result.id).className">
+                      <Spinner v-if="completionStatus(row.result.id).text === 'Running'" class="w-3 h-3" />
+                      {{ completionStatus(row.result.id).text }}
+                    </span>
+                  </div>
+                  <div
+                    class="bg-gray-50 rounded p-3 text-xs max-h-80 overflow-y-auto"
+                    :ref="(el) => setLogContainerRef(row.result.id, el)"
+                    :id="`logs-${row.result.id}`"
+                  >
+                    <div class="space-y-1">
+                      <div v-if="(getLogs(row.result.id) || []).length === 0" class="text-gray-500">—</div>
+                      <div v-for="(e, mi) in getLogs(row.result.id)" :key="mi" class="text-gray-800 whitespace-pre-wrap break-words leading-relaxed">{{ e.text }}</div>
+                    </div>
+                  </div>
+                </div>
                 <!-- Model -->
                 <div class="min-w-0">
                   <div class="text-[11px] text-gray-500 mb-1">Model</div>
                   <div class="flex items-center gap-2">
-                    <LLMProviderIcon :provider="modelProviderType(row.case.prompt_json?.model_id)" :icon="true" class="w-4 h-4" />
+                    <LLMProviderIcon :provider="modelProviderType(row.case.prompt_json?.model_id, row.case)" :icon="true" class="w-4 h-4" />
                     <div class="min-w-0">
-                      <div class="text-xs text-gray-900 truncate">{{ modelDisplayName(row.case.prompt_json?.model_id) }}</div>
-                      <div class="text-[10px] text-gray-500 truncate" v-if="modelProviderName(row.case.prompt_json?.model_id)">{{ modelProviderName(row.case.prompt_json?.model_id) }}</div>
+                      <div class="text-xs text-gray-900 truncate">{{ modelDisplayName(row.case.prompt_json?.model_id, row.case) }}</div>
+                      <div class="text-[10px] text-gray-500 truncate" v-if="modelProviderName(row.case.prompt_json?.model_id, row.case)">{{ modelProviderName(row.case.prompt_json?.model_id, row.case) }}</div>
                     </div>
                   </div>
                 </div>
@@ -166,7 +198,7 @@
 
 <script setup lang="ts">
 definePageMeta({
-  layout: 'monitoring'
+  layout: 'default'
 })
 
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
@@ -195,6 +227,7 @@ type ResultTotals = { total: number, passed: number, failed: number, skipped?: n
 type ResultJson = { totals: ResultTotals, rule_results: RuleResult[] }
 
 type TestResult = { id: string, run_id: string, case_id: string, status: 'in_progress' | 'pass' | 'fail' | 'error', result_json?: ResultJson }
+  & { report_id?: string }
 
 type TestCase = {
   id: string
@@ -231,6 +264,7 @@ const suiteId = computed<string>(() => {
 type RawLog = { ts: string, event: string, data: any, label: string, text: string, group?: string }
 const logsByResultId = reactive<Record<string, RawLog[]>>({})
 const toolInputCache = reactive<Record<string, string>>({})
+const logContainerRefs = reactive<Record<string, HTMLElement | null>>({})
 
 function ensureLogBuffer(resultId: string) {
   if (!logsByResultId[resultId]) logsByResultId[resultId] = []
@@ -263,6 +297,16 @@ function summarizeEvent(event: string, data: any): { label: string, text: string
     } catch { return '' }
   }
   switch (event) {
+    case 'seed.reasoning': {
+      // Lightweight non-SSE preload for reasoning
+      const t = pickText(data)
+      return { label: 'DECISION', text: t ? `Thinking: ${t}` : '' }
+    }
+    case 'seed.content': {
+      // Lightweight non-SSE preload for assistant content
+      const t = pickText(data)
+      return { label: 'BLOCK', text: t ? `Completion: ${t}` : '' }
+    }
     case 'run.started':
       return { label: 'RUN', text: 'Started' }
     case 'run.finished':
@@ -277,7 +321,7 @@ function summarizeEvent(event: string, data: any): { label: string, text: string
       return { label: 'RESULT', text: `Update${data?.status ? ` · status=${data.status}` : ''}` }
     case 'block.upsert': {
       const text = pickText(data)
-      if (text) return { label: 'BLOCK', text }
+      if (text) return { label: 'BLOCK', text: `Completion: ${text}` }
       const title = data?.block?.title || data?.block?.id || 'block'
       const status = data?.block?.status
       return { label: 'BLOCK', text: `${title}${status ? ` · ${status}` : ''}` }
@@ -314,7 +358,8 @@ function summarizeEvent(event: string, data: any): { label: string, text: string
     }
     default: {
       const t = pickText(data)
-      return { label: upper(event), text: t || safeStr(data) }
+      // Do not dump raw objects into the mini log; ignore if no concise text
+      return { label: upper(event), text: t || '' }
     }
   }
 }
@@ -353,13 +398,16 @@ function groupFor(event: string, data: any): string | undefined {
 function pushLog(resultId: string, event: string, data: any) {
   // Drop extremely noisy token deltas for the mini view
   if (event === 'block.delta.token') return
+  // Suppress granular/duplicative events to keep logs light
+  if (event === 'block.delta.text' || event === 'block.delta.text.complete' || event === 'block.partial' || event === 'block.update' || event === 'block.content' || event === 'block.reasoning' || event === 'decision.partial' || event === 'block.delta.artifact' || event === 'data_model.completed') return
+  // Only show final tool outcome; suppress started/progress/partial
+  if ((event === 'tool.started' || event === 'tool.progress' || event === 'tool.partial')) return
   try {
     ensureLogBuffer(resultId)
     const arr = logsByResultId[resultId]
     // Special compact formatting for tool calls: "name(input) -> output"
-    if (event === 'tool.started' || event === 'tool.progress' || event === 'tool.partial' || event === 'tool.finished') {
+    if (event === 'tool.finished') {
       const name = (data?.tool_name || 'tool').toString()
-      const key = `TOOL:${name}`
       const stringify = (v: any) => {
         if (v == null) return ''
         if (typeof v === 'string') return v
@@ -367,52 +415,49 @@ function pushLog(resultId: string, event: string, data: any) {
       }
       const inputVal = data?.payload?.input ?? data?.input ?? data?.args ?? ''
       const outputVal = data?.result_summary ?? data?.payload?.output ?? data?.output ?? data?.result ?? ''
-      if (event === 'tool.started') {
-        toolInputCache[`${resultId}:${key}`] = stringify(inputVal)
-      }
-      const cachedIn = toolInputCache[`${resultId}:${key}`] || stringify(inputVal)
+      const cachedIn = toolInputCache[`${resultId}:TOOL:${name}`] || stringify(inputVal)
       const outText = stringify(outputVal)
       const text = event === 'tool.finished'
         ? `${name}(${cachedIn}) -> ${outText}`
         : `${name}(${cachedIn})`
-      // Replace/update grouped entry
-      let idx = -1
-      for (let i = arr.length - 1; i >= 0; i--) {
-        if (arr[i].group === key) { idx = i; break }
-      }
-      const item: RawLog = { ts: new Date().toISOString(), event, data, label: 'TOOL', text, group: key }
-      if (idx >= 0) {
-        arr.splice(idx, 1, item)
-      } else {
+      const item: RawLog = { ts: new Date().toISOString(), event, data, label: 'TOOL', text, group: `TOOL:${name}` }
+      // Push duplicate entries instead of replacing, to keep a simple chronological log
+      const last = arr[arr.length - 1]
+      if (!last || !(last.event === item.event && last.text === item.text)) {
         arr.push(item)
       }
       if (arr.length > 200) arr.splice(0, arr.length - 200)
+      setTimeout(() => scrollLogsToBottom(resultId), 0)
       return
     }
     const summary = summarizeEvent(event, data)
-    const group = groupFor(event, data)
-    if (group) {
-      // Replace the last entry with the same group (edit-in-place)
-      let idx = -1
-      for (let i = arr.length - 1; i >= 0; i--) {
-        if (arr[i].group === group) { idx = i; break }
-      }
-      const item: RawLog = { ts: new Date().toISOString(), event, data, label: summary.label, text: summary.text, group }
-      if (idx >= 0) {
-        arr.splice(idx, 1, item)
-      } else {
-        arr.push(item)
-      }
-    } else {
-      arr.push({ ts: new Date().toISOString(), event, data, label: summary.label, text: summary.text })
+    if (!summary.text || !String(summary.text).trim()) return
+    // Push event as its own entry; skip if identical to the immediately previous line
+    const nextItem: RawLog = { ts: new Date().toISOString(), event, data, label: summary.label, text: summary.text, group: groupFor(event, data) }
+    const prev = arr[arr.length - 1]
+    if (!prev || !(prev.event === nextItem.event && prev.text === nextItem.text)) {
+      arr.push(nextItem)
     }
     // Keep a bounded buffer per result
     if (arr.length > 200) arr.splice(0, arr.length - 200)
+    setTimeout(() => scrollLogsToBottom(resultId), 0)
   } catch {}
 }
 
 function getLogs(resultId: string): RawLog[] {
   return logsByResultId[resultId] || []
+}
+
+function setLogContainerRef(resultId: string, el: any) {
+  logContainerRefs[resultId] = (el as HTMLElement) || null
+}
+
+function scrollLogsToBottom(resultId: string) {
+  const el = logContainerRefs[resultId] || (document.getElementById(`logs-${resultId}`) as HTMLElement | null)
+  if (!el) return
+  try {
+    el.scrollTop = el.scrollHeight
+  } catch {}
 }
 
 const isExpanded = (resultId: string, idx: number) => {
@@ -428,6 +473,9 @@ const isRowExpanded = (resultId: string) => {
 }
 const toggleRow = (resultId: string) => {
   openRows.value[resultId] = !openRows.value[resultId]
+  if (openRows.value[resultId]) {
+    nextTick(() => setTimeout(() => scrollLogsToBottom(resultId), 0))
+  }
 }
 
 const load = async () => {
@@ -465,6 +513,56 @@ const load = async () => {
       if (c?.id) casesById[c.id] = c
     }
     caseRows.value = results.value.map(r => ({ result: r, case: casesById[r.case_id] }))
+
+    // Seed logs from recent completions (non-SSE fallback, old -> new)
+    try {
+      const statusRes: any = await useMyFetch(`/api/tests/runs/${runId.value}/status?limit=10`)
+      const payload = (statusRes?.data?.value || {}) as any
+      const items = Array.isArray(payload?.results) ? payload.results : []
+      for (const it of items) {
+        const rid = String(it?.result?.id || '')
+        if (!rid) continue
+        ensureLogBuffer(rid)
+        const comps: any[] = Array.isArray(it?.completions) ? it.completions : []
+        // Sort ascending by created_at if present
+        comps.sort((a, b) => {
+          const ta = new Date(a?.created_at || 0).getTime()
+          const tb = new Date(b?.created_at || 0).getTime()
+          return ta - tb
+        })
+        for (const comp of comps) {
+          // Start
+          pushLog(rid, 'completion.started', { result_id: rid, status: comp?.status, system_completion_id: comp?.id })
+          // Reasoning/content (single snapshot, trimmed)
+          const blocks = Array.isArray(comp?.completion_blocks) ? comp.completion_blocks : []
+          for (const b of blocks) {
+            const reasoning = (b?.plan_decision?.reasoning || b?.reasoning || '')
+            const content = (b?.content || '')
+            const trim = (txt: string) => {
+              const s = String(txt || '')
+              return s.length > 220 ? s.slice(0, 220) + '…' : s
+            }
+            if (reasoning) pushLog(rid, 'seed.reasoning', { text: trim(reasoning) })
+            if (content) pushLog(rid, 'seed.content', { text: trim(content) })
+            // Tool summary
+            const te = b?.tool_execution
+            if (te && te.tool_name) {
+              pushLog(rid, 'tool.finished', {
+                result_id: rid,
+                tool_name: te.tool_name,
+                status: te.status,
+                result_summary: te.result_summary
+              })
+            }
+          }
+          // Minimal per-block summaries (tool finishes)
+          // Finished
+          pushLog(rid, 'completion.finished', { result_id: rid, status: comp?.status })
+        }
+        // Auto-scroll once per result
+        setTimeout(() => scrollLogsToBottom(rid), 0)
+      }
+    } catch {}
   } catch (e) {
     console.error('Failed to load run', e)
   }
@@ -485,12 +583,29 @@ const ruleIconClass = (status?: string) => {
 const prettyStatus = (status?: string) => {
   if (!status) return '—'
   if (status === 'in_progress') return 'In progress'
+  if (status === 'success') return 'Success'
+  if (status === 'fail') return 'Failed'
+  if (status === 'error') return 'Error'
   return status.replace('_', ' ')
 }
 
 const passCount = computed(() => results.value.filter(r => r.status === 'pass').length)
 const failCount = computed(() => results.value.filter(r => r.status === 'fail').length)
 const errorCount = computed(() => results.value.filter(r => r.status === 'error').length)
+
+// Derive run status from individual result statuses to avoid mismatches with backend aggregate
+const derivedRunStatus = computed<'in_progress' | 'success' | 'fail' | 'error'>(() => {
+  try {
+    const list = results.value || []
+    if (list.some(r => r.status === 'in_progress')) return 'in_progress'
+    if (list.some(r => r.status === 'error')) return 'error'
+    if (list.some(r => r.status === 'fail')) return 'fail'
+    if (list.length > 0 && list.every(r => r.status === 'pass')) return 'success'
+    return (run.value?.status as any) || 'in_progress'
+  } catch {
+    return (run.value?.status as any) || 'in_progress'
+  }
+})
 
 const formatDate = (iso?: string | null) => {
   if (!iso) return '—'
@@ -541,17 +656,23 @@ const assertionCount = (row: { result: TestResult, case: TestCase }) => {
   return (row.case.expectations_json?.rules || []).length
 }
 
-const modelProviderType = (modelId?: string) => {
-  const m = modelById.value[modelId || '']
-  return m?.provider?.provider_type || 'default'
+const modelProviderType = (modelId?: string, caseObj?: TestCase) => {
+  const m = modelById.value[String(modelId || '')]
+  if (m) return m?.provider?.provider_type || 'default'
+  const ms: any = (caseObj as any)?.model_summary
+  return ms?.provider_type || 'default'
 }
-const modelDisplayName = (modelId?: string) => {
-  const m = modelById.value[modelId || '']
-  return m?.name || m?.model_id || modelId || 'default'
+const modelDisplayName = (modelId?: string, caseObj?: TestCase) => {
+  const m = modelById.value[String(modelId || '')]
+  if (m) return m?.name || m?.model_id || modelId || 'default'
+  const ms: any = (caseObj as any)?.model_summary
+  return ms?.name || ms?.model_id || modelId || 'default'
 }
-const modelProviderName = (modelId?: string) => {
-  const m = modelById.value[modelId || '']
-  return m?.provider?.name || m?.provider_name || ''
+const modelProviderName = (modelId?: string, caseObj?: TestCase) => {
+  const m = modelById.value[String(modelId || '')]
+  if (m) return m?.provider?.name || m?.provider_name || ''
+  const ms: any = (caseObj as any)?.model_summary
+  return ms?.provider_name || ''
 }
 
 const summarizeRule = (rule: any) => {
@@ -672,6 +793,11 @@ const displayRules = (testCase: TestCase): Array<{ rule: any, originalIdx: numbe
 }
 const ruleSummaryText = (rule: any): string => {
   try {
+    // For judge expectations, display the actual prompt text (expected value)
+    if (isJudgeRule(rule)) {
+      const val = rule?.matcher?.value ?? rule?.target?.value
+      return typeof val === 'string' ? val : String(val ?? 'Prompt')
+    }
     const field = humanize(rule?.target?.field || '')
     const op = opLabel(rule?.matcher?.type)
     const m = rule?.matcher || {}
@@ -876,7 +1002,11 @@ onMounted(async () => {
                 if (isTerminalStatus(st)) scheduleResultsRefresh(false)
               } else if (eventName === 'completion.started' || eventName === 'completion.finished' || eventName === 'completion.error') {
                 const rid = String((payload as any)?.result_id || '')
-                if (rid) pushLog(rid, eventName, payload)
+        if (rid) pushLog(rid, eventName, payload)
+        // Ensure UI refreshes even if a terminal completion doesn't emit a result.update
+        if (eventName === 'completion.finished' || eventName === 'completion.error') {
+          scheduleResultsRefresh(false, 600)
+        }
               } else if (eventName === 'run.finished') {
                 if (run.value && (payload as any)?.status) (run.value as any).status = (payload as any).status
                 // Broadcast finished to all known results
@@ -919,6 +1049,21 @@ const ruleFailed = (result: TestResult, idx: number) => {
   const rr = result.result_json?.rule_results || []
   if (!Array.isArray(rr) || idx < 0 || idx >= rr.length) return false
   return rr[idx]?.ok === false
+}
+
+// Passed assertions counter per row
+const passedAssertions = (row: { result: TestResult, case: TestCase }): number => {
+  try {
+    const rr = row.result.result_json?.rule_results || []
+    if (!Array.isArray(rr)) return 0
+    let cnt = 0
+    for (const it of rr) {
+      if (it && it.ok === true) cnt++
+    }
+    return cnt
+  } catch {
+    return 0
+  }
 }
 </script>
 

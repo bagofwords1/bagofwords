@@ -52,14 +52,22 @@
                 <div class="border border-gray-100 rounded-lg overflow-hidden flex flex-col max-h-[58vh]">
                     <div class="px-3 py-2 border-b border-gray-100 text-xs text-gray-700">Expectations</div>
                     <div class="p-3 flex-1 flex flex-col space-y-3 overflow-y-auto">
-                        <div class="flex items-center gap-2">
+                        <div v-if="categoryRules.length === 0" class="p-6 text-center">
+                          <div class="text-sm font-medium text-gray-800 mb-1">No rules yet</div>
+                          <div class="text-[11px] text-gray-500 mb-3">Define expectations for your test. Add your first rule to get started.</div>
+                          <div class="flex items-center justify-center">
                             <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add rule</UButton>
-                            <div class="text-[11px] text-gray-500 ml-auto" v-if="catalogLoading">Loading catalog…</div>
+                          </div>
+                          <div class="text-[11px] text-gray-500 mt-2" v-if="catalogLoading">Loading catalog…</div>
                         </div>
-
-                        <!-- Category list -->
-                        <div class="space-y-3">
-                          <div v-for="cat in categoryRules" :key="cat.key" class="rounded-md border border-blue-200">
+                        <template v-else>
+                          <div class="flex items-center gap-2">
+                              <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addCategory">Add rule</UButton>
+                              <div class="text-[11px] text-gray-500 ml-auto" v-if="catalogLoading">Loading catalog…</div>
+                          </div>
+                          <!-- Category list -->
+                          <div class="space-y-3">
+                            <div v-for="cat in categoryRules" :key="cat.key" class="rounded-md border border-blue-200">
                             <!-- Header: Category anchor + remove -->
                             <div class="flex items-center gap-2 px-3 py-2">
                               <div class="w-56">
@@ -225,7 +233,8 @@
                               </div>
                             </div>
                           </div>
-                        </div>
+                          </div>
+                        </template>
                     </div>
                 </div>
                 </div>
@@ -234,8 +243,8 @@
             <template #footer>
                 <div class="flex items-center justify-end space-x-2">
                     <UButton color="gray" variant="soft" @click="close">Cancel</UButton>
-                    <UButton :loading="isSaving" class="!bg-blue-500 !text-white" @click="save">Save</UButton>
-                    <UButton :loading="isRunning" color="green" @click="runNow">Run Test Now</UButton>
+                    <UButton :loading="isSaving" color="blue" @click="save">Save</UButton>
+                    <UButton :loading="isRunning" color="blue" variant="soft" @click="runNow">Save and Run</UButton>
                 </div>
             </template>
         </UCard>
@@ -461,7 +470,6 @@ onMounted(async () => {
   await loadSuites()
   await loadCatalog()
   await loadJudgeModels()
-  if (categoryRules.value.length === 0) addCategory()
   // Prepopulate when editing
   if (isEditing.value && props.caseId) {
     await loadCaseForEdit(props.caseId)
@@ -583,8 +591,12 @@ function makeFieldRuleFor(cat: CategoryDescriptor, field: FieldDescriptor): Fiel
   }
 }
 
-const addCategory = () => {
-  const firstCat = categories.value[0]
+const addCategory = async () => {
+  let firstCat = categories.value[0]
+  if (!firstCat) {
+    await loadCatalog()
+    firstCat = categories.value[0]
+  }
   if (!firstCat) return
   const firstField = firstCat.fields[0]
   if (!firstField) return
@@ -725,18 +737,8 @@ function resetFormForCreate() {
   testUploadedFiles.value = []
   testMentions.value = []
   selectedSuiteIdLocal.value = props.suiteId || ''
-  // Reset rules to a single default category/field if catalog is ready
+  // Reset rules to empty for new case
   categoryRules.value = []
-  const firstCat = categories.value[0]
-  if (firstCat && firstCat.fields[0]) {
-    const fieldRule = makeFieldRuleFor(firstCat, firstCat.fields[0])
-    categoryRules.value.push({
-      key: `${firstCat.id}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`,
-      categoryId: firstCat.id,
-      categoryKind: firstCat.kind,
-      fieldRules: [fieldRule],
-    })
-  }
 }
 
 const save = async () => {
@@ -862,7 +864,7 @@ const runNow = async () => {
     // 3) Navigate to run details
     if (run?.id) {
       close()
-      router.push(`/monitoring/tests/runs/${run.id}`)
+      router.push(`/evals/runs/${run.id}`)
     }
   } catch (e) {
     console.error('Failed to run test now', e)

@@ -1,14 +1,26 @@
 <template>
     <div class="mt-6">
         <!-- Top metrics -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-sm font-medium text-gray-600">Total Tests</div>
-                <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_tests ?? 0 }}</div>
+                <div class="text-sm font-medium text-gray-600">Total Test Cases</div>
+                <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_cases ?? 0 }}</div>
             </div>
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-sm font-medium text-gray-600">Success Rate</div>
-                <div class="text-2xl font-bold text-gray-900 mt-1">{{ formatPercent(metrics?.success_rate) }}</div>
+                <div class="text-sm font-medium text-gray-600">Total Test Runs</div>
+                <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_runs ?? 0 }}</div>
+            </div>
+            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
+                <div class="text-sm font-medium text-gray-600">Last Test Result</div>
+                <div class="mt-1">
+                    <span v-if="metrics?.last_result_status" :class="['inline-flex items-center px-2 py-1 rounded-full text-xs font-medium', statusClass(derivedStatus(metrics?.last_result_status))]">
+                        {{ derivedStatus(metrics?.last_result_status) }}
+                    </span>
+                    <span v-else class="text-gray-500 text-sm">—</span>
+                </div>
+                <div class="text-xs text-gray-500 mt-1" v-if="metrics?.last_result_at">
+                    {{ formatDate(metrics?.last_result_at) }}
+                </div>
             </div>
         </div>
 
@@ -109,14 +121,55 @@
                         </tbody>
                     </table>
                 </div>
+                <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
+                    <div class="text-xs text-gray-500">Page {{ testsPage }} • Showing {{ filteredTests.length }} items</div>
+                    <div class="flex items-center gap-2">
+                        <USelectMenu
+                          v-model="testsLimit"
+                          :options="pageSizeOptions"
+                          option-attribute="label"
+                          value-attribute="value"
+                          size="xs"
+                          class="text-xs w-24"
+                        />
+                        <UButton size="xs" variant="soft" :disabled="testsPage <= 1" @click="prevTestsPage">Prev</UButton>
+                        <UButton size="xs" variant="soft" :disabled="!testsHasNext" @click="nextTestsPage">Next</UButton>
+                    </div>
+                </div>
             </div>
         </div>
 
         <!-- Runs tab -->
         <div v-else>
             <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-                    <div class="text-sm font-medium text-gray-700">Recent Test Runs</div>
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="flex flex-col md:flex-row md:items-center gap-3">
+                        <div class="text-sm font-medium text-gray-700 mr-auto">Recent Test Runs</div>
+                        <div class="flex items-center gap-2 w-full md:w-auto">
+                            <USelectMenu
+                              v-model="runSuiteFilter"
+                              :options="suiteFilterOptions"
+                              option-attribute="label"
+                              value-attribute="value"
+                              size="xs"
+                              class="text-xs w-full md:w-48"
+                            />
+                            <USelectMenu
+                              v-model="runCaseFilter"
+                              :options="runCaseOptions"
+                              option-attribute="label"
+                              value-attribute="value"
+                              size="xs"
+                              class="text-xs w-full md:w-56"
+                            />
+                            <input
+                              v-model="runSearchTerm"
+                              type="text"
+                              placeholder="Search runs..."
+                              class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
+                            />
+                        </div>
+                    </div>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="min-w-full divide-y divide-gray-200">
@@ -131,30 +184,44 @@
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200 text-xs">
-                            <tr v-for="r in runs" :key="r.id" class="hover:bg-gray-50">
+                            <tr v-for="r in filteredRuns" :key="r.id" class="hover:bg-gray-50">
                                 <td class="px-6 py-3 text-gray-900">
-                                    <a :href="`/monitoring/tests/runs/${r.id}`" class="text-blue-600 hover:underline">
+                                    <a :href="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
                                         {{ r.title || 'Test Run' }}
                                     </a>
                                 </td>
                                 <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
                                 <td class="px-6 py-3 capitalize">{{ r.trigger_reason || 'manual' }}</td>
                                 <td class="px-6 py-3">
-                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
-                                          :class="statusClass(r.status)">
-                                        {{ r.status || '—' }}
+                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(r)">
+                                        {{ derivedRunStatus(r) || '—' }}
                                     </span>
                                 </td>
                                 <td class="px-6 py-3">
-                                    <span :class="resultBadgeClassByStatus(r.status)">{{ resultSummaryReal(r) }}</span>
+                                    <span :class="resultBadgeClassByStatus(derivedRunStatus(r))">{{ resultSummaryReal(r) }}</span>
                                 </td>
                                 <td class="px-6 py-3">{{ formatDuration(r.started_at, r.finished_at) }}</td>
                             </tr>
-                            <tr v-if="runs.length === 0">
+                            <tr v-if="filteredRuns.length === 0">
                                 <td colspan="6" class="px-6 py-6 text-center text-gray-500">No test runs yet</td>
                             </tr>
                         </tbody>
                     </table>
+                </div>
+                <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
+                    <div class="text-xs text-gray-500">Page {{ runsPage }} • Showing {{ filteredRuns.length }} items</div>
+                    <div class="flex items-center gap-2">
+                        <USelectMenu
+                          v-model="runsLimit"
+                          :options="pageSizeOptions"
+                          option-attribute="label"
+                          value-attribute="value"
+                          size="xs"
+                          class="text-xs w-24"
+                        />
+                        <UButton size="xs" variant="soft" :disabled="runsPage <= 1" @click="prevRunsPage">Prev</UButton>
+                        <UButton size="xs" variant="soft" :disabled="!runsHasNext" @click="nextRunsPage">Next</UButton>
+                    </div>
                 </div>
             </div>
         </div>
@@ -166,12 +233,14 @@
 
 <script setup lang="ts">
 definePageMeta({
-    layout: 'monitoring'
+    layout: 'default'
 })
 
 interface TestMetrics {
-    total_tests: number
-    success_rate: number
+    total_test_cases: number
+    total_test_runs: number
+    last_result_status?: string | null
+    last_result_at?: string | null
 }
 
 const metrics = ref<TestMetrics | null>(null)
@@ -179,6 +248,14 @@ const tests = ref<TestCaseRow[]>([])
 const searchTerm = ref('')
 const suiteFilter = ref<string>('all')
 const selectedIds = ref<Set<string>>(new Set())
+const testsPage = ref<number>(1)
+const testsLimit = ref<number>(20)
+const testsHasNext = computed(() => filteredTests.value.length >= testsLimit.value)
+const pageSizeOptions = [
+    { label: '10 / page', value: 10 },
+    { label: '20 / page', value: 20 },
+    { label: '50 / page', value: 50 },
+]
 // Server-side filtering; no client text filter needed beyond displaying returned results
 const filteredTests = computed(() => tests.value)
 const allVisibleSelected = computed(() => filteredTests.value.length > 0 && filteredTests.value.every(t => selectedIds.value.has(t.id)))
@@ -195,10 +272,20 @@ const router = useRouter()
 const activeTab = ref<'tests' | 'runs'>('tests')
 // Components
 import AddTestCaseModal from '~/components/monitoring/AddTestCaseModal.vue'
+const toast = useToast()
 
-const formatPercent = (v?: number | null) => {
-    if (v == null) return '0%'
-    return `${Math.round((v || 0) * 100)}%`
+const derivedStatus = (s?: string | null) => {
+    if (!s) return '—'
+    // Normalize 'success' -> 'success', others pass through
+    const map: Record<string, string> = {
+        'pass': 'pass',
+        'fail': 'fail',
+        'error': 'error',
+        'success': 'success',
+        'stopped': 'stopped',
+        'in_progress': 'in_progress',
+    }
+    return map[s] || s
 }
 
 const formatDate = (iso?: string | null) => {
@@ -242,6 +329,46 @@ const suitesById = ref<Record<string, string>>({})
 interface RunItem { id: string; title?: string; started_at?: string; trigger_reason?: string; status?: string; finished_at?: string }
 const runs = ref<RunItem[]>([])
 const runResults = ref<Record<string, { total: number; passed: number; failed: number; error: number }>>({})
+const runResultsCaseIds = ref<Record<string, Set<string>>>({})
+const runSuiteFilter = ref<string>('all')
+const runCaseFilter = ref<string>('all')
+const runSearchTerm = ref<string>('')
+const runsPage = ref<number>(1)
+const runsLimit = ref<number>(20)
+const runsHasNext = computed(() => runs.value.length >= runsLimit.value)
+const runCaseOptions = computed(() => {
+    const base = [{ label: 'All cases', value: 'all' }]
+    // If a suite is chosen, list cases for that suite; otherwise list all known tests
+    const chosenSuite = runSuiteFilter.value !== 'all' ? runSuiteFilter.value : null
+    const source = (tests.value || []).filter(t => (chosenSuite ? t.suite_id === chosenSuite : true))
+    const seen = new Set<string>()
+    const opts = source.map(t => {
+        if (seen.has(t.id)) return null
+        seen.add(t.id)
+        const label = (t.prompt_json?.content || '').slice(0, 80) || t.id
+        return { label, value: t.id }
+    }).filter(Boolean) as { label: string; value: string }[]
+    return [...base, ...opts]
+})
+const filteredRuns = computed(() => {
+    const term = (runSearchTerm.value || '').toLowerCase().trim()
+    const caseId = runCaseFilter.value !== 'all' ? runCaseFilter.value : null
+    return (runs.value || []).filter(r => {
+        if (runSuiteFilter.value !== 'all') {
+            // server already filtered when loading; keep as soft guard
+        }
+        if (term) {
+            const t = (r.title || '').toLowerCase()
+            const trig = (r.trigger_reason || '').toLowerCase()
+            if (!t.includes(term) && !trig.includes(term)) return false
+        }
+        if (caseId) {
+            const set = runResultsCaseIds.value[r.id] || new Set<string>()
+            if (!set.has(caseId)) return false
+        }
+        return true
+    })
+})
 
 const CATEGORY_LABELS: Record<string, string> = {
     'tool:create_data': 'Create Data',
@@ -310,8 +437,9 @@ async function loadCases() {
     const params = new URLSearchParams()
     if (suiteFilter.value !== 'all') params.set('suite_id', suiteFilter.value)
     if ((searchTerm.value || '').trim().length > 0) params.set('search', searchTerm.value.trim())
-    // keep within backend limit defaults; no limit param needed for small sets
-    const url = params.toString().length > 0 ? `/api/tests/cases?${params.toString()}` : '/api/tests/cases'
+    params.set('page', String(testsPage.value))
+    params.set('limit', String(testsLimit.value))
+    const url = `/api/tests/cases?${params.toString()}`
     const casesRes = await useMyFetch<any[]>(url)
     const items = (casesRes.data.value || []) as any[]
     tests.value = items.map((c: any) => ({
@@ -322,16 +450,23 @@ async function loadCases() {
         expectations_json: c.expectations_json,
         data_source_ids_json: c.data_source_ids_json || [],
     }))
+    // Clear selections when page changes
+    selectedIds.value = new Set()
 }
 
 async function loadRuns() {
     try {
-        const res = await useMyFetch<RunItem[]>('/api/tests/runs?limit=20')
+        const params = new URLSearchParams()
+        if (runSuiteFilter.value !== 'all') params.set('suite_id', runSuiteFilter.value)
+        params.set('page', String(runsPage.value))
+        params.set('limit', String(runsLimit.value))
+        const res = await useMyFetch<RunItem[]>(`/api/tests/runs?${params.toString()}`)
         runs.value = (res.data.value as any[]) || []
         // fetch results per run to compute summary
         const fetches = (runs.value || []).map(r => useMyFetch<any[]>(`/api/tests/runs/${r.id}/results`))
         const responses = await Promise.all(fetches)
         const map: Record<string, { total: number; passed: number; failed: number; error: number }> = {}
+        const caseMap: Record<string, Set<string>> = {}
         for (let i = 0; i < responses.length; i++) {
             const r = runs.value[i]
             const rows = (responses[i].data.value as any[]) || []
@@ -340,13 +475,17 @@ async function loadRuns() {
                 if (it.status === 'pass') summary.passed++
                 else if (it.status === 'fail') summary.failed++
                 else if (it.status === 'error') summary.error++
+                if (!caseMap[r.id]) caseMap[r.id] = new Set<string>()
+                if (it.case_id) caseMap[r.id].add(String(it.case_id))
             }
             map[r.id] = summary
         }
         runResults.value = map
+        runResultsCaseIds.value = caseMap
     } catch (e) {
         runs.value = []
         runResults.value = {}
+        runResultsCaseIds.value = {}
     }
 }
 
@@ -381,15 +520,30 @@ function goRuns() {
 function resultBadgeClassByStatus(status?: string) {
     if (status === 'success') return 'inline-flex px-2 py-1 rounded-full bg-green-100 text-green-800'
     if (status === 'in_progress') return 'inline-flex px-2 py-1 rounded-full bg-gray-100 text-gray-800'
-    return 'inline-flex px-2 py-1 rounded-full bg-red-100 text-red-800'
+    if (status === 'fail') return 'inline-flex px-2 py-1 rounded-full bg-red-100 text-red-800'
+    return 'inline-flex px-2 py-1 rounded-full bg-gray-100 text-gray-800'
 }
 
 function resultSummaryReal(r: RunItem) {
     const c = runResults.value[r.id] || { total: 0, passed: 0, failed: 0, error: 0 }
-    if (r.status === 'success') return `${c.passed}/${c.total} success`
-    if (r.status === 'in_progress') return `${c.passed}/${c.total} passing…`
-    const nonPass = (c.failed || 0) + (c.error || 0)
-    return `${c.passed}/${c.total} passing (${nonPass} issues)`
+    // Show compact ratio, independent of status text
+    return `${c.passed}/${c.total}`
+}
+
+function derivedRunStatus(r: RunItem) {
+    const c = runResults.value[r.id] || { total: 0, passed: 0, failed: 0, error: 0 }
+    if (r.status === 'in_progress') return 'in_progress'
+    if (c.total > 0 && c.passed === c.total) return 'success'
+    if (c.total > 0 && c.passed < c.total) return 'fail'
+    // fallback to backend status if no results
+    return r.status || 'in_progress'
+}
+
+function runStatusClass(r: RunItem) {
+    const s = derivedRunStatus(r)
+    if (s === 'success') return 'bg-green-100 text-green-800'
+    if (s === 'fail') return 'bg-red-100 text-red-800'
+    return 'bg-gray-100 text-gray-800'
 }
 
 async function runSelected() {
@@ -401,7 +555,7 @@ async function runSelected() {
             body: { case_ids: selectedCaseIds, trigger_reason: 'manual' }
         })
         const first = res?.data?.value
-        if (first?.id) router.push(`/monitoring/tests/runs/${first.id}`)
+        if (first?.id) router.push(`/evals/runs/${first.id}`)
         else activeTab.value = 'runs'
     } catch (e) {
         console.error('Failed to run selected tests', e)
@@ -430,7 +584,7 @@ async function runCase(c: TestCaseRow) {
         })
         if (res?.error?.value) throw res.error.value
         const run = res?.data?.value
-        if (run?.id) router.push(`/monitoring/tests/runs/${run.id}`)
+        if (run?.id) router.push(`/evals/runs/${run.id}`)
     } catch (e) {
         console.error('Failed to run test', e)
     }
@@ -447,8 +601,14 @@ async function deleteCase(c: TestCaseRow) {
         const s = new Set(selectedIds.value)
         s.delete(c.id)
         selectedIds.value = s
+        toast.add({ title: 'Test case deleted', icon: 'i-heroicons-check-circle', color: 'green' })
     } catch (e) {
         console.error('Failed to delete test case', e)
+        try {
+            const err: any = (e as any) || {}
+            const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to delete test case'
+            toast.add({ title: 'Failed to delete test case', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+        } catch {}
     }
 }
 
@@ -477,9 +637,12 @@ function onCaseCreated(c: any) {
             } else {
                 insertRow('—')
             }
-        }).catch(() => insertRow('—'))
+        }).catch(() => insertRow('—')).finally(() => {
+            toast.add({ title: 'Test case created', icon: 'i-heroicons-check-circle', color: 'green' })
+        })
     } else {
         insertRow(suitesById.value[c.suite_id])
+        toast.add({ title: 'Test case created', icon: 'i-heroicons-check-circle', color: 'green' })
     }
     selectedCaseId.value = ''
 }
@@ -571,6 +734,27 @@ const formatDuration = (start?: string | null, end?: string | null) => {
     return `${mins}m ${rem}s`
 }
 
+function prevTestsPage() {
+    if (testsPage.value <= 1) return
+    testsPage.value -= 1
+    loadCases()
+}
+function nextTestsPage() {
+    if (!testsHasNext.value) return
+    testsPage.value += 1
+    loadCases()
+}
+function prevRunsPage() {
+    if (runsPage.value <= 1) return
+    runsPage.value -= 1
+    loadRuns()
+}
+function nextRunsPage() {
+    if (!runsHasNext.value) return
+    runsPage.value += 1
+    loadRuns()
+}
+
 onMounted(async () => {
     try {
         const [mRes] = await Promise.all([
@@ -590,7 +774,28 @@ let _searchTimer: any = null
 watch([suiteFilter, searchTerm], () => {
     if (_searchTimer) clearTimeout(_searchTimer)
     _searchTimer = setTimeout(() => {
+        testsPage.value = 1
         loadCases()
     }, 300)
+})
+
+// Watch pagination size for tests
+watch(testsLimit, () => {
+    testsPage.value = 1
+    loadCases()
+})
+
+// Re-fetch runs when run filters change (debounced)
+let _runTimer: any = null
+watch([runSuiteFilter, runCaseFilter, runSearchTerm], () => {
+    if (_runTimer) clearTimeout(_runTimer)
+    _runTimer = setTimeout(() => {
+        runsPage.value = 1
+        loadRuns()
+    }, 300)
+})
+watch(runsLimit, () => {
+    runsPage.value = 1
+    loadRuns()
 })
 </script>
