@@ -30,7 +30,75 @@
     </div>
 
     <div>
-      <input v-model="search" type="text" placeholder="Search tables..." class="border border-gray-300 rounded-lg px-3 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+      <div class="relative flex items-center gap-2">
+        <input v-model="search" type="text" placeholder="Search tables..." class="border border-gray-300 rounded-lg px-3 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+        <button
+          ref="filterButtonRef"
+          type="button"
+          @click="toggleFilterMenu"
+          class="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+          aria-label="Filter tables"
+        >
+          <UIcon name="heroicons-funnel" class="w-5 h-5" />
+        </button>
+        <button
+          ref="sortButtonRef"
+          type="button"
+          @click="toggleSortMenu"
+          class="h-9 w-9 inline-flex items-center justify-center rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50"
+          aria-label="Sort tables"
+        >
+          <UIcon name="heroicons-arrows-up-down" class="w-5 h-5" />
+        </button>
+        <div
+          v-if="filterMenuOpen"
+          ref="filterMenuRef"
+          class="absolute right-0 top-full mt-1 z-10 bg-white border border-gray-200 rounded-lg shadow-md w-40"
+        >
+          <div class="py-1">
+            <button
+              type="button"
+              class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between"
+              @click="setSelectedFilter('selected')"
+            >
+              <span>Selected</span>
+              <UIcon v-if="filters.selectedState === 'selected'" name="heroicons-check" class="w-4 h-4 text-blue-600" />
+            </button>
+            <button
+              type="button"
+              class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between"
+              @click="setSelectedFilter('unselected')"
+            >
+              <span>Unselected</span>
+              <UIcon v-if="filters.selectedState === 'unselected'" name="heroicons-check" class="w-4 h-4 text-blue-600" />
+            </button>
+          </div>
+        </div>
+        <div
+          v-if="sortMenuOpen"
+          ref="sortMenuRef"
+          class="absolute right-0 top-full mt-1 z-10 bg-white border border-gray-200 rounded-lg shadow-md w-40"
+        >
+          <div class="py-1">
+            <button
+              type="button"
+              class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between"
+              @click="setSort('name')"
+            >
+              <span>Name</span>
+              <UIcon v-if="sort.key === 'name'" name="heroicons-check" class="w-4 h-4 text-blue-600" />
+            </button>
+            <button
+              type="button"
+              class="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center justify-between"
+              @click="setSort('usage')"
+            >
+              <span>Usage</span>
+              <UIcon v-if="sort.key === 'usage'" name="heroicons-check" class="w-4 h-4 text-blue-600" />
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="mt-1 text-xs text-gray-500 text-right">{{ selectedCount }} of {{ totalTables }} selected</div>
     </div>
 
@@ -148,6 +216,20 @@ const saving = ref(false)
 const tables = ref<Table[]>([])
 const search = ref('')
 const expandedTables = ref<Record<string, boolean>>({})
+const filterMenuOpen = ref(false)
+const filterMenuRef = ref<HTMLElement | null>(null)
+const filterButtonRef = ref<HTMLElement | null>(null)
+const filters = ref<{ selectedState: 'selected' | 'unselected' | null; usageGreaterThan?: number | null }>({
+  selectedState: null,
+  usageGreaterThan: null
+})
+const sortMenuOpen = ref(false)
+const sortMenuRef = ref<HTMLElement | null>(null)
+const sortButtonRef = ref<HTMLElement | null>(null)
+const sort = reactive<{ key: 'name' | 'usage' | null; direction: 'asc' | 'desc' }>({
+  key: 'usage',
+  direction: 'desc'
+})
 
 const totalTables = computed(() => (tables.value || []).length)
 const selectedCount = computed(() => (tables.value || []).filter(t => !!t.is_active).length)
@@ -162,13 +244,80 @@ const visibleTables = computed(() => {
 
 const filteredTables = computed(() => {
   const q = search.value.trim().toLowerCase()
-  const list = visibleTables.value
-  if (!q) return list
-  return list.filter(t => String(t.name).toLowerCase().includes(q))
+  let list = visibleTables.value
+  // Selection filter
+  if (filters.value.selectedState === 'selected') {
+    list = list.filter(t => !!t.is_active)
+  } else if (filters.value.selectedState === 'unselected') {
+    list = list.filter(t => !t.is_active)
+  }
+  // Future-friendly numeric filter
+  if (filters.value.usageGreaterThan != null) {
+    const min = Number(filters.value.usageGreaterThan) || 0
+    list = list.filter(t => (t.usage_count ?? 0) > min)
+  }
+  // Search
+  if (q) {
+    list = list.filter(t => String(t.name).toLowerCase().includes(q))
+  }
+  // Sorting
+  if (sort.key) {
+    const dir = sort.direction === 'asc' ? 1 : -1
+    list = [...list].sort((a, b) => {
+      if (sort.key === 'name') {
+        return a.name.localeCompare(b.name) * dir
+      }
+      // usage
+      const av = (a.usage_count ?? Number.NEGATIVE_INFINITY)
+      const bv = (b.usage_count ?? Number.NEGATIVE_INFINITY)
+      if (av === bv) return 0
+      return (av - bv) * dir
+    })
+  }
+  return list
 })
 
 function endpointForSchema(): string {
   return props.schema === 'user' ? 'schema' : 'full_schema'
+}
+
+function toggleFilterMenu() {
+  filterMenuOpen.value = !filterMenuOpen.value
+}
+
+function setSelectedFilter(state: 'selected' | 'unselected') {
+  filters.value.selectedState = filters.value.selectedState === state ? null : state
+  filterMenuOpen.value = false
+}
+
+function toggleSortMenu() {
+  sortMenuOpen.value = !sortMenuOpen.value
+}
+
+function setSort(key: 'name' | 'usage') {
+  if (sort.key === key) {
+    // toggle direction if same key selected
+    sort.direction = sort.direction === 'asc' ? 'desc' : 'asc'
+  } else {
+    sort.key = key
+    // default directions: name asc, usage desc
+    sort.direction = key === 'name' ? 'asc' : 'desc'
+  }
+  sortMenuOpen.value = false
+}
+
+function onGlobalClick(e: MouseEvent) {
+  const target = e.target as Node
+  // Close filter menu if click is outside
+  if (filterMenuOpen.value) {
+    const insideFilter = (filterMenuRef.value && filterMenuRef.value.contains(target)) || (filterButtonRef.value && filterButtonRef.value.contains(target))
+    if (!insideFilter) filterMenuOpen.value = false
+  }
+  // Close sort menu if click is outside
+  if (sortMenuOpen.value) {
+    const insideSort = (sortMenuRef.value && sortMenuRef.value.contains(target)) || (sortButtonRef.value && sortButtonRef.value.contains(target))
+    if (!insideSort) sortMenuOpen.value = false
+  }
 }
 
 async function fetchTables() {
@@ -250,6 +399,14 @@ async function onRefresh() {
 }
 
 watch(() => [props.dsId, props.schema], () => { if (props.dsId) fetchTables() }, { immediate: true })
+
+onMounted(() => {
+  document.addEventListener('click', onGlobalClick)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('click', onGlobalClick)
+})
 </script>
 
 <style scoped>

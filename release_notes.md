@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.236 (November 13, 2025)
+- sort/filter for table selector
+- big query 
+
 ## Version 0.0.235 (November 12, 2025)
 - Added ability to select and deselect items in table and metadata resource selectors
 - Enhanced BigQuery integration to allow connections to multiple datasets

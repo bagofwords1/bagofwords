@@ -150,7 +150,6 @@ INPUT ENVELOPE
   {planner_input.resources_combined if getattr(planner_input, 'resources_combined', None) else ''}
   {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
   {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
-  {planner_input.history_summary}
   {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
   <past_observations>{json.dumps(planner_input.past_observations) if planner_input.past_observations else '[]'}</past_observations>
   <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
@@ -178,7 +177,6 @@ EXPECTED JSON OUTPUT (strict):
   "final_answer": string | null
 }}
 """
-
         return prompt
     
     @staticmethod
