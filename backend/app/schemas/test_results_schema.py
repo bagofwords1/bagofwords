@@ -60,9 +60,17 @@ class TestResultTotals(BaseModel):
     duration_ms: Optional[int] = None
 
 
+class RuleSpec(BaseModel):
+    """Snapshot of the expectations spec for this run/result."""
+    spec_version: int = 1
+    rules: List[Dict[str, Any]] = Field(default_factory=list)
+    order_mode: Optional[str] = None
+
+
 class TestResultJsonSchema(BaseModel):
+    spec: RuleSpec
     totals: TestResultTotals
-    rule_results: List[RuleResult] = Field(default_factory=list)  # index-aligned with case.rules
+    rule_results: List[RuleResult] = Field(default_factory=list)  # index-aligned with spec.rules
 
 
 # -------- Run status payloads (extracted from test_run_schema) --------

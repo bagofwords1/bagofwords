@@ -64,13 +64,10 @@
                   {{ prettyStatus(row.result.status) }}
                 </span>
               </div>
-              <div class="bg-gray-50 rounded p-3 text-xs">
-                <div class="space-y-2">
+              <div class="bg-gray-50 rounded p-3 text-xs max-h-80 overflow-y-auto">
+                <div class="space-y-1">
                   <div v-if="(getLogs(row.result.id) || []).length === 0" class="text-gray-500">—</div>
-                  <div v-for="(e, mi) in getLogs(row.result.id)" :key="mi" class="flex items-start gap-2">
-                    <span class="uppercase text-[10px] font-medium text-gray-500 w-32 shrink-0 truncate">{{ e.label }}</span>
-                    <div class="text-gray-800 whitespace-pre-wrap break-words flex-1">{{ e.text }}</div>
-                  </div>
+                  <div v-for="(e, mi) in getLogs(row.result.id)" :key="mi" class="text-gray-800 whitespace-pre-wrap break-words leading-relaxed">{{ e.text }}</div>
                 </div>
               </div>
               <div class="flex items-center justify-between">
@@ -88,8 +85,8 @@
                   <div class="flex items-center gap-2">
                     <LLMProviderIcon :provider="modelProviderType(row.case.prompt_json?.model_id)" :icon="true" class="w-4 h-4" />
                     <div class="min-w-0">
-                      <div class="text-xs text-gray-900 truncate">{{ modelIdText(row.case.prompt_json?.model_id) }}</div>
-                      <div class="text-[10px] text-gray-500 truncate">{{ modelProviderName(row.case.prompt_json?.model_id) }}</div>
+                      <div class="text-xs text-gray-900 truncate">{{ modelDisplayName(row.case.prompt_json?.model_id) }}</div>
+                      <div class="text-[10px] text-gray-500 truncate" v-if="modelProviderName(row.case.prompt_json?.model_id)">{{ modelProviderName(row.case.prompt_json?.model_id) }}</div>
                     </div>
                   </div>
                 </div>
@@ -120,31 +117,35 @@
             </div>
             <!-- Right: Assertions -->
             <div class="p-4">
-              <div class="text-xs text-gray-700 mb-2">Assertions</div>
-              <div class="divide-y divide-gray-100">
-                <div v-for="(rule, idx) in (row.case.expectations_json?.rules || [])" :key="idx" class="py-2">
-                  <div class="flex items-center gap-2">
-                    <span class="inline-flex items-center justify-center w-5 h-5 rounded-full"
-                          :class="ruleIconClass(row.result.status)">
-                      <Spinner v-if="row.result.status === 'in_progress'" class="w-3 h-3 text-gray-700" />
-                      <svg v-else-if="row.result.status === 'error' || ruleFailed(row.result, idx)" xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-red-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-10.293a1 1 0 00-1.414-1.414L10 8.586 7.707 6.293a1 1 0 00-1.414 1.414L8.586 10l-2.293 2.293a1 1 0 101.414 1.414L10 11.414l2.293 2.293a1 1 0 001.414-1.414L11.414 10l2.293-2.293z" clip-rule="evenodd"/></svg>
-                      <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-green-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L7 12.172 4.707 9.879a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l8-8z" clip-rule="evenodd"/></svg>
-                    </span>
-                    <div class="text-xs font-medium text-gray-800 truncate flex-1">
-                      {{ summarizeRule(rule) }}
-                    </div>
-                    <div class="text-[11px] text-gray-500">{{ mockRuleDuration(row) }}</div>
-                    <button class="text-blue-600 text-[11px] ml-2 hover:underline" @click="toggleExpanded(row.result.id, idx)">
-                      {{ isExpanded(row.result.id, idx) ? 'Hide' : 'Show' }}
-                    </button>
+              <div class="text-xs text-gray-700 mb-2">Expectations</div>
+              <div class="space-y-2">
+                <div v-for="it in displayRules(row.case)" :key="it.originalIdx" class="border border-gray-200 rounded-md p-3">
+                  <!-- Type -->
+                  <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(categoryName(it.rule?.target?.category || ''))">
+                    {{ categoryName(it.rule?.target?.category || '') }}
                   </div>
-                  <div v-if="isExpanded(row.result.id, idx)" class="mt-2 bg-gray-50 rounded p-2 text-[11px] text-gray-700 overflow-x-auto">
-                    <pre class="whitespace-pre-wrap break-words">{{ toPrettyJSON(rule) }}</pre>
+                  <!-- Summary -->
+                  <div class="text-xs text-gray-900">
+                    {{ ruleSummaryText(it.rule) }}
+                  </div>
+                  <!-- Status line -->
+                  <div class="flex items-center gap-2 mt-1">
+                    <template v-if="ruleStatus(row, it.originalIdx) === 'pending'">
+                      <Spinner class="w-3 h-3 text-gray-600" />
+                      <span class="text-[11px] text-gray-600">Pending…</span>
+                    </template>
+                    <template v-else-if="ruleStatus(row, it.originalIdx) === 'pass'">
+                      <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-green-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 00-1.414-1.414L7 12.172 4.707 9.879a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l8-8z" clip-rule="evenodd"/></svg>
+                      <span class="text-[11px] text-green-700">Pass</span>
+                    </template>
+                    <template v-else>
+                      <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 text-red-700" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-10.293a1 1 0 00-1.414-1.414L10 8.586 7.707 6.293a1 1 0 00-1.414 1.414L8.586 10l-2.293 2.293a1 1 0 101.414 1.414L10 11.414l2.293 2.293a1 1 0 001.414-1.414L11.414 10l2.293-2.293z" clip-rule="evenodd"/></svg>
+                      <span class="text-[11px] text-red-700">Fail</span>
+                      <span v-if="ruleMessage(row, it.originalIdx)" class="text-[11px] text-red-700">· {{ ruleMessage(row, it.originalIdx) }}</span>
+                    </template>
                   </div>
                 </div>
-                <div v-if="(row.case.expectations_json?.rules || []).length === 0" class="py-2 text-xs text-gray-500">
-                  No rules configured for this case.
-                </div>
+                <div v-if="(row.case.expectations_json?.rules || []).length === 0" class="text-xs text-gray-500">No rules configured for this case.</div>
               </div>
             </div>
           </div>
@@ -209,6 +210,7 @@ const fileNameById = reactive<Record<string, string>>({})
 
 type RawLog = { ts: string, event: string, data: any, label: string, text: string, group?: string }
 const logsByResultId = reactive<Record<string, RawLog[]>>({})
+const toolInputCache = reactive<Record<string, string>>({})
 
 function ensureLogBuffer(resultId: string) {
   if (!logsByResultId[resultId]) logsByResultId[resultId] = []
@@ -220,6 +222,25 @@ function summarizeEvent(event: string, data: any): { label: string, text: string
     if (v == null) return ''
     if (typeof v === 'string') return v
     try { return JSON.stringify(v) } catch { return String(v) }
+  }
+  const pickText = (d: any): string => {
+    try {
+      if (d == null) return ''
+      if (typeof d === 'string') return d
+      if (typeof d.text === 'string') return d.text
+      if (typeof d.message === 'string') return d.message
+      if (typeof d.content === 'string') return d.content
+      if (d.payload) {
+        if (typeof d.payload.text === 'string') return d.payload.text
+        if (typeof d.payload.message === 'string') return d.payload.message
+        if (typeof d.payload.content === 'string') return d.payload.content
+      }
+      if (d.block) {
+        if (typeof d.block.text === 'string') return d.block.text
+        if (typeof d.block.content === 'string') return d.block.content
+      }
+      return ''
+    } catch { return '' }
   }
   switch (event) {
     case 'run.started':
@@ -235,10 +256,17 @@ function summarizeEvent(event: string, data: any): { label: string, text: string
     case 'result.update':
       return { label: 'RESULT', text: `Update${data?.status ? ` · status=${data.status}` : ''}` }
     case 'block.upsert': {
+      const text = pickText(data)
+      if (text) return { label: 'BLOCK', text }
       const title = data?.block?.title || data?.block?.id || 'block'
       const status = data?.block?.status
       return { label: 'BLOCK', text: `${title}${status ? ` · ${status}` : ''}` }
     }
+    case 'block.partial':
+    case 'block.update':
+    case 'block.content':
+    case 'block.reasoning':
+      return { label: 'BLOCK', text: pickText(data) || '' }
     case 'decision.partial': {
       const r = (data?.reasoning || data?.plan_decision?.reasoning || data?.plan_reasoning || '')
       const assistant = data?.assistant
@@ -264,8 +292,10 @@ function summarizeEvent(event: string, data: any): { label: string, text: string
       const status = data?.status
       return { label: 'TOOL', text: `${data?.tool_name || 'tool'} finished${status ? ` · ${status}` : ''}${summary ? ` · ${summary}` : ''}` }
     }
-    default:
-      return { label: upper(event), text: safeStr(data) }
+    default: {
+      const t = pickText(data)
+      return { label: upper(event), text: t || safeStr(data) }
+    }
   }
 }
 
@@ -306,6 +336,39 @@ function pushLog(resultId: string, event: string, data: any) {
   try {
     ensureLogBuffer(resultId)
     const arr = logsByResultId[resultId]
+    // Special compact formatting for tool calls: "name(input) -> output"
+    if (event === 'tool.started' || event === 'tool.progress' || event === 'tool.partial' || event === 'tool.finished') {
+      const name = (data?.tool_name || 'tool').toString()
+      const key = `TOOL:${name}`
+      const stringify = (v: any) => {
+        if (v == null) return ''
+        if (typeof v === 'string') return v
+        try { return JSON.stringify(v) } catch { return String(v) }
+      }
+      const inputVal = data?.payload?.input ?? data?.input ?? data?.args ?? ''
+      const outputVal = data?.result_summary ?? data?.payload?.output ?? data?.output ?? data?.result ?? ''
+      if (event === 'tool.started') {
+        toolInputCache[`${resultId}:${key}`] = stringify(inputVal)
+      }
+      const cachedIn = toolInputCache[`${resultId}:${key}`] || stringify(inputVal)
+      const outText = stringify(outputVal)
+      const text = event === 'tool.finished'
+        ? `${name}(${cachedIn}) -> ${outText}`
+        : `${name}(${cachedIn})`
+      // Replace/update grouped entry
+      let idx = -1
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (arr[i].group === key) { idx = i; break }
+      }
+      const item: RawLog = { ts: new Date().toISOString(), event, data, label: 'TOOL', text, group: key }
+      if (idx >= 0) {
+        arr.splice(idx, 1, item)
+      } else {
+        arr.push(item)
+      }
+      if (arr.length > 200) arr.splice(0, arr.length - 200)
+      return
+    }
     const summary = summarizeEvent(event, data)
     const group = groupFor(event, data)
     if (group) {
@@ -437,9 +500,9 @@ const modelProviderType = (modelId?: string) => {
   const m = modelById.value[modelId || '']
   return m?.provider?.provider_type || 'default'
 }
-const modelIdText = (modelId?: string) => {
+const modelDisplayName = (modelId?: string) => {
   const m = modelById.value[modelId || '']
-  return m?.model_id || modelId || 'default'
+  return m?.name || m?.model_id || modelId || 'default'
 }
 const modelProviderName = (modelId?: string) => {
   const m = modelById.value[modelId || '']
@@ -485,6 +548,120 @@ const caseDuration = (row: { result: TestResult, case: TestCase }) => {
 
 const toPrettyJSON = (v: any) => {
   try { return JSON.stringify(v, null, 2) } catch { return String(v) }
+}
+
+// ---- Read-only expectations helpers ----
+const CATEGORY_LABELS: Record<string, string> = {
+  'tool:create_data': 'Create Data',
+  'tool:clarify': 'Clarify',
+  'tool:describe_table': 'Describe Table',
+  'metadata': 'Metadata',
+  'completion': 'Completion',
+  'judge': 'Judge',
+}
+const categoryName = (cat?: string) => {
+  const c = String(cat || '')
+  if (!c) return ''
+  if (CATEGORY_LABELS[c]) return CATEGORY_LABELS[c]
+  if (c.startsWith('tool:')) {
+    const raw = c.split(':')[1] || ''
+    const spaced = raw.replace(/_/g, ' ')
+    return spaced.replace(/\b\w/g, (m) => m.toUpperCase())
+  }
+  return c
+}
+const humanize = (s?: string) => {
+  const t = String(s || '')
+  return t.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase())
+}
+const opLabel = (op?: string) => {
+  switch (op) {
+    case 'text.contains': return 'text contains'
+    case 'text.not_contains': return 'text not contains'
+    case 'text.equals': return 'text equals'
+    case 'text.regex': return 'text matches regex'
+    case 'number.cmp': return 'number compare'
+    case 'length.cmp': return 'length compare'
+    case 'list.contains': return 'list contains value'
+    case 'list.contains_any': return 'list contains any'
+    case 'list.contains_all': return 'list contains all'
+    default: return String(op || '')
+  }
+}
+const cmpSymbol = (op?: string) => {
+  switch (op) {
+    case 'gt': return '>'
+    case 'gte': return '≥'
+    case 'lt': return '<'
+    case 'lte': return '≤'
+    case 'eq': return '='
+    case 'ne': return '≠'
+    default: return String(op || '')
+  }
+}
+const badgeClassesFor = (catLabel: string): string => {
+  const map: Record<string, string> = {
+    'Create Data': 'bg-blue-50 text-blue-700 border-blue-100',
+    'Clarify': 'bg-amber-50 text-amber-700 border-amber-100',
+    'Describe Table': 'bg-teal-50 text-teal-700 border-teal-100',
+    'Metadata': 'bg-slate-50 text-slate-700 border-slate-100',
+    'Completion': 'bg-purple-50 text-purple-700 border-purple-100',
+    'Judge': 'bg-gray-100 text-gray-700 border-gray-200',
+  }
+  return map[catLabel] || 'bg-zinc-50 text-zinc-700 border-zinc-100'
+}
+
+// ---- Expectation summary and status helpers ----
+const quote = (s: string) => `"${s}"`
+const joinedQuoted = (arr: any[]) => quote(arr.map((v) => String(v)).join(', '))
+const displayRules = (testCase: TestCase): Array<{ rule: any, originalIdx: number }> => {
+  const rules = (testCase?.expectations_json?.rules || []) as any[]
+  const out: Array<{ rule: any, originalIdx: number }> = []
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i]
+    // Hide Judge model_id - it's a configuration, not a pass/fail assertion
+    if (r?.target?.category === 'judge' && r?.target?.field === 'model_id') continue
+    out.push({ rule: r, originalIdx: i })
+  }
+  return out
+}
+const ruleSummaryText = (rule: any): string => {
+  try {
+    const field = humanize(rule?.target?.field || '')
+    const op = opLabel(rule?.matcher?.type)
+    const m = rule?.matcher || {}
+    if (m?.type === 'list.contains_any' || m?.type === 'list.contains_all') {
+      const vals = Array.isArray(m?.values) ? m.values : []
+      return `${field} ${op} ${joinedQuoted(vals)}`
+    }
+    if (m?.type === 'text.regex') {
+      const pat = String(m?.pattern || '')
+      return `${field} ${op} /${pat}/`
+    }
+    if (m?.type === 'number.cmp' || m?.type === 'length.cmp') {
+      return `${field} ${op} ${cmpSymbol(m?.op)} ${m?.value}`
+    }
+    // text.* and list.contains use value
+    const val = String(m?.value ?? '')
+    return `${field} ${op} ${quote(val)}`
+  } catch {
+    return '—'
+  }
+}
+const ruleResultAt = (row: { result: TestResult }, idx: number) => {
+  const rr = row.result.result_json?.rule_results || []
+  if (!Array.isArray(rr) || idx < 0 || idx >= rr.length) return null
+  return rr[idx] || null
+}
+const ruleStatus = (row: { result: TestResult }, idx: number): 'pending' | 'pass' | 'fail' => {
+  if (row.result.status === 'in_progress') return 'pending'
+  const rr = ruleResultAt(row, idx)
+  if (!rr || typeof rr.ok !== 'boolean') return 'pending'
+  return rr.ok ? 'pass' : 'fail'
+}
+const ruleMessage = (row: { result: TestResult }, idx: number): string => {
+  const rr = ruleResultAt(row, idx)
+  return (rr && typeof rr.message === 'string') ? rr.message : ''
 }
 
 type ConversationMessage = { role: string, content: string }
@@ -608,6 +785,7 @@ const ruleFailed = (result: TestResult, idx: number) => {
   return rr[idx]?.ok === false
 }
 </script>
+
 
 
 

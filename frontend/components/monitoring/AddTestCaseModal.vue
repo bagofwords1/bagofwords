@@ -479,6 +479,9 @@ watch([() => props.caseId, isOpen], async ([cid, open]) => {
     if ((categories.value || []).length === 0) await loadCatalog()
     if ((suites.value || []).length === 0) await loadSuites()
     await loadCaseForEdit(String(cid))
+  } else if (open && !cid) {
+    // Opening fresh create modal: reset state to avoid leaking previous edit values
+    resetFormForCreate()
   }
 })
 
@@ -715,6 +718,27 @@ const normalizeMatcher = (m: any) => {
 
 const close = () => emit('update:modelValue', false)
 
+function resetFormForCreate() {
+  promptText.value = ''
+  testSelectedDataSources.value = []
+  testSelectedModelId.value = ''
+  testUploadedFiles.value = []
+  testMentions.value = []
+  selectedSuiteIdLocal.value = props.suiteId || ''
+  // Reset rules to a single default category/field if catalog is ready
+  categoryRules.value = []
+  const firstCat = categories.value[0]
+  if (firstCat && firstCat.fields[0]) {
+    const fieldRule = makeFieldRuleFor(firstCat, firstCat.fields[0])
+    categoryRules.value.push({
+      key: `${firstCat.id}:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`,
+      categoryId: firstCat.id,
+      categoryKind: firstCat.kind,
+      fieldRules: [fieldRule],
+    })
+  }
+}
+
 const save = async () => {
   isSaving.value = true
   try {
@@ -883,6 +907,11 @@ async function loadCaseForEdit(caseId: string) {
       const fr = makeFieldRuleFor(catMeta, field)
       // Overwrite matcher and target occurrence if present
       fr.matcher = r.matcher || fr.matcher
+      // Prefill comma input for list.contains_any/all for proper display
+      if (fr.matcher?.type === 'list.contains_any' || fr.matcher?.type === 'list.contains_all') {
+        const vals = Array.isArray((fr.matcher as any).values) ? (fr.matcher as any).values : []
+        fr.valuesComma = vals.join(', ')
+      }
       if (typeof r?.target?.occurrence === 'number') fr.target.occurrence = r.target.occurrence
       grouped[catId].fieldRules.push(fr)
     }

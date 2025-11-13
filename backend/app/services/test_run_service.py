@@ -164,13 +164,34 @@ class TestRunService:
             report = await self._create_stub_report(db, str(organization.id), str(current_user.id), report_title)
             head = await self._create_head_completion(db, str(report.id), organization, current_user, prompt=case.prompt_json or {})
 
+            # Build initial result_json snapshot from case expectations
+            try:
+                spec = dict(case.expectations_json or {})
+                rules = spec.get("rules") or []
+                result_json = {
+                    "spec": {
+                        "spec_version": spec.get("spec_version") or 1,
+                        "rules": rules,
+                        "order_mode": spec.get("order_mode"),
+                    },
+                    "totals": {
+                        "total": len(rules),
+                        "passed": 0,
+                        "failed": 0,
+                        "duration_ms": None,
+                    },
+                    "rule_results": [],
+                }
+            except Exception:
+                result_json = None
+
             result = TestResult(
                 run_id=str(run.id),
                 case_id=str(case.id),
                 head_completion_id=str(head.id),
                 status="init",
                 report_id=str(report.id),
-                result_json=None,
+                result_json=result_json,
             )
             db.add(result)
         await db.commit()
@@ -405,7 +426,20 @@ class TestRunService:
                 head_completion_id=str(head_id) if head_id else str(uuid.uuid4()),  # fallback placeholder
                 status="in_progress",
                 report_id=str(report.id),
-                result_json=None,
+                result_json={
+                    "spec": {
+                        "spec_version": (case.expectations_json or {}).get("spec_version") or 1,
+                        "rules": (case.expectations_json or {}).get("rules") or [],
+                        "order_mode": (case.expectations_json or {}).get("order_mode"),
+                    },
+                    "totals": {
+                        "total": len(((case.expectations_json or {}).get("rules") or [])),
+                        "passed": 0,
+                        "failed": 0,
+                        "duration_ms": None,
+                    },
+                    "rule_results": [],
+                },
             )
             db.add(result)
             created_results.append(result)

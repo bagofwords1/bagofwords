@@ -162,6 +162,24 @@
             </template>
           </a>
         </li>
+        <li class="" v-if="isAdmin">
+           <a href="/monitoring/tests" :class="[
+             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
+             isCollapsed ? 'justify-center' : 'gap-3'
+           ]">
+            <UTooltip v-if="isCollapsed" text="Evals" :popper="{ placement: 'right' }">
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <UIcon name="heroicons-check-circle" />
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <UIcon name="heroicons-check-circle" />
+              </span>
+              <span v-if="showText" class="text-sm">Evals</span>
+            </template>
+          </a>
+        </li>
       </ul>
       <ul class="font-normal text-sm">
         <li>
