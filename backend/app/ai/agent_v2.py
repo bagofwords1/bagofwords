@@ -47,6 +47,7 @@ class AgentV2:
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
 
         self.report = report
+        self.report_type = getattr(report, 'report_type', 'regular')
         self.model = model
         self.small_model = small_model
         self.head_completion = head_completion
@@ -142,7 +143,7 @@ class AgentV2:
             async with SessionLocal() as session:
                 try:
                     # Use a new Judge instance (stateless) and score from the same planner input
-                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value:
+                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
                         judge = Judge(model=self.model, organization_settings=self.organization_settings)
                         instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
                     else:
@@ -164,7 +165,7 @@ class AgentV2:
             SessionLocal = create_async_session_factory()
             async with SessionLocal() as session:
                 try:
-                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value:
+                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
                         judge = Judge(model=self.model, organization_settings=self.organization_settings)
                         original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
                         response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
@@ -690,7 +691,7 @@ class AgentV2:
                                 except Exception:
                                     pass
                                 try:
-                                    if self.suggest_instructions is not None:
+                                    if self.suggest_instructions is not None and self.report_type == 'regular':
                                         drafts = []
                                         async for draft in self.suggest_instructions.stream_suggestions(context_view=view_for_suggest, context_hub=self.context_hub, hint=hint):
                                             # Persist immediately and stream back full instruction object

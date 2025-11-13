@@ -1,226 +1,230 @@
 <template>
-    <div class="mt-6">
-        <!-- Top metrics -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-sm font-medium text-gray-600">Total Test Cases</div>
-                <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_cases ?? 0 }}</div>
-            </div>
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-sm font-medium text-gray-600">Total Test Runs</div>
-                <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_runs ?? 0 }}</div>
-            </div>
-            <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
-                <div class="text-sm font-medium text-gray-600">Last Test Result</div>
-                <div class="mt-1">
-                    <span v-if="metrics?.last_result_status" :class="['inline-flex items-center px-2 py-1 rounded-full text-xs font-medium', statusClass(derivedStatus(metrics?.last_result_status))]">
-                        {{ derivedStatus(metrics?.last_result_status) }}
-                    </span>
-                    <span v-else class="text-gray-500 text-sm">—</span>
-                </div>
-                <div class="text-xs text-gray-500 mt-1" v-if="metrics?.last_result_at">
-                    {{ formatDate(metrics?.last_result_at) }}
-                </div>
-            </div>
-        </div>
-
-        <!-- Tabs -->
-        <div class="border-b border-gray-200 mb-6">
-            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-                <button
-                    type="button"
-                    @click="activeTab = 'tests'"
-                    :class="tabClass('tests')"
-                >
-                    Tests
-                </button>
-                <button
-                    type="button"
-                    @click="activeTab = 'runs'"
-                    :class="tabClass('runs')"
-                >
-                    Test Runs
-                </button>
-            </nav>
-        </div>
-
-        <!-- Tests tab -->
-        <div v-if="activeTab === 'tests'">
-            <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200">
-                    <div class="flex flex-col md:flex-row md:items-center gap-3">
-                        <div class="text-sm font-medium text-gray-700 mr-auto">Tests</div>
-                        <div class="flex items-center gap-2 w-full md:w-auto">
-                            <!-- Suite filter -->
-                            <USelectMenu
-                                v-model="suiteFilter"
-                                :options="suiteFilterOptions"
-                                option-attribute="label"
-                                value-attribute="value"
-                                size="xs"
-                                class="text-xs w-full md:w-56"
-                            />
-                            <!-- Search -->
-                            <input
-                                v-model="searchTerm"
-                                type="text"
-                                placeholder="Search tests..."
-                                class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
-                            />
-                            <!-- Actions -->
-                            <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">Run Selected</UButton>
-                            <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addNewTest">Add New Test</UButton>
+    <div class="flex justify-center pl-2 md:pl-4 text-sm">
+        <div class="w-full max-w-7xl px-4 pl-0 py-2">
+            <div class="mt-6">
+                <!-- Top metrics -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                    <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
+                        <div class="text-sm font-medium text-gray-600">Total Test Cases</div>
+                        <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_cases ?? 0 }}</div>
+                    </div>
+                    <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
+                        <div class="text-sm font-medium text-gray-600">Total Test Runs</div>
+                        <div class="text-2xl font-bold text-gray-900 mt-1">{{ metrics?.total_test_runs ?? 0 }}</div>
+                    </div>
+                    <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
+                        <div class="text-sm font-medium text-gray-600">Last Test Result</div>
+                        <div class="mt-1">
+                            <span v-if="metrics?.last_result_status" :class="['inline-flex items-center px-2 py-1 rounded-full text-xs font-medium', statusClass(derivedStatus(metrics?.last_result_status))]">
+                                {{ derivedStatus(metrics?.last_result_status) }}
+                            </span>
+                            <span v-else class="text-gray-500 text-sm">—</span>
+                        </div>
+                        <div class="text-xs text-gray-500 mt-1" v-if="metrics?.last_result_at">
+                            {{ formatDate(metrics?.last_result_at) }}
                         </div>
                     </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-4 py-3 w-10 text-center">
-                                    <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
-                                </th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rules</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suite</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Options</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200 text-xs">
-                            <tr v-for="c in filteredTests" :key="c.id" class="hover:bg-gray-50">
-                                <td class="px-4 py-3 w-10 text-center">
-                                    <div class="flex items-center justify-center">
-                                        <input type="checkbox" :checked="selectedIds.has(c.id)" @change="toggleOne(c.id)" />
-                                    </div>
-                                </td>
-                                <td class="px-6 py-3">
-                                    <span class="block max-w-[520px] truncate" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
-                                </td>
-                                <td class="px-6 py-3 text-gray-700">
-                                    <div class="flex flex-wrap gap-1 max-w-[620px]">
-                                        <span
-                                          v-for="cat in categoriesForCase(c)"
-                                          :key="cat"
-                                          :class="['inline-flex items-center rounded-full border text-[11px] px-2 py-0.5', badgeClassesFor(cat)]"
-                                          :title="cat"
-                                        >{{ cat }}</span>
-                                    </div>
-                                </td>
-                                <td class="px-6 py-3">{{ c.suite_name }}</td>
-                                <td class="px-6 py-3">
-                                    <div class="flex items-center gap-2">
-                                        <UButton color="gray" size="xs" variant="soft" icon="i-heroicons-pencil-square" @click="editCase(c)">Edit</UButton>
-                                        <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-play" @click="runCase(c)">Run Test</UButton>
-                                        <UButton color="red" size="xs" variant="soft" icon="i-heroicons-trash" @click="deleteCase(c)">Delete</UButton>
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr v-if="filteredTests.length === 0">
-                                <td colspan="5" class="px-6 py-6 text-center text-gray-500">No tests found</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
-                    <div class="text-xs text-gray-500">Page {{ testsPage }} • Showing {{ filteredTests.length }} items</div>
-                    <div class="flex items-center gap-2">
-                        <USelectMenu
-                          v-model="testsLimit"
-                          :options="pageSizeOptions"
-                          option-attribute="label"
-                          value-attribute="value"
-                          size="xs"
-                          class="text-xs w-24"
-                        />
-                        <UButton size="xs" variant="soft" :disabled="testsPage <= 1" @click="prevTestsPage">Prev</UButton>
-                        <UButton size="xs" variant="soft" :disabled="!testsHasNext" @click="nextTestsPage">Next</UButton>
-                    </div>
-                </div>
-            </div>
-        </div>
 
-        <!-- Runs tab -->
-        <div v-else>
-            <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200">
-                    <div class="flex flex-col md:flex-row md:items-center gap-3">
-                        <div class="text-sm font-medium text-gray-700 mr-auto">Recent Test Runs</div>
-                        <div class="flex items-center gap-2 w-full md:w-auto">
-                            <USelectMenu
-                              v-model="runSuiteFilter"
-                              :options="suiteFilterOptions"
-                              option-attribute="label"
-                              value-attribute="value"
-                              size="xs"
-                              class="text-xs w-full md:w-48"
-                            />
-                            <USelectMenu
-                              v-model="runCaseFilter"
-                              :options="runCaseOptions"
-                              option-attribute="label"
-                              value-attribute="value"
-                              size="xs"
-                              class="text-xs w-full md:w-56"
-                            />
-                            <input
-                              v-model="runSearchTerm"
-                              type="text"
-                              placeholder="Search runs..."
-                              class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
-                            />
+                <!-- Tabs -->
+                <div class="border-b border-gray-200 mb-6">
+                    <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                        <button
+                            type="button"
+                            @click="activeTab = 'tests'"
+                            :class="tabClass('tests')"
+                        >
+                            Tests
+                        </button>
+                        <button
+                            type="button"
+                            @click="activeTab = 'runs'"
+                            :class="tabClass('runs')"
+                        >
+                            Test Runs
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Tests tab -->
+                <div v-if="activeTab === 'tests'">
+                    <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <div class="flex flex-col md:flex-row md:items-center gap-3">
+                                <div class="text-sm font-medium text-gray-700 mr-auto">Tests</div>
+                                <div class="flex items-center gap-2 w-full md:w-auto">
+                                    <!-- Suite filter -->
+                                    <USelectMenu
+                                        v-model="suiteFilter"
+                                        :options="suiteFilterOptions"
+                                        option-attribute="label"
+                                        value-attribute="value"
+                                        size="xs"
+                                        class="text-xs w-full md:w-56"
+                                    />
+                                    <!-- Search -->
+                                    <input
+                                        v-model="searchTerm"
+                                        type="text"
+                                        placeholder="Search tests..."
+                                        class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
+                                    />
+                                    <!-- Actions -->
+                                    <UButton :disabled="selectedIds.size === 0" color="blue" size="xs" icon="i-heroicons-play" @click="runSelected">Run Selected</UButton>
+                                    <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-plus" @click="addNewTest">Add New Test</UButton>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 w-10 text-center">
+                                            <input type="checkbox" :checked="allVisibleSelected" @change="toggleAllVisible" />
+                                        </th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prompt</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rules</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Suite</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Options</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200 text-xs">
+                                    <tr v-for="c in filteredTests" :key="c.id" class="hover:bg-gray-50">
+                                        <td class="px-4 py-3 w-10 text-center">
+                                            <div class="flex items-center justify-center">
+                                                <input type="checkbox" :checked="selectedIds.has(c.id)" @change="toggleOne(c.id)" />
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-3">
+                                            <span class="block max-w-[520px] truncate" :title="c.prompt_json?.content || ''">{{ c.prompt_json?.content || '—' }}</span>
+                                        </td>
+                                        <td class="px-6 py-3 text-gray-700">
+                                            <div class="flex flex-wrap gap-1 max-w-[620px]">
+                                                <span
+                                                  v-for="cat in categoriesForCase(c)"
+                                                  :key="cat"
+                                                  :class="['inline-flex items-center rounded-full border text-[11px] px-2 py-0.5', badgeClassesFor(cat)]"
+                                                  :title="cat"
+                                                >{{ cat }}</span>
+                                            </div>
+                                        </td>
+                                        <td class="px-6 py-3">{{ c.suite_name }}</td>
+                                        <td class="px-6 py-3">
+                                            <div class="flex items-center gap-2">
+                                                <UButton color="gray" size="xs" variant="soft" icon="i-heroicons-pencil-square" @click="editCase(c)">Edit</UButton>
+                                                <UButton color="blue" size="xs" variant="soft" icon="i-heroicons-play" @click="runCase(c)">Run Test</UButton>
+                                                <UButton color="red" size="xs" variant="soft" icon="i-heroicons-trash" @click="deleteCase(c)">Delete</UButton>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="filteredTests.length === 0">
+                                        <td colspan="5" class="px-6 py-6 text-center text-gray-500">No tests found</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
+                            <div class="text-xs text-gray-500">Page {{ testsPage }} • Showing {{ filteredTests.length }} items</div>
+                            <div class="flex items-center gap-2">
+                                <USelectMenu
+                                  v-model="testsLimit"
+                                  :options="pageSizeOptions"
+                                  option-attribute="label"
+                                  value-attribute="value"
+                                  size="xs"
+                                  class="text-xs w-24"
+                                />
+                                <UButton size="xs" variant="soft" :disabled="testsPage <= 1" @click="prevTestsPage">Prev</UButton>
+                                <UButton size="xs" variant="soft" :disabled="!testsHasNext" @click="nextTestsPage">Next</UButton>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trigger</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
-                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200 text-xs">
-                            <tr v-for="r in filteredRuns" :key="r.id" class="hover:bg-gray-50">
-                                <td class="px-6 py-3 text-gray-900">
-                                    <a :href="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
-                                        {{ r.title || 'Test Run' }}
-                                    </a>
-                                </td>
-                                <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
-                                <td class="px-6 py-3 capitalize">{{ r.trigger_reason || 'manual' }}</td>
-                                <td class="px-6 py-3">
-                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(r)">
-                                        {{ derivedRunStatus(r) || '—' }}
-                                    </span>
-                                </td>
-                                <td class="px-6 py-3">
-                                    <span :class="resultBadgeClassByStatus(derivedRunStatus(r))">{{ resultSummaryReal(r) }}</span>
-                                </td>
-                                <td class="px-6 py-3">{{ formatDuration(r.started_at, r.finished_at) }}</td>
-                            </tr>
-                            <tr v-if="filteredRuns.length === 0">
-                                <td colspan="6" class="px-6 py-6 text-center text-gray-500">No test runs yet</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
-                    <div class="text-xs text-gray-500">Page {{ runsPage }} • Showing {{ filteredRuns.length }} items</div>
-                    <div class="flex items-center gap-2">
-                        <USelectMenu
-                          v-model="runsLimit"
-                          :options="pageSizeOptions"
-                          option-attribute="label"
-                          value-attribute="value"
-                          size="xs"
-                          class="text-xs w-24"
-                        />
-                        <UButton size="xs" variant="soft" :disabled="runsPage <= 1" @click="prevRunsPage">Prev</UButton>
-                        <UButton size="xs" variant="soft" :disabled="!runsHasNext" @click="nextRunsPage">Next</UButton>
+
+                <!-- Runs tab -->
+                <div v-else>
+                    <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
+                        <div class="px-6 py-4 border-b border-gray-200">
+                            <div class="flex flex-col md:flex-row md:items-center gap-3">
+                                <div class="text-sm font-medium text-gray-700 mr-auto">Recent Test Runs</div>
+                                <div class="flex items-center gap-2 w-full md:w-auto">
+                                    <USelectMenu
+                                      v-model="runSuiteFilter"
+                                      :options="suiteFilterOptions"
+                                      option-attribute="label"
+                                      value-attribute="value"
+                                      size="xs"
+                                      class="text-xs w-full md:w-48"
+                                    />
+                                    <USelectMenu
+                                      v-model="runCaseFilter"
+                                      :options="runCaseOptions"
+                                      option-attribute="label"
+                                      value-attribute="value"
+                                      size="xs"
+                                      class="text-xs w-full md:w-56"
+                                    />
+                                    <input
+                                      v-model="runSearchTerm"
+                                      type="text"
+                                      placeholder="Search runs..."
+                                      class="border border-gray-300 rounded px-2 py-1 text-xs w-full md:w-56"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trigger</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200 text-xs">
+                                    <tr v-for="r in filteredRuns" :key="r.id" class="hover:bg-gray-50">
+                                        <td class="px-6 py-3 text-gray-900">
+                                            <a :href="`/evals/runs/${r.id}`" class="text-blue-600 hover:underline">
+                                                {{ r.title || 'Test Run' }}
+                                            </a>
+                                        </td>
+                                        <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
+                                        <td class="px-6 py-3 capitalize">{{ r.trigger_reason || 'manual' }}</td>
+                                        <td class="px-6 py-3">
+                                            <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(r)">
+                                                {{ derivedRunStatus(r) || '—' }}
+                                            </span>
+                                        </td>
+                                        <td class="px-6 py-3">
+                                            <span :class="resultBadgeClassByStatus(derivedRunStatus(r))">{{ resultSummaryReal(r) }}</span>
+                                        </td>
+                                        <td class="px-6 py-3">{{ formatDuration(r.started_at, r.finished_at) }}</td>
+                                    </tr>
+                                    <tr v-if="filteredRuns.length === 0">
+                                        <td colspan="6" class="px-6 py-6 text-center text-gray-500">No test runs yet</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="px-6 py-3 border-t border-gray-200 flex flex-col md:flex-row gap-3 md:items-center justify-between">
+                            <div class="text-xs text-gray-500">Page {{ runsPage }} • Showing {{ filteredRuns.length }} items</div>
+                            <div class="flex items-center gap-2">
+                                <USelectMenu
+                                  v-model="runsLimit"
+                                  :options="pageSizeOptions"
+                                  option-attribute="label"
+                                  value-attribute="value"
+                                  size="xs"
+                                  class="text-xs w-24"
+                                />
+                                <UButton size="xs" variant="soft" :disabled="runsPage <= 1" @click="prevRunsPage">Prev</UButton>
+                                <UButton size="xs" variant="soft" :disabled="!runsHasNext" @click="nextRunsPage">Next</UButton>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

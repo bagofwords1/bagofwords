@@ -59,7 +59,7 @@ class TestRunService:
             title=title,
             slug=slug,
             status="draft",
-            report_type="regular",
+            report_type="test",
             user_id=user_id,
             organization_id=organization_id,
         )
@@ -319,16 +319,17 @@ class TestRunService:
                     )
                     res_sys = await db.execute(sys_q)
                     sys_completions = res_sys.scalars().all()
-                    # Set sigkill timestamp (AgentV2 listens to websocket 'update_completion' with sigkill)
+                    # Send sigkill using the same behavior as /api/completions/{id}/sigkill
+                    # This ensures status is set to 'stopped', in-progress blocks are stopped,
+                    # and websocket 'update_completion' is emitted for AgentV2 to cancel promptly.
                     for sc in sys_completions:
                         try:
-                            sc.sigkill = datetime.utcnow()
-                            db.add(sc)
+                            await self.completions.update_completion_sigkill(db, str(sc.id))
                         except Exception:
                             pass
                 except Exception:
                     pass
-            await db.commit()
+            # update_completion_sigkill commits internally; no-op commit here
         except Exception:
             # Best-effort; proceed to stop run regardless
             pass
@@ -813,12 +814,6 @@ class TestRunService:
                             pass
                     except Exception:
                         pass
-                    # Also emit completion.finished mirror
-                    try:
-                        fin = SSEEvent(event="completion.finished", completion_id=str(existing_system.id), data={"result_id": str(r.id), "status": getattr(existing_system, "status", None)})
-                        await central_queue.put((str(r.id), fin))
-                    except Exception:
-                        pass
                     # Proceed to next result
                     continue
 
@@ -1028,7 +1023,7 @@ class TestRunService:
                                 completion_id=str(system_completion.id),
                                 data={"result_id": str(r.id), "status": "success"},
                             )
-                            await central_queue.put((str(r.id), finished_ev))
+                            # Do not emit completion.finished here; rely on AgentV2 to emit it via event_queue.
                         except Exception as e:
                             err = SSEEvent(
                                 event="completion.error",

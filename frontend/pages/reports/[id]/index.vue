@@ -268,7 +268,15 @@
 				<span class="poll-shimmer">Loading… showing recent progress</span>
 			</div>
 		</div>
-
+		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+			<div class="text-xs text-gray-500 flex items-center">
+				<span class="text-xs">
+					<span class="font-medium bg-yellow-100 text-yellow-800 px-2 py-1 rounded-md">Note
+						This report is a report generated from a test run
+					</span>
+					</span>
+				</div>
+			</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
 			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
@@ -1310,11 +1318,6 @@ async function loadReport() {
 	report.value = data.value
 	reportLoaded.value = true
 	
-	// Check if we need to redirect to legacy UI based on app version
-	if (report.value?.app_version === "0.0.189") {
-		await navigateTo(`/reports/${report_id}/legacy`)
-		return
-	}
 }
 
 async function loadVisualizations() {

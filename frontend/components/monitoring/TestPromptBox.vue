@@ -93,6 +93,8 @@ import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 const props = defineProps({
   report_id: { type: String, default: '' },
   textareaContent: { type: String, default: '' },
+  // Allow parent to control initial/ongoing selection for edit flows
+  selectedDataSources: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits([
@@ -157,11 +159,26 @@ onMounted(async () => {
   if (typeof props.textareaContent === 'string') {
     text.value = props.textareaContent
   }
+  // Initialize selection from parent if provided (edit flow)
+  if (Array.isArray(props.selectedDataSources) && props.selectedDataSources.length) {
+    selectedDataSources.value = props.selectedDataSources as any[]
+  }
 })
 
 watch(() => props.textareaContent, (v) => {
   if (typeof v === 'string' && v !== text.value) text.value = v
 })
+
+// Keep internal data source selection synced with parent during edit
+watch(() => props.selectedDataSources, (v: any[]) => {
+  if (!Array.isArray(v)) return
+  // Avoid unnecessary churn if identical by ids
+  const currIds = new Set((selectedDataSources.value || []).map((x: any) => x.id))
+  const nextIds = new Set((v || []).map((x: any) => x.id))
+  const sameSize = currIds.size === nextIds.size
+  const same = sameSize && [...currIds].every(id => nextIds.has(id))
+  if (!same) selectedDataSources.value = v as any[]
+}, { deep: true })
 
 watch(text, (v) => emit('update:modelValue', v))
 watch(selectedDataSources, (v) => emit('update:selectedDataSources', v), { deep: true })

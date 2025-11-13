@@ -246,26 +246,28 @@ def default_test_catalog() -> TestCatalog:
         ]
     ))
 
-    categories.append(CategoryDescriptor(
-        id="metadata",
-        label="Metadata",
-        kind="metadata",
-        fields=[
-            FieldDescriptor(key="total_tokens", label="Total tokens", value_type="number", allowed_ops=["number.cmp"]),
-            FieldDescriptor(key="total_duration_ms", label="Total duration (ms)", value_type="number", allowed_ops=["number.cmp"]),
-            FieldDescriptor(key="total_iterations", label="Total iterations", value_type="number", allowed_ops=["number.cmp"]),
-        ]
-    ))
+    # NOTE: Temporarily removed from catalog per request (keep only clarify, create_data, judge)
+    # categories.append(CategoryDescriptor(
+    #     id="metadata",
+    #     label="Metadata",
+    #     kind="metadata",
+    #     fields=[
+    #         FieldDescriptor(key="total_tokens", label="Total tokens", value_type="number", allowed_ops=["number.cmp"]),
+    #         FieldDescriptor(key="total_duration_ms", label="Total duration (ms)", value_type="number", allowed_ops=["number.cmp"]),
+    #         FieldDescriptor(key="total_iterations", label="Total iterations", value_type="number", allowed_ops=["number.cmp"]),
+    #     ]
+    # ))
 
-    categories.append(CategoryDescriptor(
-        id="completion",
-        label="Completion",
-        kind="completion",
-        fields=[
-            FieldDescriptor(key="text", label="Completion text", value_type="text", allowed_ops=["text.contains", "text.equals", "text.regex"]),
-            FieldDescriptor(key="reasoning", label="Reasoning", value_type="text", allowed_ops=["text.contains", "text.equals", "text.regex"]),
-        ]
-    ))
+    # NOTE: Temporarily removed from catalog per request (keep only clarify, create_data, judge)
+    # categories.append(CategoryDescriptor(
+    #     id="completion",
+    #     label="Completion",
+    #     kind="completion",
+    #     fields=[
+    #         FieldDescriptor(key="text", label="Completion text", value_type="text", allowed_ops=["text.contains", "text.equals", "text.regex"]),
+    #         FieldDescriptor(key="reasoning", label="Reasoning", value_type="text", allowed_ops=["text.contains", "text.equals", "text.regex"]),
+    #     ]
+    # ))
 
     # Judge / LLM Test (prompt + model selector). Model options are populated
     # dynamically in TestSuiteService.get_test_catalog

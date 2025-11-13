@@ -85,7 +85,6 @@ class ReportService:
                 selectinload(Report.data_sources)  # Add this line to load data sources
             )
             .filter(Report.id == report_id)
-            .filter(Report.report_type == 'regular')
         )
         report = result.unique().scalar_one_or_none()
         if not report:
@@ -101,6 +100,7 @@ class ReportService:
             title=report.title,
             status=report.status,
             slug=report.slug,
+            report_type=report.report_type,
             user=user_schema,
             cron_schedule=report.cron_schedule,
             created_at=report.created_at,
@@ -316,7 +316,7 @@ class ReportService:
         return report
     
     async def get_public_report(self, db: AsyncSession, report_id: str) -> ReportSchema:
-        result = await db.execute(select(Report).filter(Report.id == report_id).filter(Report.report_type == 'regular'))
+        result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")

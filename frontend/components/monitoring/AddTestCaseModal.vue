@@ -39,6 +39,7 @@
                     <div class="p-2">
                         <TestPromptBox
                             :textareaContent="promptText"
+                            :selectedDataSources="testSelectedDataSources"
                             @update:modelValue="(v:string) => promptText = v"
                             @update:selectedDataSources="(v:any[]) => testSelectedDataSources = v"
                             @update:selectedModelId="(v:string) => testSelectedModelId = v"

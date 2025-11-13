@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.240 (November 14, 2025)
+- Introducing Evals! You can now define set of tests that will be run on demand to evaluate system performance. You can define custom test cases and assertions:
+  - User prompt should trigger create_data with table1,table2
+  - Data columns should include a,b,c
+  - Custom LLM Judge prompt can pass/fail a test
+
 ## Version 0.0.235 (November 12, 2025)
 - Added ability to select and deselect items in table and metadata resource selectors
 - Enhanced BigQuery integration to allow connections to multiple datasets
