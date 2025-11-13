@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from datetime import datetime
 import uuid
 
-from app.models.test_suite import TestSuite, TestCase, TestRun, TestResult
+from app.models.eval import TestSuite, TestCase, TestRun, TestResult
 from app.models.report import Report
 from app.services.report_service import ReportService
 from app.models.completion import Completion

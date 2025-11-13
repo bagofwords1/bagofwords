@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import List, Optional, Dict
 
-from app.models.test_suite import TestSuite
+from app.models.eval import TestSuite
 from fastapi import HTTPException
 from app.schemas.test_expectations import TestCatalog, default_test_catalog
 from app.services.llm_service import LLMService

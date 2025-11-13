@@ -8,7 +8,7 @@ from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.models.organization import Organization
 from app.models.user import User
-from app.models.test_suite import TestSuite, TestCase, TestRun, TestResult
+from app.models.eval import TestSuite, TestCase, TestRun, TestResult
 from app.schemas.test_suite_schema import (
     TestSuiteSchema,
     TestSuiteCreate,

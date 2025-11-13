@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.test_suite import TestRun, TestResult, TestCase
+from app.models.eval import TestRun, TestResult, TestCase
 from app.models.agent_execution import AgentExecution
 from app.models.tool_execution import ToolExecution
 from app.models.completion import Completion

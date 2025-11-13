@@ -3,7 +3,7 @@ from sqlalchemy import select, or_
 from typing import List, Optional, Sequence
 from fastapi import HTTPException
 
-from app.models.test_suite import TestCase, TestSuite
+from app.models.eval import TestCase, TestSuite
 from app.models.llm_model import LLMModel
 from app.models.llm_provider import LLMProvider
 
