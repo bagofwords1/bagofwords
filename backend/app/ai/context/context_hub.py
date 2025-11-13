@@ -36,8 +36,7 @@ from .builders.entity_context_builder import EntityContextBuilder
 # Default caps to keep planner prompt small and predictable
 DEFAULT_CONTEXT_LIMITS = {
     "messages_max": 20,        # last N messages
-    "observations_max": 8,     # last N observations
-    "schemas_top_k": 10,       # top_k tables per data source
+    "observations_max": 8    # last N observations
 }
 
 
@@ -163,7 +162,7 @@ class ContextHub:
             schemas_section = await self.schema_builder.build(
                 include_inactive=schema_cfg.include_inactive,
                 with_stats=schema_cfg.with_stats,
-                top_k=(schema_cfg.top_k or DEFAULT_CONTEXT_LIMITS["schemas_top_k"]),
+                top_k=schema_cfg.top_k,
             )
             context.schemas_excerpt = schemas_section.render()
             # Prefer object-based count of tables if available; fallback to rendered lines
