@@ -111,15 +111,13 @@ def upgrade() -> None:
             batch_op.create_index(batch_op.f('ix_test_results_run_id'), ['run_id'], unique=False)
             batch_op.create_index(batch_op.f('ix_test_results_report_id'), ['report_id'], unique=False)
 
-    reports_columns = [c['name'] for c in inspector.get_columns('reports')]
-    existing_indexes = [i['name'] for i in inspector.get_indexes('reports')]
-    ix_reports_report_type = op.f('ix_reports_report_type')
+    #reports_columns = [c['name'] for c in inspector.get_columns('reports')]
+    #existing_indexes = [i['name'] for i in inspector.get_indexes('reports')]
+    #ix_reports_report_type = op.f('ix_reports_report_type')
 
     with op.batch_alter_table('reports', schema=None) as batch_op:
-        if 'report_type' not in reports_columns:
-            batch_op.add_column(sa.Column('report_type', sa.String(), nullable=False, server_default='regular'))
-        if ix_reports_report_type not in existing_indexes:
-            batch_op.create_index(ix_reports_report_type, ['report_type'], unique=False)
+        batch_op.add_column(sa.Column('report_type', sa.String(), nullable=False, server_default='regular'))
+        batch_op.create_index(op.f('ix_reports_report_type'), ['report_type'], unique=False)
     # ### end Alembic commands ###
 
     # Data backfill: create a default test suite per organization if none exist.

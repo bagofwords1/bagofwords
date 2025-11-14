@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.241 (November 14, 2025)
+- Optimize datbase migrations to include report_type
+- Wrap maintenance job with guardrails
+
 ## Version 0.0.240 (November 14, 2025)
 - Introducing Evals! You can now create and run custom sets of tests on demand to assess system performance. Define your own test cases and assertions, such as:
   - User prompts triggering create_data on table1 and table2

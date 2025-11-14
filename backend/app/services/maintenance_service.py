@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Tuple
 from sqlalchemy import text
+from sqlalchemy.exc import InterfaceError, OperationalError
 from app.dependencies import async_session_maker
 from app.settings.logging_config import get_logger
 
@@ -51,6 +52,8 @@ async def purge_step_payloads_keep_latest_per_query(
     """)
 
     async with async_session_maker() as session:
+        purged = 0
+        try:
         result = await session.execute(sql, {"cutoff": cutoff})
         await session.commit()
         purged = result.rowcount or 0
@@ -63,6 +66,32 @@ async def purge_step_payloads_keep_latest_per_query(
                 "retention_days": retention_days,
             },
         )
+        except (InterfaceError, OperationalError) as e:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            logger.warning(
+                "Maintenance purge skipped due to transient DB error",
+                extra={
+                    "error": str(e),
+                    "cutoff": cutoff.isoformat(),
+                    "retention_days": retention_days,
+                },
+            )
+        except Exception as e:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            logger.exception(
+                "Maintenance purge failed unexpectedly",
+                extra={
+                    "error": str(e),
+                    "cutoff": cutoff.isoformat(),
+                    "retention_days": retention_days,
+                },
+            )
         return purged
 
 
