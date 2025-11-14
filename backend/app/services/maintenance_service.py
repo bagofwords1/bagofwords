@@ -54,18 +54,18 @@ async def purge_step_payloads_keep_latest_per_query(
     async with async_session_maker() as session:
         purged = 0
         try:
-        result = await session.execute(sql, {"cutoff": cutoff})
-        await session.commit()
-        purged = result.rowcount or 0
-        logger.info(
-            "Purged step payloads (keep latest per query; purge stale latest)",
-            extra={
-                "purged": purged,
-                "cutoff": cutoff.isoformat(),
-                "null_fields": null_fields,
-                "retention_days": retention_days,
-            },
-        )
+          result = await session.execute(sql, {"cutoff": cutoff})
+          await session.commit()
+          purged = result.rowcount or 0
+          logger.info(
+              "Purged step payloads (keep latest per query; purge stale latest)",
+              extra={
+                  "purged": purged,
+                  "cutoff": cutoff.isoformat(),
+                  "null_fields": null_fields,
+                  "retention_days": retention_days,
+              },
+          )
         except (InterfaceError, OperationalError) as e:
             try:
                 await session.rollback()
