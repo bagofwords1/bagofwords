@@ -177,7 +177,6 @@ EXPECTED JSON OUTPUT (strict):
   "final_answer": string | null
 }}
 """
-        breakpoint()
         return prompt
     
     @staticmethod

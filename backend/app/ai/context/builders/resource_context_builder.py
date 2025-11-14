@@ -25,11 +25,14 @@ class ResourceContextBuilder:
         keywords = self._extract_keywords_from_prompt(self.prompt_content)
         # For each data source, check if there's a git repository
         for data_source in self.data_sources:
-            # Find the git repository connected to this data source
-            git_repository = await self.db.execute(
-                select(GitRepository).where(GitRepository.data_source_id == data_source.id)
+            # Find the most recently created git repository connected to this data source
+            git_repository_result = await self.db.execute(
+                select(GitRepository)
+                .where(GitRepository.data_source_id == data_source.id)
+                .order_by(GitRepository.created_at.desc())
+                .limit(1)
             )
-            git_repository = git_repository.scalars().first()
+            git_repository = git_repository_result.scalars().first()
             
             if not git_repository:
                 continue
