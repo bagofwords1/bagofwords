@@ -107,14 +107,24 @@ class GitRepositoryService:
                         except subprocess.CalledProcessError as e:
                             raise HTTPException(status_code=400, detail=f"Invalid SSH key format: {e.stderr}")
                         
-                        git.cmd.Git().ls_remote(git_repo.repo_url, env=git_env)
+                        # List remote refs and ensure the requested branch exists
+                        remote_refs = git.cmd.Git().ls_remote(git_repo.repo_url, env=git_env)
                     finally:
                         # Clean up
                         import shutil
                         shutil.rmtree(temp_dir, ignore_errors=True)
                 else:
                     # If no SSH key, use regular ls-remote
-                    git.cmd.Git().ls_remote(git_repo.repo_url)
+                    remote_refs = git.cmd.Git().ls_remote(git_repo.repo_url)
+
+                # Verify that the configured branch exists in the remote refs
+                branch_name = git_repo.branch or "main"
+                expected_ref = f"refs/heads/{branch_name}"
+                if expected_ref not in remote_refs:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Git branch '{branch_name}' not found in repository"
+                    )
 
                 return {"success": True, "message": "Connection successful"}
 

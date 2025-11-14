@@ -1,11 +1,11 @@
 # Release Notes
 
 ## Version 0.0.242 (November 14, 2025)
-- Enahnced markdown parser
-- add support for Dataform and SQLX parsing for context enrichment
-- Added GPT-5.1
-- Improved metadata indexing service
-- Improved UI for reports and tables
+- Enhanced markdown parser for better handling of complex formatting and edge cases
+- Added support for Dataform projects and introduced SQLX file parsing, enriching contextual metadata for queries and models
+- Integrated GPT-5.1 as an available LLM by default
+- Improved metadata indexing service with additional guardrails for git repository management and error management
+- Upgraded user interface for reports and tables
 
 ## Version 0.0.241 (November 14, 2025)
 - Optimize datbase migrations to include report_type
