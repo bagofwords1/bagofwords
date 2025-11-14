@@ -4,6 +4,14 @@ from app.models.base import BaseSchema
 
 LLM_MODEL_DETAILS = [
     {
+        "name": "GPT-5.1",
+        "model_id": "gpt-5.1",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False
+    },
+    {
         "name": "GPT-5",
         "model_id": "gpt-5",
         "provider_type": "openai",

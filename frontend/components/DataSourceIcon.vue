@@ -17,11 +17,13 @@ const iconPath = computed(() => {
         return '/icons/document.png';
     }
     const t = String(props.type || '').toLowerCase();
-    // Prefer tool/resource icons when available
-    const toolIconTypes = new Set(['dbt', 'lookml', 'markdown', 'resource', 'tableau']);
+
+    // Prefer tool/resource icons when available (stored under /icons)
+    const toolIconTypes = new Set(['dbt', 'lookml', 'markdown', 'resource', 'tableau', 'dataform']);
     if (toolIconTypes.has(t)) {
         return `/icons/${t}.png`;
     }
+
     // Fallback to data source icons set
     return `/data_sources_icons/${t}.png`;
 });

@@ -199,6 +199,99 @@ def _format_exposure(r: Dict[str, Any]) -> str:
     return xml_tag("exposure", "\n".join(body))
 
 
+def _format_dataform_table(r: Dict[str, Any]) -> str:
+    """
+    Format a Dataform table (parsed from .sqlx) into a rich XML-ish representation.
+
+    Expected fields (from MetadataResource + SQLXResourceExtractor):
+      - name, resource_type, description, path
+      - sql_content (main SELECT body)
+      - columns: list[{name, description, data_type, meta}]
+      - depends_on: list[str]
+      - raw_data: {
+          materialization, tags, schema_expr, unique_key,
+          partition_by, cluster_by, assertions, sql_body,
+          pre_operations_raw, raw_config, ...
+        }
+    """
+    raw_data = _parse_json_field(r.get("raw_data")) if r.get("raw_data") is not None else {}
+    columns_json = _parse_json_field(r.get("columns"))
+
+    # Columns
+    columns: List[str] = []
+    for col in (columns_json or []):
+        lines = [
+            xml_tag("name", xml_escape(str(col.get("name", "")))),
+            xml_tag("description", xml_escape(str(col.get("description", "")))),
+        ]
+        if col.get("data_type") is not None:
+            lines.append(xml_tag("data_type", xml_escape(str(col.get("data_type", "")))))
+        columns.append(xml_tag("column", "\n".join(lines)))
+
+    body: List[str] = []
+    body.append(xml_tag("name", xml_escape(str(r.get("name", "")))))
+    body.append(xml_tag("resource_type", xml_escape(str(r.get("resource_type", r.get("type", "dataform_table"))))))
+    body.append(xml_tag("description", xml_escape(str(r.get("description", "")))))
+    body.append(xml_tag("path", xml_escape(str(r.get("path", "")))))
+
+    # Config / metadata from raw_data
+    if raw_data:
+        materialization = raw_data.get("materialization", "")
+        if materialization:
+            body.append(xml_tag("materialization", xml_escape(str(materialization))))
+
+        tags = raw_data.get("tags", [])
+        if tags:
+            body.append(xml_tag("tags", ", ".join(map(str, tags))))
+
+        schema_expr = raw_data.get("schema_expr", "")
+        if schema_expr:
+            body.append(xml_tag("schema_expr", xml_escape(str(schema_expr))))
+
+        unique_key = raw_data.get("unique_key", [])
+        if unique_key:
+            body.append(xml_tag("unique_key", ", ".join(map(str, unique_key))))
+
+        partition_by = raw_data.get("partition_by", "")
+        if partition_by:
+            body.append(xml_tag("partition_by", xml_escape(str(partition_by))))
+
+        cluster_by = raw_data.get("cluster_by", [])
+        if cluster_by:
+            body.append(xml_tag("cluster_by", ", ".join(map(str, cluster_by))))
+
+        # Assertions as a raw text blob if present
+        assertions = raw_data.get("assertions", {})
+        if assertions:
+            # Common pattern: {"__raw_text__": "..."}; fall back to full JSON
+            raw_text = assertions.get("__raw_text__") if isinstance(assertions, dict) else None
+            body.append(
+                xml_tag(
+                    "assertions",
+                    xml_escape(str(raw_text if raw_text is not None else assertions)),
+                )
+            )
+
+    # SQL body and pre-operations (prefer raw_data.sql_body; fallback to sql_content)
+    sql_body = raw_data.get("sql_body") or r.get("sql_content")
+    if sql_body:
+        body.append(xml_tag("sql_body", xml_escape(str(sql_body))))
+
+    pre_ops = raw_data.get("pre_operations_raw")
+    if pre_ops:
+        body.append(xml_tag("pre_operations", xml_escape(str(pre_ops))))
+
+    # Columns & dependencies
+    if columns:
+        body.append(xml_tag("columns", "\n".join(columns)))
+
+    depends_on = _parse_json_field(r.get("depends_on"))
+    if depends_on:
+        body.append(xml_tag("depends_on", ", ".join(map(str, depends_on))))
+
+    return xml_tag("dataform_table", "\n".join(body))
+
+
 def _format_lookml_model(r: Dict[str, Any]) -> str:
     raw_data = _parse_json_field(r.get("raw_data")) if r.get("raw_data") is not None else {}
     body: List[str] = []
@@ -335,6 +428,8 @@ def format_resource_dict_xml(resource: Dict[str, Any]) -> str:
         return _format_test(resource)
     if rtype == "exposure":
         return _format_exposure(resource)
+    if rtype == "dataform_table":
+        return _format_dataform_table(resource)
     if rtype == "lookml_model":
         return _format_lookml_model(resource)
     if rtype == "lookml_view":

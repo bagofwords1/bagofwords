@@ -5,19 +5,20 @@
             <div class="bg-white">
                 <div @click="toggleEnrichmentSection" class="flex items-center justify-between cursor-pointer hover:bg-gray-50">
                     <div class="flex items-center border-b border-gray-200 pb-3 w-full">
-                        <h3 class="text-lg mt-1 font-semibold text-gray-900">Connect Tableau, dbt, and your AGENTS.md files</h3>
+                        <h3 class="text-lg mt-1 font-semibold text-gray-900">Connect Tableau, dbt, Dataform, and your AGENTS.md files</h3>
                     </div>
                 </div>
                 <div v-if="enrichmentExpanded" class="">
                     <div class="text-left mb-4 mt-5">
                         <p class="text-sm text-gray-500 leading-relaxed">
-                            Connect additional context from Tableau, dbt, LookML, code, and markdown files to your data sources. It will be used by AI agents throughout data analysis.
+                            Connect additional context from Tableau, dbt, Dataform, LookML, code, and markdown files to your data sources. It will be used by AI agents throughout data analysis.
                             <br />
                             Integration is via git repository.
                         </p>
                         <div class="flex mt-4 mb-4 items-center space-x-3">
                             <UTooltip text="Tableau"><img src="/public/icons/tableau.png" alt="Tableau" class="h-5 inline" /></UTooltip>
                             <UTooltip text="dbt"><img src="/public/icons/dbt.png" alt="dbt" class="h-5 inline" /></UTooltip>
+                            <UTooltip text="Dataform"><img src="/public/icons/dataform.png" alt="Dataform" class="h-5 inline" /></UTooltip>
                             <UTooltip text="LookML"><img src="/public/icons/lookml.png" alt="LookML" class="h-5 inline" /></UTooltip>
                             <UTooltip text="Markdown"><img src="/public/icons/markdown.png" alt="Markdown" class="h-5 inline" /></UTooltip>
                         </div>
@@ -32,6 +33,12 @@
                             <UButton icon="heroicons:code-bracket" color="gray" :label="repoDisplayName" class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs rounded-md hover:bg-gray-200" @click="canUpdateDataSource ? showGitModal = true : null" :disabled="!canUpdateDataSource" />
                         </UTooltip>
                         <UButton v-else-if="canUpdateDataSource && !isLoadingIntegration" icon="heroicons:code-bracket" class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50" @click="showGitModal = true">Integrate</UButton>
+                    </div>
+                    <div
+                      v-if="showNoFilesMessage"
+                      class="mt-1 text-xs text-gray-500"
+                    >
+                      No dbt, Dataform, LookML, markdown, or Tableau metadata files were detected in this repository yet.
                     </div>
                     <ResourcesSelector ref="resourcesRef" :ds-id="String(dsId)" :can-update="canUpdateDataSource" @saved="onResourcesSaved" @error="onResourcesError" />
                 </div>
@@ -96,6 +103,21 @@ function onResourcesError(e: any) { console.error(e) }
 
 function toggleEnrichmentSection() { enrichmentExpanded.value = !enrichmentExpanded.value }
 function handleGitModalClose(value: boolean) { if (!value) { fetchMetadataResources(); fetchIntegration(); resourcesRef.value?.refresh?.() } }
+
+const showNoFilesMessage = computed(() => {
+  if (isLoadingMetadataResources.value) return false
+  if (!integration.value?.git_repository) return false
+
+  const payload: any = metadataResources.value || {}
+  const items = Array.isArray(payload.items) ? payload.items : []
+  const legacyResources = Array.isArray(payload.resources) ? payload.resources : []
+  const total =
+    typeof payload.total === 'number'
+      ? payload.total
+      : (items.length || legacyResources.length)
+
+  return total === 0
+})
 
 onMounted(async () => {
   await fetchIntegration()

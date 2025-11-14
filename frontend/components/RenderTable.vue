@@ -1,6 +1,6 @@
 <template>
     <div 
-        v-if="step?.data?.columns?.length > 0" 
+        v-if="hasColumns" 
         class="h-full"
         :style="{
             backgroundColor: tokens.cardBackground || tokens.background,
@@ -16,10 +16,17 @@
         </div>
     </div>
     <div 
-        v-else
+        v-else-if="isLoading"
         :style="{ color: tokens.textColor }"
     >
         Loading..
+    </div>
+    <div 
+        v-else
+        :style="{ color: tokens.textColor }"
+        class="text-xs text-gray-400"
+    >
+        No data to display.
     </div>
 </template>
 
@@ -70,6 +77,26 @@ const agGridStyles = computed(() => {
     '--ag-font-size': '9px',
     fontFamily: tokens.value.fontFamily,
   }
+})
+
+// Step state helpers
+const hasColumns = computed(() => {
+  const cols = step.value?.data?.columns
+  return Array.isArray(cols) && cols.length > 0
+})
+
+const hasRows = computed(() => {
+  const rows = step.value?.data?.rows
+  return Array.isArray(rows) && rows.length > 0
+})
+
+const isLoading = computed(() => {
+  const status = step.value?.status
+  // Treat explicit running/queued/pending as loading; if no status but no data yet, assume loading as well
+  if (!status) {
+    return !hasColumns.value && !hasRows.value
+  }
+  return ['running', 'queued', 'pending'].includes(String(status))
 })
 
 // Make these reactive with ref

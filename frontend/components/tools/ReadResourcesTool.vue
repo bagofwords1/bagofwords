@@ -154,9 +154,12 @@ function inferIconTypeFromItem(item: any): string {
     const rt = String(item?.resource_type || '').toLowerCase()
     const path = String(item?.path || '').toLowerCase()
     if (rt.includes('dbt_')) return 'dbt'
+    // Dataform (backend uses dataform_*)
+    if (rt.startsWith('dataform_') || rt === 'dataform') return 'dataform'
     if (rt.includes('lookml')) return 'lookml'
     if (rt.includes('markdown')) return 'markdown'
     if (path.endsWith('.lkml')) return 'lookml'
+    if (path.endsWith('.sqlx')) return 'dataform'
     if (path.endsWith('.md') || path.endsWith('.markdown')) return 'markdown'
     return 'resource'
   } catch {

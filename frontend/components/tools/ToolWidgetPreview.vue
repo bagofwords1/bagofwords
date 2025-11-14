@@ -36,64 +36,75 @@
     <!-- Collapsible content -->
     <Transition name="slide-fade">
       <div v-if="!isCollapsed" class="widget-content">
-        <!-- Tab Navigation -->
-        <div v-if="showTabs" class="flex border-b border-gray-100 mb-2">
-          <button 
-            v-if="showVisual"
-            @click="activeTab = 'chart'"
-            :class="[
-              'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
-              activeTab === 'chart' 
-                ? 'border-blue-500 text-blue-600' 
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            ]"
-          >
-            Chart
-          </button>
-          <button 
-            v-if="hasData"
-            @click="activeTab = 'table'"
-            :class="[
-              'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
-              activeTab === 'table' 
-                ? 'border-blue-500 text-blue-600' 
-                : 'border-transparent text-gray-400 hover:text-gray-600'
-            ]"
-          >
-            Data
-          </button>
-        </div>
+        <!-- Error / empty state when step has an error -->
+        <template v-if="hasStepError">
+          <div class="min-h-[80px] flex items-center text-xs text-gray-400">
+            No data is available.
+          </div>
+        </template>
+        <template v-else>
+          <!-- Tab Navigation -->
+          <div v-if="showTabs" class="flex border-b border-gray-100 mb-2">
+            <button 
+              v-if="showVisual"
+              @click="activeTab = 'chart'"
+              :class="[
+                'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
+                activeTab === 'chart' 
+                  ? 'border-blue-500 text-blue-600' 
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              ]"
+            >
+              Chart
+            </button>
+            <button 
+              v-if="hasData"
+              @click="activeTab = 'table'"
+              :class="[
+                'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
+                activeTab === 'table' 
+                  ? 'border-blue-500 text-blue-600' 
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              ]"
+            >
+              Data
+            </button>
+          </div>
 
-        <!-- Tab Content -->
-        <div class="tab-content">
-          <!-- Chart Content -->
-          <Transition name="fade" mode="out-in">
-            <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)" class="bg-gray-50 rounded-sm p-2">
-              <div v-if="resolvedCompEl" :class="chartHeightClass">
-                <component
-                  :is="resolvedCompEl"
-                  :widget="effectiveWidget"
-                  :data="effectiveStep?.data"
-                  :data_model="effectiveStep?.data_model"
-                  :step="effectiveStep"
-                  :view="visualization?.view || step?.view"
-                  :reportThemeName="reportThemeName"
-                  :reportOverrides="reportOverrides"
-                />
+          <!-- Tab Content -->
+          <div class="tab-content">
+            <!-- Chart Content -->
+            <Transition name="fade" mode="out-in">
+              <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)" class="bg-gray-50 rounded-sm p-2">
+                <div v-if="resolvedCompEl" :class="chartHeightClass">
+                  <component
+                    :is="resolvedCompEl"
+                    :widget="effectiveWidget"
+                    :data="effectiveStep?.data"
+                    :data_model="effectiveStep?.data_model"
+                    :step="effectiveStep"
+                    :view="visualization?.view || step?.view"
+                    :reportThemeName="reportThemeName"
+                    :reportOverrides="reportOverrides"
+                  />
+                </div>
+                <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
+                  <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
+                </div>
               </div>
-              <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
-                <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
-              </div>
-            </div>
-          </Transition>
+            </Transition>
 
-          <!-- Table Content -->
-          <Transition name="fade" mode="out-in">
-            <div v-if="(showTabs && activeTab === 'table') || (!showTabs && (String((visualization?.view as any)?.type || effectiveStep?.data_model?.type || '').toLowerCase() === 'table'))" class="h-[400px]">
-              <RenderTable :widget="widget" :step="{ ...(effectiveStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
-            </div>
-          </Transition>
-        </div>
+            <!-- Table Content -->
+            <Transition name="fade" mode="out-in">
+              <div
+                v-if="(showTabs && activeTab === 'table') || (!showTabs && (String((visualization?.view as any)?.type || effectiveStep?.data_model?.type || '').toLowerCase() === 'table'))"
+                :class="tableHeightClass"
+              >
+                <RenderTable :widget="widget" :step="{ ...(effectiveStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
+              </div>
+            </Transition>
+          </div>
+        </template>
 
         <!-- Bottom Action Buttons -->
         <div class="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
@@ -308,6 +319,22 @@ const hasData = computed(() => {
 
 // Show tabs only when both chart and table are available
 const showTabs = computed(() => showVisual.value && hasData.value)
+
+// Error / table-specific helpers
+const hasStepError = computed(() => {
+  const s: any = effectiveStep.value as any
+  if (!s) return false
+  if (s.error) return true
+  const status = String(s.status || '').toLowerCase()
+  return status === 'error' || status === 'fail' || status === 'failed'
+})
+
+const tableHasRows = computed(() => {
+  const rows = effectiveStep.value?.data?.rows
+  return Array.isArray(rows) && rows.length > 0
+})
+
+const tableHeightClass = computed(() => (tableHasRows.value ? 'h-[400px]' : 'min-h-[80px]'))
 
 // Watch for data changes to update active tab
 watch([showVisual, hasData], () => {

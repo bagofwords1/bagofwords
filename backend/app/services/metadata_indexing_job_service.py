@@ -20,6 +20,7 @@ from app.core.dbt_parser import DBTResourceExtractor
 from app.core.lookml_parser import LookMLResourceExtractor
 from app.core.markdown_parser import MarkdownResourceExtractor
 from app.core.tableau_parser import TableauTDSResourceExtractor
+from app.core.sqlx_parser import SQLXResourceExtractor
 from app.dependencies import async_session_maker # Import the session maker
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class MetadataIndexingJobService:
             'lookml': LookMLResourceExtractor,
             'markdown': MarkdownResourceExtractor,
             'tableau': TableauTDSResourceExtractor,
+            'dataform': SQLXResourceExtractor,
         }
 
     async def _verify_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
@@ -315,6 +317,17 @@ class MetadataIndexingJobService:
         created_resources = []
         try:
             logger.info(f"Starting Markdown parsing for job {job_id} in {temp_dir}")
+
+            # Deactivate existing markdown resources for this data source so new chunks replace them
+            await db.execute(
+                update(MetadataResource)
+                .where(
+                    MetadataResource.data_source_id == data_source_id,
+                    MetadataResource.resource_type == 'markdown_document',
+                )
+                .values(is_active=False)
+            )
+            await db.commit()
             
             # Initialize the Markdown extractor
             extractor = MarkdownResourceExtractor(temp_dir)
@@ -355,6 +368,68 @@ class MetadataIndexingJobService:
         except Exception as e:
             logger.error(f"Error during Markdown parsing for job {job_id}: {e}", exc_info=True)
             raise
+
+    async def _parse_sqlx_resources(
+        self,
+        db: AsyncSession,
+        temp_dir: str,
+        data_source_id: str,
+        job_id: str,
+    ):
+        """Parse Dataform resources (from .sqlx files) from a cloned repository."""
+        created_or_updated_resources = []
+        try:
+            logger.info(f"Starting Dataform resource parsing for job {job_id} in {temp_dir}")
+            extractor = SQLXResourceExtractor(temp_dir)
+            resources_dict, columns_by_resource, docs_by_resource = extractor.extract_all_resources()
+
+            # Use "dataform_*" as the canonical resource_type prefix for SQLX/Dataform
+            resource_type_map = {
+                "tables": "dataform_table",
+                "assertions": "dataform_assertion",
+                "operations": "dataform_operation",
+                "declarations": "dataform_declaration",
+            }
+
+            for parser_key, resource_type in resource_type_map.items():
+                resource_list = resources_dict.get(parser_key, [])
+                for item in resource_list:
+                    if not isinstance(item, dict):
+                        logger.warning(f"Skipping non-dict SQLX item in {parser_key}: {item}")
+                        continue
+
+                    item_name = item.get("name", "")
+                    if not item_name:
+                        logger.warning(f"Skipping SQLX item with no name in {parser_key}: {item}")
+                        continue
+
+                    lookup_key = f"{resource_type}.{item_name}"
+                    item_columns = columns_by_resource.get(lookup_key, [])
+                    depends_on = item.get("depends_on", [])
+
+                    resource = await self._create_or_update_metadata_resource(
+                        db=db,
+                        item=item,
+                        resource_type=resource_type,
+                        data_source_id=data_source_id,
+                        job_id=job_id,
+                        columns=[col for col in item_columns if isinstance(col, dict)],
+                        depends_on=[dep for dep in depends_on if isinstance(dep, str)] if isinstance(depends_on, list) else [],
+                        sql_content=item.get("sql_body"),
+                    )
+                    if resource:
+                        created_or_updated_resources.append(resource)
+
+            logger.info(
+                f"Finished SQLX resource parsing for job {job_id}. "
+                f"Found {len(created_or_updated_resources)} resources."
+            )
+
+        except Exception as e:
+            logger.error(f"Error during Dataform resource parsing for job {job_id}: {e}", exc_info=True)
+            raise
+
+        return created_or_updated_resources
 
     async def _create_or_update_metadata_resource(
         self,
@@ -617,6 +692,16 @@ class MetadataIndexingJobService:
                         job_id=job_id,
                     )
                     all_created_resources.extend(tableau_resources or [])
+
+                # --- Trigger Dataform Parsing ---
+                if 'dataform' in detected_project_types:
+                    sqlx_resources = await self._parse_sqlx_resources(
+                        db=db,
+                        temp_dir=repo_path,
+                        data_source_id=data_source_id,
+                        job_id=job_id,
+                    )
+                    all_created_resources.extend(sqlx_resources or [])
 
                 if not detected_project_types:
                     logger.warning(f"Job {job_id}: No project types were detected, nothing to parse.")

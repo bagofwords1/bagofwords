@@ -281,13 +281,21 @@ class GitRepositoryService:
             detected_types.append('tableau')
             self.logger.info(f"Detected Tableau datasource files in {repo_path}")
         
+        # Check for Dataform projects (SQLX files)
+        # Heuristic: presence of dataform.json or any *.sqlx file
+        if (repo_root / 'dataform.json').is_file() or list(repo_root.glob('**/*.sqlx')):
+            detected_types.append('dataform')
+            self.logger.info(f"Detected Dataform project in {repo_path}")
+        
         # Add checks for other types (e.g., Airflow) here
         # if (repo_root / 'dags').is_dir():
         #     detected_types.append('airflow')
-
+        
         if not detected_types:
-             self.logger.warning(f"No known project type (DBT, LookML, Markdown, Tableau) detected in {repo_path}")
-
+            self.logger.warning(
+                f"No known project type (DBT, LookML, Markdown, Tableau, Dataform) detected in {repo_path}"
+            )
+        
         return detected_types
 
     async def index_git_repository(
@@ -307,22 +315,12 @@ class GitRepositoryService:
             # Clone repo
             repo = await self.clone_git_repo(repository, temp_dir)
             
-            # Detect project types
+            # Detect project types (dbt, LookML, Markdown, Tableau, etc.)
             detected_types = self._detect_project_types(temp_dir)
 
-            if not detected_types:
-                # Handle case where nothing is detected - maybe skip indexing or log prominently
-                self.logger.warning(f"No project types detected in repository {repository_id}, skipping indexing job creation.")
-                # Optionally update repo status to 'completed' or 'empty'?
-                # repository.status = "completed" # Or a new status like 'no_projects_found'
-                # await db.commit()
-                # Clean up temp dir if no job is started
-                import shutil
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                # Return a specific message
-                return {"status": "skipped", "message": "No known project types (DBT, LookML) found in the repository."}
-
-            # Start index in background, passing detected types
+            # Always create an indexing job, even if no project types are detected.
+            # The background job will mark itself as completed with an appropriate
+            # message in that case, and will also update the repository status.
             job = await self.metadata_indexing_job_service.start_indexing_background(
                 db=db,
                 repository_id=repository.id,

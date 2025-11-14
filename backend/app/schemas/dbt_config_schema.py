@@ -134,3 +134,102 @@ class ResourceSummarySchema(BaseModel):
     macros: int = 0
     tests: int = 0
     exposures: int = 0
+
+
+# --- SQLX / Dataform schemas -------------------------------------------------
+
+
+class SQLXColumnSchema(BaseModel):
+    """Schema for a column in a SQLX (Dataform) resource."""
+
+    name: str
+    description: Optional[str] = ""
+    data_type: Optional[str] = ""
+    meta: Optional[Dict[str, Any]] = Field(default_factory=dict)
+
+
+class SQLXTableSchema(BaseModel):
+    """Schema for a SQLX table, view or incremental action."""
+
+    name: str
+    path: str
+    type: str = "sqlx_table"
+
+    # High-level configuration
+    materialization: Optional[str] = ""  # table / view / incremental
+    description: Optional[str] = ""
+    tags: List[str] = Field(default_factory=list)
+    schema_expr: Optional[str] = ""  # Expression used for schema/database
+    unique_key: List[str] = Field(default_factory=list)
+
+    # Warehouse-specific configuration (kept flat for now)
+    partition_by: Optional[str] = ""
+    cluster_by: List[str] = Field(default_factory=list)
+
+    # Assertions and other config snippets stored as-is
+    assertions: Dict[str, Any] = Field(default_factory=dict)
+
+    # SQL body and pre-operations
+    sql_body: Optional[str] = ""
+    pre_operations_raw: Optional[str] = ""
+    sqlx_source_snippet: Optional[str] = ""
+
+    # Columns and dependencies
+    columns: List[SQLXColumnSchema] = Field(default_factory=list)
+    depends_on: List[str] = Field(default_factory=list)
+
+    # Raw config block as a best-effort parsed object or string
+    raw_config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SQLXAssertionSchema(BaseModel):
+    """Schema for a SQLX assertion action."""
+
+    name: str
+    path: str
+    type: str = "sqlx_assertion"
+    description: Optional[str] = ""
+    tags: List[str] = Field(default_factory=list)
+    sql_body: Optional[str] = ""
+    depends_on: List[str] = Field(default_factory=list)
+    raw_config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SQLXOperationSchema(BaseModel):
+    """Schema for a SQLX operation action."""
+
+    name: str
+    path: str
+    type: str = "sqlx_operation"
+    description: Optional[str] = ""
+    tags: List[str] = Field(default_factory=list)
+    sql_body: Optional[str] = ""
+    depends_on: List[str] = Field(default_factory=list)
+    raw_config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SQLXDeclarationSchema(BaseModel):
+    """Schema for a SQLX declaration (external table/view)."""
+
+    name: str
+    path: str
+    type: str = "sqlx_declaration"
+    description: Optional[str] = ""
+    database: Optional[str] = ""
+    schema: Optional[str] = ""
+    raw_config: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SQLXProjectResourcesSchema(BaseModel):
+    """Schema for all SQLX resources extracted from a project."""
+
+    tables: List[SQLXTableSchema] = Field(default_factory=list)
+    assertions: List[SQLXAssertionSchema] = Field(default_factory=list)
+    operations: List[SQLXOperationSchema] = Field(default_factory=list)
+    declarations: List[SQLXDeclarationSchema] = Field(default_factory=list)
+
+    columns_by_resource: Dict[str, List[SQLXColumnSchema]] = Field(default_factory=dict)
+    docs_by_resource: Dict[str, str] = Field(default_factory=dict)
+
+    # For now we keep project config untyped; can be expanded later.
+    project_config: Optional[Dict[str, Any]] = None
