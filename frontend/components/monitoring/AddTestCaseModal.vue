@@ -749,9 +749,8 @@ const save = async () => {
       const updated = await updateCase(props.caseId)
       const res = updated?.raw
       if (!updated?.case) throw new Error('Failed to update case')
-      // Emit created as well for backward compatibility and updated explicitly
-      emit('created', (res as any)?.data?.value)
-      // @ts-ignore - extended event
+      // Editing existing case: emit only updated for in-place list updates
+      // @ts-ignore - extended event (extended event type)
       emit('updated' as any, (res as any)?.data?.value)
       if ((res as any)?.error?.value) throw (res as any).error.value
     } else {
@@ -844,9 +843,8 @@ const runNow = async () => {
       // Update then run
       const updated = await updateCase(props.caseId)
       if (!updated?.case?.id) throw new Error('Failed to update case')
-      // Emit both for consumers
-      emit('created', updated.case)
-      // @ts-ignore
+      // Editing existing case: emit only updated for in-place list updates
+      // @ts-ignore - extended event (extended event type)
       emit('updated' as any, updated.case)
       caseId = updated.case.id
     } else {

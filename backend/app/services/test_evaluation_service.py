@@ -451,6 +451,10 @@ class TestEvaluationService:
 
                 # tool:clarify.* (support question text checks)
                 if cat == "tool:clarify":
+                    seq = snapshot.get("tool_sequence") or []
+                    if "clarify" not in seq:
+                        push_skipped("clarify tool not called", evidence=RuleEvidence(type="clarify"))
+                        continue
                     cl = snapshot.get("clarify") or {}
                     value = (
                         cl.get("question_text")
@@ -627,6 +631,8 @@ class TestEvaluationService:
         lst = list(values or []) if isinstance(values, list) else []
         if t == "list.contains_any":
             wants = list(getattr(matcher, "values", []) or [])
+            if not wants:
+                return True, "no required values (wildcard)"
             ok = any(w in lst for w in wants)
             return ok, f"must contain any of {wants}"
         if t == "list.contains_all":
