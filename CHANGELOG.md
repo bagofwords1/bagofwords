@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.243 (November 15, 2025)
+- Fixing a couple of bugs and renaming release notes to CHANGELOG
+
 ## Version 0.0.242 (November 14, 2025)
 - Enhanced markdown parser for better handling of complex formatting and edge cases
 - Added support for Dataform projects and introduced SQLX file parsing, enriching contextual metadata for queries and models

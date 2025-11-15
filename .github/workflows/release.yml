@@ -48,10 +48,10 @@ jobs:
           }
           print_section && /^## Version / { exit }
           print_section { print }
-        ' release_notes.md > RELEASE_BODY.md
+        ' CHANGELOG.md > RELEASE_BODY.md
         if [ ! -s RELEASE_BODY.md ]; then
-          echo "No specific section found; using full release_notes.md"
-          cp release_notes.md RELEASE_BODY.md
+          echo "No specific section found; using full CHANGELOG.md"
+          cp CHANGELOG.md RELEASE_BODY.md
         fi
 
     - name: Check if tag exists
