@@ -97,7 +97,7 @@ packaging==24.0
 pandas==2.2.2
 parso==0.8.3
 partialjson==0.0.8
-pdfminer.six==20240706
+pdfminer.six==20251107
 pexpect==4.9.0
 pillow==11.3.0
 platformdirs==4.3.6

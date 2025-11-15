@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.244 (November 15, 2025)
+- Updating dependencies
+
 ## Version 0.0.243 (November 15, 2025)
 - Fixing a couple of bugs and renaming release notes to CHANGELOG
 
