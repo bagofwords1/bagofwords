@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.245 (November 16, 2025)
+- Repair migrations
+
 ## Version 0.0.244 (November 15, 2025)
 - Updating dependencies
 
