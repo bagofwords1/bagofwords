@@ -111,32 +111,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    table_names = set(inspector.get_table_names())
-
-    # Best-effort, defensive downgrade: drop what we added, if present
-    if 'reports' in table_names:
-        report_columns = {c['name'] for c in inspector.get_columns('reports')}
-        existing_indexes = {i['name'] for i in inspector.get_indexes('reports')}
-
-        with op.batch_alter_table('reports', schema=None) as batch_op:
-            if 'ix_reports_report_type' in existing_indexes:
-                batch_op.drop_index(op.f('ix_reports_report_type'))
-            if 'report_type' in report_columns:
-                batch_op.drop_column('report_type')
-
-    if 'llm_models' in table_names:
-        llm_columns = {c['name'] for c in inspector.get_columns('llm_models')}
-
-        with op.batch_alter_table('llm_models', schema=None) as batch_op:
-            if 'output_cost_per_million_tokens_usd' in llm_columns:
-                batch_op.drop_column('output_cost_per_million_tokens_usd')
-            if 'input_cost_per_million_tokens_usd' in llm_columns:
-                batch_op.drop_column('input_cost_per_million_tokens_usd')
-            if 'max_output_tokens' in llm_columns:
-                batch_op.drop_column('max_output_tokens')
-            if 'context_window_tokens' in llm_columns:
-                batch_op.drop_column('context_window_tokens')
-            if 'is_small_default' in llm_columns:
-                batch_op.drop_column('is_small_default')
+    # No-op downgrade.
+    # The original schema changes for reports.report_type and llm_models
+    # are owned by earlier migrations (e.g. da68823779da and 9479f7d83f08),
+    # so we delegate full rollback to those downgrades to avoid double-drops.
+    pass
