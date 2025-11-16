@@ -61,11 +61,33 @@ class SnowflakeCredentials(BaseModel):
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
 
 
+class SnowflakeKeypairCredentials(BaseModel):
+    user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
+    private_key_pem: str = Field(
+        ...,
+        title="Private Key (PEM)",
+        description="PEM-encoded RSA private key used for Snowflake key pair authentication",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+    private_key_passphrase: Optional[str] = Field(
+        None,
+        title="Private Key Passphrase",
+        description="Passphrase for the encrypted private key, if applicable",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
 class SnowflakeConfig(BaseModel):
     account: str = Field(..., title="Account", description="The unique account identifier. For example: ABCDEF-GHIJKL", json_schema_extra={"ui:type": "string"})
     warehouse: str = Field(..., title="Warehouse", description="", json_schema_extra={"ui:type": "string"})
     database: str = Field(..., title="Database", description="", json_schema_extra={"ui:type": "string"})
     schema: str = Field(..., title="Schema", description="Can be a comma-separated list of schemas", json_schema_extra={"ui:type": "string"})
+    role: Optional[str] = Field(
+        None,
+        title="Role",
+        description="Optional Snowflake role to use for this connection",
+        json_schema_extra={"ui:type": "string"},
+    )
 
 
 # BigQuery - credentials_json already contains all auth info
@@ -364,6 +386,7 @@ __all__ = [
     "PostgreSQLCredentials",
     "OracleCredentials",
     "SnowflakeCredentials",
+    "SnowflakeKeypairCredentials",
     "BigQueryCredentials",
     "NetSuiteCredentials",
     "SQLCredentials",

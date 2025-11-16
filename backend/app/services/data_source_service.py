@@ -688,7 +688,11 @@ class DataSourceService:
             credentials = payload.get("credentials") or {}
 
             # Instantiate client by type using same naming convention as DataSource.get_client
-            client = self._resolve_client_by_type(data_source_type=data_source_type, config=config, credentials=credentials)
+            client = self._resolve_client_by_type(
+                data_source_type=data_source_type,
+                config=config,
+                credentials=credentials,
+            )
 
             # Test the connection
             connection_status = client.test_connection()
@@ -783,6 +787,10 @@ class DataSourceService:
             client_params = (config or {}).copy()
             if credentials:
                 client_params.update(credentials)
+
+            # Strip meta keys (e.g., auth_type) that are not part of client signatures
+            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+            client_params = {k: v for k, v in (client_params or {}).items() if k not in meta_keys}
 
             return ClientClass(**client_params)
         except (ImportError, AttributeError) as e:

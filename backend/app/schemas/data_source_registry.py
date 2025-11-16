@@ -34,6 +34,7 @@ from app.schemas.data_sources.configs import (
     PostgreSQLCredentials,
     OracleCredentials,
     SnowflakeCredentials,
+    SnowflakeKeypairCredentials,
     BigQueryCredentials,
     NetSuiteCredentials,
     SQLCredentials,
@@ -116,9 +117,21 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Snowflake",
         description="Cloud-based data warehousing platform that supports SQL queries.",
         config_schema=SnowflakeConfig,
-        credentials_auth=AuthOptions(default="userpass", by_auth={
-            "userpass": AuthVariant(title="Username / Password", schema=SnowflakeCredentials, scopes=["system","user"])
-        }),
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=SnowflakeCredentials,
+                    scopes=["system", "user"],
+                ),
+                "keypair": AuthVariant(
+                    title="Key Pair (Private Key)",
+                    schema=SnowflakeKeypairCredentials,
+                    scopes=["system", "user"],
+                ),
+            },
+        ),
         client_path="app.data_sources.clients.snowflake_client.SnowflakeClient",
     ),
     "bigquery": DataSourceRegistryEntry(

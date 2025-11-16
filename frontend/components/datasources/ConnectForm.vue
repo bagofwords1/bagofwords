@@ -333,8 +333,8 @@ async function testConnection() {
     const payload = {
       name: name.value || selectedType.value,
       type: selectedType.value,
-      // Omit auth_type on test-connection to match backend client signatures
-      config: (() => { const { auth_type: _ignoredAuthType, ...rest } = (formData.config || {}) as any; return rest })(),
+      // Include auth_type so backend can select correct credentials schema (e.g., Snowflake keypair)
+      config: { ...formData.config, auth_type: selectedAuth.value || undefined },
       credentials: showSystemCredentialFields.value ? formData.credentials : {},
       is_public: is_public.value
     }

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.246 (November 16, 2025)
+- Snowflake keypair auth
+- Repair migrations
+
 ## Version 0.0.245 (November 16, 2025)
 - Repair migrations
 

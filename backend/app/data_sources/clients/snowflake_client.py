@@ -4,18 +4,35 @@ import pandas as pd
 import sqlalchemy
 from sqlalchemy import text
 from contextlib import contextmanager
-from typing import Generator, List
+from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 from snowflake.sqlalchemy import URL
+import base64
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.backends import default_backend
 
 
 class SnowflakeClient(DataSourceClient):
-    def __init__(self, account, user, password, warehouse, database, schema):
+    def __init__(
+        self,
+        account,
+        user,
+        warehouse,
+        database,
+        schema,
+        password: Optional[str] = None,
+        private_key_pem: Optional[str] = None,
+        private_key_passphrase: Optional[str] = None,
+        role: Optional[str] = None,
+    ):
         self.account = account
         self.user = user
         self.password = password
+        self.private_key_pem = private_key_pem
+        self.private_key_passphrase = private_key_passphrase
+        self.role = role
         self.database = database
         # Accept comma-separated schemas in the existing `schema` field
         # Normalize to uppercase per Snowflake INFORMATION_SCHEMA behavior
@@ -31,17 +48,53 @@ class SnowflakeClient(DataSourceClient):
                     seen.add(up)
                     self._schemas.append(up)
         # Primary schema for connection string (fall back to provided single schema)
-        self._primary_schema = (self._schemas[0] if self._schemas else (self.schema.upper() if isinstance(self.schema, str) and self.schema else None))
+        self._primary_schema = (
+            self._schemas[0]
+            if self._schemas
+            else (self.schema.upper() if isinstance(self.schema, str) and self.schema else None)
+        )
         self.warehouse = warehouse
 
     @cached_property
-    def snowflake_uri(self):
-        # Always omit schema in the URL; we use fully-qualified names (SCHEMA.TABLE) in queries
-        uri = (
-            f"snowflake://{self.user}:{self.password}@{self.account}/"
-            f"{self.database}?warehouse={self.warehouse}"
-        )
-        return uri
+    def snowflake_engine(self):
+        """Return a SQLAlchemy engine configured for either password or keypair auth."""
+        connect_args = {
+            "user": self.user,
+            "account": self.account,
+            "warehouse": self.warehouse,
+            "database": self.database,
+        }
+        if self.role:
+            connect_args["role"] = self.role
+
+        # Prefer keypair auth when private key is provided
+        if self.private_key_pem:
+            pem_bytes = self.private_key_pem.encode("utf-8")
+            password_bytes = (
+                self.private_key_passphrase.encode("utf-8") if self.private_key_passphrase else None
+            )
+            try:
+                private_key = serialization.load_pem_private_key(
+                    pem_bytes,
+                    password=password_bytes,
+                    backend=default_backend(),
+                )
+            except Exception as e:
+                raise RuntimeError(f"Invalid Snowflake private key: {e}")
+
+            private_key_der = private_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+            # Snowflake expects a base64-encoded DER string for keypair auth
+            connect_args["private_key"] = base64.b64encode(private_key_der).decode("utf-8")
+        else:
+            # Fallback to password-based auth
+            connect_args["password"] = self.password
+
+        engine = sqlalchemy.create_engine(URL(**connect_args))
+        return engine
 
     @contextmanager
     def connect(self) -> Generator[sqlalchemy.engine.base.Connection, None, None]:
@@ -50,7 +103,7 @@ class SnowflakeClient(DataSourceClient):
         conn = None
 
         try:
-            engine = sqlalchemy.create_engine(self.snowflake_uri)
+            engine = self.snowflake_engine
             conn = engine.connect()
             yield conn
         except Exception as e:
