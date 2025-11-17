@@ -1233,24 +1233,29 @@ class ConsoleService:
         for b in blocks:
             block_schemas.append(await serialize_block_v2(db, b))
 
-        # Head prompt snippet from the head completion (first user completion in report)
+        # Head prompt snippet from the user completion that is the parent of the system completion
+        # associated with this agent execution (not the first user completion in the report)
         head_prompt = None
         head_user_completion: Optional[Completion] = None
         head_snapshot: Optional[ContextSnapshot] = None
-        if agent_execution.report_id:
-            hp_query = (
-                select(Completion)
-                .where(Completion.report_id == agent_execution.report_id, Completion.role == 'user')
-                .order_by(Completion.created_at.asc())
-                .limit(1)
-            )
-            hp_res = await db.execute(hp_query)
-            head_user_completion = hp_res.scalar_one_or_none()
-            if head_user_completion and head_user_completion.prompt:
-                if isinstance(head_user_completion.prompt, dict):
-                    head_prompt = str(head_user_completion.prompt.get('content') or '')
-                else:
-                    head_prompt = str(head_user_completion.prompt)
+        
+        # Get the system completion for this agent execution
+        if agent_execution.completion_id:
+            system_completion_query = select(Completion).where(Completion.id == agent_execution.completion_id)
+            system_completion_res = await db.execute(system_completion_query)
+            system_completion = system_completion_res.scalar_one_or_none()
+            
+            # Get the parent user completion (head completion) for this system completion
+            if system_completion and system_completion.parent_id:
+                head_completion_query = select(Completion).where(Completion.id == system_completion.parent_id)
+                head_completion_res = await db.execute(head_completion_query)
+                head_user_completion = head_completion_res.scalar_one_or_none()
+                
+                if head_user_completion and head_user_completion.prompt:
+                    if isinstance(head_user_completion.prompt, dict):
+                        head_prompt = str(head_user_completion.prompt.get('content') or '')
+                    else:
+                        head_prompt = str(head_user_completion.prompt)
 
         # Prefer the most informative snapshot for UI: try 'final' first, else latest available
         head_snapshot = None
@@ -1494,19 +1499,34 @@ class ConsoleService:
         completion_ids = [r.completion_id for r in rows if r.completion_id]
         report_ids = [r.report_id for r in rows if r.report_id]
 
-        # Prompts for completions
+        # Prompts for completions - get from parent user completion, not system completion
         prompts: dict[str, str] = {}
         if completion_ids:
-            prompt_q = select(Completion.id, Completion.prompt).where(Completion.id.in_(completion_ids))
-            pres = await db.execute(prompt_q)
-            for cid, prompt in pres.all():
-                try:
-                    if isinstance(prompt, dict):
-                        prompts[str(cid)] = str(prompt.get('content') or prompt.get('text') or '')
-                    else:
-                        prompts[str(cid)] = str(prompt or '')
-                except Exception:
-                    prompts[str(cid)] = ''
+            # Get system completions and their parent_ids
+            system_completions_q = select(Completion.id, Completion.parent_id).where(Completion.id.in_(completion_ids))
+            system_completions_res = await db.execute(system_completions_q)
+            system_completions = system_completions_res.all()
+            
+            # Collect parent completion IDs
+            parent_ids = [sc.parent_id for sc in system_completions if sc.parent_id]
+            
+            # Get prompts from parent user completions
+            if parent_ids:
+                prompt_q = select(Completion.id, Completion.prompt).where(Completion.id.in_(parent_ids))
+                pres = await db.execute(prompt_q)
+                parent_prompts = {str(cid): prompt for cid, prompt in pres.all()}
+                
+                # Map system completion IDs to their parent's prompts
+                for sc in system_completions:
+                    if sc.parent_id and str(sc.parent_id) in parent_prompts:
+                        prompt = parent_prompts[str(sc.parent_id)]
+                        try:
+                            if isinstance(prompt, dict):
+                                prompts[str(sc.id)] = str(prompt.get('content') or prompt.get('text') or '')
+                            else:
+                                prompts[str(sc.id)] = str(prompt or '')
+                        except Exception:
+                            prompts[str(sc.id)] = ''
 
         # Tool execution counts per AE
         te_counts = {str(ae_id): {'total': 0, 'success': 0, 'failed': 0} for ae_id in ae_ids}

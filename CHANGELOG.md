@@ -1,10 +1,10 @@
 # Release Notes
 
 ## Version 0.0.247 (November 17, 2025)
-- Add instruction labels
-- Add enhance instruction with AI
-- better differentiuatn between user and agent messages
-- trace modal now opens the right completion id in reports page
+- Instruction labels added for more effective categorization and management
+- Instructions can now be auto-enhanced with AI suggestions
+- Message display now clearly distinguishes between user and agent responses
+- Trace modal correctly navigates to the selected completion ID within the reports page
 
 ## Version 0.0.246 (November 16, 2025)
 - Snowflake keypair auth

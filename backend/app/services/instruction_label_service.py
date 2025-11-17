@@ -108,7 +108,19 @@ class InstructionLabelService:
     ) -> bool:
         """Soft delete a label."""
         await self._require_label_admin_permissions(db, current_user, organization)
-        label = await self._get_label(db, label_id, organization)
+        # Get label including deleted ones for idempotent delete
+        stmt = select(InstructionLabel).where(
+            and_(
+                InstructionLabel.id == label_id,
+                InstructionLabel.organization_id == organization.id,
+            )
+        )
+        res = await db.execute(stmt)
+        label = res.scalar_one_or_none()
+        if not label:
+            raise HTTPException(status_code=404, detail="Instruction label not found")
+        
+        # If already deleted, return success (idempotent)
         if label.deleted_at:
             return True
 

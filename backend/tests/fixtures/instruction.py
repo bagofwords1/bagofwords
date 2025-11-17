@@ -35,7 +35,7 @@ def create_instruction(test_client):
 
 @pytest.fixture
 def create_global_instruction(test_client):
-    def _create_global_instruction(text="Test Instruction", user_token=None, org_id=None, status="draft", category="general", data_source_ids=None):
+    def _create_global_instruction(text="Test Instruction", user_token=None, org_id=None, status="draft", category="general", data_source_ids=None, label_ids=None):
         if user_token is None:
             pytest.fail("User token is required for create_instruction")
         if org_id is None:
@@ -47,6 +47,8 @@ def create_global_instruction(test_client):
             "category": category,
             "data_source_ids": data_source_ids or []
         }
+        if label_ids is not None:
+            payload["label_ids"] = label_ids
         
         headers = {
             "Authorization": f"Bearer {user_token}",
@@ -120,7 +122,7 @@ def get_instruction(test_client):
 
 @pytest.fixture
 def update_instruction(test_client):
-    def _update_instruction(instruction_id, text=None, status=None, category=None, data_source_ids=None, user_token=None, org_id=None):
+    def _update_instruction(instruction_id, text=None, status=None, category=None, data_source_ids=None, label_ids=None, user_token=None, org_id=None):
         if user_token is None:
             pytest.fail("User token is required for update_instruction")
         if org_id is None:
@@ -135,6 +137,8 @@ def update_instruction(test_client):
             payload["category"] = category
         if data_source_ids is not None:
             payload["data_source_ids"] = data_source_ids
+        if label_ids is not None:
+            payload["label_ids"] = label_ids
         
         headers = {
             "Authorization": f"Bearer {user_token}",
@@ -255,3 +259,108 @@ def increment_thumbs_up(test_client):
         return response.json()
     
     return _increment_thumbs_up
+
+@pytest.fixture
+def create_label(test_client):
+    def _create_label(name="Test Label", color="#34d399", description=None, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for create_label")
+        if org_id is None:
+            pytest.fail("Organization ID is required for create_label")
+        
+        payload = {
+            "name": name,
+            "color": color,
+        }
+        if description is not None:
+            payload["description"] = description
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
+        response = test_client.post(
+            "/api/instructions/labels",
+            json=payload,
+            headers=headers
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _create_label
+
+@pytest.fixture
+def list_labels(test_client):
+    def _list_labels(user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for list_labels")
+        if org_id is None:
+            pytest.fail("Organization ID is required for list_labels")
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
+        response = test_client.get(
+            "/api/instructions/labels",
+            headers=headers
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _list_labels
+
+@pytest.fixture
+def update_label(test_client):
+    def _update_label(label_id, name=None, color=None, description=None, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for update_label")
+        if org_id is None:
+            pytest.fail("Organization ID is required for update_label")
+        
+        payload = {}
+        if name is not None:
+            payload["name"] = name
+        if color is not None:
+            payload["color"] = color
+        if description is not None:
+            payload["description"] = description
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
+        response = test_client.patch(
+            f"/api/instructions/labels/{label_id}",
+            json=payload,
+            headers=headers
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _update_label
+
+@pytest.fixture
+def delete_label(test_client):
+    def _delete_label(label_id, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for delete_label")
+        if org_id is None:
+            pytest.fail("Organization ID is required for delete_label")
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
+        response = test_client.delete(
+            f"/api/instructions/labels/{label_id}",
+            headers=headers
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _delete_label

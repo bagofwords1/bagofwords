@@ -63,7 +63,6 @@
                     </div>
 
                     <div class="flex items-center space-x-2 text-xs text-gray-500">
-                        <span>Label</span>
                         <USelectMenu
                             v-model="labelFilter"
                             :options="labelOptions"
@@ -118,8 +117,7 @@
                                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         Instruction
                                     </th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Labels
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                                     </th>
                                     <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                                         <!-- References -->
