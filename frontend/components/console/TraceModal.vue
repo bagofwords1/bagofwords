@@ -577,9 +577,22 @@ function shouldUseToolComponent(toolExecution: any): boolean {
 }
 
 // Watch for modal opening
-watch(() => props.modelValue, (newValue) => {
-    if (newValue) {
-        fetchTraceData()
+watch(
+  () => props.modelValue,
+  (newValue) => {
+    if (newValue && props.completionId) {
+      fetchTraceData()
     }
-})
+  }
+)
+
+// Also refetch whenever the target completion changes while the modal is open
+watch(
+  () => props.completionId,
+  (newId, oldId) => {
+    if (newId && newId !== oldId && props.modelValue) {
+      fetchTraceData()
+    }
+  }
+)
 </script> 

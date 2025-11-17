@@ -61,7 +61,7 @@
 
                 <div v-if="isLoading" class="py-8 text-center text-sm text-gray-500">
                     <div class="flex items-center justify-center gap-2">
-                        <span class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></span>
+                        <Spinner />
                         Loading labels...
                     </div>
                 </div>
@@ -90,9 +90,11 @@
                             </div>
                         </div>
                         <div class="flex items-center justify-end gap-2">
+                            <UTooltip :text="labelUsageCount(label.id) > 0 ? 'Used in ' + labelUsageCount(label.id) + ' instructions' : 'Not used in any instructions'">
                             <UBadge v-if="labelUsageCount(label.id) > 0" size="sm" variant="soft" color="gray">
                                 {{ labelUsageCount(label.id) }}
                             </UBadge>
+                            </UTooltip>
                             <UDropdown :items="getLabelActionItems(label)">
                                 <UButton
                                     color="white"
@@ -119,6 +121,7 @@
 
 <script setup lang="ts">
 import { useCan, usePermissionsLoaded } from '~/composables/usePermissions'
+import Spinner from '~/components/Spinner.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 
 interface InstructionLabel {

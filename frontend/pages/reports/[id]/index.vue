@@ -33,79 +33,170 @@
 						<Spinner class="w-4 h-4 inline mr-2" /> Loading older messages…
 					</li>
 					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
-						<div class="flex rounded-lg p-1">
-							<div class="w-[28px] mr-2">
-								<div v-if="m.role === 'user'" class="h-7 w-7 uppercase flex items-center justify-end text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
-									{{ report.user.name.charAt(0) }}
+						<div
+							class="flex rounded-lg p-1"
+							:class="m.role === 'user' ? 'justify-end' : 'justify-start'"
+						>
+							<!-- User message (right-aligned bubble with subtle background) -->
+							<template v-if="m.role === 'user'">
+								<div class="flex items-start gap-2 max-w-xl w-full mb-4">
+									<!-- User message bubble -->
+									<div class="flex-1 flex justify-end">
+										<div class="inline-block rounded-xl px-3 py-2 bg-gray-50 text-gray-900 text-left ">
+											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
+												<MDC :value="m.prompt.content" class="markdown-content" />
+											</div>
+										</div>
+									</div>
+									<!-- User avatar on the right -->
+									<div class="w-[28px] flex-shrink-0">
+										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
+											{{ report.user.name.charAt(0) }}
+										</div>
+									</div>
 								</div>
-								<div v-else class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
-								</div>
-							</div>
-							<div class="w-full ml-4">
-								<!-- User message -->
-								<div v-if="m.role === 'user' && m.prompt?.content" class="pt-1 markdown-wrapper">
-									<MDC :value="m.prompt.content" class="markdown-content" />
-								</div>
+							</template>
 
-							<!-- System message -->
-							<div v-else-if="m.role === 'system'">
-								<!-- Render each completion block -->
-									<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
-										<!-- Research blocks: put reasoning, tool execution, and assistant in thinking toggle -->
-										<div v-if="isResearchBlock(block)">
-											<!-- Thinking toggle for research blocks -->
-											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.tool_execution || block.status === 'stopped'">
-												<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
-													<div class="font-normal text-sm text-gray-400  mb-2">
-														<div class="flex items-center">
-															<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
-														<span v-if="hasCompletedContent(block)" class="ml-1 font-normal">
-															{{ getThoughtProcessLabel(block) }}
-														</span>
-														<span v-else class="ml-1">
-															<div class="dots" />
-														</span>
+							<!-- System / assistant message (left-aligned, keep existing styling) -->
+							<template v-else>
+								<div class="w-[28px] mr-2 flex-shrink-0">
+									<div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
+									</div>
+								</div>
+								<div class="w-full ml-4 max-w-2xl">
+									<!-- System message -->
+									<div>
+										<!-- Render each completion block -->
+										<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
+											<!-- Research blocks: put reasoning, tool execution, and assistant in thinking toggle -->
+											<div v-if="isResearchBlock(block)">
+												<!-- Thinking toggle for research blocks -->
+												<div v-if="block.plan_decision?.reasoning || block.reasoning || block.tool_execution || block.status === 'stopped'">
+													<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
+														<div class="font-normal text-sm text-gray-400  mb-2">
+															<div class="flex items-center">
+																<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
+																<span v-if="hasCompletedContent(block)" class="ml-1 font-normal">
+																	{{ getThoughtProcessLabel(block) }}
+																</span>
+																<span v-else class="ml-1">
+																	<div class="dots" />
+																</span>
+															</div>
 														</div>
 													</div>
-												</div>
-												<Transition name="fade">
-													<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content">
-														<!-- Reasoning -->
-														<div v-if="block.plan_decision?.reasoning || block.reasoning" class="markdown-wrapper mb-2">
-															<template v-if="isBlockFinalized(block)">
-																<MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
-															</template>
-															<template v-else>
-																<div class="streaming-text">{{ block.plan_decision?.reasoning || block.reasoning || '' }}</div>
-															</template>
-														</div>
-														
-														<!-- Fallback for stopped blocks with no reasoning -->
-														<div v-else-if="block.status === 'stopped'" class="text-gray-400 italic mb-2">
-															Generation was stopped before completion.
-														</div>
-														
-														<!-- Tool execution details in thinking -->
-														<div v-if="block.tool_execution" class="mb-4">
-														<!-- Use specialized tool component if available -->
-														<component 
-															v-if="shouldUseToolComponent(block.tool_execution)"
-															:is="getToolComponent(block.tool_execution.tool_name)"
-															:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
-															:tool-execution="block.tool_execution"
-															@addWidget="handleAddWidgetFromPreview"
-															@refreshDashboard="refreshDashboardFast"
-															@toggleSplitScreen="toggleSplitScreen"
-															@editQuery="handleEditQuery"
-														/>
-
-
-														<!-- Fallback to generic tool display -->
-														<div v-else>
-															<div class="text-xs text-gray-600 mb-1 font-medium" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
-																{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+													<Transition name="fade">
+														<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content">
+															<!-- Reasoning -->
+															<div v-if="block.plan_decision?.reasoning || block.reasoning" class="markdown-wrapper mb-2">
+																<template v-if="isBlockFinalized(block)">
+																	<MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+																</template>
+																<template v-else>
+																	<div class="streaming-text">{{ block.plan_decision?.reasoning || block.reasoning || '' }}</div>
+																</template>
 															</div>
-															<div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+
+															<!-- Fallback for stopped blocks with no reasoning -->
+															<div v-else-if="block.status === 'stopped'" class="text-gray-400 italic mb-2">
+																Generation was stopped before completion.
+															</div>
+
+															<!-- Tool execution details in thinking -->
+															<div v-if="block.tool_execution" class="mb-4">
+																<!-- Use specialized tool component if available -->
+																<component 
+																	v-if="shouldUseToolComponent(block.tool_execution)"
+																	:is="getToolComponent(block.tool_execution.tool_name)"
+																	:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
+																	:tool-execution="block.tool_execution"
+																	@addWidget="handleAddWidgetFromPreview"
+																	@refreshDashboard="refreshDashboardFast"
+																	@toggleSplitScreen="toggleSplitScreen"
+																	@editQuery="handleEditQuery"
+																/>
+
+
+																<!-- Fallback to generic tool display -->
+																<div v-else>
+																	<div class="text-xs text-gray-600 mb-1 font-medium" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
+																		{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+																	</div>
+																	<div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+																		<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
+																		<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
+																		<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
+																		<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
+																	</div>
+																</div>
+															</div>
+														</div>
+													</Transition>
+												</div>
+											</div>
+
+											<!-- Action blocks: render like before -->
+											<div v-else>
+												<!-- Block reasoning section -->
+												<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'">
+													<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
+														<div class="font-normal text-sm text-gray-500 mb-2">
+															<div class="flex items-center">
+																<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-500" />
+																<span v-if="hasCompletedContent(block)" class="ml-1">
+																	{{ getThoughtProcessLabel(block) }}
+																</span>
+																<span v-else class="ml-1">
+																	<div class="dots" />
+																</span>
+															</div>
+														</div>
+													</div>
+													<Transition name="fade">
+														<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content markdown-wrapper">
+															<template v-if="block.plan_decision?.reasoning || block.reasoning">
+																<MDC :key="block.id + ':' + (block.content?.length || 0)" :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+															</template>
+															<template v-else-if="block.status === 'stopped'">
+																<div class="text-gray-400 italic">Generation was stopped before completion.</div>
+															</template>
+														</div>
+													</Transition>
+												</div>
+												<!-- Block content -->
+												<div v-if="block.content && !block.plan_decision?.final_answer && block.status !== 'error'" class="markdown-wrapper">
+													<template v-if="isBlockFinalized(block)">
+														<MDC :value="block.content || ''" class="markdown-content" />
+													</template>
+													<template v-else>
+														<div class="streaming-text">{{ block.content || '' }}</div>
+													</template>
+												</div>
+
+												<!-- Final answer (if this is the last block and analysis is complete) -->
+												<div v-else-if="block.plan_decision?.final_answer && block.plan_decision?.analysis_complete" class="mt-2 markdown-wrapper">
+													<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
+												</div>
+
+												<!-- Tool execution details -->
+												<div v-if="block.tool_execution" class="mt-3 mb-4">
+													<!-- Use specialized tool component if available -->
+													<component 
+														v-if="shouldUseToolComponent(block.tool_execution)"
+														:is="getToolComponent(block.tool_execution.tool_name)"
+														:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
+														:tool-execution="block.tool_execution"
+														@addWidget="handleAddWidgetFromPreview"
+														@toggleSplitScreen="toggleSplitScreen"
+														@editQuery="handleEditQuery"
+													/>
+													<!-- Fallback to generic expandable tool display -->
+													<div v-else>
+														<div class="text-xs text-gray-500 mb-1">
+															<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
+																{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+															</span>
+															<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
 																<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
 																<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
 																<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
@@ -113,140 +204,62 @@
 															</div>
 														</div>
 													</div>
-													
-													<!-- Assistant message in thinking for research -->
-													<div v-if="block.content" class="markdown-wrapper">
-														<MDC :key="block.id + ':' + (block.content?.length || 0)" :value="block.content || ''" class="markdown-content" />
-													</div>
 												</div>
-											</Transition>
-										</div>
-									</div>
-									
-									<!-- Action blocks: render like before -->
-									<div v-else>
-										<!-- Block reasoning section -->
-										<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'">
-											<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
-												<div class="font-normal text-sm text-gray-500 mb-2">
-													<div class="flex items-center">
-														<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-500" />
-														<span v-if="hasCompletedContent(block)" class="ml-1">
-															{{ getThoughtProcessLabel(block) }}
-														</span>
-														<span v-else class="ml-1">
-															<div class="dots" />
-														</span>
-													</div>
+												<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+													<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 												</div>
-										</div>
-										<Transition name="fade">
-											<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content markdown-wrapper">
-												<template v-if="block.plan_decision?.reasoning || block.reasoning">
-													<MDC :key="block.id + ':' + (block.content?.length || 0)" :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
-												</template>
-												<template v-else-if="block.status === 'stopped'">
-													<div class="text-gray-400 italic">Generation was stopped before completion.</div>
-												</template>
 											</div>
-										</Transition>
+										</div>
+
+										<!-- Thinking dots when system is working but no visible progress - moved to end -->
+										<div v-if="shouldShowWorkingDots(m)" class="mt-2">
+											<div class="simple-dots"></div>
+										</div>
 									</div>
-									<!-- Block content -->
-									<div v-if="block.content && !block.plan_decision?.final_answer && block.status !== 'error'" class="markdown-wrapper">
-										<template v-if="isBlockFinalized(block)">
-											<MDC :value="block.content || ''" class="markdown-content" />
-										</template>
-										<template v-else>
-											<div class="streaming-text">{{ block.content || '' }}</div>
-										</template>
-									</div>
-									
-									<!-- Final answer (if this is the last block and analysis is complete) -->
-									<div v-else-if="block.plan_decision?.final_answer && block.plan_decision?.analysis_complete" class="mt-2 markdown-wrapper">
-										<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
-									</div>
-									
-									<!-- Tool execution details -->
-									<div v-if="block.tool_execution" class="mt-3 mb-4">
-										<!-- Use specialized tool component if available -->
-										<component 
-											v-if="shouldUseToolComponent(block.tool_execution)"
-											:is="getToolComponent(block.tool_execution.tool_name)"
-											:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
-											:tool-execution="block.tool_execution"
-											@addWidget="handleAddWidgetFromPreview"
-											@toggleSplitScreen="toggleSplitScreen"
-											@editQuery="handleEditQuery"
+
+									<!-- Instruction Suggestions (outside blocks) -->
+									<div v-if="m.instruction_suggestions && m.instruction_suggestions.length > 0" class="mt-4 mb-4">
+										<InstructionSuggestions 
+											:tool-execution="{ 
+												id: `suggestions-${m.id}`, 
+												tool_name: 'suggest_instructions',
+												status: 'success',
+												result_json: { drafts: m.instruction_suggestions }
+											}"
 										/>
-										<!-- Fallback to generic expandable tool display -->
-										<div v-else>
-											<div class="text-xs text-gray-500 mb-1">
-												<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
-													{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
-												</span>
-												<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
-													<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
-													<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
-													<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
-													<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
-												</div>
-											</div>
+									</div>
+
+									<!-- Show status messages for stopped/error completions -->
+									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
+										<div class="flex items-center space-x-2">
+											<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" />
+
+											<!-- Debug button -->
+											<button
+												v-if="canViewConsole"
+												@click="openTraceModal(m.system_completion_id || m.id)"
+												class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 rounded-md transition-colors group"
+												:title="'View Agent Trace'"
+											>
+												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
+											</button>
 										</div>
 									</div>
-									<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
-										<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
+									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
+										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
+										Generation stopped
+									</div>
+									<div v-else-if="m.status === 'error'" class="text-xs text-gray-500">
+										<Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
+										<span v-if="getMessageError(m)" class="pre-wrap">
+											<Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
+											{{ getMessageError(m) }}</span>
+										<span v-else class="italic">An error occurred</span>
 									</div>
 								</div>
-							
-							<!-- Thinking dots when system is working but no visible progress - moved to end -->
-							<div v-if="shouldShowWorkingDots(m)" class="mt-2">
-								<div class="simple-dots"></div>
-							</div>
-							</div>
-							
-							<!-- Instruction Suggestions (outside blocks) -->
-							<div v-if="m.instruction_suggestions && m.instruction_suggestions.length > 0" class="mt-4 mb-4">
-								<InstructionSuggestions 
-									:tool-execution="{ 
-										id: `suggestions-${m.id}`, 
-										tool_name: 'suggest_instructions',
-										status: 'success',
-										result_json: { drafts: m.instruction_suggestions }
-									}"
-								/>
-							</div>
-							
-							<!-- Show status messages for stopped/error completions -->
-							<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
-								<div class="flex items-center space-x-2">
-									<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" />
-									
-									<!-- Debug button -->
-									<button
-										v-if="canViewConsole"
-										@click="openTraceModal(m.system_completion_id || m.id)"
-										class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 rounded-md transition-colors group"
-										:title="'View Agent Trace'"
-									>
-										<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
-									</button>
-								</div>
-							</div>
-							<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
-								<Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
-								Generation stopped
-							</div>
-							<div v-else-if="m.status === 'error'" class="text-xs text-gray-500">
-								<Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
-								<span v-if="getMessageError(m)" class="pre-wrap">
-									<Icon name="heroicons-x-mark" class="w-4 h-4 inline mr-1 text-red-500" />
-									{{ getMessageError(m) }}</span>
-								<span v-else class="italic">An error occurred</span>
-							</div>
+							</template>
 						</div>
-					</div>
-					</div>
-				</li>
+					</li>
 			</ul>
 			<div v-else class="w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
 				<h1 class="text-4xl mb-4">🪴</h1>

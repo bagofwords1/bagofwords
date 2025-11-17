@@ -134,7 +134,7 @@
         <!-- Loading state -->
         <div v-if="isLoading" class="flex items-center justify-center py-12">
             <div class="flex items-center space-x-2">
-                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                <Spinner />
                 <span class="text-gray-600">Loading instructions...</span>
             </div>
         </div>

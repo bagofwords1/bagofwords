@@ -4,6 +4,7 @@
 - Add instruction labels
 - Add enhance instruction with AI
 - better differentiuatn between user and agent messages
+- trace modal now opens the right completion id in reports page
 
 ## Version 0.0.246 (November 16, 2025)
 - Snowflake keypair auth
