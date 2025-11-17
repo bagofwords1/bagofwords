@@ -35,7 +35,7 @@
 					<li v-for="m in messages" :key="m.id" class="text-gray-700 mb-2 text-sm">
 						<div class="flex rounded-lg p-1">
 							<div class="w-[28px] mr-2">
-								<div v-if="m.role === 'user'" class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
+								<div v-if="m.role === 'user'" class="h-7 w-7 uppercase flex items-center justify-end text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
 									{{ report.user.name.charAt(0) }}
 								</div>
 								<div v-else class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">

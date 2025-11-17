@@ -12,49 +12,104 @@
                 <p class="mt-1 text-sm text-gray-500">Manage global AI instructions</p>
             </div>
 
-            <!-- Filter buttons and Add button -->
-            <div class="mb-4 flex justify-between items-center">
-                <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
-                    <button 
-                        @click="setActiveFilter('all')" 
-                        :class="[
-                            activeFilter === 'all' 
-                                ? 'bg-white text-gray-900 shadow-sm' 
-                                : 'text-gray-500 hover:text-gray-900',
-                            'px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200'
-                        ]"
+            <!-- Filter buttons, search, and Add button -->
+            <div class="mb-4 space-y-3">
+                <div class="flex justify-between items-center">
+                    <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
+                        <button 
+                            @click="setActiveFilter('all')" 
+                            :class="[
+                                activeFilter === 'all' 
+                                    ? 'bg-white text-gray-900 shadow-sm' 
+                                    : 'text-gray-500 hover:text-gray-900',
+                                'px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200'
+                            ]"
+                        >
+                            All Instructions
+                        </button>
+                        <button 
+                            @click="setActiveFilter('my')" 
+                            :class="[
+                                activeFilter === 'my' 
+                                    ? 'bg-white text-gray-900 shadow-sm' 
+                                    : 'text-gray-500 hover:text-gray-900',
+                                'px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200'
+                            ]"
+                        >
+                            {{ myInstructionsButtonText }}
+                        </button>
+                    </div>
+                    
+                    <UButton
+                        :icon="buttonIcon"
+                        color="blue"
+                        size="xs"
+                        variant="solid"
+                        @click="addInstruction"
                     >
-                        All Instructions
-                    </button>
-                    <button 
-                        @click="setActiveFilter('my')" 
-                        :class="[
-                            activeFilter === 'my' 
-                                ? 'bg-white text-gray-900 shadow-sm' 
-                                : 'text-gray-500 hover:text-gray-900',
-                            'px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200'
-                        ]"
-                    >
-                        {{ myInstructionsButtonText }}
-                    </button>
+                        {{ buttonText }}
+                    </UButton>
                 </div>
-                
-                <UButton
-                    :icon="buttonIcon"
-                    color="blue"
-                    size="xs"
-                    variant="solid"
-                    @click="addInstruction"
-                >
-                    {{ buttonText }}
-                </UButton>
+
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="relative w-full sm:max-w-xs">
+                        <input
+                            v-model="searchQuery"
+                            type="text"
+                            placeholder="Search instructions..."
+                            class="w-full pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-200"
+                        />
+                        <UIcon name="i-heroicons-magnifying-glass" class="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+                    </div>
+
+                    <div class="flex items-center space-x-2 text-xs text-gray-500">
+                        <span>Label</span>
+                        <USelectMenu
+                            v-model="labelFilter"
+                            :options="labelOptions"
+                            value-attribute="value"
+                            option-attribute="label"
+                            size="xs"
+                            class="w-40"
+                            multiple
+                            :close-on-select="false"
+                            :disabled="labelOptions.length === 0"
+                        >
+                            <template #label>
+                                <div class="flex items-center flex-wrap gap-1 text-xs text-gray-700">
+                                    <span v-if="selectedLabelOptions.length === 0" class="text-gray-500">Select labels</span>
+                                    <span
+                                        v-for="option in selectedLabelOptions.slice(0, 3)"
+                                        :key="option.value"
+                                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border"
+                                        :style="{ borderColor: option.color || '#CBD5F5' }"
+                                    >
+                                        <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
+                                        {{ option.label }}
+                                    </span>
+                                    <span v-if="selectedLabelOptions.length > 3" class="text-gray-500 text-xs">
+                                        +{{ selectedLabelOptions.length - 3 }}
+                                    </span>
+                                </div>
+                            </template>
+                            <template #option="{ option }">
+                                <div class="flex items-center justify-between text-xs text-gray-700 w-full">
+                                    <div class="flex items-center gap-2">
+                                        <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
+                                        <span>{{ option.label }}</span>
+                                    </div>
+                                </div>
+                            </template>
+                        </USelectMenu>
+                    </div>
+                </div>
             </div>
 
             <!-- Instructions List -->
             <div v-if="isLoading" class="flex items-center justify-center py-12">
                 <Spinner />
             </div>
-            <div v-else-if="instructions.length > 0">
+            <div v-else-if="filteredInstructions.length > 0">
                 <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
@@ -62,6 +117,9 @@
                                 <tr>
                                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                         Instruction
+                                    </th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Labels
                                     </th>
                                     <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
                                         <!-- References -->
@@ -82,6 +140,33 @@
                                     <td class="px-3 py-2 text-xs">
                                         <div class="max-w-md">
                                             <p class="text-gray-900 leading-tight">{{ instruction.text }}</p>
+                                        </div>
+                                    </td>
+                                    <td class="px-3 py-2 text-xs">
+                                        <div class="flex flex-wrap items-center gap-1">
+                                            <template v-if="instruction.labels?.length">
+                                                <UTooltip
+                                                    v-for="label in instruction.labels.slice(0, 4)"
+                                                    :key="label.id"
+                                                    :text="label.description || label.name"
+                                                >
+                                                    <span
+                                                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-medium"
+                                                        :style="{
+                                                            borderColor: label.color || '#CBD5F5',
+                                                            backgroundColor: label.color ? `${label.color}20` : '#F3F4F6',
+                                                            color: '#1F2937'
+                                                        }"
+                                                    >
+                                                        <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94A3B8' }"></span>
+                                                        {{ label.name }}
+                                                    </span>
+                                                </UTooltip>
+                                                <span v-if="instruction.labels.length > 4" class="text-[10px] text-gray-500 px-1.5 py-0.5">
+                                                    +{{ instruction.labels.length - 4 }}
+                                                </span>
+                                            </template>
+                                            <span v-else class="text-[10px] text-gray-400">None</span>
                                         </div>
                                     </td>
                                     <td class="px-3 py-2 text-sm">
@@ -135,9 +220,9 @@
                         </table>
                     </div>
                     <!-- Pagination -->
-                    <div v-if="instructions.length > pageSize" class="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
+                    <div v-if="filteredInstructions.length > pageSize" class="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
                         <div class="text-xs text-gray-700">
-                            Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, instructions.length) }} of {{ instructions.length }} instructions
+                            Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, filteredInstructions.length) }} of {{ filteredInstructions.length }} instructions
                         </div>
                         <div class="flex items-center space-x-1">
                             <UButton
@@ -221,6 +306,13 @@ interface User {
     email: string
 }
 
+interface InstructionLabel {
+    id: string
+    name: string
+    color?: string | null
+    description?: string | null
+}
+
 interface Instruction {
     id: string
     text: string
@@ -241,6 +333,7 @@ interface Instruction {
     can_user_toggle: boolean
     reviewed_by_user_id: string | null
     reviewed_by?: User
+    labels?: InstructionLabel[]
 }
 
 const toast = useToast()
@@ -252,6 +345,8 @@ const showInstructionModal = ref(false)
 const editingInstruction = ref<Instruction | null>(null)
 const showDetailsModal = ref(false)
 const viewingInstruction = ref<Instruction | null>(null)
+const searchQuery = ref('')
+const labelFilter = ref<string[]>([])
 
 // Pagination state
 const currentPage = ref(1)
@@ -284,15 +379,60 @@ const buttonIcon = computed(() => {
 
 // Color is set directly in template to avoid TS type mismatch
 
+const labelOptions = computed(() => {
+    const unique = new Map<string, { label: string; value: string; color?: string | null }>()
+    instructions.value.forEach(instruction => {
+        ;(instruction.labels || []).forEach(label => {
+            if (label?.id && !unique.has(label.id)) {
+                unique.set(label.id, {
+                    label: label.name || 'Unnamed',
+                    value: label.id,
+                    color: label.color || null
+                })
+            }
+        })
+    })
+    const sorted = Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label))
+    return sorted
+})
+
+const selectedLabelOptions = computed(() => {
+    if (!labelFilter.value.length) return []
+    const map = new Map(labelOptions.value.map(option => [option.value, option]))
+    return labelFilter.value.map(id => map.get(id)).filter(Boolean) as { label: string; value: string; color?: string | null }[]
+})
+
+const filteredInstructions = computed(() => {
+    let list = instructions.value
+
+    if (labelFilter.value.length) {
+        list = list.filter(instruction => (instruction.labels || []).some(label => labelFilter.value.includes(label.id)))
+    }
+
+    if (searchQuery.value.trim()) {
+        const q = searchQuery.value.toLowerCase().trim()
+        list = list.filter(instruction => {
+            const textMatch = instruction.text.toLowerCase().includes(q)
+            const userMatch = instruction.user?.name?.toLowerCase().includes(q) ?? false
+            const categoryMatch = instruction.category.toLowerCase().includes(q)
+            const dataSourceMatch = instruction.data_sources.some(ds => ds.name.toLowerCase().includes(q))
+            const labelMatch = (instruction.labels || []).some(label => label.name?.toLowerCase().includes(q))
+            return textMatch || userMatch || categoryMatch || dataSourceMatch || labelMatch
+        })
+    }
+
+    return list
+})
+
 // Pagination derived values
 const paginatedInstructions = computed(() => {
     const start = (currentPage.value - 1) * pageSize.value
     const end = start + pageSize.value
-    return instructions.value.slice(start, end)
+    return filteredInstructions.value.slice(start, end)
 })
 
 const totalPages = computed(() => {
-    const total = Math.ceil(instructions.value.length / pageSize.value)
+    const total = Math.ceil(filteredInstructions.value.length / pageSize.value)
     return total > 0 ? total : 1
 })
 
@@ -414,6 +554,14 @@ const openModal = () => {
     instructionsListModal.value = true
     fetchInstructions()
 }
+
+watch(searchQuery, () => {
+    currentPage.value = 1
+})
+
+watch(() => labelFilter.value.join(','), () => {
+    currentPage.value = 1
+})
 
 const handleInstructionClick = (instruction: Instruction) => {
     if (canCreateGlobalInstructions.value) {

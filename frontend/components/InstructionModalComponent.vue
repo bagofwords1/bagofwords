@@ -157,16 +157,24 @@
                                 </div>
                             </div>
                         </div>
-                        </div>
                     </div>
                 </div>
             </div>
         </div>
+
+        <!-- Labels Manager Modal -->
+        <InstructionLabelsManagerModal
+            v-model="showManageLabelsModal"
+            :instructions="[]"
+            @labels-updated="handleLabelsUpdated"
+        />
+    </div>
 </template>
 
 <script setup lang="ts">
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCreateComponent.vue'
+import InstructionLabelsManagerModal from '~/components/InstructionLabelsManagerModal.vue'
 import { usePermissionsLoaded, useCan } from '~/composables/usePermissions'
 import ResourceDisplay from '~/components/ResourceDisplay.vue'
 import Spinner from '~/components/Spinner.vue'
@@ -187,6 +195,7 @@ interface SharedForm {
     can_user_toggle: boolean
     private_status: string | null
     global_status: string | null
+    label_ids: string[]
 }
 
 // Props and Emits
@@ -208,7 +217,8 @@ const sharedForm = ref<SharedForm>({
     is_seen: true,
     can_user_toggle: true,
     private_status: null,
-    global_status: 'approved'
+    global_status: 'approved',
+    label_ids: []
 })
 
 // Computed properties
@@ -224,6 +234,7 @@ const showImpact = ref(true)
 const showRelated = ref(true)
 const showResources = ref(true)
 const resourceExpanded = ref<Record<string, boolean>>({})
+const showManageLabelsModal = ref(false)
 
 // Mock data for the analysis pane
 interface PromptSample {
@@ -398,7 +409,8 @@ const resetForm = () => {
         is_seen: true,
         can_user_toggle: true,
         private_status: null,
-        global_status: 'approved'
+        global_status: 'approved',
+        label_ids: []
     }
     selectedDataSources.value = []
 }
@@ -416,6 +428,11 @@ const handleInstructionSaved = (data: any) => {
     closeModal()
 }
 
+const handleLabelsUpdated = () => {
+    // Labels were updated - could emit event or refresh if needed
+    // For now, the modal handles its own refresh
+}
+
 // Watchers
 watch(() => props.instruction, (newInstruction) => {
     if (newInstruction) {
@@ -427,7 +444,8 @@ watch(() => props.instruction, (newInstruction) => {
             is_seen: newInstruction.is_seen !== undefined ? newInstruction.is_seen : true,
             can_user_toggle: newInstruction.can_user_toggle !== undefined ? newInstruction.can_user_toggle : true,
             private_status: newInstruction.private_status || null,
-            global_status: newInstruction.global_status || 'approved'
+            global_status: newInstruction.global_status || 'approved',
+            label_ids: newInstruction.labels?.map((label: any) => label.id) || []
         }
         selectedDataSources.value = newInstruction.data_sources?.map((ds: DataSource) => ds.id) || []
     } else {
@@ -453,7 +471,15 @@ watch(instructionModalOpen, (isOpen) => {
 let escHandler: ((e: KeyboardEvent) => void) | null = null
 onMounted(() => {
     escHandler = (e: KeyboardEvent) => {
-        if (e.key === 'Escape' && instructionModalOpen.value) {
+        if (e.key !== 'Escape') return
+
+        // If any secondary modal (like Manage Labels) is open, let it handle ESC
+        // and do not close the main instruction modal.
+        if (showManageLabelsModal?.value) {
+            return
+        }
+
+        if (instructionModalOpen.value) {
             closeModal()
         }
     }

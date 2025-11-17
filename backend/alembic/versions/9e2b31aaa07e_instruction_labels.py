@@ -23,6 +23,7 @@ def upgrade() -> None:
     op.create_table('instruction_labels',
     sa.Column('name', sa.String(length=100), nullable=False),
     sa.Column('color', sa.String(length=50), nullable=True),
+    sa.Column('description', sa.Text(), nullable=True),
     sa.Column('organization_id', sa.String(length=36), nullable=False),
     sa.Column('created_by_user_id', sa.String(length=36), nullable=True),
     sa.Column('id', sa.String(length=36), nullable=False),

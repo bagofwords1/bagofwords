@@ -19,6 +19,12 @@ from app.schemas.instruction_schema import (
     InstructionCategory
 )
 from app.models.instruction import Instruction
+from app.schemas.instruction_label_schema import (
+    InstructionLabelSchema,
+    InstructionLabelCreate,
+    InstructionLabelUpdate,
+)
+from app.services.instruction_label_service import InstructionLabelService
 from app.schemas.instruction_analysis_schema import (
     InstructionAnalysisRequest,
     InstructionAnalysisResponse,
@@ -26,6 +32,7 @@ from app.schemas.instruction_analysis_schema import (
 
 router = APIRouter(tags=["instructions"])
 instruction_service = InstructionService()
+instruction_label_service = InstructionLabelService()
 
 # CREATE INSTRUCTIONS
 @router.post("/instructions", response_model=InstructionSchema)
@@ -182,6 +189,58 @@ async def get_instruction_private_statuses():
 async def get_instruction_global_statuses():
     """Get all available global instruction statuses"""
     return [status.value for status in InstructionGlobalStatus]
+
+
+# LABEL MANAGEMENT
+@router.get("/instructions/labels", response_model=List[InstructionLabelSchema])
+@requires_permission('view_instructions')
+async def list_instruction_labels(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """List instruction labels for the current organization."""
+    return await instruction_label_service.list_labels(db, organization, current_user)
+
+
+@router.post("/instructions/labels", response_model=InstructionLabelSchema)
+@requires_permission('create_instructions')
+async def create_instruction_label(
+    label: InstructionLabelCreate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Create a new instruction label."""
+    return await instruction_label_service.create_label(db, label, organization, current_user)
+
+
+@router.patch("/instructions/labels/{label_id}", response_model=InstructionLabelSchema)
+@requires_permission('update_instructions')
+async def update_instruction_label(
+    label_id: str,
+    label: InstructionLabelUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Update an instruction label."""
+    return await instruction_label_service.update_label(db, label_id, label, organization, current_user)
+
+
+@router.delete("/instructions/labels/{label_id}")
+@requires_permission('delete_instructions')
+async def delete_instruction_label(
+    label_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Delete (soft delete) an instruction label."""
+    success = await instruction_label_service.delete_label(db, label_id, organization, current_user)
+    if not success:
+        raise HTTPException(status_code=404, detail="Instruction label not found")
+    return {"message": "Label deleted successfully"}
 
 
 @router.post("/instructions/analysis", response_model=InstructionAnalysisResponse)

@@ -2,7 +2,7 @@
     <div>
         <form @submit.prevent="submitForm" class="p-4">
             <!-- Instruction Text -->
-            <div class="flex flex-col mx-auto max-w-2xl py-2">
+            <div class="flex flex-col mx-auto max-w-xl py-2">
                 <div class="flex items-center justify-between mb-4">
                     <label class="text-md font-medium text-gray-800">
                         Create Instruction
@@ -14,23 +14,99 @@
                         </span>
                     </UButton>
                 </div>
-                <textarea 
-                    v-model="instructionForm.text"
-                    :rows="7"
-                    placeholder="Enter the instruction, rule, code, or any other text..."
-                    class="w-full text-sm p-3 min-h-[160px] border border-gray-200 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300"
-                    required
-                />
-                <UButton size="xs" variant="soft" color="blue" @click="enhanceInstruction">
-                    <span class="inline-flex items-center gap-1">
-                        <Icon name="heroicons:sparkles" class="w-4 h-4" />
-                        Enhance with AI
-                    </span>
-                </UButton>
+                <div class="relative">
+                    <textarea 
+                        v-model="instructionForm.text"
+                        :rows="5"
+                        placeholder="Describe the instruction here..."
+                        class="w-full text-sm p-3 pb-10 min-h-[100px] focus:ring-0 focus:outline-none border border-gray-200 rounded-lg bg-white shadow-sm focus:ring-0 transition"
+                        required
+                    />
+                    <button 
+                        type="button"
+                        @click="enhanceInstruction"
+                        :disabled="isEnhancing"
+                        class="absolute bottom-3 left-1 inline-flex items-center gap-1.5 px-2.5 py-1 hover:bg-gray-50 rounded-full text-xs font-medium text-gray-600 shadow-none disabled:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-100" 
+                    >
+                        <Spinner v-if="isEnhancing" class="w-3.5 h-3.5 text-blue-500" />
+                        <Icon v-else name="heroicons:sparkles" class="w-4 h-4 text-blue-500" />
+                        <span class="text-[13px]">
+                            {{ isEnhancing ? 'Enhancing…' : 'Enhance with AI' }}
+                        </span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Labels -->
+            <div class="mx-auto max-w-xl mt-2">
+                <label class="text-xs font-medium text-gray-600 mb-1.5 flex items-center gap-2">
+                    Labels
+                    <span v-if="isLoadingLabels" class="text-[10px] text-gray-400">Loading...</span>
+                </label>
+                <USelectMenu
+                    :model-value="selectedLabelIds"
+                    @update:modelValue="handleLabelSelectionChange"
+                    :options="labelSelectOptions"
+                    option-attribute="name"
+                    value-attribute="id"
+                    multiple
+                    size="xs"
+                    class="w-full text-xs"
+                    searchable
+                    searchable-placeholder="Search labels..."
+                >
+                    <template #label>
+                        <div class="flex items-center flex-wrap gap-1">
+                            <span v-if="selectedLabelObjects.length === 0" class="text-gray-500 text-xs">Select labels</span>
+                            <span
+                                v-for="label in selectedLabelObjects"
+                                :key="label.id"
+                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px]"
+                                :style="{ borderColor: label.color || '#CBD5F5', color: '#1F2937' }"
+                            >
+                                <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
+                                {{ label.name }}
+                            </span>
+                        </div>
+                    </template>
+                    <template #option="{ option }">
+                        <div
+                            v-if="option.__isAdd"
+                            class="flex items-center justify-between w-full py-1.5 px-0.5 text-blue-600 hover:text-blue-800 cursor-pointer"
+                            @mousedown.prevent
+                            @click.stop="openAddLabelModal"
+                        >
+                            <div class="flex items-center gap-2 text-xs font-medium">
+                                <Icon name="heroicons:plus" class="w-4 h-4" />
+                                Add label
+                            </div>
+                        </div>
+                        <div
+                            v-else
+                            class="flex items-center w-full py-1 px-0.5 gap-2"
+                        >
+                            <div class="flex items-start gap-2 min-w-0 flex-1">
+                                <span class="w-3 h-3 rounded-full mt-1 flex-shrink-0" :style="{ backgroundColor: option.color || '#94a3b8' }"></span>
+                                <div class="min-w-0">
+                                    <p class="text-xs font-medium text-gray-900 truncate">{{ option.name }}</p>
+                                    <p v-if="option.description" class="text-[10px] text-gray-500 truncate">{{ option.description }}</p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                class="ml-auto p-1 rounded hover:bg-gray-100 text-gray-500"
+                                @mousedown.prevent
+                                @click.stop="openEditLabelModal(option as InstructionLabel)"
+                            >
+                                <Icon name="heroicons:pencil" class="w-4 h-4" />
+                            </button>
+                        </div>
+                    </template>
+                </USelectMenu>
             </div>
 
             <!-- Scope (Data Sources + References) -->
-            <div class="p-2 border border-gray-200 rounded-md mx-auto max-w-2xl mt-2">
+            <div class="p-2 border border-gray-200 rounded-md mx-auto max-w-xl mt-2">
                 <div class="flex items-center cursor-pointer  hover:bg-gray-50 p-1" @click="showScope = !showScope">
                     <Icon 
                         :name="showScope ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
@@ -130,7 +206,7 @@
             </div>
 
             <!-- Meta Row: Status & Category -->
-            <div class="mx-auto max-w-2xl grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
+            <div class="mx-auto max-w-xl grid grid-cols-1 sm:grid-cols-2 gap-2 mt-4">
                 <div class="flex flex-col">
                     <label class="text-xs font-medium text-gray-600 mb-1.5">Status</label>
                     <USelectMenu size="xs" v-model="instructionForm.status" :options="statusOptions" option-attribute="label" value-attribute="value" class="w-full text-xs" required >
@@ -166,7 +242,7 @@
             </div>
 
             <!-- Advanced Section -->
-            <div class="p-2 border border-gray-200 rounded-md mx-auto max-w-2xl mt-4">
+            <div class="p-2 border border-gray-200 rounded-md mx-auto max-w-xl mt-4">
                 <div class="flex items-center cursor-pointer hover:bg-gray-50 p-1" @click="showAdvanced = !showAdvanced">
                     <Icon 
                         :name="showAdvanced ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
@@ -188,7 +264,7 @@
             </div>
 
             <!-- Form Actions -->
-            <div class="sticky bottom-0 bg-white border-t flex justify-between items-center pt-3 mx-auto max-w-2xl">
+            <div class="sticky bottom-0 bg-white border-t flex justify-between items-center pt-3 mx-auto max-w-xl">
                 <!-- Delete button (only show when editing) -->
                 <UButton 
                     v-if="isEditing"
@@ -206,10 +282,19 @@
             </div>
         </form>
     </div>
+
+    <InstructionLabelFormModal
+        v-model="showLabelModal"
+        :label="editingLabel"
+        @saved="handleLabelModalSaved"
+        @deleted="handleLabelModalDeleted"
+    />
 </template>
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import Spinner from '~/components/Spinner.vue'
+import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import { useCan } from '~/composables/usePermissions'
 
 // Define interfaces
@@ -229,6 +314,13 @@ interface InstructionForm {
     global_status: string | null
     is_seen: boolean
     can_user_toggle: boolean
+}
+
+interface InstructionLabel {
+    id: string
+    name: string
+    color?: string | null
+    description?: string | null
 }
 
 interface MentionableItem {
@@ -251,12 +343,18 @@ const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'updat
 const toast = useToast()
 const isSubmitting = ref(false)
 const isDeleting = ref(false)
+const isEnhancing = ref(false)
 const showAdvanced = ref(false)
 const showScope = ref(false)
 const availableDataSources = ref<DataSource[]>([])
 const selectedDataSources = ref<string[]>([])
 const mentionableOptions = ref<MentionableItem[]>([])
 const selectedReferences = ref<MentionableItem[]>([])
+const availableLabels = ref<InstructionLabel[]>([])
+const selectedLabelIds = ref<string[]>([])
+const isLoadingLabels = ref(false)
+const showLabelModal = ref(false)
+const editingLabel = ref<InstructionLabel | null>(null)
 
 // Form data
 const instructionForm = ref<InstructionForm>({
@@ -293,6 +391,29 @@ const getSelectedDataSourceObjects = computed(() => {
 
 const selectedReferenceIds = computed(() => selectedReferences.value.map(r => r.id))
 
+const labelSelectOptions = computed(() => {
+    const base = availableLabels.value.map(label => ({ ...label }))
+    return [
+        ...base,
+        {
+            id: '__add__',
+            name: 'Add label',
+            color: undefined,
+            description: undefined,
+            __isAdd: true
+        } as InstructionLabel & { __isAdd?: boolean }
+    ]
+})
+
+const selectedLabelObjects = computed(() => {
+    const lookup = availableLabels.value.reduce<Record<string, InstructionLabel>>((acc, label) => {
+        acc[label.id] = label
+        return acc
+    }, {})
+    return selectedLabelIds.value.map(id => lookup[id]).filter(Boolean)
+})
+
+const labelModalTitle = computed(() => editingLabel.value?.id ? 'Edit Label' : 'Add Label')
 // Filter mentionable options based on selected data sources
 const filteredMentionableOptions = computed(() => {
     // If all data sources are selected (or none selected), show all references
@@ -356,19 +477,30 @@ const getCurrentStatusDisplayText = () => {
 }
 
 const enhanceInstruction = async () => {
+    if (isEnhancing.value || !instructionForm.value.text?.trim()) return
+    
+    isEnhancing.value = true
     const payload = buildInstructionPayload()
-    const response = await useMyFetch('/instructions/enhance', {
-        method: 'POST',
-        body: payload
-    })
-    if (response.status.value === 'success') {
-        instructionForm.value.text = response.data.value as string
-    } else {
+    
+    try {
+        const response = await useMyFetch('/instructions/enhance', {
+            method: 'POST',
+            body: payload
+        })
+        if (response.status.value === 'success') {
+            instructionForm.value.text = response.data.value as string
+        } else {
+            throw new Error('Enhance failed')
+        }
+    } catch (error) {
+        console.error('Error enhancing instruction:', error)
         toast.add({
             title: 'Error',
             description: 'Failed to enhance instruction',
             color: 'red'
         })
+    } finally {
+        isEnhancing.value = false
     }
 }
 
@@ -480,6 +612,60 @@ const validateSelectedReferences = () => {
     selectedReferences.value = selectedReferences.value.filter(ref => validReferenceIds.has(ref.id))
 }
 
+const fetchLabels = async () => {
+    isLoadingLabels.value = true
+    try {
+        const { data, error } = await useMyFetch<InstructionLabel[]>('/instructions/labels', {
+            method: 'GET'
+        })
+        if (!error.value && Array.isArray(data.value)) {
+            availableLabels.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching instruction labels:', err)
+    } finally {
+        isLoadingLabels.value = false
+    }
+}
+
+const handleLabelSelectionChange = (ids: string[]) => {
+    const normalized = Array.isArray(ids) ? ids : []
+    if (normalized.includes('__add__')) {
+        openAddLabelModal()
+    }
+    const filtered = normalized.filter(id => id && id !== '__add__')
+    selectedLabelIds.value = filtered
+    emit('update-form', { label_ids: filtered })
+}
+
+const openAddLabelModal = () => {
+    editingLabel.value = null
+    showLabelModal.value = true
+}
+
+const openEditLabelModal = (label: InstructionLabel) => {
+    if (!label?.id) return
+    editingLabel.value = label
+    showLabelModal.value = true
+}
+
+const handleLabelModalSaved = async (payload: { label: InstructionLabel | null; isNew: boolean }) => {
+    const savedLabel = payload.label
+    await fetchLabels()
+
+    // If a new label was created while creating/editing an instruction, auto-select it
+    if (payload.isNew && savedLabel?.id) {
+        selectedLabelIds.value = Array.from(new Set([...selectedLabelIds.value, savedLabel.id]))
+        emit('update-form', { label_ids: selectedLabelIds.value })
+    }
+}
+
+const handleLabelModalDeleted = async (labelId: string) => {
+    await fetchLabels()
+    selectedLabelIds.value = selectedLabelIds.value.filter(id => id !== labelId)
+    emit('update-form', { label_ids: selectedLabelIds.value })
+}
+
 const buildInstructionPayload = () => {
     const dataSourceIds = isAllDataSourcesSelected.value ? [] : selectedDataSources.value.slice()
     return {
@@ -491,6 +677,7 @@ const buildInstructionPayload = () => {
         is_seen: instructionForm.value.is_seen,
         can_user_toggle: instructionForm.value.can_user_toggle,
         data_source_ids: dataSourceIds,
+        label_ids: selectedLabelIds.value.slice(),
         references: selectedReferences.value.map(r => ({
             object_type: r.type,
             object_id: r.id,
@@ -515,8 +702,10 @@ const resetForm = () => {
     }
     selectedDataSources.value = []
     selectedReferences.value = []
+    selectedLabelIds.value = []
     isSubmitting.value = false
     showAdvanced.value = false
+    emit('update-form', { label_ids: [] })
 }
 
 const submitForm = async () => {
@@ -653,6 +842,7 @@ const initReferencesFromInstruction = () => {
 // Lifecycle
 onMounted(() => {
     fetchDataSources()
+    fetchLabels()
     fetchAvailableReferences().then(() => initReferencesFromInstruction())
 })
 
@@ -676,7 +866,11 @@ watch(() => props.instruction, (newInstruction) => {
             can_user_toggle: newInstruction.can_user_toggle !== undefined ? newInstruction.can_user_toggle : true
         }
         selectedDataSources.value = newInstruction.data_sources?.map((ds: DataSource) => ds.id) || []
+        selectedLabelIds.value = newInstruction.labels?.map((label: InstructionLabel) => label.id) || []
+        emit('update-form', { label_ids: selectedLabelIds.value })
         initReferencesFromInstruction()
+    } else {
+        resetForm()
     }
 }, { immediate: true })
 
@@ -684,4 +878,10 @@ watch(() => props.instruction, (newInstruction) => {
 watch(() => selectedDataSources.value, () => {
     validateSelectedReferences()
 }, { deep: true })
+
+watch(showLabelModal, (isOpen) => {
+    if (!isOpen) {
+        editingLabel.value = null
+    }
+})
 </script>

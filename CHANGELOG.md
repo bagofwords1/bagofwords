@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.247 (November 17, 2025)
+- Add instruction labels
+- Add enhance instruction with AI
+- better differentiuatn between user and agent messages
+
 ## Version 0.0.246 (November 16, 2025)
 - Snowflake keypair auth
 - Repair migrations

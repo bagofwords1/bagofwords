@@ -7,6 +7,7 @@ from pydantic import BaseModel
 class InstructionLabelBase(BaseModel):
     name: str
     color: Optional[str] = None
+    description: Optional[str] = None
 
 
 class InstructionLabelCreate(InstructionLabelBase):
@@ -18,6 +19,7 @@ class InstructionLabelUpdate(BaseModel):
 
     name: Optional[str] = None
     color: Optional[str] = None
+    description: Optional[str] = None
 
 
 class InstructionLabelSchema(InstructionLabelBase):

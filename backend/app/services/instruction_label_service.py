@@ -2,11 +2,11 @@ from datetime import datetime
 from typing import List, Set
 
 from fastapi import HTTPException
-from sqlalchemy import and_, func
+from sqlalchemy import and_, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.models.instruction_label import InstructionLabel
+from app.models.instruction_label import InstructionLabel, instruction_label_association
 from app.models.membership import Membership, ROLES_PERMISSIONS
 from app.models.organization import Organization
 from app.models.user import User
@@ -60,6 +60,7 @@ class InstructionLabelService:
         model = InstructionLabel(
             name=name,
             color=payload.color,
+            description=payload.description,
             organization_id=organization.id,
             created_by_user_id=current_user.id if current_user else None,
         )
@@ -91,6 +92,9 @@ class InstructionLabelService:
         if payload.color is not None:
             label.color = payload.color
 
+        if payload.description is not None:
+            label.description = payload.description
+
         await db.commit()
         await db.refresh(label)
         return InstructionLabelSchema.from_orm(label)
@@ -108,6 +112,7 @@ class InstructionLabelService:
         if label.deleted_at:
             return True
 
+        await self._remove_instruction_associations(db, label.id)
         label.deleted_at = datetime.utcnow()
         await db.commit()
         return True
@@ -148,6 +153,17 @@ class InstructionLabelService:
         if not label:
             raise HTTPException(status_code=404, detail="Instruction label not found")
         return label
+
+    async def _remove_instruction_associations(
+        self,
+        db: AsyncSession,
+        label_id: str,
+    ) -> None:
+        await db.execute(
+            delete(instruction_label_association).where(
+                instruction_label_association.c.label_id == label_id
+            )
+        )
 
     async def _require_label_admin_permissions(
         self,

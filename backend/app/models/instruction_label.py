@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Table
+from sqlalchemy import Column, String, ForeignKey, Table, Text
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -18,6 +18,7 @@ class InstructionLabel(BaseSchema):
 
     name = Column(String(100), nullable=False)
     color = Column(String(50), nullable=True)
+    description = Column(Text, nullable=True)
 
     # Organization ownership and creator
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)

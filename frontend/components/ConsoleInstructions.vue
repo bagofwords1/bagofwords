@@ -1,8 +1,8 @@
 <template>
     <div class="mt-6">
         <!-- Header with search and add button -->
-        <div class="flex justify-between items-center mb-6">
-            <div class="flex-1 max-w-md">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+            <div class="flex-1 max-w-md w-full">
                 <div class="relative">
                     <input
                         v-model="searchQuery"
@@ -14,15 +14,17 @@
                 </div>
             </div>
             
-            <UButton
-                icon="i-heroicons-plus"
-                color="blue"
-                variant="solid"
-                @click="addInstruction"
-                class="ml-4"
-            >
-                {{ addButtonLabel }}
-            </UButton>
+            <div class="flex items-center justify-end gap-2 w-full md:w-auto">
+                <UButton
+                    icon="i-heroicons-plus"
+                    color="blue"
+                    variant="solid"
+                    @click="addInstruction"
+                    class="w-full md:w-auto"
+                >
+                    {{ addButtonLabel }}
+                </UButton>
+            </div>
         </div>
 
         <!-- Main tabs -->
@@ -72,6 +74,60 @@
                 />
             </div>
 
+            <!-- Label filter -->
+            <div class="flex items-center space-x-2">
+                <span class="text-gray-500">Label</span>
+                <USelectMenu
+                    v-model="labelFilter"
+                    :options="labelOptionsWithManage"
+                    value-attribute="value"
+                    option-attribute="label"
+                    size="xs"
+                    class="w-48"
+                    multiple
+                    :close-on-select="false"
+                    :disabled="labelOptions.length === 0 && !canCreate"
+                    @update:model-value="handleLabelFilterChange"
+                >
+                    <template #label>
+                        <div class="flex items-center flex-wrap gap-1 text-xs text-gray-700">
+                            <span v-if="selectedLabelOptions.length === 0" class="text-gray-500">Select labels</span>
+                            <span
+                                v-for="option in selectedLabelOptions.slice(0, 3)"
+                                :key="option.value"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border"
+                                :style="{ borderColor: option.color || '#CBD5F5' }"
+                            >
+                                <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
+                                {{ option.label }}
+                            </span>
+                            <span v-if="selectedLabelOptions.length > 3" class="text-gray-500 text-xs">
+                                +{{ selectedLabelOptions.length - 3 }}
+                            </span>
+                        </div>
+                    </template>
+                    <template #option="{ option }">
+                        <!-- Special row: Manage Labels (looks like a normal row, full-width hover) -->
+                        <div
+                            v-if="option.value === '__manage__'"
+                            class=" py-1.5 px-2 cursor-pointer text-xs text-gray-700"
+                            @click.stop="openManageLabelsModal"
+                        >
+                            <UIcon name="i-heroicons-tag" class="w-3 h-3 text-gray-500 mr-2" />
+                            <span>Manage Labels</span>
+                        </div>
+
+                        <!-- Regular label option -->
+                        <div v-else class="flex items-center justify-between text-xs text-gray-700 w-full">
+                            <div class="flex items-center gap-2">
+                                <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
+                                <span>{{ option.label }}</span>
+                            </div>
+                        </div>
+                    </template>
+                </USelectMenu>
+            </div>
+
             <!-- Data sources filter removed as requested -->
         </div>
 
@@ -91,6 +147,9 @@
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Instruction
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Labels
                             </th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 Data Sources
@@ -119,6 +178,33 @@
                                     <p class="truncate" :title="instruction.text">
                                         {{ instruction.text }}
                                     </p>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4">
+                                <div class="flex flex-wrap items-center gap-1">
+                                    <template v-if="instruction.labels?.length">
+                                        <UTooltip
+                                            v-for="label in instruction.labels.slice(0, 4)"
+                                            :key="label.id"
+                                            :text="label.description || label.name"
+                                        >
+                                            <span
+                                                class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-medium"
+                                                :style="{
+                                                    borderColor: label.color || '#CBD5F5',
+                                                    backgroundColor: label.color ? `${label.color}20` : '#F3F4F6',
+                                                    color: '#1F2937'
+                                                }"
+                                            >
+                                                <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: label.color || '#94A3B8' }"></span>
+                                                {{ label.name }}
+                                            </span>
+                                        </UTooltip>
+                                        <span v-if="instruction.labels.length > 4" class="text-xs text-gray-500 px-2 py-0.5">
+                                            +{{ instruction.labels.length - 4 }}
+                                        </span>
+                                    </template>
+                                    <span v-else class="text-xs text-gray-400">None</span>
                                 </div>
                             </td>
                             <td class="px-6 py-4">
@@ -249,11 +335,19 @@
         :instruction="editingInstruction"
         @instructionSaved="handleInstructionSaved"
     />
+
+    <!-- Labels Manager Modal -->
+    <InstructionLabelsManagerModal
+        v-model="showManageLabelsModal"
+        :instructions="instructions"
+        @labels-updated="handleLabelsUpdated"
+    />
 </template>
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
+import InstructionLabelsManagerModal from '~/components/InstructionLabelsManagerModal.vue'
 import { useCan, usePermissionsLoaded } from '~/composables/usePermissions'
 
 // Define interfaces based on the backend schema
@@ -278,6 +372,13 @@ interface User {
     email: string
 }
 
+interface InstructionLabel {
+    id: string
+    name: string
+    color?: string | null
+    description?: string | null
+}
+
 interface Instruction {
     id: string
     text: string
@@ -298,6 +399,7 @@ interface Instruction {
     can_user_toggle: boolean
     reviewed_by_user_id: string | null
     reviewed_by?: User  // Add this to get
+    labels?: InstructionLabel[]
 }
 
 const getRefIcon = (type: string) => {
@@ -318,6 +420,7 @@ const getRefDisplayName = (ref: any) => {
 }
 
 // Reactive state
+const toast = useToast()
 const instructions = ref<Instruction[]>([])
 const isLoading = ref(false)
 const searchQuery = ref('')
@@ -333,23 +436,49 @@ const addButtonLabel = computed(() => canCreate.value ? 'Add Instruction' : 'Sug
 const activeTab = ref<'published' | 'suggested'>('published')
 const creatorFilter = ref<'all' | 'user' | 'ai'>('all')
 const categoryFilter = ref<string>('all')
+const labelFilter = ref<string[]>([])
 // Data sources filter removed
+
+// Label management state
+const showManageLabelsModal = ref(false)
 
 // Modal state
 const showInstructionModal = ref(false)
 const editingInstruction = ref<Instruction | null>(null)
 
 // Derived collections
+const isGlobalDraft = (instruction: Instruction) => {
+    return (
+        instruction.status === 'draft' &&
+        !instruction.private_status &&
+        instruction.global_status === 'approved'
+    )
+}
+
+const isSuggestedTabItem = (instruction: Instruction) => {
+    if (isGlobalDraft(instruction)) {
+        return true
+    }
+    if (instruction.status !== 'draft') {
+        return false
+    }
+    return (
+        instruction.global_status === 'suggested' ||
+        instruction.private_status === 'draft' ||
+        !instruction.global_status
+    )
+}
+
 const publishedCount = computed(() => instructions.value.filter(i => i.status === 'published').length)
-// Suggested are draft-mode suggestions. Include items that are draft and suggested globally
-const suggestedCount = computed(() => instructions.value.filter(i => i.status === 'draft' && (i.global_status === 'suggested' || i.private_status === 'draft')).length)
+// Suggested tab includes suggested, private drafts, and global drafts awaiting publish
+const suggestedCount = computed(() => instructions.value.filter(i => isSuggestedTabItem(i)).length)
 
 const mainFiltered = computed(() => {
     if (activeTab.value === 'published') {
         return instructions.value.filter(i => i.status === 'published')
     } else {
-        // Suggested tab: show drafts that are suggested or otherwise in draft state
-        return instructions.value.filter(i => i.status === 'draft' && (i.global_status === 'suggested' || i.private_status === 'draft' || !i.global_status))
+        // Suggested tab: show drafts, including global drafts awaiting publication
+        return instructions.value.filter(i => isSuggestedTabItem(i))
     }
 })
 
@@ -363,6 +492,40 @@ const categoryOptions = [
 ]
 
 // Computed properties
+const labelOptions = computed(() => {
+    const unique = new Map<string, { label: string; value: string; color?: string | null }>()
+    instructions.value.forEach(instruction => {
+        ;(instruction.labels || []).forEach(label => {
+            if (label?.id && !unique.has(label.id)) {
+                unique.set(label.id, {
+                    label: label.name || 'Unnamed',
+                    value: label.id,
+                    color: label.color || null
+                })
+            }
+        })
+    })
+    return Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label))
+})
+
+const labelOptionsWithManage = computed(() => {
+    const options = [...labelOptions.value]
+    if (canCreate.value) {
+        options.push({
+            label: 'Manage Labels',
+            value: '__manage__',
+            color: null
+        })
+    }
+    return options
+})
+
+const selectedLabelOptions = computed(() => {
+    if (!labelFilter.value.length) return []
+    const map = new Map(labelOptions.value.map(option => [option.value, option]))
+    return labelFilter.value.map(id => map.get(id)).filter(Boolean) as { label: string; value: string; color?: string | null }[]
+})
+
 const filteredInstructions = computed(() => {
     let list = mainFiltered.value
 
@@ -379,6 +542,14 @@ const filteredInstructions = computed(() => {
         list = list.filter(i => i.category === categoryFilter.value)
     }
 
+    // Label filter
+    if (labelFilter.value.length > 0) {
+        list = list.filter(i => {
+            const labels = i.labels || []
+            return labels.some(label => labelFilter.value.includes(label.id))
+        })
+    }
+
     // Search
     if (searchQuery.value) {
         const q = searchQuery.value.toLowerCase()
@@ -387,7 +558,8 @@ const filteredInstructions = computed(() => {
             instruction.user?.name?.toLowerCase().includes(q) ||
             instruction.status.toLowerCase().includes(q) ||
             instruction.category.toLowerCase().includes(q) ||
-            instruction.data_sources.some(ds => ds.name.toLowerCase().includes(q))
+            instruction.data_sources.some(ds => ds.name.toLowerCase().includes(q)) ||
+            (instruction.labels || []).some(label => label.name?.toLowerCase().includes(q))
         )
     }
 
@@ -490,6 +662,24 @@ const handleInstructionSaved = (savedInstruction: Instruction) => {
     }
 }
 
+const openManageLabelsModal = () => {
+    showManageLabelsModal.value = true
+}
+
+const handleLabelsUpdated = () => {
+    // Refresh instructions to get updated labels
+    fetchInstructions()
+}
+
+const handleLabelFilterChange = (values: string[]) => {
+    // Filter out the "__manage__" option if it was selected
+    labelFilter.value = values.filter(v => v !== '__manage__')
+    // If "__manage__" was in the selection, open the modal
+    if (values.includes('__manage__')) {
+        openManageLabelsModal()
+    }
+}
+
 const formatStatus = (status: string) => {
     const statusMap = {
         draft: 'Draft',
@@ -564,9 +754,10 @@ watch(searchQuery, () => {
     currentPage.value = 1
 })
 
-watch([activeTab, creatorFilter, categoryFilter], () => {
+watch([activeTab, creatorFilter, categoryFilter, () => labelFilter.value.join(',')], () => {
     currentPage.value = 1
 })
+
 
 // Fetch instructions on component mount
 onMounted(async () => {
