@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Set
+from typing import List
 
 from fastapi import HTTPException
 from sqlalchemy import and_, func, delete
@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.models.instruction_label import InstructionLabel, instruction_label_association
-from app.models.membership import Membership, ROLES_PERMISSIONS
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.instruction_label_schema import (
@@ -26,8 +25,7 @@ class InstructionLabelService:
         organization: Organization,
         current_user: User,
     ) -> List[InstructionLabelSchema]:
-        """Return all labels for the organization (membership required)."""
-        await self._require_membership(db, current_user, organization)
+        """Return all labels for the organization."""
         stmt = (
             select(InstructionLabel)
             .where(
@@ -49,8 +47,7 @@ class InstructionLabelService:
         organization: Organization,
         current_user: User,
     ) -> InstructionLabelSchema:
-        """Create a new instruction label (admin permission required)."""
-        await self._require_label_admin_permissions(db, current_user, organization)
+        """Create a new instruction label."""
         name = (payload.name or "").strip()
         if not name:
             raise HTTPException(status_code=400, detail="Label name is required")
@@ -78,7 +75,6 @@ class InstructionLabelService:
         current_user: User,
     ) -> InstructionLabelSchema:
         """Update label metadata."""
-        await self._require_label_admin_permissions(db, current_user, organization)
         label = await self._get_label(db, label_id, organization)
 
         if payload.name is not None:
@@ -107,7 +103,6 @@ class InstructionLabelService:
         current_user: User,
     ) -> bool:
         """Soft delete a label."""
-        await self._require_label_admin_permissions(db, current_user, organization)
         # Get label including deleted ones for idempotent delete
         stmt = select(InstructionLabel).where(
             and_(
@@ -175,47 +170,5 @@ class InstructionLabelService:
             delete(instruction_label_association).where(
                 instruction_label_association.c.label_id == label_id
             )
-        )
-
-    async def _require_label_admin_permissions(
-        self,
-        db: AsyncSession,
-        current_user: User,
-        organization: Organization,
-    ) -> Set[str]:
-        permissions = await self._get_user_permissions(db, current_user, organization)
-        if not self._has_label_admin_permissions(permissions):
-            raise HTTPException(status_code=403, detail="Permission denied")
-        return permissions
-
-    async def _get_user_permissions(
-        self,
-        db: AsyncSession,
-        current_user: User,
-        organization: Organization,
-    ) -> Set[str]:
-        membership = await self._require_membership(db, current_user, organization)
-        return ROLES_PERMISSIONS.get(membership.role, set())
-
-    async def _require_membership(
-        self,
-        db: AsyncSession,
-        current_user: User,
-        organization: Organization,
-    ) -> Membership:
-        stmt = select(Membership).where(
-            Membership.user_id == current_user.id,
-            Membership.organization_id == organization.id,
-        )
-        res = await db.execute(stmt)
-        membership = res.scalar_one_or_none()
-        if not membership:
-            raise HTTPException(status_code=403, detail="Not a member of this organization")
-        return membership
-
-    def _has_label_admin_permissions(self, permissions: Set[str]) -> bool:
-        return any(
-            perm in permissions
-            for perm in ("create_instructions", "update_instructions", "delete_instructions")
         )
 
