@@ -238,28 +238,39 @@ Recent Messages
                             yielded_count += 1
                             yield {"text": text, "category": category}
     
-    async def evaluate_instruction(self, instruction: str, context_view: Any = None) -> str:
-        """Evaluate an instruction and return a score.
-
-        Returns a score between 0 and 100.
-        """
-
-        schemas_excerpt = getattr(getattr(context_view, "static", None), "schemas", None)
-        schemas_excerpt = schemas_excerpt.render() if schemas_excerpt else ""
-
-        resources_section = getattr(getattr(context_view, "static", None), "resources", None)
-        resources_context = resources_section.render() if resources_section else ""
-
-        instructions_section = getattr(getattr(context_view, "static", None), "instructions", None)
-        instructions_context = instructions_section.render() if instructions_section else ""
-
-        messages_section = getattr(getattr(context_view, "warm", None), "messages", None)
-        messages_context = messages_section.render() if messages_section else ""
-
+    async def enhance_instruction(self, instruction: str, instructions_context: str, data_source_context: str, context_view: Any = None) -> str:
+        """User is creating an instruction and requested AI to enhance it"""
 
         header = f"""
-        You are a helpful analytics assistant. Your goal is to evaluate an instruction and return a score.
+        You are a helpful analytics assistant. Your goal is to enhance an instruction to make it more clear and concise.
 
-        Instruction:
+        Data Source Context (reference only):
+        {data_source_context or 'No data source context available'}
+
+        Instructions Context (sample and reference only):
+        {instructions_context[:10000] or 'No instructions context available'}
+
+        The user has provided the following DRAFT INSTRUCTION to enhance:
         {instruction}
+
+        Please enhance the instruction to make it more clear and concise. The output should be fed into LLM as a rule to be followed.
+        Respect the existing instructions.
+
+        Output format:
+        {{
+          "enhanced_instruction": "..."
+        }}
         """
+
+        parser = JSONParser()
+        buffer = ""
+        async for chunk in self.llm.inference_stream(header):
+            if not chunk:
+                continue
+            buffer += chunk
+            try:
+                parsed = parser.parse(buffer)
+            except Exception:
+                parsed = None
+
+        return parsed if isinstance(parsed, dict) else None

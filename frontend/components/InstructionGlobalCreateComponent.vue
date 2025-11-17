@@ -21,6 +21,12 @@
                     class="w-full text-sm p-3 min-h-[160px] border border-gray-200 rounded-md focus:ring-0 focus:outline-none focus:border-gray-300"
                     required
                 />
+                <UButton size="xs" variant="soft" color="blue" @click="enhanceInstruction">
+                    <span class="inline-flex items-center gap-1">
+                        <Icon name="heroicons:sparkles" class="w-4 h-4" />
+                        Enhance with AI
+                    </span>
+                </UButton>
             </div>
 
             <!-- Scope (Data Sources + References) -->
@@ -349,6 +355,23 @@ const getCurrentStatusDisplayText = () => {
     }
 }
 
+const enhanceInstruction = async () => {
+    const payload = buildInstructionPayload()
+    const response = await useMyFetch('/instructions/enhance', {
+        method: 'POST',
+        body: payload
+    })
+    if (response.status.value === 'success') {
+        instructionForm.value.text = response.data.value as string
+    } else {
+        toast.add({
+            title: 'Error',
+            description: 'Failed to enhance instruction',
+            color: 'red'
+        })
+    }
+}
+
 // Options for dropdowns
 const categoryOptions = [
     { label: 'General', value: 'general' },
@@ -457,6 +480,26 @@ const validateSelectedReferences = () => {
     selectedReferences.value = selectedReferences.value.filter(ref => validReferenceIds.has(ref.id))
 }
 
+const buildInstructionPayload = () => {
+    const dataSourceIds = isAllDataSourcesSelected.value ? [] : selectedDataSources.value.slice()
+    return {
+        text: instructionForm.value.text,
+        status: instructionForm.value.status,
+        category: instructionForm.value.category,
+        private_status: instructionForm.value.private_status,
+        global_status: instructionForm.value.global_status,
+        is_seen: instructionForm.value.is_seen,
+        can_user_toggle: instructionForm.value.can_user_toggle,
+        data_source_ids: dataSourceIds,
+        references: selectedReferences.value.map(r => ({
+            object_type: r.type,
+            object_id: r.id,
+            column_name: r.column_name || null,
+            relation_type: 'scope'
+        }))
+    }
+}
+
 // Event handlers
 const resetForm = () => {
     instructionForm.value = {
@@ -482,25 +525,12 @@ const submitForm = async () => {
     isSubmitting.value = true
     
     try {
+        const basePayload = buildInstructionPayload()
         const payload = {
-            text: instructionForm.value.text,
-            status: instructionForm.value.status,
-            category: instructionForm.value.category,
-            
+            ...basePayload,
             // Dual-status approach for global instructions
             private_status: null,
             global_status: 'approved',
-            
-            is_seen: instructionForm.value.is_seen,
-            can_user_toggle: instructionForm.value.can_user_toggle,
-            data_source_ids: isAllDataSourcesSelected.value ? [] : selectedDataSources.value,
-            references: selectedReferences.value.map(r => ({
-                object_type: r.type,
-                object_id: r.id,
-                column_name: r.column_name || null,
-                relation_type: 'scope'
-            })),
-            
             // Add flag to indicate this is an admin approval (for suggested instructions)
             is_admin_approval: isEditing.value && props.instruction?.global_status === 'suggested'
         }

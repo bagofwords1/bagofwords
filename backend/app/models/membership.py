@@ -41,6 +41,7 @@ MEMBER_PERMISSIONS = {
     'delete_private_instructions',
     'view_global_instructions',
     'view_private_instructions',
+    'suggest_instructions',
     'create_completion_feedback',
     'view_entities',
     'refresh_entities',

@@ -63,6 +63,8 @@ from app.models.eval import TestSuite
 from app.models.eval import TestCase
 from app.models.eval import TestRun
 from app.models.eval import TestResult
+from app.models.instruction_label import InstructionLabel
+from app.models.instruction_label import instruction_label_association
 
 from app.settings.config import settings
 

@@ -1,10 +1,13 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
 from datetime import datetime
-from app.schemas.user_schema import UserSchema
-from app.schemas.data_source_schema import DataSourceSchema, DataSourceMinimalSchema
 from enum import Enum
+from typing import Optional, List
+
+from pydantic import BaseModel, Field
+
+from app.schemas.data_source_schema import DataSourceSchema, DataSourceMinimalSchema
+from app.schemas.instruction_label_schema import InstructionLabelSchema
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema, InstructionReferenceCreate
+from app.schemas.user_schema import UserSchema
 
 class InstructionStatus(str, Enum):
     DRAFT = "draft"
@@ -25,6 +28,8 @@ class InstructionCategory(str, Enum):
     CODE_GEN = "code_gen"
     DATA_MODELING = "data_modeling"
     GENERAL = "general"
+    DASHBOARD = "dashboard"
+    VISUALIZATION = "visualization"
 
 class InstructionBase(BaseModel):
     text: str
@@ -49,6 +54,7 @@ class InstructionBase(BaseModel):
 class InstructionCreate(InstructionBase):
     data_source_ids: Optional[List[str]] = []  # Empty list means applies to all data sources
     references: Optional[List[InstructionReferenceCreate]] = []
+    label_ids: Optional[List[str]] = []  # Optional labels applied to this instruction
 
 class InstructionUpdate(BaseModel):
     text: Optional[str] = None
@@ -61,6 +67,7 @@ class InstructionUpdate(BaseModel):
     data_source_ids: Optional[List[str]] = None
     is_admin_approval: Optional[bool] = False
     references: Optional[List[InstructionReferenceCreate]] = None
+    label_ids: Optional[List[str]] = None
 
 # Simplified schema without complex computed properties
 class InstructionSchema(InstructionBase):
@@ -71,6 +78,7 @@ class InstructionSchema(InstructionBase):
     reviewed_by: Optional[UserSchema] = None
     data_sources: List[DataSourceSchema] = []
     references: List[InstructionReferenceSchema] = []
+    labels: List[InstructionLabelSchema] = []
     created_at: datetime
     updated_at: datetime
     agent_execution_id: Optional[str] = None
@@ -108,6 +116,7 @@ class InstructionListSchema(BaseModel):
     
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []
+    labels: List[InstructionLabelSchema] = []
     created_at: datetime
     updated_at: datetime
 

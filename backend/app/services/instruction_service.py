@@ -9,6 +9,8 @@ from app.models.instruction import (
     Instruction,
     instruction_data_source_association,
 )
+
+from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
 from app.models.data_source import DataSource
 from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.metadata_resource import MetadataResource
@@ -16,6 +18,7 @@ from app.models.datasource_table import DataSourceTable
 from app.models.memory import Memory
 from app.models.user import User
 from app.models.organization import Organization
+from app.models.instruction_label import InstructionLabel
 from app.schemas.instruction_schema import (
     InstructionCreate, 
     InstructionUpdate, 
@@ -35,6 +38,8 @@ from app.schemas.instruction_analysis_schema import (
 
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema
 from app.services.instruction_reference_service import InstructionReferenceService
+from app.services.llm_service import LLMService
+from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from app.core.telemetry import telemetry
 from app.models.completion import Completion
 from app.models.report import Report
@@ -45,6 +50,7 @@ from datetime import datetime, timedelta
 class InstructionService:
     def __init__(self):
         self.reference_service = InstructionReferenceService()
+        self.llm_service = LLMService()
     
     async def create_instruction(
         self, 
@@ -59,9 +65,13 @@ class InstructionService:
         # Validate data sources if provided
         if instruction_data.data_source_ids:
             await self._validate_data_sources(db, instruction_data.data_source_ids, organization)
-        
+
+        # Validate labels if provided
+        if getattr(instruction_data, "label_ids", None):
+            await self._validate_labels(db, instruction_data.label_ids, organization)
+
         # Convert enum strings coming from the API and extract their values
-        raw = instruction_data.model_dump(exclude={'data_source_ids', 'references'})
+        raw = instruction_data.model_dump(exclude={'data_source_ids', 'references', 'label_ids'})
         instruction = Instruction(**raw)
         instruction.user_id = current_user.id
         instruction.organization_id = organization.id
@@ -91,6 +101,10 @@ class InstructionService:
         # Associate with data sources if provided
         if instruction_data.data_source_ids:
             await self._associate_data_sources(db, instruction, instruction_data.data_source_ids)
+
+        # Associate with labels if provided
+        if getattr(instruction_data, "label_ids", None):
+            await self._associate_labels(db, instruction, instruction_data.label_ids)
 
         # Handle references if provided
         if getattr(instruction_data, "references", None) is not None:
@@ -132,6 +146,7 @@ class InstructionService:
                 selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
+                selectinload(Instruction.labels),
             )
             .where(Instruction.id == instruction.id)
         )
@@ -409,6 +424,7 @@ class InstructionService:
                 selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
+                selectinload(Instruction.labels),
             )
             .where(
                 and_(
@@ -462,6 +478,12 @@ class InstructionService:
             if instruction_data.data_source_ids:
                 await self._validate_data_sources(db, instruction_data.data_source_ids, organization)
             await self._update_data_source_associations(db, instruction, instruction_data.data_source_ids)
+
+        # Handle label associations
+        if getattr(instruction_data, "label_ids", None) is not None:
+            if instruction_data.label_ids:
+                await self._validate_labels(db, instruction_data.label_ids, organization)
+            await self._update_label_associations(db, instruction, instruction_data.label_ids)
         
         # Handle references if provided
         if getattr(instruction_data, "references", None) is not None:
@@ -483,12 +505,50 @@ class InstructionService:
                 selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
+                selectinload(Instruction.labels),
             )
             .where(Instruction.id == instruction.id)
         )
         instruction = fresh_instruction.scalar_one()
         return await self._instruction_to_schema_with_references(db, instruction)
     
+    async def enhance_instruction(
+        self, 
+        db: AsyncSession, 
+        instruction_data: InstructionCreate, 
+        organization: Organization,
+        current_user: User
+    ) -> Optional[str]:
+        """Enhance an instruction with AI"""
+        instruction_text = instruction_data.text
+        
+        data_source_context = await self._build_data_source_context(
+            db,
+            organization,
+            instruction_data.data_source_ids or []
+        )
+
+        instructions_builder = InstructionContextBuilder(db, organization)
+        instructions_context = await instructions_builder.build()
+        instructions_context = instructions_context.render()
+
+        small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
+        suggest_instructions = SuggestInstructions(model=small_model)
+        enhanced_instruction_text = await suggest_instructions.enhance_instruction(
+            instruction_text,
+            instructions_context,
+            data_source_context
+        )
+
+        
+        if not enhanced_instruction_text:
+            raise HTTPException(status_code=400, detail="Failed to enhance instruction")
+        
+        return enhanced_instruction_text.get("enhanced_instruction", None)
+
+
+
+
     async def delete_instruction(
         self, 
         db: AsyncSession, 
@@ -565,6 +625,7 @@ class InstructionService:
                 selectinload(Instruction.data_sources).selectinload(DataSource.data_source_memberships),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.references),
+                selectinload(Instruction.labels),
             )
             .where(
                 and_(
@@ -712,6 +773,84 @@ class InstructionService:
             data_sources = result.scalars().all()
             instruction.data_sources = data_sources
         
+        await db.commit()
+
+    async def _validate_labels(
+        self,
+        db: AsyncSession,
+        label_ids: List[str],
+        organization: Organization,
+    ):
+        """Validate that labels exist and belong to the organization."""
+        if not label_ids:
+            return
+
+        requested_ids = {label_id for label_id in label_ids if label_id}
+        if not requested_ids:
+            return
+
+        result = await db.execute(
+            select(InstructionLabel).where(
+                and_(
+                    InstructionLabel.id.in_(requested_ids),
+                    InstructionLabel.organization_id == organization.id,
+                    InstructionLabel.deleted_at == None,
+                )
+            )
+        )
+        found_labels = result.scalars().all()
+        found_ids = {label.id for label in found_labels}
+        missing_ids = requested_ids - found_ids
+        if missing_ids:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Labels not found: {list(missing_ids)}",
+            )
+
+    async def _associate_labels(
+        self,
+        db: AsyncSession,
+        instruction: Instruction,
+        label_ids: List[str],
+    ):
+        """Associate instruction with labels during creation."""
+        if not label_ids:
+            return
+
+        result = await db.execute(
+            select(InstructionLabel).where(
+                and_(
+                    InstructionLabel.id.in_(label_ids),
+                    InstructionLabel.organization_id == instruction.organization_id,
+                    InstructionLabel.deleted_at == None,
+                )
+            )
+        )
+        labels = result.scalars().all()
+        instruction.labels = labels
+        await db.commit()
+
+    async def _update_label_associations(
+        self,
+        db: AsyncSession,
+        instruction: Instruction,
+        label_ids: Optional[List[str]],
+    ):
+        """Replace label associations for an instruction."""
+        instruction.labels.clear()
+
+        if label_ids:
+            result = await db.execute(
+                select(InstructionLabel).where(
+                    and_(
+                        InstructionLabel.id.in_(label_ids),
+                        InstructionLabel.organization_id == instruction.organization_id,
+                        InstructionLabel.deleted_at == None,
+                    )
+                )
+            )
+            instruction.labels = result.scalars().all()
+
         await db.commit()
 
     async def _get_instruction_for_user(
@@ -906,6 +1045,7 @@ class InstructionService:
                 # lighter for list usage
                 selectinload(Instruction.data_sources),
                 selectinload(Instruction.reviewed_by),
+                selectinload(Instruction.labels),
             )
             .where(
                 and_(
@@ -939,6 +1079,7 @@ class InstructionService:
         # Map to list schema with minimal DS projection
         from app.schemas.instruction_schema import InstructionListSchema
         from app.schemas.data_source_schema import DataSourceMinimalSchema
+        from app.schemas.instruction_label_schema import InstructionLabelSchema
         list_items: List[InstructionListSchema] = []
         for inst in instructions:
             ds_min = [DataSourceMinimalSchema.from_orm(ds) for ds in (inst.data_sources or [])]
@@ -957,6 +1098,7 @@ class InstructionService:
                     can_user_toggle=inst.can_user_toggle,
                     reviewed_by_user_id=inst.reviewed_by_user_id,
                     data_sources=ds_min,
+                    labels=[InstructionLabelSchema.from_orm(label) for label in (inst.labels or [])],
                     created_at=inst.created_at,
                     updated_at=inst.updated_at,
                 )
@@ -1123,6 +1265,34 @@ class InstructionService:
         )
         result = await db.execute(query)
         return [row[0] for row in result.fetchall()]
+
+    async def _build_data_source_context(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        data_source_ids: List[str],
+    ) -> str:
+        """Build a lightweight context string for selected data sources."""
+        if not data_source_ids:
+            return ""
+
+        stmt = (
+            select(DataSource)
+            .where(
+                and_(
+                    DataSource.id.in_(data_source_ids),
+                    DataSource.organization_id == organization.id,
+                )
+            )
+        )
+        result = await db.execute(stmt)
+        data_sources = result.scalars().all()
+
+        parts: list[str] = []
+        for ds in data_sources:
+            description = getattr(ds, "description", None) or ""
+            parts.append(f"Data Source: {ds.name} - {description}".strip())
+        return "\n".join(parts)
     
     async def _instruction_to_schema_with_references(self, db: AsyncSession, instruction) -> InstructionSchema:
         """Convert instruction to schema with populated references."""

@@ -1,6 +1,8 @@
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, Table
 from sqlalchemy.orm import relationship
+
 from app.models.base import BaseSchema
+from app.models.instruction_label import instruction_label_association
 
 # Association table for many-to-many relationship between instructions and data sources
 instruction_data_source_association = Table(
@@ -57,6 +59,12 @@ class Instruction(BaseSchema):
         secondary=instruction_data_source_association, 
         back_populates="instructions",
         lazy="selectin"
+    )
+    labels = relationship(
+        "InstructionLabel",
+        secondary=instruction_label_association,
+        back_populates="instructions",
+        lazy="selectin",
     )
     user = relationship("User", foreign_keys=[user_id], lazy="selectin")
     reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id], lazy="selectin")
@@ -133,3 +141,8 @@ class Instruction(BaseSchema):
     def data_source_names(self) -> list[str]:
         """Returns list of data source names this instruction applies to"""
         return [ds.name for ds in self.data_sources]
+
+    @property
+    def label_names(self) -> list[str]:
+        """Returns list of label names applied to this instruction"""
+        return [label.name for label in self.labels]

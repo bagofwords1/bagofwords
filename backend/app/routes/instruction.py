@@ -94,6 +94,17 @@ async def suggest_instruction(
     """User promotes their private instruction to suggestion - Private Published -> Suggested"""
     return await instruction_service.suggest_instruction(db, instruction_id, current_user, organization)
 
+@router.post("/instructions/enhance", response_model=str)
+@requires_permission('suggest_instructions')
+async def enhance_instruction(
+    instruction_data: InstructionCreate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Enhance an instruction with AI"""
+    return await instruction_service.enhance_instruction(db, instruction_data, organization, current_user)
+
 @router.post("/instructions/{instruction_id}/withdraw", response_model=InstructionSchema)
 @requires_permission('suggest_instructions')
 async def withdraw_suggestion(
