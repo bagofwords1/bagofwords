@@ -471,6 +471,8 @@ const initialPanelWidth = ref(0)
 // Toggle states
 const collapsedReasoning = ref<Set<string>>(new Set())
 const expandedToolDetails = ref<Set<string>>(new Set())
+// Track blocks where user has manually toggled reasoning (so we don't auto-collapse them)
+const manuallyToggledReasoning = ref<Set<string>>(new Set())
 function isRealCompletion(m: ChatMessage): boolean {
     // During streaming we use a temporary client id like "system-<ts>".
     // Only allow feedback UI when we have a real backend id (UUID) either in
@@ -657,13 +659,14 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 
 
 
-// Auto-collapse reasoning when content becomes available
+// Auto-collapse reasoning when content becomes available (but respect user's manual toggle)
 watch(() => messages.value, (newMessages) => {
 	newMessages.forEach(message => {
 		if (message.completion_blocks) {
 			message.completion_blocks.forEach(block => {
 				// Auto-collapse reasoning when assistant content becomes available
-				if (hasCompletedContent(block) && !collapsedReasoning.value.has(block.id)) {
+				// But only if user hasn't manually toggled this block
+				if (hasCompletedContent(block) && !collapsedReasoning.value.has(block.id) && !manuallyToggledReasoning.value.has(block.id)) {
 					collapsedReasoning.value.add(block.id)
 				}
 			})
@@ -681,6 +684,8 @@ function goBack() {
 }
 
 function toggleReasoning(messageId: string) {
+	// Mark as manually toggled so auto-collapse won't override user's choice
+	manuallyToggledReasoning.value.add(messageId)
 	if (collapsedReasoning.value.has(messageId)) {
 		collapsedReasoning.value.delete(messageId)
 	} else {
