@@ -1,174 +1,176 @@
 <template>
-    <div v-if="instructionModalOpen" class="fixed inset-0 z-50">
-        <!-- Backdrop -->
-        <div class="absolute inset-0 bg-black/50" @click="closeModal"></div>
-        <!-- Modal container -->
-        <div class="absolute inset-0 flex items-center justify-center p-4" @click.self="closeModal">
-            <div 
-                class="relative bg-white rounded-lg shadow-xl w-[94vw] h-[85vh] overflow-hidden transition-all z-10"
-                :class="isAnalyzing ? 'max-w-6xl' : 'max-w-3xl'"
-            >
-                <!-- Header -->
-                <div class="flex items-start justify-between p-4 border-b">
-                    <div>
-                        <h1 class="text-lg font-semibold">{{ isEditing ? 'Edit Instruction' : 'Add New Instruction' }}</h1>
-                        <p class="text-sm text-gray-500">Create or modify instructions for AI agents</p>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button @click="closeModal" class="text-gray-500 hover:text-gray-700">
-                            <Icon name="heroicons:x-mark" class="w-5 h-5" />
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Body -->
-                <div :class="isAnalyzing ? 'grid grid-cols-1 md:grid-cols-2 gap-0' : ''" class="h-[calc(85vh-56px)]">
-                    <!-- Left: Form -->
-                    <div class="p-3 flex flex-col h-[calc(85vh-56px)]">
-                        <!-- Conditional rendering based on the computed selectedInstructionType -->
-                        <InstructionGlobalCreateComponent 
-                            v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
-                            :instruction="instruction"
-                            :analyzing="isAnalyzing"
-                            :shared-form="sharedForm"
-                            :selected-data-sources="selectedDataSources"
-                            @instruction-saved="handleInstructionSaved"
-                            @cancel="closeModal"
-                            @update-form="updateSharedForm"
-                            @update-data-sources="updateSelectedDataSources"
-                            @toggle-analyze="toggleAnalyze"
-                        />
-                        <InstructionPrivateCreateComponent 
-                            v-else
-                            :instruction="instruction"
-                            :shared-form="sharedForm"
-                            :selected-data-sources="selectedDataSources"
-                            :is-suggestion="effectiveIsSuggestion"
-                            @instruction-saved="handleInstructionSaved"
-                            @cancel="closeModal"
-                            @update-form="updateSharedForm"
-                            @update-data-sources="updateSelectedDataSources"
-                            @toggle-analyze="toggleAnalyze"
-                        />
-                    </div>
-
-                    <!-- Right: Analysis panel -->
-                    <div v-if="isAnalyzing && useCan('create_instructions')" class="border-t md:border-t-0 md:border-l p-3 bg-gray-50 flex flex-col h-[calc(85vh-56px)]">
-                        <div class="pb-2 flex justify-start shrink-0">
-                            <UButton size="xs" variant="soft" color="blue" @click="refreshAnalysis">Refresh Analysis</UButton>
+    <Teleport to="body">
+        <div v-if="instructionModalOpen" class="fixed inset-0 z-50">
+            <!-- Backdrop -->
+            <div class="absolute inset-0 bg-black/50" @click="closeModal"></div>
+            <!-- Modal container -->
+            <div class="absolute inset-0 flex items-center justify-center p-4" @click.self="closeModal">
+                <div 
+                    class="relative bg-white rounded-lg shadow-xl w-[94vw] h-[85vh] overflow-hidden transition-all z-10"
+                    :class="isAnalyzing ? 'max-w-6xl' : 'max-w-3xl'"
+                >
+                    <!-- Header -->
+                    <div class="flex items-start justify-between p-4 border-b">
+                        <div>
+                            <h1 class="text-lg font-semibold">{{ isEditing ? 'Edit Instruction' : 'Add New Instruction' }}</h1>
+                            <p class="text-sm text-gray-500">Create or modify instructions for AI agents</p>
                         </div>
-                        <div class="space-y-3 flex-1 overflow-y-auto pr-1">
-                            <!-- Impact Estimation -->
-                            <div class="rounded-md border bg-white">
-                                <div class="flex items-center justify-between p-2 cursor-pointer" @click="showImpact = !showImpact">
-                                    <div class="flex items-center gap-2">
-                                        <h3 class="text-xs font-semibold text-gray-900">Impact Estimation</h3>
-                                        <span class="text-[11px] text-gray-600">score:</span>
-                                        <UTooltip :text="impactTotalCount ? `${impactMatchedCount} of ${impactTotalCount} prompts relevant` : 'No prompts analyzed'">
-                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800">
-                                                {{ Math.round(impactScore * 100) }}%
-                                            </span>
-                                        </UTooltip>
-                                    </div>
-                                    <Icon :name="showImpact ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
-                                </div>
-                                <div v-show="showImpact" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
-                                    <p class="text-[11px] text-gray-600 mb-2">Sample impacted prompts</p>
-                                    <div v-if="isLoadingImpact" class="py-6 flex items-center justify-center text-gray-500">
-                                        <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
-                                    </div>
-                                    <div v-else-if="impactedPrompts.length === 0" class="text-xs text-gray-500 py-2">No relevant prompts</div>
-                                    <ul v-else class="divide-y divide-gray-100">
-                                        <li v-for="(prompt, idx) in impactedPrompts" :key="idx" class="py-2">
-                                            <div class="flex items-start justify-between gap-3">
-                                                <p class="text-xs text-gray-900 flex-1">{{ prompt.content }}</p>
-                                                <span v-if="prompt.created_at" class="text-[10px] text-gray-500 whitespace-nowrap">{{ formatDate(prompt.created_at) }}</span>
-                                            </div>
-                                        </li>
-                                    </ul>
-                                </div>
-                            </div>
+                        <div class="flex items-center gap-2">
+                            <button @click="closeModal" class="text-gray-500 hover:text-gray-700">
+                                <Icon name="heroicons:x-mark" class="w-5 h-5" />
+                            </button>
+                        </div>
+                    </div>
 
-                            <!-- Related Instructions -->
-                            <div class="rounded-md border bg-white">
-                                <div class="flex items-center justify-between p-2 cursor-pointer" @click="showRelated = !showRelated">
-                                    <div class="flex items-center gap-2">
-                                        <h3 class="text-xs font-semibold text-gray-900">Related Instructions</h3>
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ relatedInstructions.length }}</span>
+                    <!-- Body -->
+                    <div :class="isAnalyzing ? 'grid grid-cols-1 md:grid-cols-2 gap-0' : ''" class="h-[calc(85vh-56px)]">
+                        <!-- Left: Form -->
+                        <div class="p-3 flex flex-col h-[calc(85vh-56px)]">
+                            <!-- Conditional rendering based on the computed selectedInstructionType -->
+                            <InstructionGlobalCreateComponent 
+                                v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
+                                :instruction="instruction"
+                                :analyzing="isAnalyzing"
+                                :shared-form="sharedForm"
+                                :selected-data-sources="selectedDataSources"
+                                @instruction-saved="handleInstructionSaved"
+                                @cancel="closeModal"
+                                @update-form="updateSharedForm"
+                                @update-data-sources="updateSelectedDataSources"
+                                @toggle-analyze="toggleAnalyze"
+                            />
+                            <InstructionPrivateCreateComponent 
+                                v-else
+                                :instruction="instruction"
+                                :shared-form="sharedForm"
+                                :selected-data-sources="selectedDataSources"
+                                :is-suggestion="effectiveIsSuggestion"
+                                @instruction-saved="handleInstructionSaved"
+                                @cancel="closeModal"
+                                @update-form="updateSharedForm"
+                                @update-data-sources="updateSelectedDataSources"
+                                @toggle-analyze="toggleAnalyze"
+                            />
+                        </div>
+
+                        <!-- Right: Analysis panel -->
+                        <div v-if="isAnalyzing && useCan('create_instructions')" class="border-t md:border-t-0 md:border-l p-3 bg-gray-50 flex flex-col h-[calc(85vh-56px)]">
+                            <div class="pb-2 flex justify-start shrink-0">
+                                <UButton size="xs" variant="soft" color="blue" @click="refreshAnalysis">Refresh Analysis</UButton>
+                            </div>
+                            <div class="space-y-3 flex-1 overflow-y-auto pr-1">
+                                <!-- Impact Estimation -->
+                                <div class="rounded-md border bg-white">
+                                    <div class="flex items-center justify-between p-2 cursor-pointer" @click="showImpact = !showImpact">
+                                        <div class="flex items-center gap-2">
+                                            <h3 class="text-xs font-semibold text-gray-900">Impact Estimation</h3>
+                                            <span class="text-[11px] text-gray-600">score:</span>
+                                            <UTooltip :text="impactTotalCount ? `${impactMatchedCount} of ${impactTotalCount} prompts relevant` : 'No prompts analyzed'">
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800">
+                                                    {{ Math.round(impactScore * 100) }}%
+                                                </span>
+                                            </UTooltip>
+                                        </div>
+                                        <Icon :name="showImpact ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
                                     </div>
-                                    <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
-                                </div>
-                                <div v-show="showRelated" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
-                                    <div v-if="isLoadingRelated" class="py-6 flex items-center justify-center text-gray-500">
-                                        <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
-                                    </div>
-                                    <div v-else-if="relatedInstructions.length === 0" class="text-xs text-gray-500 py-2">No related instructions</div>
-                                    <ul v-else class="divide-y divide-gray-100">
-                                        <li v-for="inst in relatedInstructions" :key="inst.id" class="py-2">
-                                            <div class="flex-1">
-                                                <p class="text-xs text-gray-900">{{ inst.text }}</p>
-                                                <div class="mt-1 flex items-center gap-2">
-                                                    <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px]"
-                                                          :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'">
-                                                        {{ inst.status }}
-                                                    </span>
-                                                    <span class="text-[10px] text-gray-500">by {{ inst.createdByName }}</span>
+                                    <div v-show="showImpact" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
+                                        <p class="text-[11px] text-gray-600 mb-2">Sample impacted prompts</p>
+                                        <div v-if="isLoadingImpact" class="py-6 flex items-center justify-center text-gray-500">
+                                            <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
+                                        </div>
+                                        <div v-else-if="impactedPrompts.length === 0" class="text-xs text-gray-500 py-2">No relevant prompts</div>
+                                        <ul v-else class="divide-y divide-gray-100">
+                                            <li v-for="(prompt, idx) in impactedPrompts" :key="idx" class="py-2">
+                                                <div class="flex items-start justify-between gap-3">
+                                                    <p class="text-xs text-gray-900 flex-1">{{ prompt.content }}</p>
+                                                    <span v-if="prompt.created_at" class="text-[10px] text-gray-500 whitespace-nowrap">{{ formatDate(prompt.created_at) }}</span>
                                                 </div>
-                                            </div>
-                                        </li>
-                                    </ul>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <!-- Related Metadata Resources -->
-                            <div class="rounded-md border bg-white">
-                                <div class="flex items-center justify-between p-2 cursor-pointer" @click="showResources = !showResources">
-                                    <div class="flex items-center gap-2">
-                                        <h3 class="text-xs font-semibold text-gray-900">Related Metadata Resources</h3>
-                                        <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ relatedResources.length }}</span>
+                                <!-- Related Instructions -->
+                                <div class="rounded-md border bg-white">
+                                    <div class="flex items-center justify-between p-2 cursor-pointer" @click="showRelated = !showRelated">
+                                        <div class="flex items-center gap-2">
+                                            <h3 class="text-xs font-semibold text-gray-900">Related Instructions</h3>
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ relatedInstructions.length }}</span>
+                                        </div>
+                                        <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
                                     </div>
-                                    <Icon :name="showResources ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
-                                </div>
-                                <div v-show="showResources" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
-                                    <div v-if="isLoadingResources" class="py-6 flex items-center justify-center text-gray-500">
-                                        <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
-                                    </div>
-                                    <div v-else-if="relatedResources.length === 0" class="text-xs text-gray-500 py-2">No related metadata resources</div>
-                                    <ul v-else class="divide-y divide-gray-100">
-                                        <li v-for="res in relatedResources" :key="res.id" class="py-2">
-                                            <div class="flex items-start justify-between gap-3 cursor-pointer" @click="toggleResource(res.id)">
-                                                <div class="min-w-0 flex items-start">
-                                                    <UIcon :name="resourceExpanded[res.id] ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-500 mr-1 mt-0.5" />
-                                                    <UIcon :name="getResourceIcon(res.resource_type)" class="w-4 h-4 text-gray-500 mr-2 mt-0.5" />
-                                                    <div class="min-w-0">
-                                                        <p class="text-xs text-gray-900 truncate">{{ res.name }}</p>
-                                                        <p v-if="res.path" class="text-[10px] text-gray-500 truncate mt-0.5">{{ res.path }}</p>
+                                    <div v-show="showRelated" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
+                                        <div v-if="isLoadingRelated" class="py-6 flex items-center justify-center text-gray-500">
+                                            <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
+                                        </div>
+                                        <div v-else-if="relatedInstructions.length === 0" class="text-xs text-gray-500 py-2">No related instructions</div>
+                                        <ul v-else class="divide-y divide-gray-100">
+                                            <li v-for="inst in relatedInstructions" :key="inst.id" class="py-2">
+                                                <div class="flex-1">
+                                                    <p class="text-xs text-gray-900">{{ inst.text }}</p>
+                                                    <div class="mt-1 flex items-center gap-2">
+                                                        <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px]"
+                                                              :class="inst.status === 'published' ? 'bg-green-100 text-green-800' : inst.status === 'draft' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'">
+                                                            {{ inst.status }}
+                                                        </span>
+                                                        <span class="text-[10px] text-gray-500">by {{ inst.createdByName }}</span>
                                                     </div>
                                                 </div>
-                                                <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-800 whitespace-nowrap">
-                                                    {{ formatResourceType(res.resource_type) }}
-                                                </span>
-                                            </div>
-                                            <div v-if="resourceExpanded[res.id]" class="ml-7 mt-2">
-                                                <ResourceDisplay :resource="res" />
-                                            </div>
-                                        </li>
-                                    </ul>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <!-- Related Metadata Resources -->
+                                <div class="rounded-md border bg-white">
+                                    <div class="flex items-center justify-between p-2 cursor-pointer" @click="showResources = !showResources">
+                                        <div class="flex items-center gap-2">
+                                            <h3 class="text-xs font-semibold text-gray-900">Related Metadata Resources</h3>
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ relatedResources.length }}</span>
+                                        </div>
+                                        <Icon :name="showResources ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
+                                    </div>
+                                    <div v-show="showResources" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
+                                        <div v-if="isLoadingResources" class="py-6 flex items-center justify-center text-gray-500">
+                                            <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
+                                        </div>
+                                        <div v-else-if="relatedResources.length === 0" class="text-xs text-gray-500 py-2">No related metadata resources</div>
+                                        <ul v-else class="divide-y divide-gray-100">
+                                            <li v-for="res in relatedResources" :key="res.id" class="py-2">
+                                                <div class="flex items-start justify-between gap-3 cursor-pointer" @click="toggleResource(res.id)">
+                                                    <div class="min-w-0 flex items-start">
+                                                        <UIcon :name="resourceExpanded[res.id] ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-500 mr-1 mt-0.5" />
+                                                        <UIcon :name="getResourceIcon(res.resource_type)" class="w-4 h-4 text-gray-500 mr-2 mt-0.5" />
+                                                        <div class="min-w-0">
+                                                            <p class="text-xs text-gray-900 truncate">{{ res.name }}</p>
+                                                            <p v-if="res.path" class="text-[10px] text-gray-500 truncate mt-0.5">{{ res.path }}</p>
+                                                        </div>
+                                                    </div>
+                                                    <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-800 whitespace-nowrap">
+                                                        {{ formatResourceType(res.resource_type) }}
+                                                    </span>
+                                                </div>
+                                                <div v-if="resourceExpanded[res.id]" class="ml-7 mt-2">
+                                                    <ResourceDisplay :resource="res" />
+                                                </div>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Labels Manager Modal -->
-        <InstructionLabelsManagerModal
-            v-model="showManageLabelsModal"
-            :instructions="[]"
-            @labels-updated="handleLabelsUpdated"
-        />
-    </div>
+            <!-- Labels Manager Modal -->
+            <InstructionLabelsManagerModal
+                v-model="showManageLabelsModal"
+                :instructions="[]"
+                @labels-updated="handleLabelsUpdated"
+            />
+        </div>
+    </Teleport>
 </template>
 
 <script setup lang="ts">

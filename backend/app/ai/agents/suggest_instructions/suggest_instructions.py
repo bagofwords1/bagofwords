@@ -71,7 +71,7 @@ Code recovery flow requirements:
 General rules:
 - 1–3 instructions max. Each instruction must end with a period.
 - Instructions CANNOT be duplicate or conflict with ANY of the existing instructions. Review the existing instructions carefully and ensure your instructions are not a duplicate or conflict.
-- Category must be one of: "code" | "general".
+- Category must be one of: "code_gen" | "general".
 - If confidence is low, return an empty list.
 
 Examples (clarification → instruction):
@@ -96,14 +96,14 @@ Context:
 Return a single JSON object matching this schema exactly:
 {{
   "instructions": [
-    {{"text": "...", "category": "general|code"}}
+    {{"text": "...", "category": "general|code_gen"}}
   ]
 }}
 """
 
         parser = JSONParser()
         buffer = ""
-        allowed_categories = {"code", "general"}
+        allowed_categories = {"code_gen", "general"}
         partial_items: dict[int, dict] = {}
         emitted_indices: set[int] = set()
         yielded_count = 0
@@ -166,7 +166,7 @@ The user has just connected a data source and is onboarding.
 General rules:
 - 1–3 instructions max. Each instruction must end with a period.
 - Instructions CANNOT be duplicate or conflict with ANY of the existing instructions. Review the existing instructions carefully and ensure your instructions are not a duplicate or conflict.
-- Category must be one of: "code" | "general".
+- Category must be one of: "code_gen" | "general".
 - If confidence is low, return an empty list.
 
 Examples (clarification → instruction):
@@ -194,14 +194,14 @@ Recent Messages
         Return a single JSON object matching this schema exactly:
         {{
           "instructions": [
-            {{"text": "...", "category": "general|code"}}
+            {{"text": "...", "category": "general|code_gen"}}
           ]
         }}
 """
 
         parser = JSONParser()
         buffer = ""
-        allowed_categories = {"code", "general"}
+        allowed_categories = {"code_gen", "general"}
         partial_items: dict[int, dict] = {}
         emitted_indices: set[int] = set()
         yielded_count = 0
