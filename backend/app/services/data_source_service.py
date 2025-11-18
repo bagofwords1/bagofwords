@@ -1098,7 +1098,6 @@ class DataSourceService:
                         row.pks = payload["pks"]
                         row.fks = payload["fks"]
                         row.metadata_json = payload.get("metadata_json")
-                        row.is_active = True
                         changed = True
                 else:
                     db.add(DataSourceTable(
@@ -1107,17 +1106,9 @@ class DataSourceService:
                         pks=payload["pks"],
                         fks=payload["fks"],
                         datasource_id=data_source.id,
-                        is_active=should_set_active,
+                        is_active=bool(should_set_active),
                         metadata_json=payload.get("metadata_json"),
                     ))
-                    changed = True
-
-            # Deactivate missing
-            missing = set(existing_rows.keys()) - set(incoming.keys())
-            for name in missing:
-                row = existing_rows[name]
-                if row.is_active:
-                    row.is_active = False
                     changed = True
 
             if changed:

@@ -75,10 +75,12 @@ class DataSource(BaseSchema):
         return self.data_source_memberships
 
     instructions = relationship(
-    "Instruction", 
-    secondary="instruction_data_source_association", 
-    back_populates="data_sources",
-    lazy="selectin")
+        "Instruction",
+        secondary="instruction_data_source_association",
+        back_populates="data_sources",
+        lazy="selectin",
+        passive_deletes=True,
+    )
     entities = relationship(
         "Entity",
         secondary="entity_data_source_association",

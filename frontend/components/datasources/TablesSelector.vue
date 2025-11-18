@@ -368,9 +368,13 @@ async function onSave() {
     const payload = (tables.value || []).map(t => ({ ...t, datasource_id: props.dsId, pks: t.pks || [], fks: t.fks || [] }))
     const res = await useMyFetch(`/data_sources/${props.dsId}/update_schema`, { method: 'PUT', body: payload })
     if ((res as any)?.status?.value === 'success') {
-      const updated = (((res as any).data?.value) || tables.value) as Table[]
-      tables.value = updated
-      emit('saved', updated)
+      const updated = (res as any).data?.value
+      if (Array.isArray(updated)) {
+        tables.value = updated as Table[]
+        emit('saved', tables.value)
+      } else {
+        emit('saved', tables.value)
+      }
     }
   } catch (e) {
     emit('error', e)

@@ -55,10 +55,11 @@ class Instruction(BaseSchema):
     
     # Relationships
     data_sources = relationship(
-        "DataSource", 
-        secondary=instruction_data_source_association, 
+        "DataSource",
+        secondary=instruction_data_source_association,
         back_populates="instructions",
-        lazy="selectin"
+        lazy="selectin",
+        passive_deletes=True,
     )
     labels = relationship(
         "InstructionLabel",

@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.248 (November 18, 2025)
+- Resolve flickering in the Reasoning section and enhance the reliability of data source deletion and modal overlays
+- Improve stability and robustness of table auto-activation and deactivation
+
 ## Version 0.0.247 (November 17, 2025)
 - Instruction labels added for more effective categorization and management
 - Instructions can now be auto-enhanced with AI suggestions
