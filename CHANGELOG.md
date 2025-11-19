@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.248 (November 19, 2025)
+- Pinot get tables to use user:pass when creating the HTTP request
+
 ## Version 0.0.248 (November 18, 2025)
 - Resolve flickering in the Reasoning section and enhance the reliability of data source deletion and modal overlays
 - Improve stability and robustness of table auto-activation and deactivation

@@ -88,7 +88,8 @@ class PinotClient(DataSourceClient):
         if self.controller and requests:
             try:
                 base = self.controller.rstrip("/")
-                r = requests.get(f"{base}/tables", timeout=10)
+                auth = (self.user, self.password) if self.user and self.password else None
+                r = requests.get(f"{base}/tables", timeout=20, auth=auth)
                 r.raise_for_status()
                 payload = r.json()
                 table_names = payload.get("tables", []) if isinstance(payload, dict) else list(payload or [])
