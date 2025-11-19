@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.248 (November 19, 2025)
+## Version 0.0.249 (November 19, 2025)
 - Pinot get tables to use user:pass when creating the HTTP request
 
 ## Version 0.0.248 (November 18, 2025)
