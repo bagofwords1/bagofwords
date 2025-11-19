@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from app.dependencies import get_db
 from app.services.completion_service import CompletionService
-from app.schemas.completion_v2_schema import CompletionCreate
+from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
 from app.websocket_manager import websocket_manager
@@ -25,6 +25,23 @@ from app.models.report import Report
 router = APIRouter(tags=["completions"])
 
 completion_service = CompletionService()
+
+@router.post("/api/reports/{report_id}/completions/estimate", response_model=CompletionContextEstimateSchema)
+@requires_permission('create_reports')
+async def estimate_completion_tokens(
+    report_id: str,
+    completion: CompletionCreate,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    return await completion_service.estimate_completion_tokens(
+        db,
+        report_id,
+        completion,
+        current_user,
+        organization,
+    )
 
 @router.post("/api/reports/{report_id}/completions")
 @requires_permission('create_reports')

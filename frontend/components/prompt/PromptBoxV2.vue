@@ -61,6 +61,20 @@
                 </div>
 
                 <div class="flex items-center space-x-0.5">
+                    <div v-if="props.showContextIndicator" class="flex items-center">
+                        <UTooltip :text="contextEstimateTooltip || (isLoadingContextEstimate ? 'Estimating...' : 'Estimate unavailable')" :popper="{ placement: 'top', strategy: 'fixed' }">
+                            <button class="text-gray-400 hover:text-gray-900 rounded-md w-7 h-7 flex items-center justify-center transition-colors mr-0.5"
+                                :disabled="isLoadingContextEstimate">
+                                <Spinner v-if="isLoadingContextEstimate" class="w-4 h-4 text-gray-400" />
+                                <UIcon
+                                    v-else
+                                    :name="contextIndicatorIcon"
+                                    class="w-4 h-4"
+                                />
+                            </button>
+                        </UTooltip>
+                    </div>
+
                     <!-- File attach (open files modal) -->
                     <FileUploadComponent :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
 
@@ -123,6 +137,7 @@ import InstructionsListModalComponent from '@/components/InstructionsListModalCo
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
+import Spinner from '@/components/Spinner.vue'
 
 const props = defineProps({
     report_id: String,
@@ -131,7 +146,8 @@ const props = defineProps({
     // Allow fine-tuning alignment if needed later
     popoverOffset: { type: Number, default: 16 },
     // Landing page prefill support
-    textareaContent: { type: String, default: '' }
+    textareaContent: { type: String, default: '' },
+    showContextIndicator: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue'])
@@ -143,6 +159,56 @@ const selectedDataSources = ref<any[]>([])
 const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
 const inlineMentions = ref<any[]>([])
+
+type CompletionContextEstimate = {
+    model_id: string
+    model_name?: string
+    prompt_tokens: number
+    model_limit?: number
+    remaining_tokens?: number
+    near_limit?: boolean
+}
+
+const contextEstimate = ref<CompletionContextEstimate | null>(null)
+const isLoadingContextEstimate = ref(false)
+const contextEstimateError = ref<string | null>(null)
+const hasRequestedContextEstimate = ref(false)
+const numberFormatter = new Intl.NumberFormat()
+
+function formatTokenCountShort(value: number | null | undefined): string {
+    if (value === null || value === undefined) return ''
+    if (value >= 1_000_000) {
+        return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
+    }
+    if (value >= 1_000) {
+        return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`
+    }
+    return `${value}`
+}
+
+const contextEstimateShort = computed(() => {
+    return formatTokenCountShort(contextEstimate.value?.prompt_tokens)
+})
+
+const contextEstimateTooltip = computed(() => {
+    if (!props.showContextIndicator) return ''
+    if (isLoadingContextEstimate.value) return 'Estimating context used...'
+    if (contextEstimateError.value) return contextEstimateError.value
+    if (!contextEstimate.value) return ''
+    const promptShort = contextEstimateShort.value
+    const limitShort = formatTokenCountShort(contextEstimate.value.model_limit)
+    if (promptShort && limitShort) {
+        return `${promptShort} / ${limitShort} context used`
+    }
+    if (promptShort) return `${promptShort} context used`
+    return ''
+})
+
+const contextIndicatorIcon = computed(() => {
+    if (isLoadingContextEstimate.value) return 'i-heroicons-arrow-path'
+    if (contextEstimateError.value) return 'i-heroicons-exclamation-triangle'
+    return 'i-heroicons-information-circle'
+})
 
 // Popover state
 const showModeMenu = ref(false)
@@ -186,6 +252,39 @@ async function loadModels() {
             { id: 'default', name: 'Default Model', provider: { name: 'System' } }
         ]
         selectedModel.value = 'default'
+    }
+}
+
+async function refreshContextEstimate(force = false) {
+    if (!props.showContextIndicator || !props.report_id) return
+    if (!force && hasRequestedContextEstimate.value) return
+    hasRequestedContextEstimate.value = true
+    isLoadingContextEstimate.value = true
+    contextEstimateError.value = null
+    try {
+        const response = await useMyFetch(`/reports/${props.report_id}/completions/estimate`, {
+            method: 'POST',
+            body: JSON.stringify({
+                prompt: {
+                    content: ' ',
+                    mentions: [],
+                    mode: mode.value,
+                    model_id: selectedModel.value || undefined
+                },
+                stream: false
+            })
+        })
+        const errorValue = (response as any)?.error?.value
+        if (errorValue) {
+            throw errorValue
+        }
+        const estimate = (response as any)?.data?.value as CompletionContextEstimate | null
+        contextEstimate.value = estimate
+    } catch (err) {
+        console.error('Failed to fetch context estimate:', err)
+        contextEstimateError.value = 'Estimate unavailable'
+    } finally {
+        isLoadingContextEstimate.value = false
     }
 }
 
@@ -255,6 +354,7 @@ function openInstructions() { instructionsListModalRef.value?.openModal?.() }
 
 onMounted(async () => {
     await loadModels()
+    await refreshContextEstimate(false)
     // Hydrate selected data sources from report when in a report context
     try {
         if (props.report_id) {
@@ -274,6 +374,17 @@ onMounted(async () => {
         isCompactPrompt.value = w > 0 && w < 420
     })
     if (root) ro.observe(root)
+})
+
+watch(() => props.report_id, async (newId, oldId) => {
+    if (props.showContextIndicator && newId && newId !== oldId) {
+        hasRequestedContextEstimate.value = false
+        await refreshContextEstimate(false)
+    }
+})
+
+defineExpose({
+    refreshContextEstimate: () => refreshContextEstimate(true)
 })
 
 // Keep local text in sync with parent-provided content (landing page)

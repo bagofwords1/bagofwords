@@ -28,6 +28,7 @@ from app.ai.agents.judge.judge import Judge
 from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
 from app.settings.database import create_async_session_factory
 from app.core.telemetry import telemetry
+from app.ai.utils.token_counter import count_tokens
 
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 
@@ -136,6 +137,89 @@ class AgentV2:
 
         # Initialize SuggestInstructions agent for post-analysis suggestions
         self.suggest_instructions = SuggestInstructions(model=self.small_model)
+
+    async def estimate_prompt_tokens(self) -> dict:
+        """Approximate the total planner prompt tokens without executing tools."""
+        try:
+            await self.context_hub.prime_static()
+            await self.context_hub.refresh_warm()
+            try:
+                await self.context_hub.build_context()
+            except Exception:
+                pass
+            view = self.context_hub.get_view()
+
+            instructions_section = await self.context_hub.instruction_builder.build()
+            instructions = instructions_section.render()
+
+            history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+
+            try:
+                schemas_ctx = await self.context_hub.schema_builder.build(
+                    include_inactive=False,
+                    with_stats=True,
+                    active_only=True,
+                )
+                schemas_combined = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
+            except Exception:
+                schemas_combined = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+
+            messages_section = await self.context_hub.message_builder.build(max_messages=20)
+            messages_context = messages_section.render()
+
+            resources_section = await self.context_hub.resource_builder.build()
+            resources_context = resources_section.render()
+            try:
+                resources_combined_small = resources_section.render_combined(top_k_per_repo=10, index_limit=200)
+            except Exception:
+                resources_combined_small = resources_context
+
+            files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
+            mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
+            entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
+
+            user_message = (self.head_completion.prompt or {}).get("content", "")
+
+            planner_input = PlannerInput(
+                organization_name=self.organization.name,
+                organization_ai_analyst_name=self.ai_analyst_name,
+                instructions=instructions,
+                user_message=user_message,
+                schemas_excerpt=None,
+                schemas_combined=schemas_combined,
+                schemas_names_index=None,
+                files_context=files_context,
+                mentions_context=mentions_context,
+                entities_context=entities_context,
+                history_summary=history_summary,
+                messages_context=messages_context,
+                resources_context=resources_context,
+                resources_combined=resources_combined_small,
+                last_observation=None,
+                past_observations=self.context_hub.observation_builder.tool_observations,
+                external_platform=getattr(self.head_completion, "external_platform", None),
+                tool_catalog=self.planner.tool_catalog,
+                mode=self.mode,
+            )
+
+            prompt_text = self.planner.prompt_builder.build_prompt(planner_input)
+            prompt_tokens = count_tokens(prompt_text, getattr(self.model, "model_id", None))
+
+            model_limit = getattr(self.model, "context_window_tokens", None)
+            remaining_tokens = None
+            if model_limit is not None:
+                remaining_tokens = max(model_limit - prompt_tokens, 0)
+
+            return {
+                "prompt_tokens": prompt_tokens,
+                "model_limit": model_limit,
+                "remaining_tokens": remaining_tokens,
+            }
+        finally:
+            try:
+                websocket_manager.remove_handler(self._handle_completion_update)
+            except Exception:
+                pass
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""

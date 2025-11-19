@@ -3,6 +3,8 @@ from fastapi.responses import StreamingResponse
 import json
 import logging
 from datetime import datetime
+from types import SimpleNamespace
+from uuid import uuid4
 from app.models.plan import Plan
 from app.models.completion import Completion
 from app.models.report import Report
@@ -14,7 +16,7 @@ from app.models.user import User
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.completion_schema import CompletionSchema, PromptSchema
-from app.schemas.completion_v2_schema import CompletionCreate
+from app.schemas.completion_v2_schema import CompletionCreate, CompletionContextEstimateSchema
 from app.schemas.step_schema import StepSchema
 from app.schemas.widget_schema import WidgetSchema
 from app.schemas.completion_v2_schema import (
@@ -46,6 +48,7 @@ from fastapi import BackgroundTasks, HTTPException
 from app.core.telemetry import telemetry
 
 from app.ai.agent_v2 import AgentV2
+from pydantic import ValidationError
 
 # Models used for v2 assembly
 from app.models.completion_block import CompletionBlock
@@ -157,6 +160,125 @@ class CompletionService:
                 update={"last_step": await self.widget_service._get_last_step(db, widget.id)}
             ) if completion.role == "system" and widget else None
         )
+
+    async def estimate_completion_tokens(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        completion_data: CompletionCreate,
+        current_user: User,
+        organization: Organization,
+        external_user_id: str = None,
+        external_platform: str = None,
+    ) -> CompletionContextEstimateSchema:
+        try:
+            if not completion_data or not completion_data.prompt or not completion_data.prompt.content:
+                raise HTTPException(status_code=400, detail="Prompt content is required for estimation.")
+
+            report_res = await db.execute(select(Report).filter(Report.id == report_id))
+            report = report_res.scalar_one_or_none()
+            if not report:
+                raise HTTPException(status_code=404, detail="Report not found")
+
+            if completion_data.prompt.widget_id:
+                widget_res = await db.execute(select(Widget).filter(Widget.id == completion_data.prompt.widget_id))
+                widget = widget_res.scalar_one_or_none()
+                if not widget:
+                    raise HTTPException(status_code=404, detail="Widget not found")
+            else:
+                widget = None
+
+            if completion_data.prompt.step_id:
+                step_res = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
+                step = step_res.scalar_one_or_none()
+                if not step:
+                    raise HTTPException(status_code=404, detail="Step not found")
+            else:
+                step = None
+
+            if completion_data.prompt.model_id:
+                model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
+            else:
+                model = await organization.get_default_llm_model(db)
+
+            if not model:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No default LLM model configured. Please configure a default model in organization settings."
+                )
+
+            small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
+            org_settings = await organization.get_settings(db)
+
+            prompt_dict = completion_data.prompt.dict()
+            if prompt_dict.get('widget_id'):
+                prompt_dict['widget_id'] = str(prompt_dict['widget_id'])
+
+            head_stub = SimpleNamespace(
+                id=str(uuid4()),
+                prompt=prompt_dict,
+                report_id=report.id,
+                widget_id=str(widget.id) if widget else None,
+                step_id=str(step.id) if step else None,
+                user=current_user,
+                user_id=current_user.id,
+                external_platform=external_platform,
+                external_user_id=external_user_id,
+            )
+            system_stub = SimpleNamespace(
+                id=str(uuid4()),
+                prompt=None,
+                status="in_progress",
+            )
+
+            clients = {}
+            for data_source in report.data_sources:
+                clients[data_source.name] = await self.data_source_service.construct_client(db, data_source, current_user)
+
+            agent = AgentV2(
+                db=db,
+                organization=organization,
+                organization_settings=org_settings,
+                model=model,
+                small_model=small_model,
+                report=report,
+                messages=[],
+                head_completion=head_stub,
+                system_completion=system_stub,
+                widget=widget,
+                step=step,
+                clients=clients,
+                mode=completion_data.prompt.mode,
+            )
+
+            try:
+                estimate = await agent.estimate_prompt_tokens()
+            except ValidationError as ve:
+                raise HTTPException(status_code=400, detail=f"Unable to build planner input for estimation: {str(ve)}")
+
+            prompt_tokens = estimate.get("prompt_tokens", 0)
+            model_limit = estimate.get("model_limit") or getattr(model, "context_window_tokens", None)
+            remaining_tokens = estimate.get("remaining_tokens")
+            if remaining_tokens is None and model_limit is not None:
+                remaining_tokens = max(model_limit - prompt_tokens, 0)
+            near_limit = bool(model_limit and prompt_tokens >= 0.9 * model_limit)
+
+            return CompletionContextEstimateSchema(
+                model_id=getattr(model, "model_id", ""),
+                model_name=getattr(model, "name", None),
+                prompt_tokens=prompt_tokens,
+                model_limit=model_limit,
+                remaining_tokens=remaining_tokens,
+                near_limit=near_limit,
+            )
+        except HTTPException as he:
+            raise he
+        except Exception as e:
+            logging.error(f"Unexpected error in estimate_completion_tokens: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail=f"Unexpected error: {str(e)}"
+            )
 
     async def create_completion(
         self, 

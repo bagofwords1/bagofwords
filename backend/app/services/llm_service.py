@@ -363,7 +363,12 @@ class LLMService:
         has_small_default_model = existing_small_default.scalar_one_or_none() is not None
 
         for model in models:
-            db_model = LLMModel(**model)
+            # Remove context_window_tokens and pricing from model dict if client provided them (we only use preset values)
+            model_dict = {
+                k: v for k, v in model.items() 
+                if k not in ["context_window_tokens", "input_cost_per_million_tokens_usd", "output_cost_per_million_tokens_usd"]
+            }
+            db_model = LLMModel(**model_dict)
             db_model.organization_id = organization.id
             db_model.provider = provider
             db_model.is_enabled = True
@@ -389,6 +394,15 @@ class LLMService:
                 has_small_default_model = True
             else:
                 setattr(db_model, "is_small_default", False)
+            
+            # Set context_window_tokens and pricing only from LLM_MODEL_DETAILS (preset models)
+            if model_details:
+                if model_details.get("context_window_tokens") is not None:
+                    db_model.context_window_tokens = model_details["context_window_tokens"]
+                if model_details.get("input_cost_per_million_tokens_usd") is not None:
+                    db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
+                if model_details.get("output_cost_per_million_tokens_usd") is not None:
+                    db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
                 
             db.add(db_model)
 
@@ -475,18 +489,41 @@ class LLMService:
                     db_model.is_enabled = model.is_enabled
                     db.add(db_model)
                 
-                # Optional token/pricing fields
-                if getattr(model, "context_window_tokens", None) is not None:
-                    db_model.context_window_tokens = model.context_window_tokens
+                # Optional token/pricing fields (context_window_tokens and pricing are not updatable by clients, only from preset models)
+                # Update context_window_tokens and pricing from LLM_MODEL_DETAILS if this is a preset model
+                model_details = next(
+                    (m for m in LLM_MODEL_DETAILS if m["model_id"] == db_model.model_id),
+                    None
+                )
+                if model_details:
+                    if model_details.get("context_window_tokens") is not None:
+                        db_model.context_window_tokens = model_details["context_window_tokens"]
+                    if model_details.get("input_cost_per_million_tokens_usd") is not None:
+                        db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
+                    if model_details.get("output_cost_per_million_tokens_usd") is not None:
+                        db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
+                
                 if getattr(model, "max_output_tokens", None) is not None:
                     db_model.max_output_tokens = model.max_output_tokens
-                if getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
-                    db_model.input_cost_per_million_tokens_usd = model.input_cost_per_million_tokens_usd
-                if getattr(model, "output_cost_per_million_tokens_usd", None) is not None:
-                    db_model.output_cost_per_million_tokens_usd = model.output_cost_per_million_tokens_usd
                 db.add(db_model)
             else:
                 # If model doesn't have an ID, create new model
+                # Get context_window_tokens and pricing only from LLM_MODEL_DETAILS (preset models)
+                model_details = next(
+                    (m for m in LLM_MODEL_DETAILS if m["model_id"] == model.model_id),
+                    None
+                )
+                context_window_tokens = None
+                input_cost = None
+                output_cost = None
+                if model_details:
+                    if model_details.get("context_window_tokens") is not None:
+                        context_window_tokens = model_details["context_window_tokens"]
+                    if model_details.get("input_cost_per_million_tokens_usd") is not None:
+                        input_cost = model_details["input_cost_per_million_tokens_usd"]
+                    if model_details.get("output_cost_per_million_tokens_usd") is not None:
+                        output_cost = model_details["output_cost_per_million_tokens_usd"]
+                
                 db_model = LLMModel(
                     name=model.name or model.model_id,
                     model_id=model.model_id,
@@ -496,10 +533,10 @@ class LLMService:
                     is_custom=model.is_custom,
                     is_preset=model.is_preset,
                     is_default=False,  # New models are not default by default
-                    context_window_tokens=getattr(model, "context_window_tokens", None),
+                    context_window_tokens=context_window_tokens,
                     max_output_tokens=getattr(model, "max_output_tokens", None),
-                    input_cost_per_million_tokens_usd=getattr(model, "input_cost_per_million_tokens_usd", None),
-                    output_cost_per_million_tokens_usd=getattr(model, "output_cost_per_million_tokens_usd", None),
+                    input_cost_per_million_tokens_usd=input_cost,
+                    output_cost_per_million_tokens_usd=output_cost,
                 )
                 db.add(db_model)
 
@@ -604,6 +641,15 @@ class LLMService:
                 is_enabled = model_config.is_enabled
                 is_small_default = model_config.is_small_default
 
+                # Get context_window_tokens and pricing from LLM_MODEL_DETAILS if available
+                model_details = next(
+                    (m for m in LLM_MODEL_DETAILS if m["model_id"] == model_id),
+                    None
+                )
+                context_window_tokens = model_details.get("context_window_tokens") if model_details else None
+                input_cost = model_details.get("input_cost_per_million_tokens_usd") if model_details else None
+                output_cost = model_details.get("output_cost_per_million_tokens_usd") if model_details else None
+
                 model = LLMModel(
                     name=model_name,
                     model_id=model_id,
@@ -612,7 +658,10 @@ class LLMService:
                     is_preset=True,
                     is_enabled=is_enabled,
                     is_default=is_default,
-                    is_small_default=is_small_default
+                    is_small_default=is_small_default,
+                    context_window_tokens=context_window_tokens,
+                    input_cost_per_million_tokens_usd=input_cost,
+                    output_cost_per_million_tokens_usd=output_cost
                 )
                 db.add(model)
 
@@ -655,7 +704,10 @@ class LLMService:
                     is_enabled=model_data["is_enabled"],
                     provider=provider,
                     organization_id=organization.id,
-                    is_small_default=(model_data["is_small_default"] and not has_small_default_model)
+                    is_small_default=(model_data.get("is_small_default", False) and not has_small_default_model),
+                    context_window_tokens=model_data.get("context_window_tokens"),
+                    input_cost_per_million_tokens_usd=model_data.get("input_cost_per_million_tokens_usd"),
+                    output_cost_per_million_tokens_usd=model_data.get("output_cost_per_million_tokens_usd")
                 )
                 if model.is_small_default:
                     has_small_default_model = True

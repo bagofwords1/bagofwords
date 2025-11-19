@@ -53,6 +53,16 @@ class CompletionBase(BaseModel):
 class CompletionCreate(CompletionBase):
     stream: Optional[bool] = False
 
+
+class CompletionContextEstimateSchema(BaseModel):
+    model_id: str
+    model_name: Optional[str] = None
+    prompt_tokens: int
+    model_limit: Optional[int] = None
+    remaining_tokens: Optional[int] = None
+    near_limit: bool = False
+
+
 class CompletionBlockV2Schema(BaseModel):
     id: str
     completion_id: str

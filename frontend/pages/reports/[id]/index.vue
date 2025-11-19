@@ -294,11 +294,13 @@
 		<div class="shrink-0 bg-white">
 			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
 				<PromptBoxV2 
+					ref="promptBoxRef"
 					:report_id="report_id"
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
+					:showContextIndicator="true"
 				/>
 			</div>
 		</div>
@@ -431,6 +433,7 @@ const report_id = (route.params.id as string) || ''
 const canViewConsole = computed(() => useCan('view_console'))
 
 const messages = ref<ChatMessage[]>([])
+const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
 // Pagination state
 const pageLimit = 10
 const hasMore = ref<boolean>(true)
@@ -1160,7 +1163,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 				}
 			}
-			loadReport()
+			await loadReport()
+			await promptBoxRef.value?.refreshContextEstimate?.()
 			break
 
 		case 'completion.error':
@@ -1232,6 +1236,7 @@ async function loadCompletions() {
 		cursorBefore.value = response?.next_before || null
         await nextTick()
         safeScrollToBottom()
+		await promptBoxRef.value?.refreshContextEstimate?.()
 	} catch (e) {
 		console.error('Error loading completions:', e)
 	}

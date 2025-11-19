@@ -9,7 +9,10 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": False
+        "is_default": False,
+        "context_window_tokens": 1000000,
+        "input_cost_per_million_tokens_usd": 1.50,
+        "output_cost_per_million_tokens_usd": 12.00
     },
     {
         "name": "GPT-5",
@@ -17,7 +20,10 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": False
+        "is_default": False,
+        "context_window_tokens": 200000,
+        "input_cost_per_million_tokens_usd": 1.25,
+        "output_cost_per_million_tokens_usd": 10.00
     },
 
     {   "name": "GPT-4.1",
@@ -25,7 +31,10 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True
+        "is_default": True,
+        "context_window_tokens": 1000000,
+        "input_cost_per_million_tokens_usd": 5.00,
+        "output_cost_per_million_tokens_usd": 15.00
     },
     {
         "name": "GPT-4.1 Mini",
@@ -34,7 +43,10 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_default": False,
-        "is_small_default": True
+        "is_small_default": True,
+        "context_window_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 0.15,
+        "output_cost_per_million_tokens_usd": 0.60
     },
     {
         "name": "Claude 4.5 Sonnet",
@@ -42,7 +54,11 @@ LLM_MODEL_DETAILS = [
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True
+        "is_default": True,
+        "context_window_tokens": 200000,
+        "input_cost_per_million_tokens_usd": 3.00,
+        "output_cost_per_million_tokens_usd": 15.00
+
     },
 
     {
@@ -51,14 +67,20 @@ LLM_MODEL_DETAILS = [
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True
+        "is_default": True,
+        "context_window_tokens": 200000,
+        "input_cost_per_million_tokens_usd": 3.00,
+        "output_cost_per_million_tokens_usd": 15.00
     },
     {
         "name": "Claude 4 Opus",
         "model_id": "claude-opus-4-20250514",
         "provider_type": "anthropic",
         "is_preset": True,
-        "is_enabled": True
+        "is_enabled": True,
+        "context_window_tokens": 200000,
+        "input_cost_per_million_tokens_usd": 15.00,
+        "output_cost_per_million_tokens_usd": 75.00
     },
     {
         "name": "Claude 4.5 Haiku",
@@ -67,7 +89,10 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_small_default": True,
-        "is_default": False
+        "is_default": False,
+        "context_window_tokens": 200000,
+        "input_cost_per_million_tokens_usd": 0.80,
+        "output_cost_per_million_tokens_usd": 4.00
     },
 
     {
@@ -76,7 +101,10 @@ LLM_MODEL_DETAILS = [
         "provider_type": "google",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True
+        "is_default": True,
+        "context_window_tokens": 2000000,
+        "input_cost_per_million_tokens_usd": 1.25,
+        "output_cost_per_million_tokens_usd": 10.00
     },
     {
         "name": "Gemini 2.5 Flash",
@@ -84,14 +112,20 @@ LLM_MODEL_DETAILS = [
         "provider_type": "google",
         "is_preset": True,
         "is_enabled": True,
-        "is_small_default": True
+        "is_small_default": True,
+        "context_window_tokens": 1000000,
+        "input_cost_per_million_tokens_usd": 0.15,
+        "output_cost_per_million_tokens_usd": 3.50
     },
     {
         "name": "BOW Small",
         "model_id": "gpt-4o-mini",
         "provider_type": "bow",
         "is_preset": False,
-        "is_enabled": False
+        "is_enabled": False,
+        "context_window_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 0.15,
+        "output_cost_per_million_tokens_usd": 0.60
     }
 ]
 
