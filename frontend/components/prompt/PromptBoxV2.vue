@@ -167,6 +167,7 @@ type CompletionContextEstimate = {
     model_limit?: number
     remaining_tokens?: number
     near_limit?: boolean
+    context_usage_pct?: number
 }
 
 const contextEstimate = ref<CompletionContextEstimate | null>(null)
@@ -190,18 +191,27 @@ const contextEstimateShort = computed(() => {
     return formatTokenCountShort(contextEstimate.value?.prompt_tokens)
 })
 
+const contextUsagePercent = computed(() => {
+    const pct = contextEstimate.value?.context_usage_pct
+    if (pct === null || pct === undefined) return ''
+    return `${Math.round(pct)}%`
+})
+
 const contextEstimateTooltip = computed(() => {
     if (!props.showContextIndicator) return ''
     if (isLoadingContextEstimate.value) return 'Estimating context used...'
     if (contextEstimateError.value) return contextEstimateError.value
     if (!contextEstimate.value) return ''
+    const pct = contextUsagePercent.value
     const promptShort = contextEstimateShort.value
-    const limitShort = formatTokenCountShort(contextEstimate.value.model_limit)
-    if (promptShort && limitShort) {
-        return `${promptShort} / ${limitShort} context used`
+    if (pct && promptShort) {
+        return `${pct} ${promptShort} tokens context size`
     }
-    if (promptShort) return `${promptShort} context used`
-    return ''
+    if (pct) {
+        return `${pct} context size`
+    }
+    if (promptShort) return `${promptShort} tokens context size`
+    return 'Context size unavailable'
 })
 
 const contextIndicatorIcon = computed(() => {
@@ -381,6 +391,20 @@ watch(() => props.report_id, async (newId, oldId) => {
         hasRequestedContextEstimate.value = false
         await refreshContextEstimate(false)
     }
+})
+
+watch(() => props.showContextIndicator, async (newVal, oldVal) => {
+    if (!newVal) {
+        hasRequestedContextEstimate.value = false
+        return
+    }
+    await refreshContextEstimate(false)
+})
+
+watch(selectedModel, async (newModel, oldModel) => {
+    if (!props.showContextIndicator) return
+    hasRequestedContextEstimate.value = false
+    await refreshContextEstimate(true)
 })
 
 defineExpose({

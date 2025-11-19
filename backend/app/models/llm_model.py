@@ -10,9 +10,9 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_default": False,
-        "context_window_tokens": 1000000,
-        "input_cost_per_million_tokens_usd": 1.50,
-        "output_cost_per_million_tokens_usd": 12.00
+        "context_window_tokens": 400000,
+        "input_cost_per_million_tokens_usd": 1.25,
+        "output_cost_per_million_tokens_usd": 10.00
     },
     {
         "name": "GPT-5",
@@ -21,7 +21,7 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_default": False,
-        "context_window_tokens": 200000,
+        "context_window_tokens": 400000,
         "input_cost_per_million_tokens_usd": 1.25,
         "output_cost_per_million_tokens_usd": 10.00
     },
@@ -32,9 +32,9 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_default": True,
-        "context_window_tokens": 1000000,
-        "input_cost_per_million_tokens_usd": 5.00,
-        "output_cost_per_million_tokens_usd": 15.00
+        "context_window_tokens": 1047576,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 8.00
     },
     {
         "name": "GPT-4.1 Mini",
@@ -44,9 +44,9 @@ LLM_MODEL_DETAILS = [
         "is_enabled": True,
         "is_default": False,
         "is_small_default": True,
-        "context_window_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 0.15,
-        "output_cost_per_million_tokens_usd": 0.60
+        "context_window_tokens": 1047576,
+        "input_cost_per_million_tokens_usd": 0.40,
+        "output_cost_per_million_tokens_usd": 1.60
     },
     {
         "name": "Claude 4.5 Sonnet",
@@ -68,7 +68,7 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_default": True,
-        "context_window_tokens": 200000,
+        "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 3.00,
         "output_cost_per_million_tokens_usd": 15.00
     },
@@ -78,7 +78,7 @@ LLM_MODEL_DETAILS = [
         "provider_type": "anthropic",
         "is_preset": True,
         "is_enabled": True,
-        "context_window_tokens": 200000,
+        "context_window_tokens": 1000000,
         "input_cost_per_million_tokens_usd": 15.00,
         "output_cost_per_million_tokens_usd": 75.00
     },
@@ -91,8 +91,8 @@ LLM_MODEL_DETAILS = [
         "is_small_default": True,
         "is_default": False,
         "context_window_tokens": 200000,
-        "input_cost_per_million_tokens_usd": 0.80,
-        "output_cost_per_million_tokens_usd": 4.00
+        "input_cost_per_million_tokens_usd": 1,
+        "output_cost_per_million_tokens_usd": 5.00
     },
 
     {
@@ -102,7 +102,7 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_default": True,
-        "context_window_tokens": 2000000,
+        "context_window_tokens": 1047576,
         "input_cost_per_million_tokens_usd": 1.25,
         "output_cost_per_million_tokens_usd": 10.00
     },
@@ -113,9 +113,9 @@ LLM_MODEL_DETAILS = [
         "is_preset": True,
         "is_enabled": True,
         "is_small_default": True,
-        "context_window_tokens": 1000000,
-        "input_cost_per_million_tokens_usd": 0.15,
-        "output_cost_per_million_tokens_usd": 3.50
+        "context_window_tokens": 1047576,
+        "input_cost_per_million_tokens_usd": 0.30,
+        "output_cost_per_million_tokens_usd": 2.50
     },
     {
         "name": "BOW Small",

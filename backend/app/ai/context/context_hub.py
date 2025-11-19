@@ -31,6 +31,7 @@ from .sections.resources_section import ResourcesSection
 from .sections.code_section import CodeSection
 from .builders.mention_context_builder import MentionContextBuilder
 from .builders.entity_context_builder import EntityContextBuilder
+from app.ai.utils.token_counter import count_tokens
 
 
 # Default caps to keep planner prompt small and predictable
@@ -56,6 +57,17 @@ def _safe_setattr_list(section, attr, max_items):
     except Exception:
         # Best-effort truncation only; never fail the refresh/build
         pass
+
+
+def _section_token_length(text: Optional[str]) -> int:
+    """Measure a section's size using token counts with safe fallbacks."""
+    if not text:
+        return 0
+    try:
+        return count_tokens(text)
+    except Exception:
+        # As a last resort, approximate via character length
+        return len(text)
 
 
 class ContextHub:
@@ -183,7 +195,7 @@ class ContextHub:
                 self.metadata.schemas_count = table_count if table_count > 0 else len(context.schemas_excerpt.split('\n'))
             except Exception:
                 self.metadata.schemas_count = len(context.schemas_excerpt.split('\n'))
-            section_sizes['schemas'] = len(context.schemas_excerpt or '')
+            section_sizes['schemas'] = _section_token_length(context.schemas_excerpt or '')
         
         if spec.include_messages:
             # Use new config or fallback to legacy parameters
@@ -200,7 +212,7 @@ class ContextHub:
                 role_filter=message_config.role_filter
             )
             self.metadata.messages_count = len(context.messages_context.split('\n'))
-            section_sizes['messages'] = len(context.messages_context or '')
+            section_sizes['messages'] = _section_token_length(context.messages_context or '')
         
         if spec.include_memories:
             # Use new config or fallback to legacy parameters
@@ -212,7 +224,7 @@ class ContextHub:
                 max_memories=memory_config.max_memories
             )
             self.metadata.memories_count = len(context.memories_context.split('\n'))
-            section_sizes['memories'] = len(context.memories_context or '')
+            section_sizes['memories'] = _section_token_length(context.memories_context or '')
         
         if spec.include_widgets:
             # Use new config or fallback to legacy parameters
@@ -229,7 +241,7 @@ class ContextHub:
                 include_data_preview=widget_config.include_data_preview
             )
             self.metadata.widgets_count = len(context.widgets_context.split('\n'))
-            section_sizes['widgets'] = len(context.widgets_context or '')
+            section_sizes['widgets'] = _section_token_length(context.widgets_context or '')
         
         if spec.include_instructions:
             # Build object, then render for legacy ContextSnapshot
@@ -239,18 +251,18 @@ class ContextHub:
                 category=instruction_config.category,
             )
             context.instructions_context = inst_section.render()
-            section_sizes['instructions'] = len(context.instructions_context or '')
+            section_sizes['instructions'] = _section_token_length(context.instructions_context or '')
         
         # Optional sections
         if spec.include_code:
             # CodeContextBuilder has complex interface, skip for now
             # TODO: Implement when code context is needed
             context.code_context = ""
-            section_sizes['code'] = len(context.code_context or '')
+            section_sizes['code'] = _section_token_length(context.code_context or '')
         
         if spec.include_resource:
             context.resource_context = await self.resource_builder.build()
-            section_sizes['resources'] = len(context.resource_context or '')
+            section_sizes['resources'] = _section_token_length(context.resource_context or '')
 
         # Files section (object cached, string rendered into legacy snapshot)
         if getattr(spec, 'include_files', True):
@@ -275,7 +287,7 @@ class ContextHub:
                         self.metadata.entities_count = len(getattr(ent_section, 'items', []) or [])
                     except Exception:
                         pass
-                    section_sizes['entities'] = len(context.entities_context or '')
+                    section_sizes['entities'] = _section_token_length(context.entities_context or '')
         except Exception:
             pass
         
@@ -295,21 +307,21 @@ class ContextHub:
             self.metadata.messages_count = len(messages_section.items)
             # Add messages section size for total_tokens calculation
             messages_text = messages_section.render() if messages_section else ""
-            section_sizes['messages'] = len(messages_text)
+            section_sizes['messages'] = _section_token_length(messages_text)
         
         widgets_section = self._warm_cache.get("widgets", None)
         if widgets_section and hasattr(widgets_section, 'items'):
             self.metadata.widgets_count = len(widgets_section.items)
             # Add widgets section size for total_tokens calculation
             widgets_text = widgets_section.render() if widgets_section else ""
-            section_sizes['widgets'] = len(widgets_text)
+            section_sizes['widgets'] = _section_token_length(widgets_text)
         
         queries_section = self._warm_cache.get("queries", None)
         if queries_section and hasattr(queries_section, 'items'):
             self.metadata.queries_count = len(queries_section.items)
             # Add queries section size for total_tokens calculation
             queries_text = queries_section.render() if queries_section else ""
-            section_sizes['queries'] = len(queries_text)
+            section_sizes['queries'] = _section_token_length(queries_text)
         
         # Mentions section counts (mirror pattern used above)
         mentions_section = self._warm_cache.get("mentions", None)
@@ -326,7 +338,7 @@ class ContextHub:
             # Add mentions section size for total_tokens calculation
             try:
                 mentions_text = mentions_section.render()
-                section_sizes['mentions'] = len(mentions_text or '')
+                section_sizes['mentions'] = _section_token_length(mentions_text or '')
             except Exception:
                 pass
         

@@ -363,11 +363,16 @@ class LLMService:
         has_small_default_model = existing_small_default.scalar_one_or_none() is not None
 
         for model in models:
-            # Remove context_window_tokens and pricing from model dict if client provided them (we only use preset values)
-            model_dict = {
-                k: v for k, v in model.items() 
-                if k not in ["context_window_tokens", "input_cost_per_million_tokens_usd", "output_cost_per_million_tokens_usd"]
-            }
+            # For preset models: remove context_window_tokens and pricing from model dict (we only use preset values)
+            # For custom models: allow these fields to be set by clients
+            is_preset_model = model.get("is_preset", False) or not model.get("is_custom", False)
+            if is_preset_model:
+                model_dict = {
+                    k: v for k, v in model.items() 
+                    if k not in ["context_window_tokens", "input_cost_per_million_tokens_usd", "output_cost_per_million_tokens_usd"]
+                }
+            else:
+                model_dict = model
             db_model = LLMModel(**model_dict)
             db_model.organization_id = organization.id
             db_model.provider = provider
@@ -395,14 +400,18 @@ class LLMService:
             else:
                 setattr(db_model, "is_small_default", False)
             
-            # Set context_window_tokens and pricing only from LLM_MODEL_DETAILS (preset models)
+            # Set context_window_tokens and pricing
+            # For preset models: use values from LLM_MODEL_DETAILS
+            # For custom models: use values from model dict if provided (already set via LLMModel(**model_dict))
             if model_details:
-                if model_details.get("context_window_tokens") is not None:
-                    db_model.context_window_tokens = model_details["context_window_tokens"]
-                if model_details.get("input_cost_per_million_tokens_usd") is not None:
-                    db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
-                if model_details.get("output_cost_per_million_tokens_usd") is not None:
-                    db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
+                # Only override for preset models
+                if not db_model.is_custom:
+                    if model_details.get("context_window_tokens") is not None:
+                        db_model.context_window_tokens = model_details["context_window_tokens"]
+                    if model_details.get("input_cost_per_million_tokens_usd") is not None:
+                        db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
+                    if model_details.get("output_cost_per_million_tokens_usd") is not None:
+                        db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
                 
             db.add(db_model)
 
@@ -489,40 +498,58 @@ class LLMService:
                     db_model.is_enabled = model.is_enabled
                     db.add(db_model)
                 
-                # Optional token/pricing fields (context_window_tokens and pricing are not updatable by clients, only from preset models)
-                # Update context_window_tokens and pricing from LLM_MODEL_DETAILS if this is a preset model
-                model_details = next(
-                    (m for m in LLM_MODEL_DETAILS if m["model_id"] == db_model.model_id),
-                    None
-                )
-                if model_details:
-                    if model_details.get("context_window_tokens") is not None:
-                        db_model.context_window_tokens = model_details["context_window_tokens"]
-                    if model_details.get("input_cost_per_million_tokens_usd") is not None:
-                        db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
-                    if model_details.get("output_cost_per_million_tokens_usd") is not None:
-                        db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
+                # Optional token/pricing fields
+                # For preset models: sync from LLM_MODEL_DETAILS (not updatable by clients)
+                # For custom models: allow clients to optionally set these values
+                if db_model.is_preset:
+                    model_details = next(
+                        (m for m in LLM_MODEL_DETAILS if m["model_id"] == db_model.model_id),
+                        None
+                    )
+                    if model_details:
+                        if model_details.get("context_window_tokens") is not None:
+                            db_model.context_window_tokens = model_details["context_window_tokens"]
+                        if model_details.get("input_cost_per_million_tokens_usd") is not None:
+                            db_model.input_cost_per_million_tokens_usd = model_details["input_cost_per_million_tokens_usd"]
+                        if model_details.get("output_cost_per_million_tokens_usd") is not None:
+                            db_model.output_cost_per_million_tokens_usd = model_details["output_cost_per_million_tokens_usd"]
+                else:
+                    # Custom models: allow clients to optionally update these fields
+                    if getattr(model, "context_window_tokens", None) is not None:
+                        db_model.context_window_tokens = model.context_window_tokens
+                    if getattr(model, "input_cost_per_million_tokens_usd", None) is not None:
+                        db_model.input_cost_per_million_tokens_usd = model.input_cost_per_million_tokens_usd
+                    if getattr(model, "output_cost_per_million_tokens_usd", None) is not None:
+                        db_model.output_cost_per_million_tokens_usd = model.output_cost_per_million_tokens_usd
                 
                 if getattr(model, "max_output_tokens", None) is not None:
                     db_model.max_output_tokens = model.max_output_tokens
                 db.add(db_model)
             else:
                 # If model doesn't have an ID, create new model
-                # Get context_window_tokens and pricing only from LLM_MODEL_DETAILS (preset models)
-                model_details = next(
-                    (m for m in LLM_MODEL_DETAILS if m["model_id"] == model.model_id),
-                    None
-                )
+                # For preset models: get context_window_tokens and pricing from LLM_MODEL_DETAILS
+                # For custom models: allow clients to optionally set these values
                 context_window_tokens = None
                 input_cost = None
                 output_cost = None
-                if model_details:
-                    if model_details.get("context_window_tokens") is not None:
-                        context_window_tokens = model_details["context_window_tokens"]
-                    if model_details.get("input_cost_per_million_tokens_usd") is not None:
-                        input_cost = model_details["input_cost_per_million_tokens_usd"]
-                    if model_details.get("output_cost_per_million_tokens_usd") is not None:
-                        output_cost = model_details["output_cost_per_million_tokens_usd"]
+                
+                if model.is_preset:
+                    model_details = next(
+                        (m for m in LLM_MODEL_DETAILS if m["model_id"] == model.model_id),
+                        None
+                    )
+                    if model_details:
+                        if model_details.get("context_window_tokens") is not None:
+                            context_window_tokens = model_details["context_window_tokens"]
+                        if model_details.get("input_cost_per_million_tokens_usd") is not None:
+                            input_cost = model_details["input_cost_per_million_tokens_usd"]
+                        if model_details.get("output_cost_per_million_tokens_usd") is not None:
+                            output_cost = model_details["output_cost_per_million_tokens_usd"]
+                else:
+                    # Custom models: allow clients to optionally provide these values
+                    context_window_tokens = getattr(model, "context_window_tokens", None)
+                    input_cost = getattr(model, "input_cost_per_million_tokens_usd", None)
+                    output_cost = getattr(model, "output_cost_per_million_tokens_usd", None)
                 
                 db_model = LLMModel(
                     name=model.name or model.model_id,

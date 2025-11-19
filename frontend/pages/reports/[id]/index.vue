@@ -300,7 +300,7 @@
 					:isStopping="false"
 					@submitCompletion="onSubmitCompletion"
 					@stopGeneration="abortStream"
-					:showContextIndicator="true"
+					:showContextIndicator="showContextIndicator"
 				/>
 			</div>
 		</div>
@@ -434,6 +434,12 @@ const canViewConsole = computed(() => useCan('view_console'))
 
 const messages = ref<ChatMessage[]>([])
 const promptBoxRef = ref<InstanceType<typeof PromptBoxV2> | null>(null)
+const showContextIndicator = computed(() => {
+	const completedSystem = messages.value.some(
+		(m) => m.role === 'system' && ['success', 'error', 'stopped'].includes(m.status || '')
+	)
+	return completedSystem
+})
 // Pagination state
 const pageLimit = 10
 const hasMore = ref<boolean>(true)

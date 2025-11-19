@@ -262,6 +262,9 @@ class CompletionService:
             if remaining_tokens is None and model_limit is not None:
                 remaining_tokens = max(model_limit - prompt_tokens, 0)
             near_limit = bool(model_limit and prompt_tokens >= 0.9 * model_limit)
+            context_usage_pct = None
+            if model_limit and model_limit > 0:
+                context_usage_pct = round((prompt_tokens / model_limit) * 100, 2)
 
             return CompletionContextEstimateSchema(
                 model_id=getattr(model, "model_id", ""),
@@ -270,6 +273,7 @@ class CompletionService:
                 model_limit=model_limit,
                 remaining_tokens=remaining_tokens,
                 near_limit=near_limit,
+                context_usage_pct=context_usage_pct,
             )
         except HTTPException as he:
             raise he

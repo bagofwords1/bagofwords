@@ -61,6 +61,7 @@ class CompletionContextEstimateSchema(BaseModel):
     model_limit: Optional[int] = None
     remaining_tokens: Optional[int] = None
     near_limit: bool = False
+    context_usage_pct: Optional[float] = None
 
 
 class CompletionBlockV2Schema(BaseModel):
