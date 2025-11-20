@@ -40,15 +40,12 @@ def create_async_database_engine():
             ).replace(
                 "postgresql://", "postgresql+asyncpg://"
             )
-            print(f"🔍 Using PostgreSQL database: {database_url}")
         elif "sqlite" in settings.bow_config.database.url:
             database_url = settings.bow_config.database.url.replace(
                 "sqlite://", "sqlite+aiosqlite://"
             )
-            print(f"🔍 Using SQLite database: {database_url}")
         else:
             database_url = "sqlite+aiosqlite:///./app.db"
-            print(f"🔍 Using default SQLite database: {database_url}")
         
         engine = create_async_engine(database_url, echo=False)
 

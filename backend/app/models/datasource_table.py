@@ -28,6 +28,24 @@ class DataSourceTable(BaseSchema):
     metrics_computed_at = Column(DateTime, nullable=True)
 
     datasource = relationship("DataSource", back_populates="tables")
+    table_stats = relationship(
+        "TableStats",
+        back_populates="datasource_table",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
+    usage_events = relationship(
+        "TableUsageEvent",
+        back_populates="datasource_table",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
+    feedback_events = relationship(
+        "TableFeedbackEvent",
+        back_populates="datasource_table",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
 
     def to_prompt_table(self) -> Table:
         """Convert to prompt formatter Table model."""

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, Index
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.models.base import BaseSchema
@@ -21,6 +22,8 @@ class TableFeedbackEvent(BaseSchema):
     feedback_type = Column(String(16), nullable=False)
 
     created_at_event = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    datasource_table = relationship("DataSourceTable", back_populates="feedback_events")
 
     __table_args__ = (
         Index("ix_feedback_org_report_table_time", "org_id", "report_id", "table_fqn", "created_at_event"),

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Text, DateTime, BigInteger, ForeignKey, Index, Float
+from sqlalchemy.orm import relationship
 from datetime import datetime
 
 from app.models.base import BaseSchema
@@ -35,6 +36,8 @@ class TableStats(BaseSchema):
     last_used_at = Column(DateTime, nullable=True)
     last_feedback_at = Column(DateTime, nullable=True)
     updated_at_stats = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    datasource_table = relationship("DataSourceTable", back_populates="table_stats")
 
     __table_args__ = (
         # Composite uniqueness for fast upserts per scope (now includes data_source_id)

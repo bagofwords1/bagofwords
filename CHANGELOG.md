@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.251 (November 20, 2025)
+- Data sources deletion
+
 ## Version 0.0.250 (November 19, 2025)
 - Add context estimator when writing prompts
 

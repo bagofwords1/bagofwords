@@ -56,7 +56,12 @@ class DataSource(BaseSchema):
         back_populates="data_sources",
         lazy="selectin"
     )
-    tables = relationship("DataSourceTable", back_populates="datasource")
+    tables = relationship(
+        "DataSourceTable",
+        back_populates="datasource",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
     git_repository = relationship(
         "GitRepository", 
         back_populates="data_source", 

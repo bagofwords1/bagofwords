@@ -31,6 +31,8 @@ class TableUsageEvent(BaseSchema):
 
     used_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    datasource_table = relationship("DataSourceTable", back_populates="usage_events")
+
     __table_args__ = (
         # Prevent duplicate usage for the same step-table pair
         UniqueConstraint("step_id", "table_fqn", name="uq_usage_step_table"),
