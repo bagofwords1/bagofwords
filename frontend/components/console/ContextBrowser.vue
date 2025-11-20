@@ -352,6 +352,10 @@
       </div>
       <Transition name="fade">
         <div v-if="expandedSections.has('metadata')" class="ml-4">
+          <div v-if="plannerPromptTokens !== null" class="flex items-baseline text-xs py-0.5 mb-2">
+            <div class="w-44 text-[11px] uppercase tracking-wide text-gray-500">Planner Prompt Tokens</div>
+            <div class="text-gray-900 font-semibold">{{ formatNumber(plannerPromptTokens) }}</div>
+          </div>
           <div v-for="[k, v] in metadataEntries" :key="k" class="text-xs py-0.5">
             <div v-if="isPrimitive(v)" class="flex items-baseline">
               <div class="w-44 text-[11px] uppercase tracking-wide text-gray-500">{{ k.replace(/_/g,' ') }}</div>
@@ -456,7 +460,7 @@ const instructionsList = computed(() => {
 })
 
 const resourcesContent = computed(() => props.contextData?.static?.resources?.content || '')
-const metadataResources = computed(() => [])
+const metadataResources = computed<any[]>(() => [])
 
 const observations = computed(() => props.contextData?.warm?.observations || '')
 
@@ -484,6 +488,17 @@ const metadata = computed(() => {
 })
 
 const metadataEntries = computed(() => Object.entries(metadata.value || {}))
+const plannerPromptTokens = computed(() => {
+  const meta = metadata.value || {}
+  const sectionSizes = meta.section_sizes || {}
+  if (typeof sectionSizes?._planner_prompt_total === 'number') {
+    return sectionSizes._planner_prompt_total
+  }
+  if (typeof meta.total_tokens === 'number') {
+    return meta.total_tokens
+  }
+  return null
+})
 
 function toggleSection(section: string) {
   if (expandedSections.value.has(section)) {
@@ -615,7 +630,17 @@ function isPrimitive(v: any): boolean {
 function formatPrimitive(v: any): string {
   if (v === null || v === undefined) return '—'
   if (typeof v === 'boolean') return v ? 'true' : 'false'
+  if (typeof v === 'number') return formatNumber(v)
   return String(v)
+}
+
+function formatNumber(value: number | null): string {
+  if (value === null || value === undefined) return '—'
+  try {
+    return value.toLocaleString()
+  } catch {
+    return String(value)
+  }
 }
 
 function formatJson(v: any): string {

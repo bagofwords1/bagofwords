@@ -147,62 +147,7 @@ class AgentV2:
                 await self.context_hub.build_context()
             except Exception:
                 pass
-            view = self.context_hub.get_view()
-
-            instructions_section = await self.context_hub.instruction_builder.build()
-            instructions = instructions_section.render()
-
-            history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
-
-            try:
-                schemas_ctx = await self.context_hub.schema_builder.build(
-                    include_inactive=False,
-                    with_stats=True,
-                    active_only=True,
-                )
-                schemas_combined = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
-            except Exception:
-                schemas_combined = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
-
-            messages_section = await self.context_hub.message_builder.build(max_messages=20)
-            messages_context = messages_section.render()
-
-            resources_section = await self.context_hub.resource_builder.build()
-            resources_context = resources_section.render()
-            try:
-                resources_combined_small = resources_section.render_combined(top_k_per_repo=10, index_limit=200)
-            except Exception:
-                resources_combined_small = resources_context
-
-            files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
-            mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
-            entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
-
-            user_message = (self.head_completion.prompt or {}).get("content", "")
-
-            planner_input = PlannerInput(
-                organization_name=self.organization.name,
-                organization_ai_analyst_name=self.ai_analyst_name,
-                instructions=instructions,
-                user_message=user_message,
-                schemas_excerpt=None,
-                schemas_combined=schemas_combined,
-                schemas_names_index=None,
-                files_context=files_context,
-                mentions_context=mentions_context,
-                entities_context=entities_context,
-                history_summary=history_summary,
-                messages_context=messages_context,
-                resources_context=resources_context,
-                resources_combined=resources_combined_small,
-                last_observation=None,
-                past_observations=self.context_hub.observation_builder.tool_observations,
-                external_platform=getattr(self.head_completion, "external_platform", None),
-                tool_catalog=self.planner.tool_catalog,
-                mode=self.mode,
-            )
-
-            prompt_text = self.planner.prompt_builder.build_prompt(planner_input)
+            prompt_text = await self._build_planner_prompt_text()
             prompt_tokens = count_tokens(prompt_text, getattr(self.model, "model_id", None))
 
             model_limit = getattr(self.model, "context_window_tokens", None)
@@ -343,6 +288,7 @@ class AgentV2:
             except Exception:
                 pass
             view = self.context_hub.get_view()
+            await self._update_context_token_metadata(view)
             
             # Save initial context snapshot
             await self.project_manager.save_context_snapshot(
@@ -429,6 +375,7 @@ class AgentV2:
                 # Save pre-tool context snapshot
                 await self.context_hub.refresh_warm()
                 view = self.context_hub.get_view()
+                await self._update_context_token_metadata(view)
                 await self.project_manager.save_context_snapshot(
                     self.db,
                     agent_execution=self.current_execution,
@@ -1061,6 +1008,7 @@ class AgentV2:
                         except Exception:
                             pass
                         post_view = self.context_hub.get_view()
+                        await self._update_context_token_metadata(post_view)
                         post_snap = await self.project_manager.save_context_snapshot(
                             self.db,
                             agent_execution=self.current_execution,
@@ -1174,6 +1122,7 @@ class AgentV2:
             except Exception:
                 pass
             view = self.context_hub.get_view()
+            await self._update_context_token_metadata(view)
             await self.project_manager.save_context_snapshot(
                 self.db,
                 agent_execution=self.current_execution,
@@ -1319,6 +1268,82 @@ class AgentV2:
                 websocket_manager.remove_handler(self._handle_completion_update)
             except Exception:
                 pass
+
+    async def _build_planner_prompt_text(self, view=None) -> str:
+        if view is None:
+            view = self.context_hub.get_view()
+
+        instructions_section = await self.context_hub.instruction_builder.build()
+        instructions = instructions_section.render()
+
+        history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+
+        try:
+            schemas_ctx = await self.context_hub.schema_builder.build(
+                include_inactive=False,
+                with_stats=True,
+                active_only=True,
+            )
+            schemas_combined = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
+        except Exception:
+            schemas_combined = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+
+        messages_section = await self.context_hub.message_builder.build(max_messages=20)
+        messages_context = messages_section.render()
+
+        resources_section = await self.context_hub.resource_builder.build()
+        resources_context = resources_section.render()
+        try:
+            resources_combined_small = resources_section.render_combined(top_k_per_repo=self.top_k_metadata_resources, index_limit=INDEX_LIMIT)
+        except Exception:
+            resources_combined_small = resources_context
+
+        files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
+        mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
+        entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
+
+        user_message = (self.head_completion.prompt or {}).get("content", "")
+
+        planner_input = PlannerInput(
+            organization_name=self.organization.name,
+            organization_ai_analyst_name=self.ai_analyst_name,
+            instructions=instructions,
+            user_message=user_message,
+            schemas_excerpt=None,
+            schemas_combined=schemas_combined,
+            schemas_names_index=None,
+            files_context=files_context,
+            mentions_context=mentions_context,
+            entities_context=entities_context,
+            history_summary=history_summary,
+            messages_context=messages_context,
+            resources_context=resources_context,
+            resources_combined=resources_combined_small,
+            last_observation=None,
+            past_observations=self.context_hub.observation_builder.tool_observations,
+            external_platform=getattr(self.head_completion, "external_platform", None),
+            tool_catalog=self.planner.tool_catalog,
+            mode=self.mode,
+        )
+
+        return self.planner.prompt_builder.build_prompt(planner_input)
+
+    async def _update_context_token_metadata(self, view=None):
+        try:
+            prompt_text = await self._build_planner_prompt_text(view=view)
+            prompt_tokens = count_tokens(prompt_text, getattr(self.model, "model_id", None))
+            metadata = self.context_hub.metadata
+            section_sizes = dict(metadata.section_sizes or {})
+            section_sizes["_planner_prompt_total"] = prompt_tokens
+            metadata.section_sizes = section_sizes
+            metadata.total_tokens = prompt_tokens
+            if view is not None and isinstance(getattr(view, "meta", None), dict):
+                try:
+                    view.meta.update(metadata.model_dump())
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
     async def _emit_sse_event(self, event: SSEEvent):
         """Emit SSE event via event queue and optionally websocket."""

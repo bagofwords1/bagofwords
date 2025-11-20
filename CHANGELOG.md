@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.250 (November 19, 2025)
+- Add context estimator when writing prompts
+
 ## Version 0.0.249 (November 19, 2025)
 - Pinot get tables to use user:pass when creating the HTTP request
 
