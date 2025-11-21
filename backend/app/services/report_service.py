@@ -359,7 +359,16 @@ class ReportService:
         from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
         return [DashboardLayoutVersionSchema.from_orm(l) for l in layouts]
 
-    async def get_reports(self, db: AsyncSession, current_user: User, organization: Organization, page: int = 1, limit: int = 10, filter: str = "my"):
+    async def get_reports(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        organization: Organization,
+        page: int = 1,
+        limit: int = 10,
+        filter: str = "my",
+        search: str | None = None,
+    ):
         # Calculate offset
         offset = (page - 1) * limit
         
@@ -381,6 +390,10 @@ class ReportService:
             base_conditions.append(
                 or_(Report.status == 'published', Report.user_id == current_user.id)
             )
+
+        # Optional search on report title
+        if search:
+            base_conditions.append(Report.title.ilike(f"%{search}%"))
         
         # Base query for filtering
         base_query = select(Report).where(*base_conditions)
@@ -424,6 +437,44 @@ class ReportService:
         )
 
         return ReportListResponse(reports=report_schemas, meta=meta)
+
+    async def bulk_archive_reports(
+        self,
+        db: AsyncSession,
+        report_ids: list[str],
+        current_user: User,
+        organization: Organization,
+    ):
+        """
+        Archive multiple reports in a single operation.
+        Only affects regular reports in the current organization that the user owns.
+        """
+        if not report_ids:
+            return {"archived": 0}
+
+        # Only allow archiving reports the user owns within the org and that are not already archived
+        stmt = (
+            select(Report)
+            .where(
+                Report.id.in_(report_ids),
+                Report.organization_id == organization.id,
+                Report.user_id == current_user.id,
+                Report.report_type == "regular",
+                Report.status != "archived",
+            )
+        )
+        result = await db.execute(stmt)
+        reports = result.scalars().all()
+
+        count = 0
+        for report in reports:
+            report.status = "archived"
+            count += 1
+
+        if count:
+            await db.commit()
+
+        return {"archived": count}
 
     async def _set_slug_for_report(self, db: AsyncSession, report: Report):
         title_slug = report.title.replace(" ", "-").lower()

@@ -40,11 +40,12 @@ async def get_reports(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(10, ge=1, le=100, description="Number of items per page"),
     filter: str = Query("my", description="Filter: 'my' or 'published'"),
+    search: str | None = Query(None, description="Optional search term for report title"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await report_service.get_reports(db, current_user, organization, page, limit, filter)
+    return await report_service.get_reports(db, current_user, organization, page, limit, filter, search)
 
 @router.put("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)
@@ -60,6 +61,21 @@ async def get_report(report_id: str, db: AsyncSession = Depends(get_async_db), c
 @requires_permission('delete_reports', model=Report, owner_only=True)
 async def delete_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await report_service.archive_report(db, report_id, current_user, organization)
+
+
+@router.post("/reports/bulk/archive")
+@requires_permission('delete_reports')
+async def bulk_archive_reports(
+    report_ids: List[str],
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """
+    Archive multiple reports in a single operation.
+    Only reports owned by the current user (or otherwise deletable per service rules) will be archived.
+    """
+    return await report_service.bulk_archive_reports(db, report_ids, current_user, organization)
 
 @router.post("/reports/{report_id}/rerun", response_model=ReportSchema)
 @requires_permission('rerun_report_steps', model=Report, owner_only=True)

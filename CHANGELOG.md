@@ -6,6 +6,7 @@
   - do not auto-activate new found objects
 - Added SQLite integratoin (for testing/dev purposes) and added more tests for git repos, metadata resources, and more
 - Data sources deletion improvements
+- Add bulk archive for reports and redesigned the main reports index page
 
 ## Version 0.0.251 (November 20, 2025)
 - Data sources deletion
