@@ -31,6 +31,7 @@ class TableUsageEvent(BaseSchema):
 
     used_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    data_source = relationship("DataSource", back_populates="table_usage_events")
     datasource_table = relationship("DataSourceTable", back_populates="usage_events")
 
     __table_args__ = (

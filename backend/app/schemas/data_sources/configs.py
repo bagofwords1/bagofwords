@@ -43,6 +43,21 @@ class PostgreSQLConfig(BaseModel):
     )
 
 
+# SQLite (test/dev only)
+class SQLiteCredentials(BaseModel):
+    class Config:
+        extra = "allow"
+
+
+class SQLiteConfig(BaseModel):
+    database: str = Field(
+        ":memory:",
+        title="Database Path",
+        description="Use ':memory:' for in-memory DB or absolute path to .db file",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # MySQL/MariaDB/MSSQL - Combined since they share the same structure
 class SQLCredentials(BaseModel):
     user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
@@ -363,6 +378,7 @@ class PinotConfig(BaseModel):
 __all__ = [
     # Configs
     "PostgreSQLConfig",
+    "SQLiteConfig",
     "OracleConfig",
     "SnowflakeConfig",
     "BigQueryConfig",
@@ -384,6 +400,7 @@ __all__ = [
     "DuckDBAzureCredentials",
     # Credentials
     "PostgreSQLCredentials",
+    "SQLiteCredentials",
     "OracleCredentials",
     "SnowflakeCredentials",
     "SnowflakeKeypairCredentials",

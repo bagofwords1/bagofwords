@@ -25,7 +25,7 @@ class GitRepositorySchema(GitRepositoryBase):
 
 
 class GitRepositoryCreate(GitRepositoryBase):
-    ssh_key: Optional[str]  # Will be encrypted before storage
+    ssh_key: Optional[str] = None  # Will be encrypted before storage
 
 
 class GitRepositoryUpdate(GitRepositoryBase):

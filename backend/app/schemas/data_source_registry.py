@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    SQLiteConfig,
     OracleConfig,
     SnowflakeConfig,
     BigQueryConfig,
@@ -32,6 +33,7 @@ from app.schemas.data_sources.configs import (
     DuckDBAzureCredentials,
     # Credentials
     PostgreSQLCredentials,
+    SQLiteCredentials,
     OracleCredentials,
     SnowflakeCredentials,
     SnowflakeKeypairCredentials,
@@ -50,6 +52,8 @@ from app.schemas.data_sources.configs import (
     TableauPATCredentials,
     SalesforceCredentials,
 )
+
+from app.settings.config import settings
 
 
 class AuthVariant(BaseModel):
@@ -85,9 +89,27 @@ class DataSourceRegistryEntry(BaseModel):
     credentials_auth: AuthOptions
     # Optional explicit client path; if None, fallback to dynamic resolution
     client_path: Optional[str] = None
+    dev_only: bool = False
 
     class Config:
         arbitrary_types_allowed = True
+
+
+_DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
+
+
+def _is_dev_environment() -> bool:
+    try:
+        env = (settings.ENVIRONMENT or "").lower()
+    except Exception:
+        return False
+    return env in _DEV_ENVIRONMENTS
+
+
+def _entry_visible(entry: DataSourceRegistryEntry) -> bool:
+    if not entry.dev_only:
+        return True
+    return _is_dev_environment()
 
 
 # Central registry for data sources
@@ -101,6 +123,25 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=PostgreSQLCredentials, scopes=["system","user"])
         }),
         client_path=None
+    ),
+    "sqlite": DataSourceRegistryEntry(
+        type="sqlite",
+        title="SQLite",
+        description="Embedded SQLite database intended for development and automated testing.",
+        config_schema=SQLiteConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Auth Required",
+                    schema=SQLiteCredentials,
+                    scopes=["system", "user"],
+                )
+            },
+        ),
+        client_path="app.data_sources.clients.sqlite_client.SqliteClient",
+        version="0.1.0",
+        dev_only=True,
     ),
     "oracledb": DataSourceRegistryEntry(
         type="oracledb",
@@ -291,6 +332,8 @@ def get_entry(ds_type: str) -> DataSourceRegistryEntry:
     entry = REGISTRY.get(ds_type)
     if not entry:
         raise ValueError(f"Unknown data source type: {ds_type}")
+    if entry.dev_only and not _is_dev_environment():
+        raise ValueError(f"Unknown data source type: {ds_type}")
     return entry
 
 
@@ -305,7 +348,7 @@ def list_available_data_sources() -> list[dict]:
             "version": e.version,
         }
         for e in REGISTRY.values()
-        if e.status == "active"
+        if e.status == "active" and _entry_visible(e)
     ]
 
 

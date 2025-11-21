@@ -32,7 +32,7 @@ def create_async_database_engine():
             # Required for SQLite to handle concurrent requests
             connect_args={"check_same_thread": False}
         )
-        print("✅ Test database engine created")
+        # print("✅ Test database engine created")
     else:
         if "postgres" in settings.bow_config.database.url:
             database_url = settings.bow_config.database.url.replace(

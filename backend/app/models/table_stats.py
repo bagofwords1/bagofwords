@@ -37,6 +37,7 @@ class TableStats(BaseSchema):
     last_feedback_at = Column(DateTime, nullable=True)
     updated_at_stats = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    data_source = relationship("DataSource", back_populates="table_stats")
     datasource_table = relationship("DataSourceTable", back_populates="table_stats")
 
     __table_args__ = (

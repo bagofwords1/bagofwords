@@ -73,6 +73,24 @@ class DataSource(BaseSchema):
     metadata_indexing_jobs = relationship("MetadataIndexingJob", back_populates="data_source")
     data_source_memberships = relationship("DataSourceMembership", back_populates="data_source", cascade="all, delete-orphan")
     user_data_source_credentials = relationship("UserDataSourceCredentials", back_populates="data_source", cascade="all, delete-orphan")
+    table_stats = relationship(
+        "TableStats",
+        back_populates="data_source",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
+    table_usage_events = relationship(
+        "TableUsageEvent",
+        back_populates="data_source",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
+    table_feedback_events = relationship(
+        "TableFeedbackEvent",
+        back_populates="data_source",
+        cascade="all, delete-orphan",
+        passive_deletes=False,
+    )
 
     @property
     def memberships(self):

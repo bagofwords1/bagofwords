@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.252 (November 20, 2025)
+- Metadata resources improvements: 
+  - remove objects that are not found in new reindexing
+  - do not auto-activate new found objects
+- Added SQLite integratoin (for testing/dev purposes) and added more tests for git repos, metadata resources, and more
+- Data sources deletion improvements
+
 ## Version 0.0.251 (November 20, 2025)
 - Data sources deletion
 

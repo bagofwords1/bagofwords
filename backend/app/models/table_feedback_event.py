@@ -23,6 +23,7 @@ class TableFeedbackEvent(BaseSchema):
 
     created_at_event = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    data_source = relationship("DataSource", back_populates="table_feedback_events")
     datasource_table = relationship("DataSourceTable", back_populates="feedback_events")
 
     __table_args__ = (

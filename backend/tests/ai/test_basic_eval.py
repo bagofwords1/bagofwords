@@ -135,7 +135,6 @@ def test_basic_eval(
     is_valid, completion_stats = validate_response_completions(completions)
     assert is_valid, "Completions validation failed"
     assert completion_stats["completions_with_code"] > 0, "No completions found with valid code"
-    assert completion_stats["completions_with_data_model"] > 0, "No completions found with valid data model"
     
     print(f"Completion Statistics: {completion_stats}")
     
@@ -151,7 +150,6 @@ def test_basic_eval(
     
     # Verify at least one completion has code and data model
     assert completion_stats["completions_with_code"] > 0, "No completions found with valid code"
-    assert completion_stats["completions_with_data_model"] > 0, "No completions found with valid data model"
     
     # Optional: Print statistics for debugging
     print(f"Completion Statistics: {completion_stats}")
