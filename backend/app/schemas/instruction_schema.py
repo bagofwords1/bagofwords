@@ -113,6 +113,8 @@ class InstructionListSchema(BaseModel):
     is_seen: bool
     can_user_toggle: bool
     reviewed_by_user_id: Optional[str] = None
+    # If created by AI, the provenance source label (e.g., 'completion')
+    ai_source: Optional[str] = None
     
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []

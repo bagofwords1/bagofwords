@@ -1101,6 +1101,7 @@ class InstructionService:
                     labels=[InstructionLabelSchema.from_orm(label) for label in (inst.labels or [])],
                     created_at=inst.created_at,
                     updated_at=inst.updated_at,
+                    ai_source=getattr(inst, "ai_source", None),
                 )
             )
         return list_items

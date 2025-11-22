@@ -400,6 +400,8 @@ interface Instruction {
     reviewed_by_user_id: string | null
     reviewed_by?: User  // Add this to get
     labels?: InstructionLabel[]
+    // If created by AI, the provenance source label (e.g., 'completion')
+    ai_source?: string | null
 }
 
 const getRefIcon = (type: string) => {
@@ -532,7 +534,7 @@ const filteredInstructions = computed(() => {
     // Creator filter
     if (creatorFilter.value !== 'all') {
         list = list.filter(i => {
-            const isAi = (i as any).ai_source ? true : false
+            const isAi = !!i.ai_source
             return creatorFilter.value === 'ai' ? isAi : !isAi
         })
     }
