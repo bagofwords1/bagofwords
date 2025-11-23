@@ -1,14 +1,21 @@
+from typing import Any, AsyncIterator, Callable, Dict, Optional
+
+import json
+from partialjson.json_parser import JSONParser
+
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
-from partialjson.json_parser import JSONParser
-from typing import AsyncIterator, Dict, Any
-import json
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class SuggestInstructions:
 
-    def __init__(self, model: LLMModel) -> None:
-        self.llm = LLM(model)
+    def __init__(
+        self,
+        model: LLMModel,
+        usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
+    ) -> None:
+        self.llm = LLM(model, usage_session_maker=usage_session_maker)
 
     async def stream_suggestions(self, context_view: Any = None, context_hub: Any = None, hint: str = None) -> AsyncIterator[Dict[str, str]]:
         """Stream instruction suggestions as they become valid.
@@ -108,7 +115,11 @@ Return a single JSON object matching this schema exactly:
         emitted_indices: set[int] = set()
         yielded_count = 0
         
-        async for chunk in self.llm.inference_stream(header):
+        async for chunk in self.llm.inference_stream(
+            header,
+            usage_scope="suggest_instructions.stream",
+            usage_scope_ref_id=None,
+        ):
             if not chunk:
                 continue
             buffer += chunk
@@ -206,7 +217,11 @@ Recent Messages
         emitted_indices: set[int] = set()
         yielded_count = 0
         
-        async for chunk in self.llm.inference_stream(header):
+        async for chunk in self.llm.inference_stream(
+            header,
+            usage_scope="suggest_instructions.onboarding",
+            usage_scope_ref_id=None,
+        ):
             if not chunk:
                 continue
             buffer += chunk
@@ -238,7 +253,13 @@ Recent Messages
                             yielded_count += 1
                             yield {"text": text, "category": category}
     
-    async def enhance_instruction(self, instruction: str, instructions_context: str, data_source_context: str, context_view: Any = None) -> str:
+    async def enhance_instruction(
+        self,
+        instruction: str,
+        instructions_context: str,
+        data_source_context: str,
+        context_view: Any = None,
+    ) -> str:
         """User is creating an instruction and requested AI to enhance it"""
 
         header = f"""
@@ -264,7 +285,11 @@ Recent Messages
 
         parser = JSONParser()
         buffer = ""
-        async for chunk in self.llm.inference_stream(header):
+        async for chunk in self.llm.inference_stream(
+            header,
+            usage_scope="suggest_instructions.enhance",
+            usage_scope_ref_id=None,
+        ):
             if not chunk:
                 continue
             buffer += chunk

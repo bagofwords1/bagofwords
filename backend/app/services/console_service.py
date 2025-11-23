@@ -16,7 +16,8 @@ from app.schemas.console_schema import (
     TopUserData, TopUsersMetrics, RecentNegativeFeedbackData, RecentNegativeFeedbackMetrics,
     TraceData, TraceCompletionData, TraceStepData, TraceFeedbackData,
     CompactIssuesResponse, CompactIssueItem,
-    AgentExecutionSummaryItem, AgentExecutionSummariesResponse
+    AgentExecutionSummaryItem, AgentExecutionSummariesResponse,
+    LLMUsageMetrics, LLMUsageItem
 )
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,8 @@ from app.models.completion_feedback import CompletionFeedback
 from app.models.step import Step
 from sqlalchemy.orm import aliased
 from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
+from app.models.llm_usage_record import LLMUsageRecord
+from app.models.llm_model import LLMModel
 
 logger = get_logger(__name__)
 
@@ -833,6 +836,94 @@ class ConsoleService:
         return ToolUsageMetrics(
             items=items,
             date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat())
+        )
+
+    async def get_llm_usage_metrics(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        params: MetricsQueryParams
+    ) -> LLMUsageMetrics:
+        """Aggregate token/cost usage per LLM model for the selected date range."""
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+
+        total_cost_expr = func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0)
+        input_cost_expr = func.coalesce(func.sum(LLMUsageRecord.input_cost_usd), 0)
+        output_cost_expr = func.coalesce(func.sum(LLMUsageRecord.output_cost_usd), 0)
+        prompt_tokens_expr = func.coalesce(func.sum(LLMUsageRecord.prompt_tokens), 0)
+        completion_tokens_expr = func.coalesce(func.sum(LLMUsageRecord.completion_tokens), 0)
+
+        usage_query = (
+            select(
+                LLMUsageRecord.llm_model_id.label('llm_model_id'),
+                LLMModel.name.label('model_name'),
+                LLMUsageRecord.model_id.label('model_id'),
+                LLMUsageRecord.provider_type.label('provider_type'),
+                func.count(LLMUsageRecord.id).label('total_calls'),
+                prompt_tokens_expr.label('prompt_tokens'),
+                completion_tokens_expr.label('completion_tokens'),
+                input_cost_expr.label('input_cost'),
+                output_cost_expr.label('output_cost'),
+                total_cost_expr.label('total_cost'),
+            )
+            .join(LLMModel, LLMModel.id == LLMUsageRecord.llm_model_id)
+            .where(
+                LLMModel.organization_id == organization.id,
+                LLMUsageRecord.created_at >= start_date,
+                LLMUsageRecord.created_at <= end_date,
+            )
+            .group_by(
+                LLMUsageRecord.llm_model_id,
+                LLMModel.name,
+                LLMUsageRecord.model_id,
+                LLMUsageRecord.provider_type,
+            )
+            .order_by(total_cost_expr.desc())
+        )
+
+        result = await db.execute(usage_query)
+        rows = result.all()
+
+        items: List[LLMUsageItem] = []
+        total_calls = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
+        total_cost_usd = 0.0
+
+        for row in rows:
+            prompt_tokens = int(row.prompt_tokens or 0)
+            completion_tokens = int(row.completion_tokens or 0)
+            total_calls += int(row.total_calls or 0)
+            total_prompt_tokens += prompt_tokens
+            total_completion_tokens += completion_tokens
+            input_cost = float(row.input_cost or 0)
+            output_cost = float(row.output_cost or 0)
+            total_cost = float(row.total_cost or 0)
+            total_cost_usd += total_cost
+
+            items.append(
+                LLMUsageItem(
+                    llm_model_id=str(row.llm_model_id),
+                    model_name=row.model_name,
+                    model_id=row.model_id,
+                    provider_type=row.provider_type,
+                    total_calls=int(row.total_calls or 0),
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=prompt_tokens + completion_tokens,
+                    input_cost_usd=input_cost,
+                    output_cost_usd=output_cost,
+                    total_cost_usd=total_cost,
+                )
+            )
+
+        return LLMUsageMetrics(
+            items=items,
+            total_calls=total_calls,
+            total_prompt_tokens=total_prompt_tokens,
+            total_completion_tokens=total_completion_tokens,
+            total_cost_usd=total_cost_usd,
+            date_range=DateRange(start=start_date.isoformat(), end=end_date.isoformat()),
         )
 
     async def get_top_users_metrics(

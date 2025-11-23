@@ -11,6 +11,7 @@ from app.ai.tools.schemas import (
     ToolEvent, ToolStartEvent, ToolProgressEvent, ToolStdoutEvent, ToolEndEvent,
 )
 from app.ai.llm import LLM
+from app.dependencies import async_session_maker
 from partialjson.json_parser import JSONParser
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
@@ -187,7 +188,7 @@ class CreateWidgetTool(Tool):
 
         # Phase 1: Generate Data Model (streamed parsing like create_data_model)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_data_model"})
-        llm = LLM(runtime_ctx.get("model"))
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
 
         header = f"""
 You are a data modeling assistant.
@@ -263,7 +264,7 @@ CRITICAL:
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_call_start"})
         import re
-        async for chunk in llm.inference_stream(prompt):
+        async for chunk in llm.inference_stream(prompt, usage_scope="create_widget", usage_scope_ref_id=None):
             # Guard against empty SSE heartbeats
             if not chunk:
                 continue
@@ -341,7 +342,12 @@ CRITICAL:
         instruction_builder = runtime_ctx.get("instruction_context_builder") or (getattr(context_hub, "instruction_builder", None) if context_hub else None)
         code_context_builder = runtime_ctx.get("code_context_builder") or (getattr(context_hub, "code_builder", None) if context_hub else None)
 
-        coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, context_hub=context_hub)
+        coder = Coder(
+            model=runtime_ctx.get("model"),
+            organization_settings=organization_settings,
+            context_hub=context_hub,
+            usage_session_maker=async_session_maker,
+        )
         streamer = StreamingCodeExecutor(organization_settings=organization_settings, logger=None, context_hub=context_hub)
 
         context_view = runtime_ctx.get("context_view")
@@ -360,7 +366,12 @@ CRITICAL:
 
         # Define validator before use to avoid scope errors
         async def _validator_fn(code, data_model):
-            validator_coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, context_hub=context_hub)
+            validator_coder = Coder(
+                model=runtime_ctx.get("model"),
+                organization_settings=organization_settings,
+                context_hub=context_hub,
+                usage_session_maker=async_session_maker,
+            )
             return await validator_coder.validate_code(code, data_model)
 
         async for e in streamer.generate_and_execute_stream(

@@ -12,6 +12,7 @@ from app.models.llm_provider import LLM_PROVIDER_DETAILS
 from app.models.llm_model import LLM_MODEL_DETAILS
 from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema, LLMProviderCreate
 from app.ai.llm.llm import LLM
+from app.dependencies import async_session_maker
 from datetime import datetime
 from app.core.telemetry import telemetry
 
@@ -821,6 +822,6 @@ class LLMService:
             )
 
         # Run a lightweight connection test against the LLM client
-        llm = LLM(selected_model)
+        llm = LLM(selected_model, usage_session_maker=async_session_maker)
         return await llm.test_connection()
 

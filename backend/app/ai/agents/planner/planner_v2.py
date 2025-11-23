@@ -1,7 +1,7 @@
 import asyncio
 import json
 import time
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional, Callable
 
 from app.ai.llm import LLM
 from app.schemas.ai.planner import (
@@ -17,6 +17,7 @@ from app.ai.utils.token_counter import count_tokens
 from .planner_state import PlannerState
 from .prompt_builder import PromptBuilder
 from partialjson.json_parser import JSONParser
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class PlannerV2:
@@ -32,8 +33,9 @@ class PlannerV2:
         self,
         model,
         tool_catalog: list[ToolDescriptor],
+        usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
     ) -> None:
-        self.llm = LLM(model)
+        self.llm = LLM(model, usage_session_maker=usage_session_maker)
         self.tool_catalog = tool_catalog
         self.parser = JSONParser()
         self.prompt_builder = PromptBuilder()
@@ -54,7 +56,11 @@ class PlannerV2:
         prompt_tokens = count_tokens(prompt, getattr(self.llm, "model_name", None))
         completion_tokens = 0
         # Stream LLM tokens and build decision snapshots
-        async for chunk in self.llm.inference_stream(prompt):
+        async for chunk in self.llm.inference_stream(
+            prompt,
+            usage_scope="planner",
+            usage_scope_ref_id=None,
+        ):
             if sigkill_event.is_set():
                 break
             # SSE heartbeat/empty chunks guard [[memory:5773628]]

@@ -7,6 +7,7 @@ from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import AnswerQuestionInput, AnswerQuestionOutput
 from app.ai.tools.schemas.events import ToolEvent, ToolStartEvent, ToolProgressEvent, ToolPartialEvent, ToolStdoutEvent, ToolEndEvent
 from app.ai.llm import LLM
+from app.dependencies import async_session_maker
 import json
 
 from partialjson.json_parser import JSONParser
@@ -138,13 +139,17 @@ Output (strict JSON):
         parser = JSONParser()
 
         # Stream from LLM and forward partials
-        llm = LLM(runtime_ctx.get("model"))
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         buffer = ""
         chunk_count = 0
         full_answer = ""
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_call_start"})
 
-        async for chunk in llm.inference_stream(prompt):
+        async for chunk in llm.inference_stream(
+            prompt,
+            usage_scope="answer_question",
+            usage_scope_ref_id=None,
+        ):
             
             # Guard against empty SSE heartbeats
             if not chunk:

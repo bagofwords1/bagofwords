@@ -1,11 +1,19 @@
+from typing import Optional, Callable
+
+from partialjson.json_parser import JSONParser
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
-from partialjson.json_parser import JSONParser
 
 class Reporter:
 
-    def __init__(self, model: LLMModel) -> None:
-        self.llm = LLM(model)
+    def __init__(
+        self,
+        model: LLMModel,
+        usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
+    ) -> None:
+        self.llm = LLM(model, usage_session_maker=usage_session_maker)
 
     async def generate_report_title(self, messages, plan):
 

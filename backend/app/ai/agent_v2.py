@@ -27,6 +27,7 @@ from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge
 from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
 from app.settings.database import create_async_session_factory
+from app.dependencies import async_session_maker
 from app.core.telemetry import telemetry
 from app.ai.utils.token_counter import count_tokens
 
@@ -122,6 +123,7 @@ class AgentV2:
         self.planner = PlannerV2(
             model=self.model,
             tool_catalog=tool_catalog,
+            usage_session_maker=async_session_maker,
         )
         
         # Tool runner with enhanced policies
@@ -131,9 +133,13 @@ class AgentV2:
         )
         
         # Initialize Reporter for title generation
-        self.reporter = Reporter(model=self.small_model)
+        self.reporter = Reporter(model=self.small_model, usage_session_maker=async_session_maker)
         # Initialize Judge using ContextHub's instruction builder
-        self.judge = Judge(model=self.small_model, organization_settings=self.organization_settings, instruction_context_builder=self.context_hub.instruction_builder)
+        self.judge = Judge(
+            model=self.small_model,
+            organization_settings=self.organization_settings,
+            instruction_context_builder=self.context_hub.instruction_builder,
+        )
 
         # Initialize SuggestInstructions agent for post-analysis suggestions
         self.suggest_instructions = SuggestInstructions(model=self.small_model)

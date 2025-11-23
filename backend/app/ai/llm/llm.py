@@ -1,21 +1,32 @@
-from typing import List, Tuple, AsyncGenerator
+import asyncio
+import re
+from typing import AsyncGenerator, Optional, Callable
 
 from .clients.openai_client import OpenAi
 from .clients.google_client import Google
 from .clients.anthropic_client import Anthropic
-from .clients.bow_client import Bow
 from .clients.azure_client import AzureClient
+from .types import LLMResponse, LLMUsage
+from app.ai.utils.token_counter import count_tokens
 from app.models.llm_model import LLMModel
+from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.settings.logging_config import get_logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
 
+
 class LLM:
-    def __init__(self, model: LLMModel):
+    def __init__(
+        self,
+        model: LLMModel,
+        usage_session_maker: Optional[Callable[[], "AsyncSession"]] = None,
+    ):
         self.model = model
         self.model_id = model.model_id
         self.provider = model.provider.provider_type
         self.api_key = self.model.provider.decrypt_credentials()[0]
+        self._usage_session_maker = usage_session_maker
         if self.provider == "openai":
             base_url = None
             if self.model.provider.additional_config:
@@ -26,48 +37,61 @@ class LLM:
         elif self.provider == "google":
             self.client = Google(api_key=self.api_key)
         elif self.provider == "azure":
-            # Get endpoint URL from provider's additional_config
             endpoint_url = self.model.provider.additional_config.get("endpoint_url") if self.model.provider.additional_config else None
             if not endpoint_url:
                 raise ValueError("Azure provider requires endpoint_url in additional_config")
             self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
- 
-    def inference(self, prompt: str) -> str:
+
+    def inference(
+        self,
+        prompt: str,
+        *,
+        usage_scope: Optional[str] = None,
+        usage_scope_ref_id: Optional[str] = None,
+        should_record: bool = True,
+    ) -> str:
         logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
+        prompt_tokens_estimate = self._count_tokens(prompt)
         try:
             response = self.client.inference(model_id=self.model_id, prompt=prompt)
         except Exception as e:
             raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
         logger.debug("Response: %s", response)
-        try:
-            import re
-            # Normalize to string if a client returned a non-string type
-            if not isinstance(response, str):
-                response = str(response)
 
-            # Remove a leading opening fence with optional language tag (e.g., ```python, ```json, ```)
-            response = re.sub(r"^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n", "", response)
+        text, usage = self._coerce_response(response)
+        if not usage.prompt_tokens and not usage.completion_tokens and hasattr(self.client, "pop_last_usage"):
+            usage = self.client.pop_last_usage()
+        sanitized = self._sanitize_response_text(text)
+        completion_tokens = usage.completion_tokens or self._count_tokens(sanitized)
+        prompt_tokens = usage.prompt_tokens or prompt_tokens_estimate
 
-            # If a standalone language tag line was left behind (e.g., "python"), drop it
-            response = re.sub(r"^\s*(?:json|python)\s*\r?\n", "", response, flags=re.IGNORECASE)
+        self._schedule_usage_record(
+            scope=usage_scope,
+            scope_ref_id=usage_scope_ref_id,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            should_record=should_record,
+        )
+        return sanitized
 
-            # Remove any closing fence lines that are just ```
-            response = re.sub(r"(?m)^\s*```\s*$", "", response)
-        except Exception:
-            # If response is not a string, rethrow with context
-            raise RuntimeError("LLM inference returned a non-string response that could not be sanitized")
-        return response
-    
-    async def inference_stream(self, prompt: str) -> AsyncGenerator[str, None]:
+    async def inference_stream(
+        self,
+        prompt: str,
+        *,
+        usage_scope: Optional[str] = None,
+        usage_scope_ref_id: Optional[str] = None,
+        should_record: bool = True,
+    ) -> AsyncGenerator[str, None]:
         logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
-        import re
         started_payload = False
         prefix = ""
+        prompt_tokens = self._count_tokens(prompt)
+        completion_tokens = 0
+        streamed_chunks: list[str] = []
         try:
             async for chunk in self.client.inference_stream(model_id=self.model_id, prompt=prompt):
-                # Skip None/heartbeat or empty chunks before payload [[memory:5773628]]
                 if chunk is None:
                     continue
                 if not isinstance(chunk, str):
@@ -76,63 +100,71 @@ class LLM:
                     except Exception:
                         continue
 
-                # Strip any fence closers anywhere
                 if "```" in chunk:
                     chunk = chunk.replace("```", "")
 
                 if not started_payload:
-                    # Accumulate prelude and strip language fences/tags even if split across chunks
                     prefix += chunk
-
-                    # Remove leading opening fences like ```json, ```python, or plain ```
                     prefix = re.sub(r"^\s*```(?:[A-Za-z]+)?\s*", "", prefix)
-
-                    # Remove leading language tag (json/python) with optional newline(s)
                     prefix = re.sub(r"^\s*(?:json|JSON|python|PYTHON)\s*\r?\n", "", prefix)
-
-                    # If buffer is only a language tag fragment (no newline yet), keep waiting
                     if re.fullmatch(r"\s*(?:json|JSON|python|PYTHON)\s*", prefix or ""):
                         continue
-
-                    # Trim remaining leading whitespace
                     prefix = re.sub(r"^\s+", "", prefix)
 
-                    # Find first JSON start and begin streaming from there
                     m = re.search(r"[\{\[]", prefix)
                     if not m:
-                        # If we have any non-whitespace content, treat as plain text stream
                         if re.search(r"\S", prefix):
                             started_payload = True
-                            yield prefix
+                            emission = prefix
                             prefix = ""
+                            completion_tokens += self._count_tokens(emission)
+                            streamed_chunks.append(emission)
+                            yield emission
                         else:
-                            # Still haven't seen content; keep accumulating
                             continue
                     else:
                         started_payload = True
-                        yield prefix[m.start():]
-                        prefix = ""  # release buffer
+                        emission = prefix[m.start():]
+                        prefix = ""
+                        completion_tokens += self._count_tokens(emission)
+                        streamed_chunks.append(emission)
+                        yield emission
                 else:
-                    # After payload starts, still guard against stray closers mid-stream
                     if "```" in chunk:
                         chunk = chunk.replace("```", "")
+                    completion_tokens += self._count_tokens(chunk)
+                    streamed_chunks.append(chunk)
                     yield chunk
         except Exception as e:
             raise RuntimeError(f"LLM streaming failed (provider={self.provider}, model={self.model_id}): {e}") from e
-
+        usage = LLMUsage()
+        if hasattr(self.client, "pop_last_usage"):
+            usage = self.client.pop_last_usage()
+        if usage.prompt_tokens or usage.completion_tokens:
+            prompt_tokens = usage.prompt_tokens or prompt_tokens
+            completion_tokens = usage.completion_tokens or completion_tokens
+        else:
+            completion_tokens = self._count_tokens("".join(streamed_chunks)) or completion_tokens
+        self._schedule_usage_record(
+            scope=usage_scope,
+            scope_ref_id=usage_scope_ref_id,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            should_record=should_record,
+        )
 
     async def test_connection(self, prompt: str = "Hello, how are you?"):
         try:
-            test_inference = self.inference(prompt)
+            test_inference = self.inference(prompt, should_record=False)
 
             if not isinstance(test_inference, str) or not test_inference.strip():
                 return {
                     "success": False,
-                    "message": "No response from the model, regular inference request failed"
+                    "message": "No response from the model, regular inference request failed",
                 }
 
             test_stream = ""
-            async for chunk in self.inference_stream(prompt):
+            async for chunk in self.inference_stream(prompt, should_record=False):
                 if not chunk:
                     continue
                 test_stream += chunk
@@ -142,16 +174,98 @@ class LLM:
             if not test_stream:
                 return {
                     "success": False,
-                    "message": "No response from the model, streaming request failed"
+                    "message": "No response from the model, streaming request failed",
                 }
 
         except Exception as e:
             return {
                 "success": False,
-                "message": str(e)
+                "message": str(e),
             }
 
         return {
             "success": True,
-            "message": "Successfully connected to LLM"
+            "message": "Successfully connected to LLM",
         }
+
+    def _coerce_response(self, response) -> tuple[str, LLMUsage]:
+        if isinstance(response, LLMResponse):
+            return response.text, response.usage or LLMUsage()
+        if isinstance(response, tuple) and response:
+            text = response[0]
+            usage_raw = response[1] if len(response) > 1 else None
+            usage = self._coerce_usage(usage_raw)
+            return text, usage
+        usage = self._coerce_usage(getattr(response, "usage", None))
+        return response, usage
+
+    @staticmethod
+    def _coerce_usage(raw) -> LLMUsage:
+        if isinstance(raw, LLMUsage):
+            return raw
+        if isinstance(raw, dict):
+            return LLMUsage(
+                prompt_tokens=int(raw.get("prompt_tokens", 0) or 0),
+                completion_tokens=int(raw.get("completion_tokens", 0) or 0),
+            )
+        return LLMUsage()
+
+    def _sanitize_response_text(self, response: str) -> str:
+        try:
+            if not isinstance(response, str):
+                response = str(response)
+            response = re.sub(r"^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n", "", response)
+            response = re.sub(r"^\s*(?:json|python)\s*\r?\n", "", response, flags=re.IGNORECASE)
+            response = re.sub(r"(?m)^\s*```\s*$", "", response)
+            return response
+        except Exception:
+            raise RuntimeError("LLM inference returned a non-string response that could not be sanitized")
+
+    def _count_tokens(self, text: str) -> int:
+        if not text:
+            return 0
+        try:
+            return count_tokens(text, getattr(self.model, "model_id", None))
+        except Exception:
+            return 0
+
+    def _schedule_usage_record(
+        self,
+        *,
+        scope: Optional[str],
+        scope_ref_id: Optional[str],
+        prompt_tokens: int,
+        completion_tokens: int,
+        should_record: bool,
+    ):
+        if not should_record or not scope or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
+            return
+        session_maker = self._usage_session_maker
+        if session_maker is None:
+            return
+        try:
+            async def _record_usage():
+                async with session_maker() as session:
+                    recorder = LLMUsageRecorderService(session)
+                    await recorder.record(
+                        scope=scope,
+                        scope_ref_id=scope_ref_id,
+                        llm_model=self.model,
+                        prompt_tokens=prompt_tokens or 0,
+                        completion_tokens=completion_tokens or 0,
+                    )
+                    await session.commit()
+            coroutine = _record_usage()
+        except Exception as exc:
+            logger.debug("Failed to create LLM usage record coroutine: %s", exc)
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            logger.debug("Skipping LLM usage recording; no running loop for scope %s", scope)
+            return
+        try:
+            loop.create_task(coroutine)
+        except Exception as exc:
+            logger.warning("Unable to schedule LLM usage recording: %s", exc)

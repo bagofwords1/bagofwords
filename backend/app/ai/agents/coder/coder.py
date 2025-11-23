@@ -1,4 +1,8 @@
+from typing import Callable, Optional
+
 from partialjson.json_parser import JSONParser
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 import re
@@ -7,8 +11,15 @@ from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from app.ai.schemas.codegen import CodeGenContext
 
 class Coder:
-    def __init__(self, model: LLMModel, organization_settings: OrganizationSettingsConfig, instruction_context_builder=None, context_hub=None) -> None:
-        self.llm = LLM(model)
+    def __init__(
+        self,
+        model: LLMModel,
+        organization_settings: OrganizationSettingsConfig,
+        instruction_context_builder=None,
+        context_hub=None,
+        usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
+    ) -> None:
+        self.llm = LLM(model, usage_session_maker=usage_session_maker)
         self.organization_settings = organization_settings
         self.enable_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
         # Back-compat: accept either legacy builder or new context hub

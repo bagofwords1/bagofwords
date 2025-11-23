@@ -116,17 +116,8 @@ LLM_MODEL_DETAILS = [
         "context_window_tokens": 1047576,
         "input_cost_per_million_tokens_usd": 0.30,
         "output_cost_per_million_tokens_usd": 2.50
-    },
-    {
-        "name": "BOW Small",
-        "model_id": "gpt-4o-mini",
-        "provider_type": "bow",
-        "is_preset": False,
-        "is_enabled": False,
-        "context_window_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 0.15,
-        "output_cost_per_million_tokens_usd": 0.60
     }
+
 ]
 
 class LLMModel(BaseSchema):
@@ -151,3 +142,26 @@ class LLMModel(BaseSchema):
     provider = relationship("LLMProvider", back_populates="models", lazy="selectin")
     organization_id = Column(String, ForeignKey('organizations.id'), nullable=False)
     organization = relationship("Organization", back_populates="llm_models", lazy="selectin")
+
+    # Pricing helpers -----------------------------------------------------
+    def _get_static_details(self) -> dict | None:
+        for detail in LLM_MODEL_DETAILS:
+            if detail.get("model_id") == self.model_id:
+                return detail
+        return None
+
+    def get_input_cost_rate(self) -> float | None:
+        if self.input_cost_per_million_tokens_usd is not None:
+            return float(self.input_cost_per_million_tokens_usd)
+        detail = self._get_static_details()
+        if detail:
+            return detail.get("input_cost_per_million_tokens_usd")
+        return None
+
+    def get_output_cost_rate(self) -> float | None:
+        if self.output_cost_per_million_tokens_usd is not None:
+            return float(self.output_cost_per_million_tokens_usd)
+        detail = self._get_static_details()
+        if detail:
+            return detail.get("output_cost_per_million_tokens_usd")
+        return None

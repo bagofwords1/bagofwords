@@ -39,6 +39,7 @@ from app.schemas.instruction_analysis_schema import (
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema
 from app.services.instruction_reference_service import InstructionReferenceService
 from app.services.llm_service import LLMService
+from app.dependencies import async_session_maker
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from app.core.telemetry import telemetry
 from app.models.completion import Completion
@@ -533,7 +534,10 @@ class InstructionService:
         instructions_context = instructions_context.render()
 
         small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
-        suggest_instructions = SuggestInstructions(model=small_model)
+        suggest_instructions = SuggestInstructions(
+            model=small_model,
+            usage_session_maker=async_session_maker,
+        )
         enhanced_instruction_text = await suggest_instructions.enhance_instruction(
             instruction_text,
             instructions_context,

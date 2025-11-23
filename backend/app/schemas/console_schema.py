@@ -84,6 +84,27 @@ class ToolUsageMetrics(BaseModel):
     items: List[ToolUsageItem]
     date_range: DateRange
 
+class LLMUsageItem(BaseModel):
+    llm_model_id: str
+    model_name: str
+    model_id: str
+    provider_type: str
+    total_calls: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    input_cost_usd: float
+    output_cost_usd: float
+    total_cost_usd: float
+
+class LLMUsageMetrics(BaseModel):
+    items: List[LLMUsageItem]
+    total_calls: int
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_cost_usd: float
+    date_range: DateRange
+
 class TopUserData(BaseModel):
     user_id: str
     name: str

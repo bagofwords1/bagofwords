@@ -73,7 +73,12 @@ class CreateAndExecuteCodeTool(Tool):
 
         # 1) Generate code from data model
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
-        coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, context_hub=runtime_ctx.get("context_hub"))
+        coder = Coder(
+            model=runtime_ctx.get("model"),
+            organization_settings=organization_settings,
+            context_hub=runtime_ctx.get("context_hub"),
+            usage_session_maker=async_session_maker,
+        )
         
         # Get context data for code generation
         context_view = runtime_ctx.get("context_view")

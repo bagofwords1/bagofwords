@@ -43,24 +43,23 @@
                 />
             </div>
 
-            <!-- Second Row: Failed Queries + Recent Instructions -->
+            <!-- Second Row: Failed Queries + LLM Cost/Token Usage -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                <!-- Recently Failed Queries -->
-                <RecentQueries
-                    :date-range="dateRange"
-                />
-
-                <!-- Recent Instructions -->
-                <RecentInstructions
-                    :date-range="dateRange"
+                <RecentQueries :date-range="dateRange" />
+                <LlmUsageChart
+                    :llm-usage-data="llmUsageData"
+                    :is-loading="isLoadingLlmUsage"
                 />
             </div>
 
-            <!-- Bottom Row: Top Users -->
-            <TopUsersTable
-                :top-users-data="topUsersData"
-                :is-loading="isLoadingWidgets"
-            />
+            <!-- Third Row: Top Users + Recent Instructions -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+                <TopUsersTable
+                    :top-users-data="topUsersData"
+                    :is-loading="isLoadingWidgets"
+                />
+                <RecentInstructions :date-range="dateRange" />
+            </div>
 
         </div>
     </div>
@@ -79,6 +78,7 @@ import TopPromptTypesChart from '~/components/console/TopPromptTypesChart.vue'
 import TopUsersTable from '~/components/console/TopUsersTable.vue'
 import RecentInstructions from '~/components/console/RecentInstructions.vue'
 import RecentQueries from '~/components/console/RecentQueries.vue'
+import LlmUsageChart from '~/components/console/LlmUsageChart.vue'
 
 // Interfaces
 interface SimpleMetrics {
@@ -177,6 +177,29 @@ interface ToolUsageMetrics {
     date_range: DateRange
 }
 
+interface LlmUsageItem {
+    llm_model_id: string
+    model_name: string
+    model_id: string
+    provider_type: string
+    total_calls: number
+    prompt_tokens: number
+    completion_tokens: number
+    total_tokens: number
+    input_cost_usd: number
+    output_cost_usd: number
+    total_cost_usd: number
+}
+
+interface LlmUsageMetrics {
+    items: LlmUsageItem[]
+    total_calls: number
+    total_prompt_tokens: number
+    total_completion_tokens: number
+    total_cost_usd: number
+    date_range: DateRange
+}
+
 interface TopUserData {
     user_id: string
     name: string
@@ -222,6 +245,8 @@ const topUsersData = ref<TopUsersMetrics | null>(null)
 const isLoadingWidgets = ref(false)
 
 const toolUsageData = ref<ToolUsageMetrics | null>(null)
+const llmUsageData = ref<LlmUsageMetrics | null>(null)
+const isLoadingLlmUsage = ref(false)
 
 // Keep the other mock data for widgets that don't have backend yet
 const mockLeaderboardData = ref([
@@ -428,6 +453,33 @@ const fetchToolUsageData = async () => {
     }
 }
 
+const fetchLlmUsageData = async () => {
+    isLoadingLlmUsage.value = true
+    try {
+        const params = new URLSearchParams()
+        if (dateRange.value.start) {
+            params.append('start_date', new Date(dateRange.value.start).toISOString())
+        }
+        if (dateRange.value.end) {
+            params.append('end_date', new Date(dateRange.value.end).toISOString())
+        }
+
+        const { data, error } = await useMyFetch<LlmUsageMetrics>(`/api/console/metrics/llm-usage?${params}`, {
+            method: 'GET'
+        })
+
+        if (error.value) {
+            console.error('Failed to fetch LLM usage data:', error.value)
+        } else if (data.value) {
+            llmUsageData.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching LLM usage data:', err)
+    } finally {
+        isLoadingLlmUsage.value = false
+    }
+}
+
 const fetchTopUsers = async () => {
     isLoadingWidgets.value = true
     try {
@@ -461,7 +513,8 @@ const refreshData = async () => {
         fetchTableUsageData(),
         fetchTableJoinsData(),
         fetchTopUsers(),
-        fetchToolUsageData()
+        fetchToolUsageData(),
+        fetchLlmUsageData()
     ])
 }
 
@@ -486,7 +539,8 @@ onMounted(async () => {
             fetchTableUsageData(),
             fetchTableJoinsData(),
             fetchTopUsers(),
-            fetchToolUsageData()
+            fetchToolUsageData(),
+            fetchLlmUsageData()
         ])
     } catch (err) {
         console.error('Error fetching data:', err)

@@ -6,7 +6,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
-from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics
+from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from app.models.step import Step
@@ -114,6 +114,17 @@ async def get_tool_usage(
 ):
     """Get tool usage counts for key tools."""
     return await console_service.get_tool_usage_metrics(db, organization, params)
+
+@router.get("/console/metrics/llm-usage", response_model=LLMUsageMetrics)
+@requires_permission("view_organization_overview")
+async def get_llm_usage(
+    params: MetricsQueryParams = Depends(),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Get aggregated LLM token/cost usage per model."""
+    return await console_service.get_llm_usage_metrics(db, organization, params)
 
 @router.get("/console/metrics/recent-negative-feedback", response_model=RecentNegativeFeedbackMetrics)
 @requires_permission("view_organization_overview")

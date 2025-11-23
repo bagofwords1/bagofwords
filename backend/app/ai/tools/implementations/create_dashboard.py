@@ -17,6 +17,7 @@ from app.ai.tools.schemas import (
 )
 from partialjson.json_parser import JSONParser
 from app.ai.llm import LLM
+from app.dependencies import async_session_maker
 
 
 class CreateDashboardTool(Tool):
@@ -338,9 +339,13 @@ RULES
                 return repr(blk)
 
         # Use LLM wrapper for streaming (runtime_ctx["model"] is an LLMModel)
-        llm = LLM(runtime_ctx.get("model"))
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         buffer = ""
-        async for chunk in llm.inference_stream(prompt):
+        async for chunk in llm.inference_stream(
+            prompt,
+            usage_scope="create_dashboard",
+            usage_scope_ref_id=None,
+        ):
             buffer += chunk
             try:
                 result = parser.parse(buffer)

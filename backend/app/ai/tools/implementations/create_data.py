@@ -17,6 +17,7 @@ from app.ai.tools.schemas import (
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.llm import LLM
+from app.dependencies import async_session_maker
 from app.ai.tools.schemas import DataModel
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
@@ -68,7 +69,7 @@ class CreateDataTool(Tool):
         Returns a minimal DataModel dict validated against schema: at least { type, series? }.
         Fallback to {"type": "table", "series": []} on failure.
         """
-        llm = LLM(runtime_ctx.get("model"))
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
         allowed_types = list(ALLOWED_VIZ_TYPES)
@@ -93,7 +94,7 @@ class CreateDataTool(Tool):
         )
 
         try:
-            raw = llm.inference(prompt)
+            raw = llm.inference(prompt, usage_scope="create_data.viz_infer")
         except Exception:
             raw = None
 
@@ -336,7 +337,12 @@ class CreateDataTool(Tool):
         # Code generation and execution with retries
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
 
-        coder = Coder(model=runtime_ctx.get("model"), organization_settings=organization_settings, context_hub=context_hub)
+        coder = Coder(
+            model=runtime_ctx.get("model"),
+            organization_settings=organization_settings,
+            context_hub=context_hub,
+            usage_session_maker=async_session_maker,
+        )
         streamer = StreamingCodeExecutor(organization_settings=organization_settings, logger=None, context_hub=context_hub)
 
         # Build typed context via helper
