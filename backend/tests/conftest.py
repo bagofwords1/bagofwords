@@ -47,7 +47,7 @@ from tests.fixtures.git_repository import (
 )
 from tests.fixtures.instruction import create_instruction, create_global_instruction, get_instructions, get_instruction, update_instruction, delete_instruction, get_instructions_for_data_source, get_instruction_categories, get_instruction_statuses, create_label, list_labels, update_label, delete_label
 from tests.fixtures.entity import get_entities, get_entity, create_global_entity
-from tests.fixtures.console_metrics import get_console_metrics, get_console_metrics_comparison, get_timeseries_metrics, get_table_usage_metrics, get_top_users_metrics, get_recent_negative_feedback, get_diagnosis_dashboard_metrics, get_agent_execution_summaries, create_test_data_for_console, get_tool_usage_metrics
+from tests.fixtures.console_metrics import get_console_metrics, get_console_metrics_comparison, get_timeseries_metrics, get_table_usage_metrics, get_top_users_metrics, get_recent_negative_feedback, get_diagnosis_dashboard_metrics, get_agent_execution_summaries, create_test_data_for_console, get_tool_usage_metrics, get_llm_usage_metrics
 from tests.fixtures.mention import get_available_mentions
 from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite
 

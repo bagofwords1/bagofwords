@@ -216,6 +216,27 @@ def test_tool_usage_metrics(
     assert isinstance(data["items"], list)
 
 @pytest.mark.e2e
+def test_llm_usage_metrics(
+    get_llm_usage_metrics,
+    create_user,
+    login_user,
+    whoami
+):
+    """Test LLM usage metrics endpoint"""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    response = get_llm_usage_metrics(user_token=user_token, org_id=org_id)
+    assert response.status_code == 200
+    data = response.json()
+
+    assert "items" in data
+    assert "total_calls" in data
+    assert "total_cost_usd" in data
+    assert "date_range" in data
+
+@pytest.mark.e2e
 def test_recent_negative_feedback(
     get_recent_negative_feedback,
     create_user,
