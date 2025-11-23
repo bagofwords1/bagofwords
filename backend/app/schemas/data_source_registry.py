@@ -100,6 +100,8 @@ _DEV_ENVIRONMENTS = {"development", "dev", "test", "testing"}
 
 def _is_dev_environment() -> bool:
     try:
+        if getattr(settings, "TESTING", False):
+            return True
         env = (settings.ENVIRONMENT or "").lower()
     except Exception:
         return False
