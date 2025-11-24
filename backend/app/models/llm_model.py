@@ -96,6 +96,19 @@ LLM_MODEL_DETAILS = [
     },
 
     {
+        "name": "Gemini 3 Pro Preview",
+        "model_id": "gemini-3-pro-preview",
+        "provider_type": "google",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "context_window_tokens": 200000,
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 12.00
+    },
+
+    {
         "name": "Gemini 2.5 Pro",
         "model_id": "gemini-2.5-pro",
         "provider_type": "google",

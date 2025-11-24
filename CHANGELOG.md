@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.253 (November 24, 2025)
+- Gemini 3 Pro Preview added!
+
 ## Version 0.0.252 (November 22, 2025)
 - Implemented tracking of LLM usage and associated costs in the console dashboard
 - Enhanced metadata resource handling:
