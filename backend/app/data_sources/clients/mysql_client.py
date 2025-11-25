@@ -21,8 +21,6 @@ class MysqlClient(DataSourceClient):
 
     @cached_property
     def mysql_uri(self):
-        # URL-encode username and password so special characters like '@' or '%'
-        # do not break the connection string.
         safe_user = quote_plus(self.user)
         safe_password = quote_plus(self.password)
         uri = (
