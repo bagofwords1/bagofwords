@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.254 (Noveber 25, 2025)
+- Fix azure llm integration
+- Improve mysql authentication 
+
 ## Version 0.0.253 (November 24, 2025)
 - Gemini 3 Pro Preview added!
 
