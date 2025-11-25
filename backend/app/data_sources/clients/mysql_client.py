@@ -8,6 +8,7 @@ from typing import List, Generator
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+from urllib.parse import quote_plus
 
 
 class MysqlClient(DataSourceClient):
@@ -20,8 +21,12 @@ class MysqlClient(DataSourceClient):
 
     @cached_property
     def mysql_uri(self):
+        # URL-encode username and password so special characters like '@' or '%'
+        # do not break the connection string.
+        safe_user = quote_plus(self.user)
+        safe_password = quote_plus(self.password)
         uri = (
-            f"mysql+pymysql://{self.user}:{self.password}@"
+            f"mysql+pymysql://{safe_user}:{safe_password}@"
             f"{self.host}:{self.port}/{self.database}"
         )
         return uri

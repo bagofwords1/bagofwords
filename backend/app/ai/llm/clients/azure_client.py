@@ -1,10 +1,13 @@
 from openai import AzureOpenAI, AsyncAzureOpenAI
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Any
+
 from app.ai.llm.clients.base import LLMClient
+from app.ai.llm.types import LLMResponse, LLMUsage
 
 
 class AzureClient(LLMClient):
     def __init__(self, api_key: str, endpoint_url: str, api_version: str | None = None):
+        super().__init__()
         # endpoint_url should be the Azure OpenAI resource endpoint, e.g. https://<resource>.openai.azure.com
         effective_api_version = api_version or "2024-10-21"
         self.client = AzureOpenAI(
@@ -18,7 +21,7 @@ class AzureClient(LLMClient):
             api_version=effective_api_version,
         )
 
-    def inference(self, model_id: str, prompt: str) -> str:
+    def inference(self, model_id: str, prompt: str) -> LLMResponse:
         # For Azure, model_id is the deployment (deployment name)
         temperature = 0.3
         if "gpt-5" in model_id:
@@ -34,7 +37,10 @@ class AzureClient(LLMClient):
             model=model_id,
             temperature=temperature,
         )
-        return chat_completion.choices[0].message.content
+        usage = self._extract_usage(getattr(chat_completion, "usage", None))
+        self._set_last_usage(usage)
+        content = chat_completion.choices[0].message.content or ""
+        return LLMResponse(text=content, usage=usage)
     
     async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
         # For Azure, model_id is the deployment (deployment name)
@@ -53,14 +59,45 @@ class AzureClient(LLMClient):
             temperature=temperature,
             stream=True
         )
-        
+
+        prompt_tokens = 0
+        completion_tokens = 0
         async for chunk in stream:
             if not chunk.choices:
-                continue  # skip heartbeat/control packets
+                # heartbeat/control packets; may still carry usage
+                usage = self._extract_usage(getattr(chunk, "usage", None))
+                if usage.prompt_tokens or usage.completion_tokens:
+                    prompt_tokens = usage.prompt_tokens or prompt_tokens
+                    completion_tokens = usage.completion_tokens or completion_tokens
+                continue
             
             delta = chunk.choices[0].delta
             if delta and delta.content:
                 yield delta.content
 
+            usage = self._extract_usage(getattr(chunk, "usage", None))
+            if usage.prompt_tokens or usage.completion_tokens:
+                prompt_tokens = usage.prompt_tokens or prompt_tokens
+                completion_tokens = usage.completion_tokens or completion_tokens
+
+        self._set_last_usage(
+            LLMUsage(
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+        )
+
     def test_connection(self):
-        return True 
+        return True
+
+    @staticmethod
+    def _extract_usage(raw: Any) -> LLMUsage:
+        if raw is None:
+            return LLMUsage()
+        if isinstance(raw, dict):
+            prompt = raw.get("prompt_tokens") or 0
+            completion = raw.get("completion_tokens") or 0
+            return LLMUsage(prompt_tokens=int(prompt or 0), completion_tokens=int(completion or 0))
+        prompt = getattr(raw, "prompt_tokens", 0) or getattr(raw, "prompt_tokens_cost", 0) or 0
+        completion = getattr(raw, "completion_tokens", 0) or getattr(raw, "completion_tokens_cost", 0) or 0
+        return LLMUsage(prompt_tokens=int(prompt or 0), completion_tokens=int(completion or 0))
