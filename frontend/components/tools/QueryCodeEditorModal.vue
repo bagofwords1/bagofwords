@@ -126,7 +126,6 @@
                         </div>
                         <div v-else-if="(viz.view?.type || viz.step?.data_model?.type) === 'count'" class="h-full flex items-center justify-center">
                           <RenderCount 
-                            :show_title="true" 
                             :widget="{ id: viz.id, title: viz.title } as any" 
                             :data="viz.step?.data" 
                             :data_model="viz.step?.data_model" 

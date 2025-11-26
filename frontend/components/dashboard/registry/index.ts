@@ -7,7 +7,7 @@ type Loader = () => Promise<any>;
 export type ComponentKey =
   | 'echarts.visual'
   | 'table.aggrid'
-  | 'count.tile'
+  | 'metric.card'
   | 'text.widget';
 
 export type RegistryEntry = {
@@ -66,16 +66,19 @@ const tableAgGrid: RegistryEntry = {
   buildProps: ({ widget, step }) => ({ widget, step }),
 };
 
-// Count entry (uses existing RenderCount.vue)
-const countTile: RegistryEntry = {
-  componentKey: 'count.tile',
-  load: () => import('../kpi/CountTile.vue'),
-  supports: (type: string) => normalizeType(type) === 'count',
-  buildProps: ({ widget, data, data_model }) => ({
+// Metric card entry (rich KPI with trends) - also handles legacy "count" type
+const metricCard: RegistryEntry = {
+  componentKey: 'metric.card',
+  load: () => import('../kpi/MetricCard.vue'),
+  supports: (type: string) => {
+    const t = normalizeType(type);
+    return t === 'metric_card' || t === 'count';
+  },
+  buildProps: ({ widget, step, data, data_model }) => ({
     widget,
+    step,
     data,
     data_model,
-    show_title: true,
   }),
 };
 
@@ -90,7 +93,7 @@ const textWidgetEntry: RegistryEntry = {
 export const registry: RegistryEntry[] = [
   echartsVisual,
   tableAgGrid,
-  countTile,
+  metricCard,
   textWidgetEntry,
 ];
 

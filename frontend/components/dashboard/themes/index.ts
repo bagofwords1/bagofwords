@@ -5,13 +5,13 @@ export const DEFAULT_THEME_NAME = 'default';
 export const themes: Record<string, ThemeDefinition> = {
   default: {
     tokens: {
-      // Vibrant, modern gradients for series colors
+      // Clean hex colors - enables beautiful area chart gradients via hexToRGBA
       palette: [
-        { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [ { offset: 0, color: '#60a5fa' }, { offset: 1, color: '#2563eb' } ], global: false }, // blue
-        { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [ { offset: 0, color: '#34d399' }, { offset: 1, color: '#059669' } ], global: false }, // emerald
-        { type: 'linear', x: 0, y: 0, x2: 1, y2: 1, colorStops: [ { offset: 0, color: '#fbbf24' }, { offset: 1, color: '#f59e0b' } ], global: false }, // amber
-        { type: 'linear', x: 0, y: 1, x2: 1, y2: 0, colorStops: [ { offset: 0, color: '#fb7185' }, { offset: 1, color: '#ef4444' } ], global: false }, // rose/red
-        { type: 'linear', x: 1, y: 0, x2: 0, y2: 1, colorStops: [ { offset: 0, color: '#a78bfa' }, { offset: 1, color: '#7c3aed' } ], global: false }  // violet
+        '#2563eb', // blue
+        '#059669', // emerald  
+        '#f59e0b', // amber
+        '#ef4444', // rose/red
+        '#7c3aed'  // violet
       ] as any,
       background: '#ffffff',
       textColor: '#0f172a',

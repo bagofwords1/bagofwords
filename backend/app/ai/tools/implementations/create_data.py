@@ -1,6 +1,6 @@
 import json
 import asyncio
-from typing import AsyncIterator, Dict, Any, Type
+from typing import AsyncIterator, Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
@@ -21,12 +21,157 @@ from app.dependencies import async_session_maker
 from app.ai.tools.schemas import DataModel
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
+from app.schemas.view_schema import (
+    AxisOptions,
+    AreaChartView,
+    BarChartView,
+    HeatmapView,
+    LineChartView,
+    MetricCardView,
+    Palette,
+    PieChartView,
+    ScatterPlotView,
+    SeriesStyle,
+    TableView,
+    ViewSchema,
+)
 
 
 ALLOWED_VIZ_TYPES = {
-    "table","bar_chart","line_chart","pie_chart","area_chart","count",
+    "table","bar_chart","line_chart","pie_chart","area_chart","metric_card",
     "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
 }
+
+
+def _infer_palette_theme(runtime_ctx: Dict[str, Any]) -> Optional[str]:
+    report_theme = runtime_ctx.get("report_theme_name")
+    if report_theme:
+        return str(report_theme)
+    org_settings = runtime_ctx.get("settings")
+    try:
+        return str(org_settings.get_config("default_theme").value)
+    except Exception:
+        return None
+
+
+def _build_series_styles(series: List[Dict[str, Any]]) -> List[SeriesStyle]:
+    styles: List[SeriesStyle] = []
+    for entry in series or []:
+        key = entry.get("value") or entry.get("name")
+        if not key:
+            continue
+        label = entry.get("name")
+        try:
+            styles.append(SeriesStyle(key=str(key), label=label))
+        except Exception:
+            continue
+    return styles
+
+
+def build_view_from_data_model(
+    data_model: Dict[str, Any],
+    title: Optional[str] = None,
+    palette_theme: Optional[str] = None,
+) -> Optional[ViewSchema]:
+    try:
+        chart_type = str((data_model or {}).get("type") or "").lower()
+    except Exception:
+        return None
+
+    palette = Palette(theme=(palette_theme or "default"))
+    series = data_model.get("series") or []
+
+    if chart_type in {"bar_chart", "line_chart", "area_chart"}:
+        x_key = next((s.get("key") for s in series if s.get("key")), None)
+        value_cols = [s.get("value") for s in series if s.get("value")]
+        if not x_key or not value_cols:
+            return None
+        # Use list when multiple measures exist
+        y_value: Union[str, List[str]] = value_cols[0] if len(value_cols) == 1 else value_cols
+        series_styles = _build_series_styles(series)
+        view_cls = {
+            "bar_chart": BarChartView,
+            "line_chart": LineChartView,
+            "area_chart": AreaChartView,
+        }.get(chart_type, BarChartView)
+        view = view_cls(
+            title=title,
+            x=str(x_key),
+            y=y_value,
+            groupBy=data_model.get("group_by"),
+            palette=palette,
+            seriesStyles=series_styles,
+        )
+        # Slightly different axis defaults for time series vs categorical
+        view.axisX = AxisOptions(rotate=45, interval=0)
+        view.axisY = AxisOptions(show=True, rotate=0, interval=0)
+        return ViewSchema(view=view)
+
+    if chart_type == "pie_chart":
+        base = series[0] if series else {}
+        category = base.get("key")
+        value = base.get("value")
+        if not category or not value:
+            return None
+        view = PieChartView(
+            title=title,
+            category=str(category),
+            value=str(value),
+            palette=palette,
+        )
+        return ViewSchema(view=view)
+
+    if chart_type == "scatter_plot":
+        base = series[0] if series else {}
+        x_key = base.get("x") or base.get("key")
+        y_key = base.get("y") or base.get("value")
+        if not x_key or not y_key:
+            return None
+        view = ScatterPlotView(
+            title=title,
+            x=str(x_key),
+            y=str(y_key),
+            size=base.get("size"),
+            colorBy=base.get("color"),
+            palette=palette,
+        )
+        return ViewSchema(view=view)
+
+    if chart_type == "heatmap":
+        base = series[0] if series else {}
+        x_key = base.get("x") or base.get("key")
+        y_key = base.get("y")
+        value_key = base.get("value")
+        if not x_key or not y_key or not value_key:
+            return None
+        view = HeatmapView(
+            title=title,
+            x=str(x_key),
+            y=str(y_key),
+            value=str(value_key),
+        )
+        return ViewSchema(view=view)
+
+    if chart_type == "table":
+        view = TableView(title=title)
+        return ViewSchema(view=view)
+
+    # Treat both "count" and "metric_card" as MetricCardView
+    if chart_type in {"count", "metric_card"}:
+        base = series[0] if series else {}
+        value_key = base.get("value") or base.get("metric")
+        # For metric_card, value is required; fallback gracefully
+        if not value_key:
+            # Try to use first available column name from series
+            value_key = base.get("key") or base.get("name")
+        view = MetricCardView(
+            title=title,
+            value=str(value_key) if value_key else "value",
+            palette=palette,
+        )
+        return ViewSchema(view=view)
+
+    return None
 
 
 class CreateDataTool(Tool):
@@ -89,7 +234,11 @@ class CreateDataTool(Tool):
             "  * candlestick: [{name, open, close, low, high, key}]\n"
             "  * treemap: [{name, id, parentId, value}]\n"
             "  * radar_chart: [{name?, dimensions: [{axis, value}...]}]\n"
+            "  * metric_card: [{name, value}] - use for single KPI/count values\n"
             "- For table, return series: []\n"
+            "- When the result is a single numeric value (e.g., total, count, sum), use metric_card.\n"
+            "- When multiple rows share the same category key but differ by another column, prefer returning a single numeric value column and set group_by to that categorical column (e.g., group_by: \"store_id\"). Avoid duplicating the same y column twice.\n"
+            "- If you set group_by, keep y as a single string value column (not an array).\n"
             "- Do not invent columns.\n"
         )
 
@@ -450,13 +599,12 @@ class CreateDataTool(Tool):
                 )
                 inferred_dm = (inference or {}).get("data_model")
                 progress_event = (inference or {}).get("progress_event")
-                inferred_view_opts = (inference or {}).get("view_options")
                 if progress_event is not None:
                     # emit the series_configured progress for UI if a non-table chart was chosen
                     yield progress_event
         except Exception:
             inferred_dm = None
-            inferred_view_opts = None
+            progress_event = None
 
         current_step_id = runtime_ctx.get("current_step_id")
         # Always provide a minimal data_model in observation/output
@@ -470,13 +618,11 @@ class CreateDataTool(Tool):
             for key in ("series", "group_by", "sort", "limit"):
                 if inferred_dm.get(key) is not None:
                     final_dm[key] = inferred_dm.get(key)
-        # Prepare view options (e.g., colors) to send to AgentV2 for persistence
-        view_options = None
-        try:
-            if isinstance(inferred_view_opts, dict) and inferred_view_opts:
-                view_options = inferred_view_opts
-        except Exception:
-            view_options = None
+        palette_theme = _infer_palette_theme(runtime_ctx) or "default"
+        view_schema = build_view_from_data_model(final_dm, title=data.title, palette_theme=palette_theme)
+        view_payload = view_schema.model_dump(exclude_none=True) if view_schema else None
+        if not view_payload and final_dm.get("type"):
+            view_payload = {"version": "v2", "view": {"type": final_dm.get("type")}}
 
         observation = {
             "summary": f"Created data '{data.title}' successfully.",
@@ -486,8 +632,8 @@ class CreateDataTool(Tool):
             "final_answer": None,
         }
         observation["data_model"] = final_dm
-        if view_options:
-            observation["view"] = {"type": final_dm.get("type"), "options": view_options}
+        if view_payload:
+            observation["view"] = view_payload
         if current_step_id:
             observation["step_id"] = current_step_id
         yield ToolEndEvent(
@@ -502,7 +648,7 @@ class CreateDataTool(Tool):
                     "execution_log": output_log,
                     "errors": code_errors,
                     "data_model": final_dm,
-                    "view_options": view_options,
+                    "view": view_payload,
                 },
                 "observation": observation,
             },

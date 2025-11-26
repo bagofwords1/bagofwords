@@ -75,7 +75,7 @@
           <div class="tab-content">
             <!-- Chart Content -->
             <Transition name="fade" mode="out-in">
-              <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)" class="bg-gray-50 rounded-sm p-2">
+              <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)">
                 <div v-if="resolvedCompEl" :class="chartHeightClass">
                   <component
                     :is="resolvedCompEl"
@@ -97,7 +97,7 @@
             <!-- Table Content -->
             <Transition name="fade" mode="out-in">
               <div
-                v-if="(showTabs && activeTab === 'table') || (!showTabs && (String((visualization?.view as any)?.type || effectiveStep?.data_model?.type || '').toLowerCase() === 'table'))"
+                v-if="(showTabs && activeTab === 'table') || (!showTabs && isTableType)"
                 :class="tableHeightClass"
               >
                 <RenderTable :widget="widget" :step="{ ...(effectiveStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
@@ -273,7 +273,8 @@ const chartVisualTypes = new Set<string>([
 ])
 
 const showVisual = computed(() => {
-  const vType = (visualization.value?.view as any)?.type
+  const viewObj = visualization.value?.view as any
+  const vType = viewObj?.view?.type || viewObj?.type
   const t = vType || effectiveStep.value?.data_model?.type
   if (!t) return false
   const entry = resolveEntryByType(String(t).toLowerCase())
@@ -281,7 +282,7 @@ const showVisual = computed(() => {
     // treat table as data-only; everything else is a visual
     return entry.componentKey !== 'table.aggrid'
   }
-  return chartVisualTypes.has(String(t)) || String(t) === 'count'
+  return chartVisualTypes.has(String(t)) || String(t) === 'count' || String(t) === 'metric_card'
 })
 
 // Dashboard registry-driven dynamic component
@@ -297,16 +298,19 @@ function getCompForType(type?: string | null) {
   return comp
 }
 // Prefer the visualization.view.type if available; fall back to data_model.type
+// Support both v2 schema (view.view.type) and legacy (view.type)
 const resolvedCompEl = computed(() => {
-  const vType = (visualization.value?.view as any)?.type
+  const viewObj = visualization.value?.view as any
+  const vType = viewObj?.view?.type || viewObj?.type
   const dmType = effectiveStep.value?.data_model?.type
   return getCompForType(String(vType || dmType || ''))
 })
 
-// Adjust height for compact count tiles
+// Adjust height for compact metric cards
 const chartHeightClass = computed(() => {
-  const t = String(((visualization.value?.view as any)?.type || effectiveStep.value?.data_model?.type || '')).toLowerCase()
-  return t === 'count' ? 'h-[120px] flex items-start' : 'h-[340px]'
+  const viewObj = visualization.value?.view as any
+  const t = String((viewObj?.view?.type || viewObj?.type || effectiveStep.value?.data_model?.type || '')).toLowerCase()
+  return (t === 'count' || t === 'metric_card') ? 'h-[120px] flex items-start' : 'h-[340px]'
 })
 
 // Determine if table/data is present
@@ -335,6 +339,13 @@ const tableHasRows = computed(() => {
 })
 
 const tableHeightClass = computed(() => (tableHasRows.value ? 'h-[400px]' : 'min-h-[80px]'))
+
+// Check if current type is table
+const isTableType = computed(() => {
+  const viewObj = visualization.value?.view as any
+  const t = String((viewObj?.view?.type || viewObj?.type || effectiveStep.value?.data_model?.type || '')).toLowerCase()
+  return t === 'table'
+})
 
 // Watch for data changes to update active tab
 watch([showVisual, hasData], () => {

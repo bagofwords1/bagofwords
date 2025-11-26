@@ -31,7 +31,7 @@
             </div>
 
         <div v-if="widget.last_step?.data_model?.type == 'count'" class="mt-2">
-                <RenderCount :show_title="false" :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
+                <RenderCount :widget="widget" :data="widget.last_step?.data" :data_model="widget.last_step?.data_model" />
             </div>
             <div v-if="widget.last_step?.data_model?.type == 'table'" class="h-[100vh]">
                 <AgGridComponent ref="agGrid" height="100vh" :columnDefs="widget.last_step?.data?.columns"
