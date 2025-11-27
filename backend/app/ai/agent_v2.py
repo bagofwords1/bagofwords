@@ -1823,21 +1823,27 @@ class AgentV2:
 
                     # Finalize visualization view.encoding and status
                     try:
-                        # Compute encoding from step.data_model.series
                         dm = getattr(step_obj, "data_model", {}) or {}
-                        enc = self.project_manager.derive_encoding_from_data_model(dm)
                         if getattr(self, 'current_visualization', None):
-                            view = {"type": dm.get("type")}
-                            if enc:
-                                view["encoding"] = enc
-                            # Merge any tool-provided view options (e.g., colors palette)
-                            try:
-                                if isinstance(view_options_from_tool, dict) and view_options_from_tool:
-                                    current_options = (view.get("options") or {})
-                                    merged_options = {**current_options, **view_options_from_tool}
-                                    view["options"] = merged_options
-                            except Exception:
-                                pass
+                            # Prefer tool-provided view (ViewSchema v2) if available
+                            view_from_tool = tool_output.get("view")
+                            if isinstance(view_from_tool, dict) and view_from_tool.get("version") == "v2":
+                                # Use the new ViewSchema v2 format directly
+                                view = view_from_tool
+                            else:
+                                # Legacy fallback: compute encoding from step.data_model.series
+                                enc = self.project_manager.derive_encoding_from_data_model(dm)
+                                view = {"type": dm.get("type")}
+                                if enc:
+                                    view["encoding"] = enc
+                                # Merge any tool-provided view options (e.g., colors palette)
+                                try:
+                                    if isinstance(view_options_from_tool, dict) and view_options_from_tool:
+                                        current_options = (view.get("options") or {})
+                                        merged_options = {**current_options, **view_options_from_tool}
+                                        view["options"] = merged_options
+                                except Exception:
+                                    pass
                             await self.project_manager.update_visualization_view(self.db, self.current_visualization, view)
                             await self.project_manager.set_visualization_status(self.db, self.current_visualization, "success")
                             # Emit visualization.updated

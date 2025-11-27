@@ -31,7 +31,7 @@ from app.schemas.dashboard_layout_version_schema import (
 from app.services.visualization_service import VisualizationService
 from app.services.query_service import QueryService
 from app.schemas.visualization_schema import VisualizationCreate
-from app.schemas.view_schema import ViewSchema, EncodingSchema, SeriesEncodingSchema
+from app.schemas.view_schema import ViewSchema
 
 class ProjectManager:
 

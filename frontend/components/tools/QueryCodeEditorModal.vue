@@ -1,30 +1,28 @@
 <template>
-  <UModal v-model="open" :ui="{ width: 'sm:max-w-6xl', height: 'sm:h-[90vh]' }">
-    <div class="h-full flex flex-col">
-      <div class="px-4 py-3 border-b flex items-center justify-between flex-shrink-0">
+  <UModal v-model="open" :ui="{ width: 'sm:max-w-6xl', height: 'sm:h-[90vh]' }" :prevent-close="false">
+    <div class="h-full flex flex-col" @click.stop>
+      <div class="px-4 py-3 flex items-center justify-between flex-shrink-0">
         <div class="text-sm font-medium text-gray-800">Edit query — {{ title }}</div>
         <div v-if="currentStepId" class="ml-4 text-[11px] text-gray-500">Query ID: {{ queryId }}</div>
-        <button class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50" @click="open = false">Close</button>
+        <button class="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50" @click.stop="open = false">Close</button>
       </div>
-      <div class="flex-1 flex overflow-hidden min-h-0">
-        <!-- Left tabs -->
-        <aside class="w-40 border-r">
-          <nav class="p-2 text-sm">
-            <button
-              v-if="canEditCode"
-              class="w-full text-left px-2 py-1.5 rounded mb-1 transition-colors"
-              :class="activeTab === 'code' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
-              @click="activeTab = 'code'"
-            >Query</button>
-            <button
-              class="w-full text-left px-2 py-1.5 rounded transition-colors"
-              :class="activeTab === 'visuals' ? 'bg-gray-100 text-gray-900' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'"
-              @click="activeTab = 'visuals'"
-            >Visuals</button>
-          </nav>
-        </aside>
+      <div class="flex-1 flex flex-col overflow-hidden min-h-0">
+        <!-- Top tabs -->
+        <nav class="px-4 flex items-center space-x-4 border-b flex-shrink-0">
+          <button
+            v-if="canEditCode"
+            class="py-2 text-xs transition-colors border-b-2 -mb-px"
+            :class="activeTab === 'code' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 border-transparent hover:text-gray-700'"
+            @click="activeTab = 'code'"
+          >Query</button>
+          <button
+            class="py-2 text-xs transition-colors border-b-2 -mb-px"
+            :class="activeTab === 'visuals' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 border-transparent hover:text-gray-700'"
+            @click="activeTab = 'visuals'"
+          >Visuals</button>
+        </nav>
 
-        <!-- Right content -->
+        <!-- Content -->
         <section class="flex-1 flex flex-col overflow-hidden min-h-0">
           <div v-if="canEditCode && activeTab === 'code'" class="h-full flex flex-col">
             <!-- Editor section - exactly half height, fixed and non-scrollable -->
@@ -82,10 +80,6 @@
 
           <div v-else class="flex-1 overflow-auto">
             <div v-if="visualizations.length > 0" class="h-full">
-              <div class="p-4 border-b">
-                <h3 class="text-sm font-medium text-gray-800">Visualizations ({{ visualizations.length }})</h3>
-              </div>
-              
               <!-- Visualization Cards -->
               <div class="space-y-4 p-4">
                 <div v-for="viz in visualizations" :key="viz.id" class="border border-gray-200 rounded-lg bg-white overflow-hidden">
@@ -98,20 +92,21 @@
                     </div>
                   </div>
                   
-                  <!-- Content: Visualization (2/3) + Config (1/3) -->
+                  <!-- Content: Visualization (60%) + Config (40%) -->
                   <div class="flex h-[32rem]">
-                    <!-- Left: Visualization Rendering (2/3) -->
-                    <div class="w-2/3 border-r border-gray-100">
+                    <!-- Left: Visualization Rendering (60%) -->
+                    <div class="w-[65%] border-r border-gray-100">
                       <div v-if="shouldShowVisual(viz)" class="h-full bg-gray-50 p-2">
                         <!-- Dynamic component rendering -->
                         <div v-if="getResolvedCompEl(viz) && shouldShowVisual(viz)" class="h-full">
                           <component
                             :is="getResolvedCompEl(viz)"
+                            :key="getChartKey(viz)"
                             :widget="{ id: viz.id, title: viz.title } as any"
                             :data="viz.step?.data"
-                            :data_model="viz.step?.data_model"
+                            :data_model="getDataModelWithView(viz)"
                             :step="viz.step"
-                            :view="viz.view"
+                            :view="wrapView(viz.view)"
                             :reportThemeName="reportThemeName"
                             :reportOverrides="reportOverrides"
                           />
@@ -119,17 +114,18 @@
                         <!-- Fallback rendering -->
                         <div v-else-if="chartVisualTypes.has(viz.view?.type || viz.step?.data_model?.type)" class="h-full">
                           <RenderVisual 
+                            :key="getChartKey(viz)"
                             :widget="{ id: viz.id, title: viz.title } as any" 
                             :data="viz.step?.data" 
-                            :data_model="viz.step?.data_model" 
+                            :data_model="getDataModelWithView(viz)"
+                            :view="wrapView(viz.view)"
                           />
                         </div>
                         <div v-else-if="(viz.view?.type || viz.step?.data_model?.type) === 'count'" class="h-full flex items-center justify-center">
                           <RenderCount 
-                            :show_title="true" 
                             :widget="{ id: viz.id, title: viz.title } as any" 
                             :data="viz.step?.data" 
-                            :data_model="viz.step?.data_model" 
+                            :data_model="getDataModelWithView(viz)" 
                           />
                         </div>
                         <div v-else class="h-full flex items-center justify-center text-gray-400 text-sm">No preview available</div>
@@ -138,15 +134,15 @@
                         <div v-if="String(viz.view?.type || viz.step?.data_model?.type).toLowerCase() === 'table'" class="h-full">
                           <RenderTable 
                             :widget="{ id: viz.id, title: viz.title } as any" 
-                            :step="{ ...(viz.step || {}), data_model: { ...(viz.step?.data_model || {}), type: 'table' } } as any" 
+                            :step="{ ...(viz.step || {}), data_model: getDataModelWithView(viz) } as any" 
                           />
                         </div>
                         <div v-else class="h-full flex items-center justify-center text-gray-400 text-sm">No visual representation</div>
                       </div>
                     </div>
                     
-                    <!-- Right: Configuration (1/3) -->
-                    <div class="w-1/3 p-3 overflow-auto">
+                    <!-- Right: Configuration (40%) -->
+                    <div class="w-[35%] p-3 flex flex-col overflow-x-hidden">
                       <VisualizationConfigEditor
                         :viz="viz"
                         :step="viz.step"
@@ -161,8 +157,14 @@
             
             <div v-else class="flex-1 flex items-center justify-center">
               <div class="text-center py-8">
-                <div class="text-gray-400 text-sm">No visualizations found for this query</div>
-                <div v-if="!queryId" class="text-xs text-gray-400 mt-1">Query ID not available</div>
+                <div v-if="loadingVisualizations" class="flex flex-col items-center">
+                  <Spinner class="w-4 h-4 mb-2" />
+                  <div class="text-gray-400 text-sm">Loading visualizations...</div>
+                </div>
+                <div v-else>
+                  <div class="text-gray-400 text-sm">No visualizations found for this query</div>
+                  <div v-if="!queryId" class="text-xs text-gray-400 mt-1">Query ID not available</div>
+                </div>
               </div>
             </div>
           </div>
@@ -178,6 +180,7 @@ import { useMyFetch } from '~/composables/useMyFetch'
 import RenderVisual from '../RenderVisual.vue'
 import RenderCount from '../RenderCount.vue'
 import RenderTable from '../RenderTable.vue'
+import Spinner from '../Spinner.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import VisualizationConfigEditor from './VisualizationConfigEditor.vue'
 import { useOrgSettings } from '~/composables/useOrgSettings'
@@ -203,6 +206,7 @@ const queryId = ref<string | null>(null)
 const currentStepId = ref<string | null>(null)
 const queryData = ref<any | null>(null)
 const visualizations = ref<any[]>([])
+const loadingVisualizations = ref(false)
 const reportThemeName = ref<string | null>(null)
 const reportOverrides = ref<Record<string, any> | null>(null)
 
@@ -251,6 +255,7 @@ async function syncQueryIdOnOpen() {
 async function loadQueryData() {
   if (!queryId.value) return
   
+  loadingVisualizations.value = true
   try {
     const { data, error } = await useMyFetch(`/api/queries/${queryId.value}`)
     if (error.value) throw error.value
@@ -282,6 +287,8 @@ async function loadQueryData() {
     console.error('Failed to load query data:', e)
     queryData.value = null
     visualizations.value = []
+  } finally {
+    loadingVisualizations.value = false
   }
 }
 
@@ -410,9 +417,47 @@ function shouldShowVisual(viz: any) {
   return chartVisualTypes.has(String(t)) || String(t) === 'count'
 }
 
+// Helper to wrap flat view for RenderVisual which expects { view: {...} }
+function wrapView(view: any) {
+  if (!view) return null
+  // If already wrapped (has .view property with type), return as-is
+  if (view.view?.type) return view
+  // Wrap flat view
+  return { view, version: 'v2' }
+}
+
+// Helper to merge view type into data_model for rendering
+function getDataModelWithView(viz: any) {
+  const dm = viz.step?.data_model || {}
+  const viewType = viz.view?.type
+  if (viewType && viewType !== dm.type) {
+    return { ...dm, type: viewType }
+  }
+  return dm
+}
+
+// Generate a key for the chart component that changes when view settings change
+function getChartKey(viz: any): string {
+  const v = viz.view || {}
+  // Include all view fields that affect rendering to force re-render when they change
+  return `${viz.id}-${v.type || ''}-${v.x || ''}-${JSON.stringify(v.y || '')}-${v.category || ''}-${v.value || ''}-${JSON.stringify(v.encoding || {})}-${JSON.stringify(v.legend || {})}-${JSON.stringify(v.axisX || {})}-${JSON.stringify(v.axisY || {})}-${v.showGrid}-${v.stacked}-${v.smooth}-${v.horizontal}-${v.donut}`
+}
+
 function onVizApply(viz: any, nextView: any) {
-  // Non-destructive local update to trigger preview re-render
-  viz.view = { ...(viz.view || {}), ...(nextView || {}) }
+  // Replace the view entirely (not merge) to ensure all fields are from the new payload
+  const updated = { ...(nextView || {}) }
+  
+  // Force reactivity update on the visualizations array by replacing the object
+  const idx = visualizations.value.findIndex((v: any) => v.id === viz.id)
+  if (idx >= 0) {
+    // Create a completely new object to ensure Vue detects the change
+    visualizations.value[idx] = { 
+      ...visualizations.value[idx], 
+      view: updated 
+    }
+    // Also update the original viz reference (for v-for iteration)
+    viz.view = updated
+  }
 }
 
 function onVizSaved(updated: any) {

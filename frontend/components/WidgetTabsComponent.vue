@@ -38,7 +38,7 @@
              </div>
              <!-- Handle the count type separately -->
              <div v-else-if="props.step?.data_model?.type === 'count'">
-                  <RenderCount :show_title="true" :widget="props.widget" :data="props.step?.data" :data_model="props.step?.data_model" />
+                  <RenderCount :widget="props.widget" :data="props.step?.data" :data_model="props.step?.data_model" />
              </div>
              <!-- Optional: Add a fallback for unexpected types -->
              <div v-else>

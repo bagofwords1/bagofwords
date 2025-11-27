@@ -1208,7 +1208,7 @@
     }
     const chartVisualTypes = new Set([
         'pie_chart', 'line_chart', 'bar_chart', 'area_chart', 'scatter_plot',
-        'heatmap', 'map', 'candlestick', 'treemap', 'radar_chart'
+        'heatmap', 'map', 'candlestick', 'treemap', 'radar_chart', 'metric_card', 'count'
     ]);
 
     // Frontend-only theme override
@@ -1226,7 +1226,11 @@
         return comp;
     }
     function resolvedComp(widget: any) {
-        return getCompForType(widget?.last_step?.data_model?.type);
+        // Support v2 schema (view.view.type) and legacy (view.type, data_model.type)
+        const viewObj = widget?.view
+        const vType = viewObj?.view?.type || viewObj?.type
+        const dmType = widget?.last_step?.data_model?.type
+        return getCompForType(vType || dmType);
     }
 
     // --- Edit Visualization Handler ---

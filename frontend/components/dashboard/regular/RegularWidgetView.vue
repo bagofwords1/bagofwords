@@ -58,11 +58,17 @@ function getCompForType(type?: string | null) {
 }
 
 const resolvedComp = computed(() => {
-  const vType = props.widget?.view?.type
+  // Support v2 schema (view.view.type) and legacy (view.type, data_model.type)
+  const viewObj = props.widget?.view
+  const vType = viewObj?.view?.type || viewObj?.type
   const dmType = props.widget?.last_step?.data_model?.type
   return getCompForType(String(vType || dmType || ''))
 })
-const isTable = computed(() => String(props.widget?.view?.type || props.widget?.last_step?.data_model?.type || '').toLowerCase() === 'table')
+const isTable = computed(() => {
+  const viewObj = props.widget?.view
+  const t = String((viewObj?.view?.type || viewObj?.type || props.widget?.last_step?.data_model?.type || '')).toLowerCase()
+  return t === 'table'
+})
 const tableComp = TableAgGrid
 
 function deepMerge(target: any, source: any) {
