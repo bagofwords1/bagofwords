@@ -307,36 +307,57 @@ class TestEvaluationService:
         failed = 0
         skipped = 0
         needs_judge = any(isinstance(r, FieldRule) and getattr(r.target, "category", "") == "judge" for r in rules)
-        judge_passed: Optional[bool] = None
-        judge_reason: Optional[str] = None
+        judge_trace_payload: Optional[str] = None
+        judge_cache: Dict[str, Tuple[bool, str]] = {}
 
-        # Run judge once if needed
         if needs_judge and judge is not None and organization is not None:
             try:
                 trace_obj = await self._build_trace_v2(db, str(report_id), organization, current_user, limit=200)
-                trace_payload = ""
+                payload = ""
                 try:
-                    # Prefer compact JSON for judge prompt embedding
                     if trace_obj is not None and hasattr(trace_obj, "model_dump_json"):
-                        trace_payload = trace_obj.model_dump_json()
+                        payload = trace_obj.model_dump_json()
                     elif trace_obj is not None and hasattr(trace_obj, "model_dump"):
                         import json as _json
-                        trace_payload = _json.dumps(trace_obj.model_dump())
+                        payload = _json.dumps(trace_obj.model_dump())
+                    else:
+                        payload = str(trace_obj) if trace_obj is not None else ""
                 except Exception:
-                    trace_payload = str(trace_obj) if trace_obj is not None else ""
-                # Enforce a timeout so judge cannot stall the run
-                try:
-                    jp, jreason = await asyncio.wait_for(
-                        judge.judge_test_case(case_prompt_text or "", trace_payload),
-                        timeout=30.0,
-                    )
-                except asyncio.TimeoutError:
-                    jp, jreason = False, "Judge timeout"
-                judge_passed = bool(jp)
-                judge_reason = jreason
+                    payload = str(trace_obj) if trace_obj is not None else ""
+                judge_trace_payload = payload
             except Exception:
-                judge_passed = False
-                judge_reason = "Judge evaluation failed"
+                judge_trace_payload = None
+
+        async def run_judge(assertion: str) -> Tuple[bool, str]:
+            key = assertion.strip() or case_prompt_text or ""
+            if key in judge_cache:
+                return judge_cache[key]
+            if judge is None or organization is None:
+                judge_cache[key] = (False, "Judge unavailable")
+                return judge_cache[key]
+            if judge_trace_payload is None:
+                judge_cache[key] = (False, "Judge trace unavailable")
+                return judge_cache[key]
+            composite_prompt = (case_prompt_text or "").strip()
+            assertion_text = assertion.strip()
+            if assertion_text:
+                if composite_prompt:
+                    composite_prompt = f"{composite_prompt}\n\nAssertion:\n{assertion_text}"
+                else:
+                    composite_prompt = assertion_text
+            if not composite_prompt:
+                composite_prompt = assertion_text or case_prompt_text or ""
+            try:
+                jp, jreason = await asyncio.wait_for(
+                    judge.judge_test_case(composite_prompt, judge_trace_payload),
+                    timeout=30.0,
+                )
+            except asyncio.TimeoutError:
+                jp, jreason = False, "Judge timeout"
+            except Exception:
+                jp, jreason = False, "Judge evaluation failed"
+            judge_cache[key] = (bool(jp), jreason)
+            return judge_cache[key]
 
         # Helper to append aligned result
         def push(ok: bool, message: Optional[str] = None, actual: Any = None, evidence: Optional[RuleEvidence] = None):
@@ -397,15 +418,20 @@ class TestEvaluationService:
 
                 # judge.* (Boolean support via integrated judge run)
                 if cat == "judge":
-                    if judge_passed is None:
-                        # No judge available → skip rather than fail to avoid false negatives
-                        push_skipped(judge_reason or "Judge unavailable", evidence=RuleEvidence(type="judge", reasoning=judge_reason))
+                    assertion_text = ""
+                    try:
+                        assertion_text = getattr(rule.matcher, "value", "") or getattr(rule.target, "value", "")
+                    except Exception:
+                        assertion_text = ""
+                    ok = True
+                    reason = ""
+                    if judge is None or organization is None:
+                        ok, reason = False, "Judge unavailable"
                     else:
-                        ok = bool(judge_passed)
-                        msg = None if ok else (judge_reason or "Judge indicated failure")
-                        # Always include reasoning, and include boolean actual
-                        ev = RuleEvidence(type="judge", reasoning=judge_reason)
-                        push(ok, msg, actual=ok, evidence=ev)
+                        ok, reason = await run_judge(assertion_text or "")
+                    msg = None if ok else (reason or "Judge indicated failure")
+                    ev = RuleEvidence(type="judge", reasoning=reason)
+                    push(ok, msg, actual=ok, evidence=ev)
                     continue
 
                 # tool:create_data.*
