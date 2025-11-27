@@ -375,6 +375,23 @@ class PinotConfig(BaseModel):
         json_schema_extra={"ui:type": "string"}
     )
 
+
+# Azure Data Explorer (Kusto)
+class AzureDataExplorerCredentials(BaseModel):
+    client_id: str = Field(..., title="Client ID", description="Azure AD Application (Client) ID", json_schema_extra={"ui:type": "string"})
+    client_secret: str = Field(..., title="Client Secret", description="Azure AD Application Secret", json_schema_extra={"ui:type": "password"})
+    tenant_id: str = Field(..., title="Tenant ID", description="Azure AD Tenant ID", json_schema_extra={"ui:type": "string"})
+
+
+class AzureDataExplorerConfig(BaseModel):
+    cluster_url: str = Field(
+        ..., 
+        title="Cluster URL", 
+        description="Azure Data Explorer cluster URL (e.g., https://mycluster.region.kusto.windows.net)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    database: str = Field(..., title="Database", description="Database name", json_schema_extra={"ui:type": "string"})
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -418,7 +435,9 @@ __all__ = [
     "DuckDBNoAuthCredentials",
     "DuckDBAwsCredentials",
     "DuckDBGcpCredentials",
-    "DuckDBAzureCredentials"
+    "DuckDBAzureCredentials",
+    "AzureDataExplorerCredentials",
+    "AzureDataExplorerConfig"
 ]
 
 

@@ -31,6 +31,9 @@ from app.schemas.data_sources.configs import (
     DuckDBAwsCredentials,
     DuckDBGcpCredentials,
     DuckDBAzureCredentials,
+    # Azure Data Explorer
+    AzureDataExplorerConfig,
+    AzureDataExplorerCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -259,6 +262,16 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
         client_path=None,
+    ),
+    "azure_data_explorer": DataSourceRegistryEntry(
+        type="azure_data_explorer",
+        title="Azure Data Explorer",
+        description="Azure Data Explorer (Kusto) is a fast and highly scalable data exploration service for log and telemetry data.",
+        config_schema=AzureDataExplorerConfig,
+        credentials_auth=AuthOptions(default="service_principal", by_auth={
+            "service_principal": AuthVariant(title="Service Principal (AAD App)", schema=AzureDataExplorerCredentials, scopes=["system", "user"])
+        }),
+        client_path="app.data_sources.clients.azure_data_explorer_client.AzureDataExplorerClient",
     ),
     "pinot": DataSourceRegistryEntry(
         type="pinot",
