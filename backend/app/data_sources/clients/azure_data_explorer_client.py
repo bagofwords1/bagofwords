@@ -83,16 +83,18 @@ class AzureDataExplorerClient(DataSourceClient):
                 # The primary result table is typically the first one
                 if response.primary_results:
                     primary_table = response.primary_results[0]
-                    df = primary_table.to_dataframe()
+                    # Convert KustoResultTable to DataFrame manually
+                    data = []
+                    for row in primary_table:
+                        data.append(row.to_dict())
+                    df = pd.DataFrame(data)
                     return df
                 else:
                     return pd.DataFrame()
                     
         except KustoServiceError as e:
-            print(f"Error executing KQL query: {e}")
             raise
         except Exception as e:
-            print(f"Error executing KQL query: {e}")
             raise
 
     def get_tables(self) -> List[Table]:
@@ -109,8 +111,13 @@ class AzureDataExplorerClient(DataSourceClient):
                 if not response.primary_results:
                     return []
                 
-                # Parse the schema JSON result
-                schema_df = response.primary_results[0].to_dataframe()
+                # Parse the schema JSON result - convert manually
+                primary_table = response.primary_results[0]
+                data = []
+                for row in primary_table:
+                    data.append(row.to_dict())
+                schema_df = pd.DataFrame(data)
+                
                 tables = {}
                 
                 if not schema_df.empty and 'DatabaseSchema' in schema_df.columns:
@@ -118,7 +125,11 @@ class AzureDataExplorerClient(DataSourceClient):
                     schema_json = json.loads(schema_df.iloc[0]['DatabaseSchema'])
                     
                     # Parse tables and columns from schema
-                    for table_info in schema_json.get('Databases', {}).get(self.database, {}).get('Tables', {}).values():
+                    db_schema = schema_json.get('Databases', {})
+                    
+                    tables_dict = db_schema.get(self.database, {}).get('Tables', {})
+                    
+                    for table_info in tables_dict.values():
                         table_name = table_info.get('Name')
                         
                         if table_name not in tables:
@@ -140,7 +151,6 @@ class AzureDataExplorerClient(DataSourceClient):
                 return list(tables.values())
                 
         except Exception as e:
-            print(f"Error retrieving tables: {e}")
             # Fallback: try to get basic table list
             try:
                 with self.connect() as client:
@@ -148,7 +158,12 @@ class AzureDataExplorerClient(DataSourceClient):
                     response = client.execute(self.database, kql)
                     
                     if response.primary_results:
-                        tables_df = response.primary_results[0].to_dataframe()
+                        # Convert manually
+                        primary_table = response.primary_results[0]
+                        data = []
+                        for row in primary_table:
+                            data.append(row.to_dict())
+                        tables_df = pd.DataFrame(data)
                         tables = {}
                         
                         for _, row in tables_df.iterrows():
