@@ -363,21 +363,27 @@ function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
     splitLine: showGrid ? { show: true, lineStyle: { color: gridColor, width: 1 } } : { show: false }
   }
 
+  // Respect user's legend setting, default to hidden
+  const legendShouldShow = props.view?.legendVisible ?? viewV2?.legend?.show ?? false
+
+  // Only include legend config when it should be shown
+  const legendConfig = legendShouldShow ? {
+    show: true,
+    data: series.map(s => s.name),
+    right: 12,
+    top: 12,
+    orient: 'horizontal',
+    itemWidth: 10,
+    itemHeight: 6,
+    icon: 'roundRect',
+    textStyle: { color: tokens.value?.legend?.textColor, fontSize: 11 }
+  } : { show: false }
+
   return {
     tooltip: { trigger: 'axis' },
     xAxis: isHorizontal ? valueAxis : categoryAxis,
     yAxis: isHorizontal ? categoryAxis : valueAxis,
-    legend: {
-      show: series.length > 1 ? (props.view?.legendVisible ?? viewV2?.legend?.show ?? true) : false,
-      data: series.map(s => s.name),
-      right: 12,
-      top: 12,
-      orient: 'horizontal',
-      itemWidth: 10,
-      itemHeight: 6,
-      icon: 'roundRect',
-      textStyle: { color: tokens.value?.legend?.textColor, fontSize: 11 }
-    },
+    legend: legendConfig,
     series
   }
 }

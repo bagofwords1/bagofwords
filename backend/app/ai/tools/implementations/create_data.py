@@ -26,6 +26,7 @@ from app.schemas.view_schema import (
     AreaChartView,
     BarChartView,
     HeatmapView,
+    LegendOptions,
     LineChartView,
     MetricCardView,
     Palette,
@@ -89,6 +90,8 @@ def build_view_from_data_model(
         # Use list when multiple measures exist
         y_value: Union[str, List[str]] = value_cols[0] if len(value_cols) == 1 else value_cols
         series_styles = _build_series_styles(series)
+        # Show legend if multiple series or groupBy is used
+        has_multiple_series = len(series) > 1 or data_model.get("group_by")
         view_cls = {
             "bar_chart": BarChartView,
             "line_chart": LineChartView,
@@ -101,6 +104,7 @@ def build_view_from_data_model(
             groupBy=data_model.get("group_by"),
             palette=palette,
             seriesStyles=series_styles,
+            legend=LegendOptions(show=bool(has_multiple_series)),
         )
         # Slightly different axis defaults for time series vs categorical
         view.axisX = AxisOptions(rotate=45, interval=0)
@@ -118,6 +122,7 @@ def build_view_from_data_model(
             category=str(category),
             value=str(value),
             palette=palette,
+            legend=LegendOptions(show=True, position="right"),  # Pie charts benefit from legend
         )
         return ViewSchema(view=view)
 

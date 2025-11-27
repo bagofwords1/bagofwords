@@ -1,5 +1,7 @@
 <template>
-  <div class="space-y-3 text-xs text-gray-700">
+  <div class="h-full flex flex-col text-xs text-gray-700">
+    <!-- Scrollable content -->
+    <div class="flex-1 overflow-y-auto overflow-x-hidden space-y-3 pr-1">
     <!-- Type selector -->
     <div>
       <div class="font-medium text-gray-800 mb-1">Type</div>
@@ -77,16 +79,6 @@
             </optgroup>
           </select>
         </div>
-        <div class="flex items-center space-x-4">
-          <div class="flex items-center space-x-2">
-            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-xs text-gray-600">Title</span>
-          </div>
-          <div class="flex items-center space-x-2">
-            <input type="checkbox" v-model="local.legendVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-xs text-gray-600">Legend</span>
-          </div>
-        </div>
       </div>
 
       <!-- Scatter -->
@@ -116,12 +108,6 @@
               </optgroup>
             </select>
           </div>
-        </div>
-        <div class="flex items-center space-x-3">
-          <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-xs text-gray-600">Title</span>
-          </label>
         </div>
       </div>
 
@@ -164,12 +150,6 @@
               </optgroup>
             </select>
           </div>
-        </div>
-        <div class="flex items-center space-x-3">
-          <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-xs text-gray-600">Title</span>
-          </label>
         </div>
       </div>
 
@@ -237,12 +217,6 @@
             </select>
           </div>
         </div>
-        <div class="flex items-center space-x-3">
-          <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-xs text-gray-600">Title</span>
-          </label>
-        </div>
       </div>
 
       <!-- Treemap -->
@@ -297,12 +271,6 @@
             </select>
           </div>
         </div>
-        <div class="flex items-center space-x-3">
-          <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-xs text-gray-600">Title</span>
-          </label>
-        </div>
       </div>
 
       <!-- Radar -->
@@ -337,16 +305,6 @@
           </div>
           <button class="mt-2 px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="addDimension">Add dimension</button>
         </div>
-        <div class="flex items-center space-x-3">
-          <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-xs text-gray-600">Title</span>
-          </label>
-          <label class="flex items-center space-x-1">
-            <input type="checkbox" v-model="local.legendVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-            <span class="text-xs text-gray-600">Legend</span>
-          </label>
-        </div>
       </div>
     </div>
 
@@ -358,42 +316,15 @@
       </div>
       <Transition name="fade">
         <div v-if="expanded.style" class="space-y-3">
-          <div class="grid grid-cols-2 gap-2">
-            <div>
-              <div class="text-gray-600 mb-1">Background</div>
-              <input v-model="local.style.backgroundColor" placeholder="#ffffff" class="w-full border rounded px-2 py-1" />
-            </div>
-            <div>
-              <div class="text-gray-600 mb-1">Title color</div>
-              <input v-model="local.style.titleColor" placeholder="#111827" class="w-full border rounded px-2 py-1" />
-            </div>
-            <div>
-              <div class="text-gray-600 mb-1">Title size</div>
-              <input v-model.number="local.style.titleSize" type="number" min="10" max="36" class="w-full border rounded px-2 py-1" />
-            </div>
-            <div>
-              <div class="text-gray-600 mb-1">Card background</div>
-              <input v-model="local.style.cardBackground" placeholder="#ffffff or transparent" class="w-full border rounded px-2 py-1" />
-            </div>
-            <div>
-              <div class="text-gray-600 mb-1">Card border (color or 'none')</div>
-              <input v-model="local.style.cardBorder" placeholder="#e5e7eb or none" class="w-full border rounded px-2 py-1" />
-            </div>
-          </div>
-
-          <!-- Visibility toggles with checkboxes (consistent with form style) -->
+          <!-- Visibility toggles -->
           <div class="space-y-2">
-            <label class="flex items-center space-x-2 text-xs">
-              <input type="checkbox" v-model="local.titleVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-              <span class="text-gray-600">Show Title</span>
-            </label>
-            
-            <label v-if="capsForType.legend" class="flex items-center space-x-2 text-xs">
+            <!-- Legend - show for chart types that support it -->
+            <label v-if="isType(['bar_chart','line_chart','area_chart','pie_chart','radar_chart'])" class="flex items-center space-x-2 text-xs">
               <input type="checkbox" v-model="local.legendVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
               <span class="text-gray-600">Show Legend</span>
             </label>
             
-            <div v-if="capsForType.axes" class="space-y-2">
+            <div v-if="isType(['bar_chart','line_chart','area_chart','scatter_plot','heatmap'])" class="space-y-2">
               <label class="flex items-center space-x-2 text-xs">
                 <input type="checkbox" v-model="local.xAxisVisible" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                 <span class="text-gray-600">Show X Axis</span>
@@ -409,7 +340,7 @@
                   <div v-if="expanded.xAxisLabels" class="grid grid-cols-2 gap-2 pl-4">
                     <div>
                       <div class="text-gray-600 mb-1 text-[10px]">Label rotation</div>
-                      <select v-model.number="local.xAxisLabelRotate" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
+                      <select v-model.number="local.xAxisRotate" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
                         <option :value="null">Auto</option>
                         <option :value="0">0° (horizontal)</option>
                         <option :value="45">45° (diagonal)</option>
@@ -419,7 +350,7 @@
                     </div>
                     <div>
                       <div class="text-gray-600 mb-1 text-[10px]">Label interval</div>
-                      <select v-model.number="local.xAxisLabelInterval" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
+                      <select v-model.number="local.xAxisInterval" class="w-full border rounded px-2 py-1 bg-white text-[10px]">
                         <option :value="null">Auto</option>
                         <option :value="0">Show all (0)</option>
                         <option :value="1">Every 2nd (1)</option>
@@ -450,17 +381,18 @@
               </div>
             </div>
             
-            <label v-if="capsForType.grid" class="flex items-center space-x-2 text-xs">
-              <input type="checkbox" v-model="local.showGridLines" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <label v-if="isType(['bar_chart','line_chart','area_chart'])" class="flex items-center space-x-2 text-xs">
+              <input type="checkbox" v-model="local.showGrid" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
               <span class="text-gray-600">Show Grid lines</span>
             </label>
           </div>
         </div>
       </Transition>
     </div>
+    </div>
 
-    <!-- Actions -->
-    <div class="pt-2 border-t flex items-center justify-end space-x-2">
+    <!-- Sticky Actions -->
+    <div class="flex-shrink-0 pt-3 mt-3 border-t bg-white flex items-center justify-end space-x-2">
       <div v-if="error" class="text-red-600 text-[11px] mr-auto">{{ error }}</div>
       <button class="px-2 py-1 text-[11px] border rounded text-gray-700 hover:bg-gray-50" @click="reset">Reset</button>
       <button class="px-2 py-1 text-[11px] border rounded text-gray-700 hover:bg-gray-50" @click="apply">Apply</button>
@@ -501,12 +433,24 @@ const typeOptions = [
 // Backend-provided capabilities per visualization type
 const meta = ref<Record<string, any>>({})
 const typeOptionsFromMeta = computed<string[]>(() => {
-  const keys = Object.keys(meta.value || {})
-  return keys.length ? keys : typeOptions
+  // Check if meta has a 'types' or 'components' list, or look for capabilities per type
+  const m = meta.value || {}
+  if (Array.isArray(m.types)) return m.types
+  if (Array.isArray(m.components)) return m.components
+  // If capabilities is an object with type keys, use those
+  if (m.capabilities && typeof m.capabilities === 'object') {
+    const capKeys = Object.keys(m.capabilities)
+    if (capKeys.length && capKeys.every(k => typeOptions.includes(k))) return capKeys
+  }
+  // Fallback to hardcoded type options
+  return typeOptions
 })
 const capsForType = computed<Record<string, any>>(() => {
   const t = String(local.type || '').toLowerCase()
-  return (meta.value && (meta.value as any)[t]) || { axes: false, legend: false, grid: false, labels: true, encodings: [] }
+  const m = meta.value || {}
+  // Try nested capabilities first, then direct type key
+  const caps = m.capabilities?.[t] || m[t]
+  return caps || { axes: false, legend: false, grid: false, labels: true, encodings: [] }
 })
 
 const saving = ref(false)
@@ -517,24 +461,80 @@ const expanded = reactive<{ typeData: boolean; style: boolean; xAxisLabels: bool
 
 function deepClone<T>(v: T): T { return JSON.parse(JSON.stringify(v || {})) }
 
+// Helper to extract v2 or legacy values
+function initFromView(view: any, step: any) {
+  const v = view || {}
+  const dm = step?.data_model || {}
+  
+  // Build encoding from view.encoding, or construct from data_model.series/view fields
+  let enc = deepClone(v.encoding || {})
+  if (!enc.category && !enc.series?.length && !enc.x && !enc.y) {
+    // Try to build encoding from v2 fields or data_model
+    if (v.x) enc.category = v.x
+    if (v.y) {
+      const yVals = Array.isArray(v.y) ? v.y : [v.y]
+      enc.series = yVals.map((val: string, i: number) => ({ name: `Series ${i + 1}`, value: val }))
+    }
+    if (v.category) enc.category = v.category
+    if (v.value) enc.value = v.value
+    // Fallback to data_model.series
+    if ((!enc.category || !enc.series?.length) && dm.series?.length) {
+      const s0 = dm.series[0]
+      enc.category = enc.category || s0.key
+      enc.series = enc.series?.length ? enc.series : dm.series.map((s: any) => ({ name: s.name, value: s.value }))
+      enc.value = enc.value || s0.value
+      enc.x = enc.x || s0.x
+      enc.y = enc.y || s0.y
+    }
+  }
+  
+  return {
+    type: v.type || dm.type || 'table',
+    // Encoding for UI binding
+    encoding: enc,
+    // v2 axis options (read from nested or flat legacy)
+    xAxisVisible: v.axisX?.show ?? v.xAxisVisible ?? true,
+    xAxisRotate: v.axisX?.rotate ?? v.xAxisLabelRotate ?? 45,
+    xAxisInterval: v.axisX?.interval ?? v.xAxisLabelInterval ?? 0,
+    yAxisVisible: v.axisY?.show ?? v.yAxisVisible ?? true,
+    yAxisRotate: v.axisY?.rotate ?? 0,
+    yAxisInterval: v.axisY?.interval ?? 0,
+    // v2 legend - default to false (hidden by default)
+    legendVisible: v.legend?.show ?? v.legendVisible ?? false,
+    legendPosition: v.legend?.position ?? 'bottom',
+    // v2 palette
+    paletteTheme: v.palette?.theme ?? 'default',
+    paletteScale: v.palette?.scale ?? 'primary',
+    // v2 chart options
+    stacked: v.stacked ?? false,
+    smooth: v.smooth ?? (v.type === 'line_chart' || v.type === 'area_chart'),
+    showGrid: v.showGrid ?? v.showGridLines ?? true,
+    showDataZoom: v.showDataZoom ?? false,
+    // Bar chart specific
+    horizontal: v.horizontal ?? false,
+    // Pie chart specific
+    donut: v.donut ?? false,
+    // Heatmap specific
+    colorScheme: v.colorScheme ?? 'blue',
+    showValues: v.showValues ?? true,
+    // Legacy fields
+    variant: v.variant || null,
+    style: deepClone(v.style || {}),
+    options: deepClone(v.options || {}),
+  }
+}
+
+// Initialize local state - but keep encoding separate for reactivity
+const initialState = initFromView(props.viz?.view, props.step)
+const { encoding: initialEncoding, ...restInitial } = initialState
+
 const local = reactive<any>({
-  type: props.viz?.view?.type || props.step?.data_model?.type || 'table',
-  encoding: deepClone(props.viz?.view?.encoding || {}),
-  titleVisible: props.viz?.view?.titleVisible ?? true,
-  legendVisible: props.viz?.view?.legendVisible ?? false,
-  xAxisVisible: props.viz?.view?.xAxisVisible ?? true,
-  yAxisVisible: props.viz?.view?.yAxisVisible ?? true,
-  variant: props.viz?.view?.variant || null,
-  style: deepClone(props.viz?.view?.style || {}),
-  options: deepClone(props.viz?.view?.options || {}),
-  // X-axis label controls
-  xAxisLabelRotate: props.viz?.view?.xAxisLabelRotate ?? null,
-  xAxisLabelInterval: props.viz?.view?.xAxisLabelInterval ?? null,
-  showGridLines: props.viz?.view?.showGridLines ?? null,
+  ...restInitial,
+  encoding: {} // placeholder, will use separate reactive
 })
 
-// Convenience accessors bound to encoding structure
-const encoding = reactive<any>(local.encoding)
+// Encoding is a separate reactive for proper v-model binding in template
+const encoding = reactive<any>(initialEncoding || {})
 const dimensions = computed<string[]>({
   get: () => Array.isArray(encoding.dimensions) ? encoding.dimensions : (encoding.dimensions = []),
   set: (v: string[]) => { encoding.dimensions = v }
@@ -617,51 +617,123 @@ function removeDimension(idx: number) {
 }
 
 function toViewPayload() {
-  const view: any = {
-    type: local.type,
-    titleVisible: local.titleVisible,
-    legendVisible: local.legendVisible,
-    xAxisVisible: local.xAxisVisible,
-    yAxisVisible: local.yAxisVisible,
-    variant: local.variant || undefined,
-    style: local.style || {},
-    options: local.options || {},
-    // X-axis label controls
-    xAxisLabelRotate: local.xAxisLabelRotate,
-    xAxisLabelInterval: local.xAxisLabelInterval,
-    showGridLines: local.showGridLines,
-  }
-  // Drop unsupported fields per capabilities before sending to backend
+  const t = local.type
   const caps = capsForType.value || {}
-  if (!caps.legend) delete view.legendVisible
-  if (!caps.axes) {
-    delete view.xAxisVisible
-    delete view.yAxisVisible
-    delete view.xAxisLabelRotate
-    delete view.xAxisLabelInterval
-  }
-  if (!caps.grid) delete view.showGridLines
-  if (showEncoding.value) {
-    const enc = deepClone(encoding)
-    // Normalize bar/line/area to ensure series[].key strictly matches category
-    if (["bar_chart","line_chart","area_chart"].includes(local.type)) {
-      if (enc.category && Array.isArray(enc.series) && enc.series.length) {
-        enc.series = enc.series.map((s: any) => ({ ...s, key: enc.category }))
-      }
+  
+  // Base view with type
+  const view: any = { type: t }
+  
+  // v2 Palette (for charts that support it)
+  if (['bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'scatter_plot', 'count', 'metric_card'].includes(t)) {
+    view.palette = {
+      theme: local.paletteTheme || 'default',
+      scale: local.paletteScale || 'primary',
     }
-    // Normalize pie to either (category,value) or explicit series with key
-    if (local.type === 'pie_chart') {
-      const cat = enc.category
-      const val = enc.value || (Array.isArray(enc.series) && enc.series[0]?.value)
-      const name = enc.name || (Array.isArray(enc.series) && enc.series[0]?.name) || 'Series 1'
-      if (cat && val) {
-        enc.series = [{ name, key: cat, value: val }]
-      } else if (Array.isArray(enc.series) && enc.series.length) {
-        enc.series = enc.series.map((s: any) => ({ ...s, key: s.key || cat }))
-      }
+  }
+  
+  // v2 Legend (nested object) - add for chart types that support legends
+  if (['bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'radar_chart'].includes(t)) {
+    view.legend = {
+      show: local.legendVisible ?? false,
+      position: local.legendPosition || 'bottom',
+    }
+  }
+  
+  // v2 Axis options (nested objects) - for charts with axes
+  if (['bar_chart', 'line_chart', 'area_chart', 'scatter_plot', 'heatmap'].includes(t)) {
+    view.axisX = {
+      show: local.xAxisVisible ?? true,
+      rotate: local.xAxisRotate ?? 45,
+      interval: local.xAxisInterval ?? 0,
+    }
+    view.axisY = {
+      show: local.yAxisVisible ?? true,
+      rotate: local.yAxisRotate ?? 0,
+      interval: local.yAxisInterval ?? 0,
+    }
+  }
+  
+  // v2 Grid - for cartesian charts
+  if (['bar_chart', 'line_chart', 'area_chart'].includes(t)) {
+    view.showGrid = local.showGrid ?? true
+  }
+  
+  // Chart-specific v2 fields
+  if (['bar_chart', 'line_chart', 'area_chart'].includes(t)) {
+    // Transform legacy encoding to v2 format
+    const enc = deepClone(encoding)
+    // x = category column
+    view.x = enc.category || ''
+    // y = array of value columns from series
+    if (Array.isArray(enc.series) && enc.series.length) {
+      const yValues = enc.series.map((s: any) => s.value).filter(Boolean)
+      view.y = yValues.length === 1 ? yValues[0] : yValues
+    }
+    view.stacked = local.stacked ?? false
+    view.smooth = local.smooth ?? false
+    view.showDataZoom = local.showDataZoom ?? false
+    
+    // Bar chart specific
+    if (t === 'bar_chart') {
+      view.horizontal = local.horizontal ?? false
+    }
+    
+    // Keep legacy encoding for backward compatibility
+    if (enc.category && Array.isArray(enc.series) && enc.series.length) {
+      enc.series = enc.series.map((s: any) => ({ ...s, key: enc.category }))
     }
     view.encoding = enc
+  } else if (t === 'pie_chart') {
+    const enc = deepClone(encoding)
+    view.category = enc.category || ''
+    view.value = enc.value || ''
+    view.donut = local.donut ?? false
+    if (local.donut) {
+      view.innerRadius = 0.6
+    }
+    view.showLabels = true
+    // Keep legacy encoding
+    view.encoding = enc
+  } else if (t === 'scatter_plot') {
+    const enc = deepClone(encoding)
+    view.x = enc.x || ''
+    view.y = enc.y || ''
+    view.size = enc.size || undefined
+    view.colorBy = enc.color || undefined
+    view.encoding = enc
+  } else if (t === 'heatmap') {
+    const enc = deepClone(encoding)
+    view.x = enc.x || ''
+    view.y = enc.y || ''
+    view.value = enc.value || ''
+    view.colorScheme = local.colorScheme || 'blue'
+    view.showValues = local.showValues ?? true
+    view.encoding = enc
+  } else if (t === 'count' || t === 'metric_card') {
+    const enc = deepClone(encoding)
+    view.value = enc.value || ''
+    view.format = 'number'
+    view.encoding = enc
+  } else if (t === 'table') {
+    // Table doesn't need much
+  } else {
+    // Fallback for other types (candlestick, treemap, radar, etc.)
+    if (showEncoding.value) {
+      view.encoding = deepClone(encoding)
+    }
   }
+  
+  // Legacy fields for backward compatibility
+  if (local.style && Object.keys(local.style).length) {
+    view.style = local.style
+  }
+  if (local.options && Object.keys(local.options).length) {
+    view.options = local.options
+  }
+  if (local.variant) {
+    view.variant = local.variant
+  }
+  
   return view
 }
 
@@ -717,49 +789,35 @@ async function save() {
 }
 
 function reset() {
-  const base = props.viz?.view || {}
-  local.type = base.type || props.step?.data_model?.type || 'table'
-  local.titleVisible = base.titleVisible ?? true
-  local.legendVisible = base.legendVisible ?? false
-  local.xAxisVisible = base.xAxisVisible ?? true
-  local.yAxisVisible = base.yAxisVisible ?? true
-  local.variant = base.variant || null
-  local.style = deepClone(base.style || {})
-  local.options = deepClone(base.options || {})
-  local.xAxisLabelRotate = base.xAxisLabelRotate ?? null
-  local.xAxisLabelInterval = base.xAxisLabelInterval ?? null
-  const e = deepClone(base.encoding || {})
-  Object.keys(encoding).forEach(k => delete (encoding as any)[k])
-  Object.assign(encoding, e)
+  const fresh = initFromView(props.viz?.view, props.step)
+  const { encoding: freshEnc, ...rest } = fresh
+  // Update local (except encoding placeholder)
+  Object.assign(local, rest)
+  // Sync encoding reactive in-place
+  Object.keys(encoding).forEach(k => delete encoding[k])
+  Object.assign(encoding, freshEnc || {})
 }
 
 watch(() => props.viz?.view, (v) => {
   if (!v) return
-  // When parent replaces viz.view (e.g., after save), sync local state
-  local.type = v.type || local.type
-  local.titleVisible = v.titleVisible ?? local.titleVisible
-  local.legendVisible = v.legendVisible ?? local.legendVisible
-  local.xAxisVisible = v.xAxisVisible ?? local.xAxisVisible
-  local.yAxisVisible = v.yAxisVisible ?? local.yAxisVisible
-  local.variant = v.variant || local.variant
-  local.style = deepClone(v.style || local.style)
-  local.options = deepClone(v.options || local.options)
-  local.xAxisLabelRotate = v.xAxisLabelRotate ?? local.xAxisLabelRotate
-  local.xAxisLabelInterval = v.xAxisLabelInterval ?? local.xAxisLabelInterval
-  const e = deepClone(v.encoding || {})
-  Object.keys(encoding).forEach(k => delete (encoding as any)[k])
-  Object.assign(encoding, e)
+  // When parent replaces viz.view (e.g., after save), sync local state using v2-aware init
+  const fresh = initFromView(v, props.step)
+  const { encoding: freshEnc, ...rest } = fresh
+  // Update local (except encoding placeholder)
+  Object.assign(local, rest)
+  // Sync encoding reactive in-place
+  Object.keys(encoding).forEach(k => delete encoding[k])
+  Object.assign(encoding, freshEnc || {})
   // Auto-detect missing encoding pieces after sync
   try {
     const t = local.type
-    const e2: any = encoding
-    const need = (['bar_chart','line_chart','area_chart'].includes(t) && (!Array.isArray(e2.series) || !e2.series.length))
-      || (t === 'pie_chart' && (!e2.category || !e2.value))
-      || (t === 'scatter_plot' && (!e2.x || !e2.y))
-      || (t === 'heatmap' && (!e2.x || !e2.y || !e2.value))
-      || (t === 'candlestick' && (!e2.key || !e2.open || !e2.close || !e2.low || !e2.high))
-      || (t === 'treemap' && (!e2.name || !e2.value))
-      || (t === 'radar_chart' && (!Array.isArray(e2.dimensions) || !e2.dimensions.length))
+    const need = (['bar_chart','line_chart','area_chart'].includes(t) && (!Array.isArray(encoding.series) || !encoding.series.length))
+      || (t === 'pie_chart' && (!encoding.category || !encoding.value))
+      || (t === 'scatter_plot' && (!encoding.x || !encoding.y))
+      || (t === 'heatmap' && (!encoding.x || !encoding.y || !encoding.value))
+      || (t === 'candlestick' && (!encoding.key || !encoding.open || !encoding.close || !encoding.low || !encoding.high))
+      || (t === 'treemap' && (!encoding.name || !encoding.value))
+      || (t === 'radar_chart' && (!Array.isArray(encoding.dimensions) || !encoding.dimensions.length))
     if (need) detectEncoding()
   } catch {}
 })

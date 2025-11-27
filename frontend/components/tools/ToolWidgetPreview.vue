@@ -8,7 +8,7 @@
           <h3 class="widget-title">{{ widgetTitle }}</h3>
           <button
             v-if="queryId"
-            @click="onEditClick"
+            @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
             title="Edit query code"
           >
@@ -83,13 +83,13 @@
                     :data="effectiveStep?.data"
                     :data_model="effectiveStep?.data_model"
                     :step="effectiveStep"
-                    :view="visualization?.view || step?.view"
+                    :view="normalizedView"
                     :reportThemeName="reportThemeName"
                     :reportOverrides="reportOverrides"
                   />
                 </div>
                 <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
-                  <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
+                  <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" :view="normalizedView" />
                 </div>
               </div>
             </Transition>
@@ -209,6 +209,17 @@ const visualization = computed(() => {
   const list = (props.toolExecution as any)?.created_visualizations
   if (Array.isArray(list) && list.length) return list[0]
   return null
+})
+
+// Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }
+const normalizedView = computed(() => {
+  const v = visualization.value?.view || (step.value as any)?.view
+  if (!v) return null
+  // Already in v2 format (has .view.type)
+  if (v.view?.type) return v
+  // Flat format - wrap it
+  if (v.type) return { view: v, version: 'v2' }
+  return v
 })
 
 // Provide a stable widget object for children even if upstream is null

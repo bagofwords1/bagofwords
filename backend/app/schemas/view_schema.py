@@ -99,7 +99,7 @@ class AxisOptions(BaseModel):
 
 
 class LegendOptions(BaseModel):
-    show: bool = True
+    show: bool = False
     position: Literal["top", "bottom", "left", "right"] = "bottom"
 
 

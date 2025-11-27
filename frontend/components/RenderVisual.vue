@@ -412,14 +412,20 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
         }).filter(Boolean) as SeriesOption[];
     }
 
-    const legendShouldShow = series.length > 1 ? (props.view?.view?.legend?.show ?? true) : false;
+    // Respect user's legend setting, default to hidden
+    const legendShouldShow = props.view?.view?.legend?.show ?? false;
     const categoryAxisNameRaw = props.view?.view?.axisX?.label;
     const valueAxisNameRaw = props.view?.view?.axisY?.label;
     const categoryAxisName = categoryAxisNameRaw && categoryAxisNameRaw.trim().length ? categoryAxisNameRaw : undefined;
     const valueAxisName = valueAxisNameRaw && valueAxisNameRaw.trim().length ? valueAxisNameRaw : undefined;
+    
+    // Axis visibility from view settings
+    const xAxisVisible = props.view?.view?.axisX?.show ?? true;
+    const yAxisVisible = props.view?.view?.axisY?.show ?? true;
 
     const categoryAxis = {
         type: 'category',
+        show: isHorizontal ? yAxisVisible : xAxisVisible,
         boundaryGap: chartType === 'bar',
         data: categories,
         name: categoryAxisName,
@@ -433,24 +439,28 @@ function buildCartesianOptions(normalizedRows: DataRow[], dataModel: DataModel):
 
     const valueAxis = {
         type: 'value',
+        show: isHorizontal ? xAxisVisible : yAxisVisible,
         name: valueAxisName,
         splitLine: showGrid ? { show: true, lineStyle: { color: gridColor, width: 1 } } : { show: false }
     }
+
+    // Only include legend when it should be shown
+    const legendConfig = legendShouldShow ? {
+        show: true,
+        data: series.map(s => (s as any).name),
+        right: 12,
+        top: 12,
+        itemWidth: 10,
+        itemHeight: 6,
+        icon: 'roundRect'
+    } : { show: false };
 
     return {
         tooltip: {
             trigger: 'axis',
             axisPointer: { type: 'cross', label: { backgroundColor: '#6a7985' } }
         },
-        legend: {
-            show: legendShouldShow,
-            data: series.map(s => (s as any).name),
-            right: 12,
-            top: 12,
-            itemWidth: 10,
-            itemHeight: 6,
-            icon: 'roundRect'
-        },
+        legend: legendConfig,
         xAxis: isHorizontal ? valueAxis : categoryAxis,
         yAxis: isHorizontal ? categoryAxis : valueAxis,
         dataZoom: [
