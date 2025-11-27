@@ -93,8 +93,10 @@ class AzureDataExplorerClient(DataSourceClient):
                     return pd.DataFrame()
                     
         except KustoServiceError as e:
+            print(f"Error executing KQL query: {e}")
             raise
         except Exception as e:
+            print(f"Error executing KQL query: {e}")
             raise
 
     def get_tables(self) -> List[Table]:
@@ -141,16 +143,21 @@ class AzureDataExplorerClient(DataSourceClient):
                                 metadata_json={"database": self.database}
                             )
                         
-                        # Add columns
-                        for col_name, col_info in table_info.get('OrderedColumns', []):
-                            col_type = col_info.get('Type', 'dynamic')
-                            tables[table_name].columns.append(
-                                TableColumn(name=col_name, dtype=col_type)
-                            )
+                        # Add columns - OrderedColumns is a list of column info dicts
+                        ordered_columns = table_info.get('OrderedColumns', [])
+                        for col_info in ordered_columns:
+                            if isinstance(col_info, dict):
+                                col_name = col_info.get('Name')
+                                col_type = col_info.get('Type', 'dynamic')
+                                if col_name:
+                                    tables[table_name].columns.append(
+                                        TableColumn(name=col_name, dtype=col_type)
+                                    )
                 
                 return list(tables.values())
                 
         except Exception as e:
+            print(f"Error retrieving tables: {e}")
             # Fallback: try to get basic table list
             try:
                 with self.connect() as client:
