@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.255 (November 27, 2025)
+- Extended user token validity to one week, reducing the need for frequent logins
+- Improved evaluation (Evals) features for more robust and insightful testing
+- Added support for anonymous MySQL connections
+
+
 ## Version 0.0.254 (Noveber 25, 2025)
 - Fix azure llm integration
 - Improve mysql authentication 
