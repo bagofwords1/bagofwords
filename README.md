@@ -30,7 +30,7 @@ Bag of words is an open-source AI data layer — connect any LLM to any data sou
 
 * **Any LLM, any data**
 
-   Connect multiple data sources: Snowflake, BigQuery, Redshift, Postgres, dbt, Tableau, and more — then pair with the LLM of your choice (OpenAI, Anthropic, or local models). Swap models/data sources without breaking workflows.
+   Connect multiple data sources: Snowflake, BigQuery, Azure Data Explorer, Redshift, Postgres, dbt, Tableau, and more — then pair with the LLM of your choice (OpenAI, Anthropic, or local models). Swap models/data sources without breaking workflows.
 
 *  **Transparency, trust & deployment**
 
@@ -135,6 +135,7 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | Salesforce               | Service             |
 | Microsoft SQL Server     | Database/Warehouse  |
 | ClickHouse               | Database/Warehouse  |
+| Azure Data Explorer      | Database/Warehouse  |
 | AWS Cost Explorer        | Service             |
 | Vertica                  | Database/Warehouse  |
 | AWS Redshift             | Database/Warehouse  |
