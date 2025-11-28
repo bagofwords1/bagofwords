@@ -101,7 +101,7 @@ interface Instruction {
     text: string
     thumbs_up: number
     status: 'draft' | 'published' | 'archived'
-    category: 'code_gen' | 'data_modeling' | 'general'
+    category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
     user_id: string
     organization_id: string
     user: User
@@ -190,7 +190,10 @@ const getCategoryIcon = (category: string) => {
     const categoryIcons = {
         code_gen: 'i-heroicons-code-bracket',
         data_modeling: 'i-heroicons-cube',
-        general: 'i-heroicons-chat-bubble-bottom-center-text'
+        general: 'i-heroicons-chat-bubble-bottom-center-text',
+        system: 'i-heroicons-cog-6-tooth',
+        visualizations: 'i-heroicons-chart-bar',
+        dashboard: 'i-heroicons-squares-2x2'
     }
     return categoryIcons[category as keyof typeof categoryIcons] || 'i-heroicons-document-text'
 }
@@ -199,7 +202,10 @@ const getCategoryIconClass = (category: string) => {
     const categoryClasses = {
         code_gen: 'bg-blue-500',
         data_modeling: 'bg-green-500',
-        general: 'bg-purple-500'
+        general: 'bg-purple-500',
+        system: 'bg-orange-500',
+        visualizations: 'bg-teal-500',
+        dashboard: 'bg-indigo-500'
     }
     return categoryClasses[category as keyof typeof categoryClasses] || 'bg-gray-500'
 }

@@ -315,6 +315,7 @@
 					:edit="true" 
 					:visualizations="visualizations"
 					:textWidgetsIds="textWidgetsIds"
+					:isStreaming="isStreaming"
 					@toggleSplitScreen="toggleSplitScreen"
 					@editVisualization="handleEditQuery"
 				/>
@@ -669,19 +670,27 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 
 
 // Auto-collapse reasoning when content becomes available (but respect user's manual toggle)
-watch(() => messages.value, (newMessages) => {
-	newMessages.forEach(message => {
-		if (message.completion_blocks) {
-			message.completion_blocks.forEach(block => {
-				// Auto-collapse reasoning when assistant content becomes available
-				// But only if user hasn't manually toggled this block
-				if (hasCompletedContent(block) && !collapsedReasoning.value.has(block.id) && !manuallyToggledReasoning.value.has(block.id)) {
-					collapsedReasoning.value.add(block.id)
-				}
-			})
+// Only watch the last system message to avoid iterating ALL messages on every token
+const lastSystemMessage = computed(() => 
+	[...messages.value].reverse().find(m => m.role === 'system')
+)
+
+watch(
+	// Watch only block IDs and their completion status, not deep content
+	() => lastSystemMessage.value?.completion_blocks?.map(b => ({
+		id: b.id,
+		hasContent: hasCompletedContent(b)
+	})),
+	(blocks) => {
+		if (!blocks) return
+		for (const b of blocks) {
+			if (b.hasContent && !collapsedReasoning.value.has(b.id) && !manuallyToggledReasoning.value.has(b.id)) {
+				collapsedReasoning.value.add(b.id)
+			}
 		}
-	})
-}, { deep: true })
+	},
+	{ deep: true }
+)
 
 // Watch for split screen changes and scroll to bottom to maintain position
 watch(() => isSplitScreen.value, () => {
@@ -872,37 +881,35 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'block.delta.text':
 			// Update text snapshot for a specific block (full overwrite)
+			// Mutate in-place to avoid triggering full array reactivity
 			if (payload.block_id && payload.field && payload.text) {
-				const idx = sysMessage.completion_blocks?.findIndex(b => b.id === payload.block_id) ?? -1
-				if (idx >= 0 && sysMessage.completion_blocks) {
-					const updated = { ...sysMessage.completion_blocks[idx] }
+				const block = sysMessage.completion_blocks?.find(b => b.id === payload.block_id)
+				if (block) {
 					if (payload.field === 'content') {
-						updated.content = payload.text
+						block.content = payload.text
 					} else if (payload.field === 'reasoning') {
-						updated.reasoning = payload.text
-						if (!updated.plan_decision) updated.plan_decision = {}
-						updated.plan_decision.reasoning = payload.text
+						block.reasoning = payload.text
+						if (!block.plan_decision) block.plan_decision = {}
+						block.plan_decision.reasoning = payload.text
 					}
-					sysMessage.completion_blocks.splice(idx, 1, updated)
 				}
 			}
 			break
 
 		case 'block.delta.token':
 			// Handle individual token streaming for real-time typing effect
+			// Mutate in-place to avoid triggering full array reactivity on every token
 			if (payload.block_id && payload.field && payload.token) {
-				const idx = sysMessage.completion_blocks?.findIndex(b => b.id === payload.block_id) ?? -1
-				if (idx >= 0 && sysMessage.completion_blocks) {
+				const block = sysMessage.completion_blocks?.find(b => b.id === payload.block_id)
+				if (block) {
 					const t = String(payload.token || '')
-					const updated = { ...sysMessage.completion_blocks[idx] }
 					if (payload.field === 'content') {
-						updated.content = (updated.content || '') + t
+						block.content = (block.content || '') + t
 					} else if (payload.field === 'reasoning') {
-						updated.reasoning = (updated.reasoning || '') + t
-						if (!updated.plan_decision) updated.plan_decision = {}
-						updated.plan_decision.reasoning = (updated.plan_decision.reasoning || '') + t
+						block.reasoning = (block.reasoning || '') + t
+						if (!block.plan_decision) block.plan_decision = {}
+						block.plan_decision.reasoning = (block.plan_decision.reasoning || '') + t
 					}
-					sysMessage.completion_blocks.splice(idx, 1, updated)
 				}
 			}
 			break
@@ -1400,18 +1407,31 @@ onMounted(() => {
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info
-watch(() => messages.value, () => {
-    try {
+// Track last dispatched step to avoid duplicate events during streaming
+const lastDispatchedStepId = ref<string | null>(null)
+
+watch(
+    // Only watch the created step ID, not deep message content
+    () => {
         const last = [...messages.value].reverse().find(m => m.role === 'system')
         const lastBlock = last?.completion_blocks?.slice(-1)[0]
-        const te: any = lastBlock?.tool_execution
-        if (te && te.created_step && te.created_step.query_id) {
-            try {
-                window.dispatchEvent(new CustomEvent('query:default_step_changed', { detail: { query_id: te.created_step.query_id, step: te.created_step } }))
-            } catch {}
-        }
-    } catch {}
-}, { deep: true })
+        return lastBlock?.tool_execution?.created_step?.id || null
+    },
+    (stepId) => {
+        if (!stepId || stepId === lastDispatchedStepId.value) return
+        lastDispatchedStepId.value = stepId
+        
+        try {
+            const last = [...messages.value].reverse().find(m => m.role === 'system')
+            const te = last?.completion_blocks?.slice(-1)[0]?.tool_execution as any
+            if (te?.created_step?.query_id) {
+                window.dispatchEvent(new CustomEvent('query:default_step_changed', {
+                    detail: { query_id: te.created_step.query_id, step: te.created_step }
+                }))
+            }
+        } catch {}
+    }
+)
 
 async function loadActiveLayoutHasBlocks(): Promise<boolean> {
     try {

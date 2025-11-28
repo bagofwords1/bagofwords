@@ -384,7 +384,7 @@ interface Instruction {
     text: string
     thumbs_up: number
     status: 'draft' | 'published' | 'archived'
-    category: 'code_gen' | 'data_modeling' | 'general'
+    category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
     user_id: string
     organization_id: string
     user: User
@@ -490,7 +490,10 @@ const categoryOptions = [
     { label: 'All', value: 'all' },
     { label: 'General', value: 'general' },
     { label: 'Code Generation', value: 'code_gen' },
-    { label: 'Data Modeling', value: 'data_modeling' }
+    { label: 'Data Modeling', value: 'data_modeling' },
+    { label: 'System', value: 'system' },
+    { label: 'Visualizations', value: 'visualizations' },
+    { label: 'Dashboard', value: 'dashboard' }
 ]
 
 // Computed properties
@@ -695,7 +698,10 @@ const formatCategory = (category: string) => {
     const categoryMap = {
         code_gen: 'Code Generation',
         data_modeling: 'Data Modeling',
-        general: 'General'
+        general: 'General',
+        system: 'System',
+        visualizations: 'Visualizations',
+        dashboard: 'Dashboard'
     }
     return categoryMap[category as keyof typeof categoryMap] || category
 }

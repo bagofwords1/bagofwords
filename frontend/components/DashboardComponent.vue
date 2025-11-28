@@ -205,6 +205,7 @@ import { themes } from '@/components/dashboard/themes'
         edit: boolean
         visualizations?: any[]
         textWidgetsIds?: string[]
+        isStreaming?: boolean  // Skip heavy updates during active streaming
     }>();
 
     const reportThemeName = ref(props.report?.report_theme_name || 'default');
@@ -224,6 +225,7 @@ import { themes } from '@/components/dashboard/themes'
     const layoutBlocks = ref<any[] | null>(null);
     const isLoading = ref<boolean>(true);
     let suppressGridReload = false;
+    let isApplyingLayout = false;  // Guard against recursive layout application
     const editSnapshots = ref<Record<string, { x: number; y: number; width: number; height: number; content: string }>>({});
 
     // Zoom state
@@ -508,6 +510,18 @@ import { themes } from '@/components/dashboard/themes'
     }
 
     async function applyLayoutToLocalState() {
+        // Prevent re-entry to avoid cascading updates during streaming
+        if (isApplyingLayout) return;
+        isApplyingLayout = true;
+        
+        try {
+            await applyLayoutToLocalStateInternal();
+        } finally {
+            isApplyingLayout = false;
+        }
+    }
+    
+    async function applyLayoutToLocalStateInternal() {
         // Wait until layout is fetched to avoid showing all widgets prematurely
         if (layoutBlocks.value === null) {
             return;
@@ -703,13 +717,20 @@ import { themes } from '@/components/dashboard/themes'
             displayedWidgets.value = nextDisplayed;
             textWidgets.value = nextText;
             if (stepPromises.length > 0) {
-                // After steps load, re-apply to inject last_step
-                try { await Promise.allSettled(stepPromises); } catch {}
-                // Re-run quickly without refetching layout
-                const prev = layoutBlocks.value; layoutBlocks.value = prev; // trigger
-                // Recompute
-                await nextTick();
-                await applyLayoutToLocalState();
+                // After steps load, update specific widgets in-place instead of re-running full layout
+                try { 
+                    await Promise.allSettled(stepPromises);
+                    // Update last_step for widgets that were missing it
+                    for (const widget of displayedWidgets.value) {
+                        if (widget.isVisualization && widget.query_id) {
+                            const q = queryById.value[widget.query_id];
+                            const defaultStepId = q?.default_step_id;
+                            if (defaultStepId && stepCache.value[defaultStepId] && !widget.last_step) {
+                                widget.last_step = stepCache.value[defaultStepId];
+                            }
+                        }
+                    }
+                } catch {}
             }
             return;
         }
@@ -737,6 +758,10 @@ import { themes } from '@/components/dashboard/themes'
                 // Ignore our own broadcast to prevent races with local persistence
                 return
             }
+            // Skip heavy layout refresh during streaming - will sync on completion
+            if (props.isStreaming) {
+                return
+            }
             await refreshLayout()
         } catch {}
     }
@@ -747,6 +772,8 @@ import { themes } from '@/components/dashboard/themes'
             const qid = detail?.query_id
             const step = detail?.step
             if (!qid) return
+            
+            // Always update the cache
             if (step?.id) {
                 stepCache.value[step.id] = step
             }
@@ -754,7 +781,20 @@ import { themes } from '@/components/dashboard/themes'
             if (prevQ.default_step_id !== step?.id) {
                 queryById.value = { ...queryById.value, [qid]: { ...prevQ, default_step_id: step?.id || prevQ.default_step_id } } as any
             }
-            // Force tiles to re-bind last_step for any viz or widget bound to this query
+            
+            // During streaming, just update cache and specific widgets in-place
+            // Skip heavy layout re-application to avoid flickering
+            if (props.isStreaming) {
+                // Update specific displayed widgets that use this query
+                for (const widget of displayedWidgets.value) {
+                    if (widget.query_id === qid && step) {
+                        widget.last_step = step
+                    }
+                }
+                return
+            }
+            
+            // Full update only when not streaming
             const prev = layoutBlocks.value; layoutBlocks.value = prev
             await nextTick()
             await applyLayoutToLocalState()
@@ -909,16 +949,24 @@ import { themes } from '@/components/dashboard/themes'
         }
     });
  
-    watch(allWidgets, async (currentWidgets, oldWidgets) => {
-        if (suppressGridReload) return;
-        // Simplified condition: Reload if length changes or if it's a deep change (heuristically)
-        if (currentWidgets.length !== oldWidgets?.length || JSON.stringify(currentWidgets) !== JSON.stringify(oldWidgets)) {
-            await loadWidgetsIntoGrid(grid.value, currentWidgets);
-            if (isModalOpen.value && modalGrid.value) {
-                await loadWidgetsIntoGrid(modalGrid.value, currentWidgets, true);
+    // Watch only structural changes (widget IDs) to avoid full grid reload on data updates
+    // This prevents flickering when only content/step data changes
+    watch(
+        () => ({
+            ids: allWidgets.value.map(w => w.id).sort().join(','),
+            count: allWidgets.value.length
+        }),
+        async (curr, prev) => {
+            if (suppressGridReload) return;
+            // Only reload grid when widgets are added/removed, not on data-only changes
+            if (curr.ids !== prev?.ids || curr.count !== prev?.count) {
+                await loadWidgetsIntoGrid(grid.value, allWidgets.value);
+                if (isModalOpen.value && modalGrid.value) {
+                    await loadWidgetsIntoGrid(modalGrid.value, allWidgets.value, true);
+                }
             }
         }
-    }, { deep: true });
+    );
 
 
     // --- Gridstack Event Handlers ---

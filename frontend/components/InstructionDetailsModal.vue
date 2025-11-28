@@ -124,7 +124,7 @@ interface Instruction {
     text: string
     thumbs_up: number
     status: 'draft' | 'published' | 'archived'
-    category: 'code_gen' | 'data_modeling' | 'general'
+    category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
     user_id: string
     organization_id: string
     user: User
@@ -236,7 +236,10 @@ const getCategoryIcon = (category: string) => {
     const categoryIcons = {
         code_gen: 'heroicons:code-bracket',
         data_modeling: 'heroicons:cube',
-        general: 'heroicons:document-text'
+        general: 'heroicons:document-text',
+        system: 'heroicons:cog-6-tooth',
+        visualizations: 'heroicons:chart-bar',
+        dashboard: 'heroicons:squares-2x2'
     }
     return categoryIcons[category as keyof typeof categoryIcons] || 'heroicons:document-text'
 }
@@ -245,7 +248,10 @@ const formatCategory = (category: string) => {
     const categoryMap = {
         code_gen: 'Code Generation',
         data_modeling: 'Data Modeling',
-        general: 'General'
+        general: 'General',
+        system: 'System',
+        visualizations: 'Visualizations',
+        dashboard: 'Dashboard'
     }
     return categoryMap[category as keyof typeof categoryMap] || category
 }
