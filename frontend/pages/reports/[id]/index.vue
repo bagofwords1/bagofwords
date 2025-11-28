@@ -1033,6 +1033,10 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							group_by: p.group_by
 						}
 					}
+					// Visualization error for create_data tool
+					if (payload.tool_name === 'create_data' && payload.payload?.stage === 'visualization_error') {
+						;(lastBlock.tool_execution as any).progress_visualization_error = payload.payload.error
+					}
 
 					// Progressive instruction drafts for suggest_instructions tool
 					if (payload.tool_name === 'suggest_instructions' && payload.payload) {

@@ -181,16 +181,16 @@
               v-if="!isPublished"
               :disabled="!canAdd || isAdding"
               @click="onAddClick"
-              class="text-xs px-2 py-0.5 rounded transition-colors"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center"
               :class="[
                 canAdd && !isAdding ? 'hover:bg-gray-50' : 'text-gray-400 cursor-not-allowed'
               ]"
             >
-              <Icon v-if="isAdding" name="heroicons-arrow-path" class="w-3.5 h-3.5 inline-block mr-1 animate-spin" />
-              <span v-if="!canAdd">Generating…</span>
-              <span v-else class="flex items-center">
-                  <Icon name="heroicons-chart-pie" class="w-3.5 h-3.5 text-blue-500 inline-block mr-1" />
-                  Add to dashboard</span>
+              <Spinner v-if="isAdding" class="w-3.5 h-3.5 mr-1 text-blue-500" />
+              <Icon v-else-if="canAdd" name="heroicons-chart-pie" class="w-3.5 h-3.5 text-blue-500 mr-1" />
+              <span v-if="!canAdd && !isAdding">Generating…</span>
+              <span v-else-if="isAdding">Adding…</span>
+              <span v-else>Add to dashboard</span>
             </button>
             <span v-else class="text-xs flex items-center">
               <Icon name="heroicons-check" class="w-3.5 h-3.5 mr-1 text-green-500" />
@@ -237,6 +237,7 @@ import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityCreateModal from '../entity/EntityCreateModal.vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface ToolExecution {
   id: string

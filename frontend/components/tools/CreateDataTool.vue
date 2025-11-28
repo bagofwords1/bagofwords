@@ -50,12 +50,17 @@
         </div>
 
         <!-- Visualizing section -->
-        <div v-if="showVisualizingSection" class="flex items-center text-xs text-gray-500">
-          <Spinner v-if="isVisualizing" class="w-3 h-3 mr-1.5 text-gray-400" />
-          <Icon v-else-if="vizDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-          <span v-if="isVisualizing" class="tool-shimmer">Visualizing</span>
-          <span v-else class="text-gray-700">{{ chartTypeLabel }}</span>
-          <span v-if="vizSummary" class="ml-1.5 text-gray-400">· {{ vizSummary }}</span>
+        <div v-if="showVisualizingSection">
+          <div class="flex items-center text-xs text-gray-500">
+            <Spinner v-if="isVisualizing" class="w-3 h-3 mr-1.5 text-gray-400" />
+            <Icon v-else-if="vizError" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
+            <Icon v-else-if="vizDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+            <span v-if="isVisualizing" class="tool-shimmer">Visualizing</span>
+            <span v-else-if="vizError" class="text-gray-700">Visualizing</span>
+            <span v-else class="text-gray-700">{{ chartTypeLabel }}</span>
+            <span v-if="vizSummary && !vizError" class="ml-1.5 text-gray-400">· {{ vizSummary }}</span>
+          </div>
+          <div v-if="vizError" class="mt-1 ml-4 text-xs text-gray-500">{{ vizError }}</div>
         </div>
       </div>
     </Transition>
@@ -179,6 +184,7 @@ const codeDone = computed(() => !!codeContent.value && !isCodeRunning.value)
 // Visualization state
 const isVisualizing = computed(() => progressStage.value === 'inferring_visualization')
 const vizInferredData = computed(() => (props.toolExecution as any).progress_visualization || null)
+const vizError = computed(() => (props.toolExecution as any).progress_visualization_error || null)
 const vizDone = computed(() => {
   // Check if we have visualization data from progress or result
   const fromProgress = vizInferredData.value
@@ -186,9 +192,9 @@ const vizDone = computed(() => {
   return !!(fromProgress || fromResult?.data_model?.type)
 })
 const showVisualizingSection = computed(() => {
-  // Show if visualizing or if visualization was inferred (not table)
+  // Show if visualizing, if visualization was inferred (not table), or if there's an error
   const resultType = (props.toolExecution.result_json as any)?.data_model?.type
-  return isVisualizing.value || (vizDone.value && resultType && resultType !== 'table')
+  return isVisualizing.value || vizError.value || (vizDone.value && resultType && resultType !== 'table')
 })
 
 // Chart type display

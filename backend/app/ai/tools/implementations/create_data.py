@@ -717,9 +717,15 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                         "group_by": inferred_dm.get("group_by"),
                     }
                     yield ToolProgressEvent(type="tool.progress", payload=viz_payload)
-        except Exception:
+        except Exception as viz_exc:
             inferred_dm = None
             progress_event = None
+            # Emit visualization error event for UI
+            viz_error_msg = str(viz_exc) if viz_exc else "Visualization inference failed"
+            yield ToolProgressEvent(type="tool.progress", payload={
+                "stage": "visualization_error",
+                "error": viz_error_msg
+            })
 
         current_step_id = runtime_ctx.get("current_step_id")
         # Always provide a minimal data_model in observation/output
