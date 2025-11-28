@@ -267,14 +267,33 @@ class CreateDataTool(Tool):
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
+        # Fetch visualization-specific instructions
+        viz_instructions = ""
+        context_hub = runtime_ctx.get("context_hub")
+        if context_hub and getattr(context_hub, "instruction_builder", None):
+            try:
+                viz_section = await context_hub.instruction_builder.build(category="visualizations")
+                viz_instructions = viz_section.render() or ""
+            except Exception:
+                viz_instructions = ""
+
         allowed_types = list(ALLOWED_VIZ_TYPES)
 
         # Build column names list for reference
         column_names = [c.get("name", "") for c in profile.get("columns", [])]
         row_count = profile.get("row_count", 0)
         
-        prompt = f"""You are a visualization planner. Analyze the data profile and choose the best visualization type.
+        # Build instructions block for prompt
+        instructions_block = ""
+        if viz_instructions:
+            instructions_block = f"""
+ORGANIZATION VISUALIZATION INSTRUCTIONS:
+{viz_instructions}
 
+"""
+        
+        prompt = f"""You are a visualization planner. Analyze the data profile and choose the best visualization type.
+{instructions_block}
 CRITICAL: You MUST use EXACT column names from the data. Available columns are: {column_names}
 
 Context: {messages_context or "None"}
