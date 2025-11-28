@@ -1,28 +1,49 @@
 <template>
-  <div class="h-full w-full flex flex-col justify-center p-4" :style="wrapperStyle">
-    <!-- Title -->
-    <div v-if="title" class="text-xs font-medium text-gray-500 mb-1 truncate">
-      {{ title }}
-    </div>
-    
-    <!-- Main Value -->
-    <div class="flex items-baseline gap-2">
-      <span class="text-3xl font-bold tracking-tight" :style="{ color: valueColor }">
-        {{ formattedValue }}
-      </span>
+  <div class="h-full w-full flex flex-col rounded-lg overflow-hidden" :style="cardStyle">
+    <!-- Top section: Metric display -->
+    <div class="flex-1 flex flex-col p-5">
+      <!-- Title -->
+      <div v-if="title" class="text-sm font-medium text-gray-500 mb-4 truncate">
+        {{ title }}
+      </div>
       
-      <!-- Trend Indicator -->
-      <div v-if="showTrend && trendDirection" class="flex items-center gap-0.5">
-        <component :is="trendIcon" class="w-4 h-4" :style="{ color: trendColor }" />
-        <span v-if="comparisonValue !== null" class="text-sm font-medium" :style="{ color: trendColor }">
+      <!-- Main Value -->
+      <div class="mb-2">
+        <span class="text-4xl font-bold tracking-tight" :style="{ color: valueColor }">
+          {{ formattedValue }}
+        </span>
+      </div>
+      
+      <!-- Comparison text with arrow -->
+      <div v-if="showTrend && comparisonValue !== null" class="flex items-center gap-1">
+        <component 
+          :is="trendIcon" 
+          class="w-4 h-4 flex-shrink-0" 
+          :style="{ color: trendColor }" 
+        />
+        <span class="text-sm font-medium" :style="{ color: trendColor }">
           {{ formattedComparison }}
         </span>
+        <span v-if="comparisonLabel" class="text-sm text-gray-400">
+          {{ comparisonLabel }}
+        </span>
+      </div>
+      
+      <!-- Subtitle / Description -->
+      <div v-if="subtitle" class="text-sm text-gray-400 mt-2 truncate">
+        {{ subtitle }}
       </div>
     </div>
     
-    <!-- Subtitle / Description -->
-    <div v-if="subtitle" class="text-xs text-gray-400 mt-1 truncate">
-      {{ subtitle }}
+    <!-- Sparkline section - full width, no padding -->
+    <div v-if="sparklineEnabled" class="w-full" :style="{ height: `${sparklineHeight}px` }">
+      <EChartsVisual
+        :data="props.data"
+        :data_model="sparklineDataModel"
+        :view="sparklineView"
+        :reportThemeName="reportThemeName"
+        :reportOverrides="reportOverrides"
+      />
     </div>
   </div>
 </template>
@@ -30,6 +51,7 @@
 <script setup lang="ts">
 import { computed, toRefs, h } from 'vue'
 import { useDashboardTheme } from '../composables/useDashboardTheme'
+import EChartsVisual from '../charts/EChartsVisual.vue'
 
 const props = defineProps<{
   widget?: any
@@ -112,16 +134,21 @@ const comparisonValue = computed(() => {
 
 // Formatting
 const formatType = computed(() => viewConfig.value?.format || 'number')
+const comparisonFormatType = computed(() => viewConfig.value?.comparisonFormat || 'percent')
 const prefix = computed(() => viewConfig.value?.prefix || '')
 const suffix = computed(() => viewConfig.value?.suffix || '')
+const comparisonLabel = computed(() => viewConfig.value?.comparisonLabel || '')
+const invertTrend = computed(() => viewConfig.value?.invertTrend === true)
 
-function formatNumber(val: any): string {
+function formatNumber(val: any, format?: string): string {
   if (val === null || val === undefined) return '—'
   
   const num = typeof val === 'number' ? val : parseFloat(String(val))
   if (isNaN(num)) return String(val)
   
-  switch (formatType.value) {
+  const fmt = format || formatType.value
+  
+  switch (fmt) {
     case 'currency':
       return new Intl.NumberFormat('en-US', { 
         style: 'currency', 
@@ -165,10 +192,15 @@ const formattedComparison = computed(() => {
   if (isNaN(num)) return ''
   
   const sign = num >= 0 ? '+' : ''
-  if (formatType.value === 'percent') {
+  
+  // Use comparisonFormat for the trend value
+  if (comparisonFormatType.value === 'percent') {
     return `${sign}${num.toFixed(1)}%`
   }
-  return `${sign}${formatNumber(num)}`
+  if (comparisonFormatType.value === 'compact') {
+    return `${sign}${formatNumber(num, 'compact')}`
+  }
+  return `${sign}${formatNumber(num, 'number')}`
 })
 
 // Trend direction
@@ -194,7 +226,7 @@ const trendDirection = computed(() => {
 const trendIndicator = computed(() => viewConfig.value?.trendIndicator || 'arrow')
 const showTrend = computed(() => trendIndicator.value !== 'none' && trendDirection.value)
 
-// Icons
+// Icons - diagonal arrows for better visual
 const ArrowUp = {
   render: () => h('svg', { 
     xmlns: 'http://www.w3.org/2000/svg', 
@@ -203,7 +235,7 @@ const ArrowUp = {
   }, [
     h('path', { 
       'fill-rule': 'evenodd',
-      d: 'M10 17a.75.75 0 01-.75-.75V5.612L5.29 9.77a.75.75 0 01-1.08-1.04l5.25-5.5a.75.75 0 011.08 0l5.25 5.5a.75.75 0 11-1.08 1.04l-3.96-4.158V16.25A.75.75 0 0110 17z',
+      d: 'M5.22 14.78a.75.75 0 001.06 0l7.22-7.22v5.69a.75.75 0 001.5 0v-7.5a.75.75 0 00-.75-.75h-7.5a.75.75 0 000 1.5h5.69l-7.22 7.22a.75.75 0 000 1.06z',
       'clip-rule': 'evenodd'
     })
   ])
@@ -217,7 +249,7 @@ const ArrowDown = {
   }, [
     h('path', { 
       'fill-rule': 'evenodd',
-      d: 'M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z',
+      d: 'M5.22 5.22a.75.75 0 011.06 0L13.5 12.44V6.75a.75.75 0 011.5 0v7.5a.75.75 0 01-.75.75h-7.5a.75.75 0 010-1.5h5.69L5.22 6.28a.75.75 0 010-1.06z',
       'clip-rule': 'evenodd'
     })
   ])
@@ -231,7 +263,7 @@ const ArrowFlat = {
   }, [
     h('path', { 
       'fill-rule': 'evenodd',
-      d: 'M2 10a.75.75 0 01.75-.75h14.5a.75.75 0 010 1.5H2.75A.75.75 0 012 10z',
+      d: 'M2 10a.75.75 0 01.75-.75h12.59l-2.1-1.95a.75.75 0 111.02-1.1l3.5 3.25a.75.75 0 010 1.1l-3.5 3.25a.75.75 0 11-1.02-1.1l2.1-1.95H2.75A.75.75 0 012 10z',
       'clip-rule': 'evenodd'
     })
   ])
@@ -245,13 +277,18 @@ const trendIcon = computed(() => {
   }
 })
 
-// Colors
+// Colors - respect invertTrend for metrics where down is good
 const trendColor = computed(() => {
-  switch (trendDirection.value) {
-    case 'up': return '#16a34a' // green-600
-    case 'down': return '#dc2626' // red-600
-    default: return '#6b7280' // gray-500
+  const dir = trendDirection.value
+  const invert = invertTrend.value
+  
+  if (dir === 'up') {
+    return invert ? '#dc2626' : '#16a34a' // red if inverted, else green
   }
+  if (dir === 'down') {
+    return invert ? '#16a34a' : '#dc2626' // green if inverted, else red
+  }
+  return '#6b7280' // gray for flat
 })
 
 const valueColor = computed(() => {
@@ -261,14 +298,113 @@ const valueColor = computed(() => {
   return tokens.value?.textColor || '#111827'
 })
 
-const wrapperStyle = computed(() => {
+// Card styling - default to transparent/no border (like EChartsVisual)
+// Only add styling when explicitly set via view.style
+const cardStyle = computed(() => {
   const style = (props.view?.style as any) || {}
+  const bg = style.cardBackground
+  const border = style.cardBorder
+  const shadow = style.cardShadow
+  
+  const out: Record<string, any> = {
+    backgroundColor: 'transparent',
+    border: 'none',
+    boxShadow: 'none',
+  }
+  
+  // Only override if explicitly set
+  if (bg) out.backgroundColor = bg
+  if (border && border !== 'none' && typeof border === 'string' && border.trim().length) {
+    out.border = `1px solid ${border}`
+  }
+  if (shadow && shadow !== 'none') {
+    out.boxShadow = shadow
+  }
+  
+  return out
+})
+
+// --- Sparkline Configuration ---
+const sparklineConfig = computed(() => viewConfig.value?.sparkline || {})
+const sparklineEnabled = computed(() => sparklineConfig.value?.enabled === true)
+const sparklineHeight = computed(() => sparklineConfig.value?.height || 64)
+
+// Determine sparkline columns
+const sparklineValueColumn = computed(() => {
+  return sparklineConfig.value?.column || valueColumn.value
+})
+
+const sparklineXColumn = computed(() => {
+  // Try to find a date/time column if not specified
+  if (sparklineConfig.value?.xColumn) {
+    return sparklineConfig.value.xColumn
+  }
+  
+  // Auto-detect: look for common date column names
+  const rows = props.data?.rows
+  if (!Array.isArray(rows) || rows.length === 0) return null
+  
+  const firstRow = rows[0]
+  const keys = Object.keys(firstRow || {})
+  const datePatterns = ['date', 'time', 'day', 'month', 'week', 'period', 'timestamp']
+  
+  for (const k of keys) {
+    const lower = k.toLowerCase()
+    if (datePatterns.some(p => lower.includes(p))) {
+      return k
+    }
+  }
+  
+  // Fallback to first non-numeric column
+  for (const k of keys) {
+    if (typeof firstRow[k] !== 'number') return k
+  }
+  
+  return keys[0]
+})
+
+// View config for EChartsVisual - stripped down (no axes, grid, legend)
+const sparklineView = computed(() => {
+  const color = sparklineConfig.value?.color || tokens.value?.palette?.[0] || '#6b7280'
+  const chartType = sparklineConfig.value?.type || 'area'
+  
   return {
-    backgroundColor: style.cardBackground || tokens.value?.background || 'transparent'
+    view: {
+      type: chartType === 'line' ? 'line_chart' : 'area_chart',
+      x: sparklineXColumn.value,
+      y: [sparklineValueColumn.value],
+      axisX: { show: false },
+      axisY: { show: false },
+      legend: { show: false },
+      showGrid: false,
+      smooth: true,
+      palette: { custom: [color] },
+      // Remove all internal chart padding
+      grid: { left: 0, right: 0, top: 0, bottom: 0, containLabel: false },
+      tooltip: false,
+      sparkline: true
+    },
+    style: {
+      cardBackground: 'transparent',
+      cardBorder: 'none'
+    }
   }
 })
+
+// Data model for the sparkline chart
+const sparklineDataModel = computed(() => ({
+  type: sparklineConfig.value?.type === 'line' ? 'line_chart' : 'area_chart',
+  series: [{
+    name: 'Sparkline',
+    key: sparklineXColumn.value,
+    value: sparklineValueColumn.value
+  }]
+}))
 </script>
 
 <style scoped>
+/* Ensure sparkline fills width properly */
+:deep(.chart) {
+  width: 100% !important;
+}
 </style>
-

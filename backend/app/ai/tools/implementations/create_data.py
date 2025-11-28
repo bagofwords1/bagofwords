@@ -25,6 +25,7 @@ from app.schemas.view_schema import (
     AxisOptions,
     AreaChartView,
     BarChartView,
+    CountView,
     HeatmapView,
     LegendOptions,
     LineChartView,
@@ -33,13 +34,14 @@ from app.schemas.view_schema import (
     PieChartView,
     ScatterPlotView,
     SeriesStyle,
+    SparklineConfig,
     TableView,
     ViewSchema,
 )
 
 
 ALLOWED_VIZ_TYPES = {
-    "table","bar_chart","line_chart","pie_chart","area_chart","metric_card",
+    "table","bar_chart","line_chart","pie_chart","area_chart","count","metric_card",
     "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
 }
 
@@ -161,17 +163,60 @@ def build_view_from_data_model(
         view = TableView(title=title)
         return ViewSchema(view=view)
 
-    # Treat both "count" and "metric_card" as MetricCardView
-    if chart_type in {"count", "metric_card"}:
+    # CountView - simple single value display (value is optional)
+    if chart_type == "count":
+        base = series[0] if series else {}
+        value_key = base.get("value") or base.get("metric") or base.get("key") or base.get("name")
+        view = CountView(
+            title=title,
+            value=str(value_key) if value_key else None,
+            palette=palette,
+        )
+        return ViewSchema(view=view)
+
+    # MetricCardView - richer KPI card with sparkline/trend support
+    if chart_type == "metric_card":
         base = series[0] if series else {}
         value_key = base.get("value") or base.get("metric")
         # For metric_card, value is required; fallback gracefully
         if not value_key:
             # Try to use first available column name from series
             value_key = base.get("key") or base.get("name")
+        
+        # Extract comparison/trend column
+        comparison_key = base.get("comparison") or base.get("trend") or base.get("change")
+        
+        # Build sparkline config if LLM specified time-series columns
+        sparkline = None
+        sparkline_col = base.get("sparkline_column") or base.get("time_series")
+        sparkline_x = base.get("sparkline_x") or base.get("date") or base.get("time")
+        
+        # Only enable sparkline if LLM explicitly configured it
+        if sparkline_col or data_model.get("has_time_series"):
+            sparkline = SparklineConfig(
+                enabled=True,
+                column=sparkline_col or value_key,
+                xColumn=sparkline_x,
+                type="area",
+            )
+        
+        # Determine if trend should be inverted (down is good)
+        # Use `or False` because base.get returns None if key exists with None value
+        invert_trend = base.get("invert_trend") or False
+        comparison_label = base.get("comparison_label") or base.get("trend_label")
+        
+        # value is REQUIRED for MetricCardView - if we don't have it, fall back to CountView
+        if not value_key:
+            view = CountView(title=title, palette=palette)
+            return ViewSchema(view=view)
+        
         view = MetricCardView(
             title=title,
-            value=str(value_key) if value_key else "value",
+            value=str(value_key),
+            comparison=str(comparison_key) if comparison_key else None,
+            comparisonLabel=comparison_label,
+            invertTrend=invert_trend,
+            sparkline=sparkline,
             palette=palette,
         )
         return ViewSchema(view=view)
@@ -224,28 +269,84 @@ class CreateDataTool(Tool):
 
         allowed_types = list(ALLOWED_VIZ_TYPES)
 
-        prompt = (
-            "You are a visualization planner. Based on the data profile, choose the best visualization "
-            "type and construct a minimal series spec. Use ONLY the provided column names. Return JSON only.\n\n"
-            "Context messages (recent):\n" + (messages_context or "") + "\n\n"
-            "User prompt:\n" + (user_prompt or "") + "\n\n"
-            "Data profile (JSON):\n" + json.dumps(profile, ensure_ascii=False) + "\n\n"
-            "Return a compact JSON object with keys: type, series, view.\n"
-            "- type must be one of: " + ", ".join(allowed_types) + "\n"
-            "- series must match the chart type contract:\n"
-            "  * bar/line/area/pie/map: [{name, key, value}]\n"
-            "  * scatter: [{name, x, y}] (+ size optional)\n"
-            "  * heatmap: [{name, x, y, value}]\n"
-            "  * candlestick: [{name, open, close, low, high, key}]\n"
-            "  * treemap: [{name, id, parentId, value}]\n"
-            "  * radar_chart: [{name?, dimensions: [{axis, value}...]}]\n"
-            "  * metric_card: [{name, value}] - use for single KPI/count values\n"
-            "- For table, return series: []\n"
-            "- When the result is a single numeric value (e.g., total, count, sum), use metric_card.\n"
-            "- When multiple rows share the same category key but differ by another column, prefer returning a single numeric value column and set group_by to that categorical column (e.g., group_by: \"store_id\"). Avoid duplicating the same y column twice.\n"
-            "- If you set group_by, keep y as a single string value column (not an array).\n"
-            "- Do not invent columns.\n"
-        )
+        # Build column names list for reference
+        column_names = [c.get("name", "") for c in profile.get("columns", [])]
+        row_count = profile.get("row_count", 0)
+        
+        prompt = f"""You are a visualization planner. Analyze the data profile and choose the best visualization type.
+
+CRITICAL: You MUST use EXACT column names from the data. Available columns are: {column_names}
+
+Context: {messages_context or "None"}
+User prompt: {user_prompt or "None"}
+
+Data profile:
+{json.dumps(profile, ensure_ascii=False, indent=2)}
+
+═══════════════════════════════════════════════════════════════════════════════
+RULES FOR METRIC_CARD (KPI display)
+═══════════════════════════════════════════════════════════════════════════════
+
+Use metric_card when showing a single key metric. The "value" field MUST be an EXACT column name.
+
+DETECTING THE VALUE COLUMN:
+- Look for columns with names like: revenue, total, amount, count, sum, value, sales, profit, cost
+- AVOID using date/time columns (year, month, date, week, day) as the value
+- AVOID using ID columns as the value
+- Pick the column that represents the METRIC the user asked about
+
+DETECTING TIME-SERIES FOR SPARKLINE:
+If row_count > 1 AND there's a time column (month, date, week, year, period, day), enable sparkline:
+- sparkline_column: same as value column (the metric to plot over time)
+- sparkline_x: the time column (month, date, etc.)
+
+EXAMPLE 1 - Monthly revenue data (7 rows):
+Columns: ["year", "month", "revenue"]
+CORRECT:
+{{"type": "metric_card", "series": [{{"name": "Revenue", "value": "revenue", "sparkline_column": "revenue", "sparkline_x": "month"}}]}}
+
+WRONG (uses generic "value" instead of actual column name):
+{{"type": "metric_card", "series": [{{"name": "Revenue", "value": "value"}}]}}
+
+EXAMPLE 2 - Single total row:
+Columns: ["total_sales"]
+CORRECT:
+{{"type": "metric_card", "series": [{{"name": "Total Sales", "value": "total_sales"}}]}}
+
+EXAMPLE 3 - Revenue with comparison:
+Columns: ["current_revenue", "change_pct"]
+CORRECT:
+{{"type": "metric_card", "series": [{{"name": "Revenue", "value": "current_revenue", "comparison": "change_pct"}}]}}
+
+═══════════════════════════════════════════════════════════════════════════════
+OTHER CHART TYPES
+═══════════════════════════════════════════════════════════════════════════════
+
+Allowed types: {", ".join(allowed_types)}
+
+Series contracts:
+- bar/line/area/pie/map: [{{"name", "key", "value"}}]
+- scatter: [{{"name", "x", "y"}}] (+ size optional)
+- heatmap: [{{"name", "x", "y", "value"}}]
+- table: series: []
+
+DECISION LOGIC:
+1. Single numeric value → metric_card
+2. Multiple rows with time column + numeric value → metric_card WITH sparkline
+3. Category + values → bar_chart or pie_chart
+4. Two numeric columns → scatter_plot
+5. Time series for trends → line_chart or area_chart
+6. Raw data display → table
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════════
+
+Return ONLY valid JSON:
+{{"type": "...", "series": [...]}}
+
+REMEMBER: Use EXACT column names from: {column_names}
+Do NOT use generic placeholders like "value" unless that's the actual column name."""
 
         try:
             raw = llm.inference(prompt, usage_scope="create_data.viz_infer")

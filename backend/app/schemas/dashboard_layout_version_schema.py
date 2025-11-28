@@ -75,6 +75,15 @@ class TextWidgetBlock(BaseBlock):
     container: Optional[ContainerChrome] = None
 
 
+class TextBlock(BaseBlock):
+    """Inline text block with content directly in the layout (no DB reference)."""
+    type: Literal["text"] = "text"
+    content: str = ""
+    variant: Optional[Literal["title", "subtitle", "paragraph", "insight", "summary", "callout"]] = None
+    view_overrides: Optional[ViewOverrides] = None
+    container: Optional[ContainerChrome] = None
+
+
 class FilterBlock(BaseBlock):
     type: Literal["filter"] = "filter"
     control: FilterControl
@@ -87,11 +96,32 @@ class ContainerBlock(BaseBlock):
     theme_name: Optional[str] = None
     theme_overrides: Dict[str, Any] = Field(default_factory=dict)
     layout: Optional[ContainerLayout] = None
-    children: List[WidgetBlock | TextWidgetBlock | FilterBlock] = Field(default_factory=list)  # relative positions
+    children: List[Any] = Field(default_factory=list)  # relative positions (Any to avoid circular)
     container: Optional[ContainerChrome] = None
 
 
-DashboardBlock = WidgetBlock | VisualizationBlock | TextWidgetBlock | FilterBlock | ContainerBlock
+class CardBlock(BaseBlock):
+    """Card block with border, header, and nested children."""
+    type: Literal["card"] = "card"
+    chrome: Optional[ContainerChrome] = None
+    children: List[Any] = Field(default_factory=list)  # nested blocks with relative positions
+    view_overrides: Optional[ViewOverrides] = None
+
+
+class ColumnDef(BaseModel):
+    """A column definition within a column_layout block."""
+    span: int = 6  # grid columns (out of 12)
+    children: List[Any] = Field(default_factory=list)  # nested blocks
+
+
+class ColumnLayoutBlock(BaseBlock):
+    """Column layout for side-by-side arrangement."""
+    type: Literal["column_layout"] = "column_layout"
+    columns: List[ColumnDef] = Field(default_factory=list)
+    view_overrides: Optional[ViewOverrides] = None
+
+
+DashboardBlock = WidgetBlock | VisualizationBlock | TextWidgetBlock | TextBlock | FilterBlock | ContainerBlock | CardBlock | ColumnLayoutBlock
 
 
 class DashboardLayoutVersionBase(BaseModel):
@@ -104,10 +134,18 @@ class DashboardLayoutVersionBase(BaseModel):
 
 
 class BlockPositionPatch(BaseModel):
-    type: Literal["widget", "visualization", "text_widget", "filter"]
+    type: Literal["widget", "visualization", "text_widget", "text", "filter", "card", "column_layout"]
     widget_id: Optional[str] = None
     visualization_id: Optional[str] = None
     text_widget_id: Optional[str] = None
+    # For inline text blocks
+    content: Optional[str] = None
+    variant: Optional[str] = None
+    # For card blocks
+    chrome: Optional[ContainerChrome] = None
+    children: Optional[List[Any]] = None  # nested blocks
+    # For column_layout blocks
+    columns: Optional[List[ColumnDef]] = None
     # filter identification could be extended later
     x: int
     y: int

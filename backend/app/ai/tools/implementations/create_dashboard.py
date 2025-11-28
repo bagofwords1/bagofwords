@@ -1,10 +1,10 @@
-import asyncio
+import json
 from typing import AsyncIterator, Dict, Any, Type, List
+
 from pydantic import BaseModel
 from sqlalchemy import select
+
 from app.models.dashboard_layout_version import DashboardLayoutVersion
-
-
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
@@ -15,9 +15,58 @@ from app.ai.tools.schemas import (
     ToolProgressEvent,
     ToolEndEvent,
 )
+from app.ai.tools.schemas.create_dashboard import SemanticBlockOutput
+from app.services.dashboard_layout_engine import DashboardBlockSpec, ColumnSpec, ContainerChrome, compute_layout
 from partialjson.json_parser import JSONParser
 from app.ai.llm import LLM
 from app.dependencies import async_session_maker
+
+
+def _semantic_to_engine_spec(block: Dict[str, Any]) -> DashboardBlockSpec:
+    """Convert a parsed semantic block dict to DashboardBlockSpec for the layout engine."""
+    block_type = block.get("type", "visualization")
+    
+    # Map children recursively for cards/sections
+    children = None
+    if block.get("children"):
+        children = [_semantic_to_engine_spec(c) for c in block["children"]]
+    
+    # Map columns recursively for column_layout
+    columns = None
+    if block.get("columns") and block_type == "column_layout":
+        columns = []
+        for col in block["columns"]:
+            col_children = [_semantic_to_engine_spec(c) for c in (col.get("children") or [])]
+            columns.append(ColumnSpec(span=col.get("span", 6), children=col_children))
+    
+    # Map chrome for cards
+    chrome = None
+    if block.get("title") or block.get("subtitle"):
+        chrome = ContainerChrome(
+            title=block.get("title"),
+            subtitle=block.get("subtitle"),
+            showHeader=True,
+            border=block.get("border", "soft"),
+        )
+    
+    # Keep "text" as is for inline text blocks (AI-generated)
+    # "text_widget" is legacy type with DB reference
+
+    return DashboardBlockSpec(
+        type=block_type,
+        visualization_id=block.get("visualization_id"),
+        content=block.get("content"),
+        variant=block.get("variant"),
+        children=children,
+        columns=columns,
+        chrome=chrome,
+        role=block.get("role", "supporting_visual"),
+        importance=block.get("importance", "secondary"),
+        size=block.get("size", "medium"),
+        section=block.get("section"),
+        order=block.get("order", 0),
+        view_overrides=block.get("view_overrides"),
+    )
 
 
 class CreateDashboardTool(Tool):
@@ -27,7 +76,7 @@ class CreateDashboardTool(Tool):
             name="create_dashboard",
             description="Design a stunning dashboard or research report layout from available widgets and context.",
             category="action",
-            version="1.0.0",
+            version="2.0.0",
             input_schema=CreateDashboardInput.model_json_schema(),
             output_schema=CreateDashboardOutput.model_json_schema(),
             max_retries=1,
@@ -53,21 +102,23 @@ class CreateDashboardTool(Tool):
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
 
         # Runtime context
-        model = runtime_ctx.get("model")
         instruction_context_builder = runtime_ctx.get("instruction_context_builder") or (
             getattr(runtime_ctx.get("context_hub"), "instruction_builder", None) if runtime_ctx.get("context_hub") else None
         )
-        previous_layout = await runtime_ctx.get("db").execute(select(DashboardLayoutVersion).where(DashboardLayoutVersion.report_id == str(runtime_ctx.get("report").id)).order_by(DashboardLayoutVersion.created_at.desc()))
+        previous_layout = await runtime_ctx.get("db").execute(
+            select(DashboardLayoutVersion)
+            .where(DashboardLayoutVersion.report_id == str(runtime_ctx.get("report").id))
+            .order_by(DashboardLayoutVersion.created_at.desc())
+        )
         previous_layout = previous_layout.scalars().first()
 
         previous_messages = runtime_ctx.get("previous_messages") or ""
         observation_context = runtime_ctx.get("observation_context") or {}
         context_hub = runtime_ctx.get("context_hub")
-        # Collect available queries (+ embedded visualizations) from ContextHub warm view
-        queries: List[dict] = []
-        visualizations: List[dict] = []
 
-        # Helpers to compact noisy dicts
+        # Collect available visualizations with their ViewSchema
+        visualizations: List[Dict[str, Any]] = []
+
         def _trim_none(obj):
             try:
                 if isinstance(obj, dict):
@@ -87,64 +138,30 @@ class CreateDashboardTool(Tool):
             except Exception:
                 return obj
 
-        def _compact_view(view_dict):
-            if not isinstance(view_dict, dict):
-                return view_dict
-            keep = {}
-            if 'type' in view_dict:
-                keep['type'] = view_dict.get('type')
-            if 'encoding' in view_dict and view_dict.get('encoding') is not None:
-                keep['encoding'] = view_dict.get('encoding')
-            if 'variant' in view_dict and view_dict.get('variant'):
-                keep['variant'] = view_dict.get('variant')
-            if 'legendVisible' in view_dict:
-                keep['legendVisible'] = view_dict.get('legendVisible')
-            if 'xAxisVisible' in view_dict:
-                keep['xAxisVisible'] = view_dict.get('xAxisVisible')
-            if 'yAxisVisible' in view_dict:
-                keep['yAxisVisible'] = view_dict.get('yAxisVisible')
-            if 'style' in view_dict and isinstance(view_dict.get('style'), dict):
-                keep['style'] = view_dict.get('style')
-            if 'options' in view_dict and isinstance(view_dict.get('options'), dict):
-                keep['options'] = view_dict.get('options')
-            return _trim_none(keep)
         try:
             if context_hub is not None:
-                # Use current warm cache (Agent maintains it); do not hit DB here
                 view = context_hub.get_view()
                 qsec = getattr(getattr(view, 'warm', None), 'queries', None)
                 items = getattr(qsec, 'items', []) if qsec else []
                 for it in (items or []):
-                    qdict = {
-                        "id": getattr(it, 'query_id', None),
-                        "title": getattr(it, 'query_title', None),
-                        "default_step_id": getattr(it, 'default_step_id', None),
-                        "default_step_title": getattr(it, 'default_step_title', None),
-                        "row_count": getattr(it, 'row_count', 0),
-                        "columns": list(getattr(it, 'column_names', []) or []),
-                        "data_model": getattr(it, 'data_model', None),
-                        "visualizations": [],
-                    }
-                    vlist = []
                     for v in (getattr(it, 'visualizations', []) or []):
+                        view_dict = getattr(v, 'view', None) or {}
                         ventry = {
                             "id": getattr(v, 'id', None),
                             "title": getattr(v, 'title', None),
-                            "status": getattr(v, 'status', None),
-                            "view": _compact_view(getattr(v, 'view', None)),
+                            "query_id": getattr(it, 'query_id', None),
+                            "view": _trim_none(view_dict),
+                            "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
+                            "columns": list(getattr(it, 'column_names', []) or []),
+                            "row_count": getattr(it, 'row_count', 0),
                         }
-                        vlist.append(ventry)
-                        # also flatten for convenience in prompt
                         visualizations.append(ventry)
-                    qdict["visualizations"] = vlist
-                    queries.append(qdict)
         except Exception:
-            queries = []
             visualizations = []
-        # Also enrich from observation_context (created_visualization_ids) without DB lookups
+
+        # Enrich from observation_context
         try:
             seen: set[str] = set([str(v.get("id")) for v in visualizations if v.get("id")])
-            # Prefer explicit visualization_updates captured during agent streaming
             if isinstance(observation_context, dict):
                 for vu in (observation_context.get("visualization_updates") or []):
                     if not isinstance(vu, dict):
@@ -153,30 +170,21 @@ class CreateDashboardTool(Tool):
                     if not vid or vid in seen:
                         continue
                     vdata = vu.get("data") or {}
-                    view = _compact_view(vdata.get("view") or {})
+                    view_dict = vdata.get("view") or {}
                     visualizations.append({
                         "id": vid,
                         "title": vdata.get("title"),
-                        "status": vdata.get("status"),
                         "query_id": vdata.get("query_id"),
-                        "type": (view or {}).get("type"),
-                        "encoding": (view or {}).get("encoding"),
-                        "view": view,
+                        "view": _trim_none(view_dict),
+                        "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
+                        "columns": [],
+                        "row_count": 0,
                     })
                     seen.add(vid)
-                # Also scan tool_observations for created_visualization_ids as a catch-all
-                for obs in (observation_context.get("tool_observations") or []):
-                    try:
-                        created = ((obs or {}).get("observation") or {}).get("created_visualization_ids") or []
-                        for vid in created:
-                            svid = str(vid)
-                            if svid and svid not in seen:
-                                visualizations.append({"id": svid})
-                                seen.add(svid)
-                    except Exception:
-                        continue
         except Exception:
-            visualizations = []
+            pass
+
+        # Build context strings
         instructions_context = ""
         mentions_context = "<mentions>No mentions for this turn</mentions>"
         entities_context = ""
@@ -184,7 +192,6 @@ class CreateDashboardTool(Tool):
             if instruction_context_builder is not None:
                 inst_section = await instruction_context_builder.build()
                 instructions_context = inst_section.render() or ""
-            # Resolve mentions from static view when available
             if context_hub is not None:
                 view = context_hub.get_view()
                 msec = getattr(getattr(view, 'static', None), 'mentions', None)
@@ -195,150 +202,200 @@ class CreateDashboardTool(Tool):
                     entities_context = esec.render() or entities_context
         except Exception:
             instructions_context = ""
-            # keep default mentions_context
 
-        # Build designer prompt inline (deprecate dashboard_designer)
+        # Build the semantic prompt
         def build_prompt() -> str:
-
-            #prev_blocks = previous_layout.blocks if isinstance(previous_layout, DashboardLayoutVersion) else []
-            #prev_blocks_count = len(prev_blocks) if isinstance(prev_blocks, list) else 0
-            # Embed observations json (planner-style) for full grounding
             try:
-                import json
                 past_obs_json = json.dumps(observation_context.get("tool_observations") or [])
             except Exception:
                 past_obs_json = "[]"
             try:
-                import json
                 last_obs_json = json.dumps(observation_context.get("last_observation") or None)
             except Exception:
                 last_obs_json = "None"
             
-            prev_blocks = previous_layout.blocks if previous_layout else []
-            return f"""
-SYSTEM
-You are a world-class dashboard and research report designer. Create a STUNNING, narrative-driven presentation tailored to the user's goal and available visualizations. Output JSON ONLY that strictly matches the schema below.
+            viz_json = json.dumps(visualizations, indent=2, default=str)
 
-GENERAL ORGANIZATION INSTRUCTIONS (MUST FOLLOW):
+            return f"""SYSTEM
+You are a world-class dashboard designer. Create STUNNING, modern dashboards with visual hierarchy and compelling data storytelling.
+
+Output JSON ONLY. DO NOT include x, y, width, or height - the layout engine computes positions automatically.
+
+ORGANIZATION INSTRUCTIONS:
 {instructions_context}
 
         CONTEXT
-- Report title (optional): {data.report_title or ''}
+- Report title: {data.report_title or 'Dashboard'}
 - User prompt: {data.prompt}
         {mentions_context}
 {entities_context}
 - Previous messages:
 {previous_messages}
-- Available queries:
-{queries}
-- Available visualizations:
-{visualizations}
 
-- Previous layout:
-{prev_blocks}
+AVAILABLE VISUALIZATIONS:
+{viz_json}
 
 OBSERVATIONS
 <past_observations>{past_obs_json}</past_observations>
 <last_observation>{last_obs_json}</last_observation>
 
-OBJECTIVE
-- Choose the best presentation mode:
-  - "dashboard": polished business dashboard (product/sales/marketing/finance/ops) with KPIs, charts, and tables arranged as a mosaic story.
-  - "research": long-form analysis with sections, titles, explanatory paragraphs, and supporting visuals.
-- The result must be visually balanced, modern, and insightful.
+═══════════════════════════════════════════════════════════════════════════════
+BLOCK TYPES - Use these to build beautiful dashboards
+═══════════════════════════════════════════════════════════════════════════════
 
-GUIDELINES
-- 12-column grid. All x, y, width, height are SMALL INTEGERS (grid units), not pixels. No overlaps.
-- Typical sizes: charts height 8–12; KPI tiles 3–5; text height scales with width and content.
-- Use text widgets to guide the reader: titles, subtitles, section intros, insights, summaries.
-- Place text near related visuals; flow overview → drill-down; group related items side-by-side.
-- Text widgets must be semantic HTML (h1, h2, h3, p, ul, li, a, table, etc.). No Markdown.
-- Styling and view details must be included:
-  - For text blocks, set view_overrides.variant to one of: "title" | "subtitle" | "paragraph" | "summary" when appropriate.
-  - For data visualizations, set view_overrides with any of: variant (e.g., "area" or "smooth"), legendVisible, xAxisVisible, yAxisVisible, and style (colors, axis styles, title styles). Use integers/booleans/strings appropriately.
-  - Prefer minimal, meaningful overrides that improve readability and visual balance.
- - Prefer visuals grounded in sources referenced in <mentions> where applicable.
-
-EXPECTED JSON OUTPUT (strict):
+1. TEXT BLOCK - For titles, descriptions, insights
 {{
-  "blocks": [
-    // Ordered blocks (no placeholders). Ensure each has valid integers and no overlaps.
-  ],
+  "type": "text",
+  "content": "<h2>Title</h2><p>Description text...</p>",
+  "variant": "title" | "subtitle" | "paragraph" | "insight",
+  "size": "full" | "medium",
+  "is_completed": true
 }}
 
-Block types (exact fields):
-
-// Visualization block
+2. VISUALIZATION BLOCK - Reference existing visualizations
 {{
   "type": "visualization",
   "visualization_id": "UUID",
-  "x": int, "y": int, "width": int, "height": int,
-  "view_overrides": {{
-        "variant": string | null,
-        "legendVisible": boolean | null,
-        "xAxisVisible": boolean | null,
-        "yAxisVisible": boolean | null,
-        "style": {{
-            "titleColor": string | null,
-            "titleSize": int | null,
-            "titleWeight": int | null,
-            "axis": {{
-                "xLabelColor": string | null,
-                "xLineColor": string | null,
-                "yLabelColor": string | null,
-                "yLineColor": string | null,
-                "gridLineColor": string | null
-            }} | null
-        }} | null,
-        "options": object | null
-    }} | null,
-  "is_completed": True
-  }}
-
-// Text widget block
-{{
-  "type": "text_widget",
-  "content": "<HTML>",
-  "x": int, "y": int, "width": int, "height": int,
-  "view_overrides": {{
-    "variant": "title" | "subtitle" | "paragraph" | "summary",
-    "style": object | null
-  }} | null,
-  "is_completed": True
+  "size": "xs" | "small" | "medium" | "large" | "full",
+  "role": "kpi" | "hero" | "primary_visual" | "supporting_visual",
+  "is_completed": true
 }}
 
+3. CARD BLOCK - Bordered container with title (wraps children)
+{{
+  "type": "card",
+  "title": "Card Title",
+  "subtitle": "Optional description",
+  "children": [
+    {{ ...visualization or text blocks... }}
+  ],
+  "size": "medium" | "large" | "full",
+  "is_completed": true
+}}
+
+4. COLUMN LAYOUT - Side-by-side arrangement (spans must sum to 12)
+{{
+  "type": "column_layout",
+  "columns": [
+    {{ "span": 8, "children": [ ...blocks... ] }},
+    {{ "span": 4, "children": [ ...blocks... ] }}
+  ],
+  "is_completed": true
+}}
+
+═══════════════════════════════════════════════════════════════════════════════
+SIZE GUIDE (12-column grid)
+═══════════════════════════════════════════════════════════════════════════════
+- "xs": 2 cols (tiny)
+- "small": 3 cols (KPI tiles - 4 fit per row)
+- "medium": 6 cols (half width - 2 per row)
+- "large": 8 cols (prominent)
+- "full": 12 cols (full width)
+
+═══════════════════════════════════════════════════════════════════════════════
+ROLE GUIDE (affects default sizing)
+═══════════════════════════════════════════════════════════════════════════════
+- "kpi": Small metric card (size=small, height=4) - use for metric_card/count types
+- "hero": Main focal chart (size=full, height=10)
+- "primary_visual": Important chart (size=large, height=8)
+- "supporting_visual": Secondary chart (size=medium, height=6)
+
+═══════════════════════════════════════════════════════════════════════════════
+DASHBOARD PATTERNS - Use these for professional layouts
+═══════════════════════════════════════════════════════════════════════════════
+
+PATTERN A: KPI Row + Hero Chart
+{{
+  "blocks": [
+    {{"type": "text", "content": "<h1>Dashboard Title</h1><p>Overview description</p>", "size": "full", "is_completed": true}},
+    {{"type": "visualization", "visualization_id": "kpi-1", "role": "kpi", "size": "small", "is_completed": true}},
+    {{"type": "visualization", "visualization_id": "kpi-2", "role": "kpi", "size": "small", "is_completed": true}},
+    {{"type": "visualization", "visualization_id": "kpi-3", "role": "kpi", "size": "small", "is_completed": true}},
+    {{"type": "visualization", "visualization_id": "kpi-4", "role": "kpi", "size": "small", "is_completed": true}},
+    {{"type": "card", "title": "Main Chart", "subtitle": "Detailed analysis", "children": [
+      {{"type": "visualization", "visualization_id": "main-chart", "size": "full", "is_completed": true}}
+    ], "size": "full", "is_completed": true}}
+  ]
+}}
+
+PATTERN B: Side-by-Side Charts (8+4 split)
+{{
+  "blocks": [
+    {{"type": "column_layout", "columns": [
+      {{"span": 8, "children": [
+        {{"type": "card", "title": "Traffic Overview", "subtitle": "Daily trends", "children": [
+          {{"type": "visualization", "visualization_id": "line-chart", "size": "full", "is_completed": true}}
+        ], "size": "full", "is_completed": true}}
+      ]}},
+      {{"span": 4, "children": [
+        {{"type": "card", "title": "By Category", "children": [
+          {{"type": "visualization", "visualization_id": "pie-chart", "size": "full", "is_completed": true}}
+        ], "size": "full", "is_completed": true}}
+      ]}}
+    ], "is_completed": true}}
+  ]
+}}
+
+PATTERN C: Cards in Columns (6+6 split)
+{{
+  "blocks": [
+    {{"type": "column_layout", "columns": [
+      {{"span": 6, "children": [
+        {{"type": "card", "title": "Revenue", "children": [
+          {{"type": "visualization", "visualization_id": "revenue-chart", "size": "full", "is_completed": true}}
+        ], "size": "full", "is_completed": true}}
+      ]}},
+      {{"span": 6, "children": [
+        {{"type": "card", "title": "Users", "children": [
+          {{"type": "visualization", "visualization_id": "users-chart", "size": "full", "is_completed": true}}
+        ], "size": "full", "is_completed": true}}
+      ]}}
+    ], "is_completed": true}}
+  ]
+}}
+
+═══════════════════════════════════════════════════════════════════════════════
 RULES
-- Return ONLY JSON that matches the schema above.
-- Ensure a compelling narrative and visually pleasing mosaic arrangement.
-- Avoid overlaps; stick to the 12-column grid.
+═══════════════════════════════════════════════════════════════════════════════
+1. Return ONLY valid JSON with a "blocks" array
+2. DO NOT include x, y, width, height - layout engine computes these
+3. The ORDER of blocks in your output IS the layout order (top to bottom)
+4. Wrap charts in cards with titles for professional look
+5. Use column_layout for side-by-side comparisons (spans MUST sum to 12)
+6. Place titles/descriptions BEFORE related visualizations
+7. Every block MUST have "is_completed": true
+
+OUTPUT FORMAT:
+{{
+  "blocks": [
+    // Your blocks here in display order
+  ]
+}}
 """
 
         prompt = build_prompt()
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_layout"})
 
         # Stream from LLM
         parser = JSONParser()
-        final_layout: Dict[str, Any] = {"blocks": []}
+        semantic_blocks: List[Dict[str, Any]] = []
         emitted_signatures: set[str] = set()
 
         def _block_signature(blk: Dict[str, Any]) -> str:
             try:
                 btype = blk.get("type")
-                x = int(blk.get("x", 0))
-                y = int(blk.get("y", 0))
-                w = int(blk.get("width", 0))
-                h = int(blk.get("height", 0))
                 if btype == "visualization":
-                    return f"visualization:{blk.get('visualization_id')}:{x}:{y}:{w}:{h}"
-                if btype == "text_widget":
-                    content = blk.get("content", "")
-                    ch = hash(content)
-                    return f"text:{ch}:{x}:{y}:{w}:{h}"
-                import json
-                return f"other:{json.dumps(blk, sort_keys=True)}"
+                    return f"visualization:{blk.get('visualization_id')}"
+                if btype in ("text", "text_widget"):
+                    return f"text:{hash(blk.get('content', ''))}"
+                if btype == "card":
+                    return f"card:{blk.get('title', '')}:{hash(json.dumps(blk.get('children', []), sort_keys=True, default=str))}"
+                if btype == "column_layout":
+                    return f"columns:{hash(json.dumps(blk.get('columns', []), sort_keys=True, default=str))}"
+                return f"other:{hash(json.dumps(blk, sort_keys=True, default=str))}"
             except Exception:
                 return repr(blk)
 
-        # Use LLM wrapper for streaming (runtime_ctx["model"] is an LLMModel)
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         buffer = ""
         async for chunk in llm.inference_stream(
@@ -353,26 +410,26 @@ RULES
                 continue
             if not isinstance(result, dict):
                 continue
-            # Blocks: emit finalized new ones (require is_completed=True for all types)
+
+            # Collect completed semantic blocks
             if isinstance(result.get("blocks"), list):
-                for idx, blk in enumerate(result["blocks"]):
+                for blk in result["blocks"]:
                     if not isinstance(blk, dict):
                         continue
                     if blk.get("is_completed") is not True:
                         continue
-                    normalized = dict(blk)
-                    sig = _block_signature(normalized)
+                    sig = _block_signature(blk)
                     if sig in emitted_signatures:
                         continue
                     emitted_signatures.add(sig)
+                    semantic_blocks.append(blk)
+                    # Emit progress for UI feedback
+                    yield ToolProgressEvent(
+                        type="tool.progress",
+                        payload={"stage": "semantic_block.received", "block_type": blk.get("type")}
+                    )
 
-                    # Track in final layout and stream once
-                    final_layout["blocks"].append(normalized)
-                    yield ToolProgressEvent(type="tool.progress", payload={"stage": "block.completed", "block": normalized})
-
-            # Ignore any other keys; schema expects only blocks
-
-        # Final parse: include any blocks present in final buffer not yet emitted (require is_completed=True)
+        # Final parse for any remaining blocks
         try:
             result = parser.parse(buffer)
             if isinstance(result, dict) and isinstance(result.get("blocks"), list):
@@ -383,12 +440,66 @@ RULES
                         continue
                     sig = _block_signature(blk)
                     if sig not in emitted_signatures:
-                        final_layout["blocks"].append(blk)
+                        semantic_blocks.append(blk)
                         emitted_signatures.add(sig)
         except Exception:
             pass
 
-        output = CreateDashboardOutput(layout=final_layout, report_title=data.report_title)
-        yield ToolEndEvent(type="tool.end", payload={"output": output.model_dump(), "observation": {"summary": "Dashboard designed", "layout": final_layout}})
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "computing_layout"})
 
+        # Convert semantic blocks to engine specs and compute layout
+        engine_specs: List[DashboardBlockSpec] = []
+        for blk in semantic_blocks:
+            try:
+                spec = _semantic_to_engine_spec(blk)
+                engine_specs.append(spec)
+            except Exception:
+                continue
 
+        # Compute layout with x/y/width/height
+        computed_layout = compute_layout(engine_specs)
+
+        # Stream each computed block so the agent can persist them
+        for block in computed_layout.get("blocks", []):
+            yield ToolProgressEvent(
+                type="tool.progress",
+                payload={"stage": "block.completed", "block": block}
+            )
+
+        # Build output with both semantic and computed blocks
+        semantic_outputs = []
+        for blk in semantic_blocks:
+            try:
+                semantic_outputs.append(SemanticBlockOutput(
+                    type=blk.get("type", "visualization"),
+                    visualization_id=blk.get("visualization_id"),
+                    content=blk.get("content"),
+                    variant=blk.get("variant"),
+                    role=blk.get("role"),
+                    importance=blk.get("importance"),
+                    size=blk.get("size"),
+                    section=blk.get("section"),
+                    order=blk.get("order"),
+                    view_overrides=blk.get("view_overrides"),
+                ))
+            except Exception:
+                continue
+
+        output = CreateDashboardOutput(
+            semantic_blocks=semantic_outputs,
+            layout=computed_layout,
+            report_title=data.report_title,
+        )
+
+        yield ToolEndEvent(
+            type="tool.end",
+            payload={
+                "output": output.model_dump(),
+                "observation": {
+                    "summary": "Dashboard designed with semantic layout",
+                    "layout": computed_layout,
+                    "block_count": len(computed_layout.get("blocks", [])),
+                    "semantic_block_count": len(semantic_blocks),
+                }
+            }
+        )

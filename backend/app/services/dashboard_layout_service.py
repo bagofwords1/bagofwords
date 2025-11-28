@@ -231,6 +231,29 @@ class DashboardLayoutService:
         if layout.report_id != report_id:
             raise HTTPException(status_code=404, detail="Layout not found for report")
 
+        def _serialize_view_overrides(vo):
+            if vo is None:
+                return None
+            return vo.model_dump() if hasattr(vo, 'model_dump') else vo
+
+        def _serialize_chrome(chrome):
+            if chrome is None:
+                return None
+            return chrome.model_dump() if hasattr(chrome, 'model_dump') else chrome
+
+        def _serialize_columns(columns):
+            if not columns:
+                return []
+            result = []
+            for col in columns:
+                if hasattr(col, 'model_dump'):
+                    result.append(col.model_dump())
+                elif isinstance(col, dict):
+                    result.append(col)
+                else:
+                    result.append({'span': getattr(col, 'span', 6), 'children': getattr(col, 'children', [])})
+            return result
+
         blocks = list(layout.blocks or [])
         for patch in payload.blocks:
             updated = False
@@ -239,19 +262,19 @@ class DashboardLayoutService:
                     b['x'] = patch.x; b['y'] = patch.y; b['width'] = patch.width; b['height'] = patch.height
                     # Apply optional view_overrides if provided (dashboard layout wins)
                     if getattr(patch, 'view_overrides', None) is not None:
-                        b['view_overrides'] = (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides) or None
+                        b['view_overrides'] = _serialize_view_overrides(patch.view_overrides)
                     updated = True
                     break
                 if b.get('type') == 'visualization' and patch.type == 'visualization' and patch.visualization_id and b.get('visualization_id') == patch.visualization_id:
                     b['x'] = patch.x; b['y'] = patch.y; b['width'] = patch.width; b['height'] = patch.height
                     if getattr(patch, 'view_overrides', None) is not None:
-                        b['view_overrides'] = (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides) or None
+                        b['view_overrides'] = _serialize_view_overrides(patch.view_overrides)
                     updated = True
                     break
                 if b.get('type') == 'text_widget' and patch.type == 'text_widget' and patch.text_widget_id and b.get('text_widget_id') == patch.text_widget_id:
                     b['x'] = patch.x; b['y'] = patch.y; b['width'] = patch.width; b['height'] = patch.height
                     if getattr(patch, 'view_overrides', None) is not None:
-                        b['view_overrides'] = (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides) or None
+                        b['view_overrides'] = _serialize_view_overrides(patch.view_overrides)
                     updated = True
                     break
                 # Skipping filter identification until stable id
@@ -263,15 +286,22 @@ class DashboardLayoutService:
                         'widget_id': patch.widget_id,
                         'x': patch.x, 'y': patch.y,
                         'width': patch.width, 'height': patch.height,
-                        **({'view_overrides': (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
+                        **({'view_overrides': _serialize_view_overrides(patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
                     })
                 elif patch.type == 'visualization' and patch.visualization_id:
+                    # Wrap visualization in a card for consistent styling
                     blocks.append({
-                        'type': 'visualization',
-                        'visualization_id': patch.visualization_id,
+                        'type': 'card',
+                        'chrome': {'border': 'soft'},
+                        'children': [{
+                            'type': 'visualization',
+                            'visualization_id': patch.visualization_id,
+                            'x': 0, 'y': 0,
+                            'width': 12, 'height': patch.height,
+                            **({'view_overrides': _serialize_view_overrides(patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
+                        }],
                         'x': patch.x, 'y': patch.y,
                         'width': patch.width, 'height': patch.height,
-                        **({'view_overrides': (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
                     })
                 elif patch.type == 'text_widget' and patch.text_widget_id:
                     blocks.append({
@@ -279,7 +309,36 @@ class DashboardLayoutService:
                         'text_widget_id': patch.text_widget_id,
                         'x': patch.x, 'y': patch.y,
                         'width': patch.width, 'height': patch.height,
-                        **({'view_overrides': (patch.view_overrides.model_dump() if hasattr(patch.view_overrides, 'model_dump') else patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
+                        **({'view_overrides': _serialize_view_overrides(patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
+                    })
+                # Inline text blocks (AI-generated, no DB reference)
+                elif patch.type == 'text':
+                    blocks.append({
+                        'type': 'text',
+                        'content': patch.content or '',
+                        'variant': patch.variant,
+                        'x': patch.x, 'y': patch.y,
+                        'width': patch.width, 'height': patch.height,
+                        **({'view_overrides': _serialize_view_overrides(patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
+                    })
+                # Card blocks with children
+                elif patch.type == 'card':
+                    blocks.append({
+                        'type': 'card',
+                        'chrome': _serialize_chrome(patch.chrome),
+                        'children': patch.children or [],
+                        'x': patch.x, 'y': patch.y,
+                        'width': patch.width, 'height': patch.height,
+                        **({'view_overrides': _serialize_view_overrides(patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
+                    })
+                # Column layout blocks
+                elif patch.type == 'column_layout':
+                    blocks.append({
+                        'type': 'column_layout',
+                        'columns': _serialize_columns(patch.columns),
+                        'x': patch.x, 'y': patch.y,
+                        'width': patch.width, 'height': patch.height,
+                        **({'view_overrides': _serialize_view_overrides(patch.view_overrides)} if getattr(patch, 'view_overrides', None) is not None else {})
                     })
         # Persist using explicit UPDATE to avoid JSON change detection edge cases
         await db.execute(

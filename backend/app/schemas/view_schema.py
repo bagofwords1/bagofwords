@@ -197,15 +197,31 @@ class CountView(BaseView):
     palette: Palette = Field(default_factory=Palette)
 
 
+class SparklineConfig(BaseModel):
+    """Configuration for sparkline mini-chart in metric cards."""
+    enabled: bool = False
+    column: Optional[str] = None       # Value column for sparkline data (all rows)
+    xColumn: Optional[str] = None      # Time/category column for x-axis ordering
+    type: Literal["area", "line"] = "area"
+    color: Optional[str] = None        # Override color (defaults to theme)
+    height: int = 64                   # Height in pixels
+
+
 class MetricCardView(BaseView):
     type: Literal["metric_card"] = "metric_card"
-    value: str
-    comparison: Optional[str] = None
+    value: str                                    # Column for main value (first row)
+    comparison: Optional[str] = None              # Column for trend % (first row)
     format: Literal["number", "currency", "percent", "compact"] = "number"
     prefix: Optional[str] = None
     suffix: Optional[str] = None
-    trendIndicator: Literal["arrow", "sparkline", "none"] = "arrow"
+    # Trend configuration
+    comparisonFormat: Literal["percent", "number", "compact"] = "percent"
+    comparisonLabel: Optional[str] = None         # e.g., "vs last period"
+    invertTrend: bool = False                     # True = down is good (bounce rate, churn)
+    trendIndicator: Literal["arrow", "none"] = "arrow"
     trendDirection: Optional[Literal["up", "down", "flat"]] = None
+    # Sparkline configuration
+    sparkline: Optional[SparklineConfig] = None
     palette: Palette = Field(default_factory=Palette)
 
 

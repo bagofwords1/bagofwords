@@ -1,6 +1,6 @@
 <template>
-  <div class="flex-grow overflow-auto p-2 min-h-0">
-    <div v-if="isTable" class="mt-1 h-full">
+  <div class="h-full w-full flex flex-col overflow-hidden">
+    <div v-if="isTable" class="flex-1 min-h-0">
       <component
         :is="tableComp"
         :widget="widget"
@@ -10,7 +10,7 @@
         :reportOverrides="reportOverrides"
       />
     </div>
-    <div v-else-if="resolvedComp" class="mt-1 h-full">
+    <div v-else-if="resolvedComp" class="flex-1 min-h-0">
       <component
         :key="`${widget.id}:${themeName}`"
         :is="resolvedComp"
@@ -23,11 +23,11 @@
         :reportOverrides="reportOverrides"
       />
     </div>
-    <div v-else-if="widget.last_step?.type == 'init'" class="text-center items-center flex flex-col justify-center h-full text-gray-500">
+    <div v-else-if="widget.last_step?.type == 'init'" class="flex-1 flex items-center justify-center text-gray-500">
       <SpinnerComponent />
-      <span class="mt-2 text-sm">Loading...</span>
+      <span class="ml-2 text-sm">Loading...</span>
     </div>
-    <div v-else class="text-center items-center flex flex-col justify-center h-full text-gray-400 italic text-sm">
+    <div v-else class="flex-1 flex items-center justify-center text-gray-400 italic text-sm">
       No data or visualization available.
     </div>
   </div>

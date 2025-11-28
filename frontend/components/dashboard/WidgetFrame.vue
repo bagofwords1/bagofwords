@@ -15,42 +15,30 @@ const props = defineProps<{
   cardBorder?: string
 }>()
 
-const noBorder = computed(() => {
-  try {
-    const cb = (props as any)?.widget?.view?.style?.cardBorder
-    return typeof cb === 'string' && cb.trim().toLowerCase() === 'none'
-  } catch {
-    return false
-  }
-})
-
+// Frame is now transparent - individual components handle their own styling
 const wrapperClasses = computed(() => [
   'grid-stack-item-content',
-  'rounded',
   'overflow-hidden',
   'flex',
   'flex-col',
   'relative',
   'p-0',
-  { 'shadow-sm': !noBorder.value, 'border': !props.isText && !noBorder.value, 'text-hover': props.isText && props.edit }
+  { 'text-hover': props.isText && props.edit }
 ])
 
 const computedStyle = computed(() => {
-  const styles = Array.isArray(props.itemStyle) ? Object.assign({}, ...props.itemStyle) : (props.itemStyle || {})
+  // Only apply text edit border, otherwise let components style themselves
   if (props.isText && props.edit) {
     return {
-      ...styles,
       border: '1px solid transparent',
-      '--tw-card-border': props.cardBorder || '#e5e7eb'
+      '--tw-card-border': props.cardBorder || '#e5e7eb',
+      backgroundColor: 'transparent'
     }
   }
-  if (noBorder.value) {
     return {
-      ...styles,
+    backgroundColor: 'transparent',
       border: 'none'
-    }
   }
-  return styles
 })
 </script>
 

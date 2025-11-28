@@ -63,7 +63,8 @@ class DashboardBlockSpec(BaseModel):
 
     type: Literal[
         "visualization",
-        "text_widget",
+        "text",  # inline text (AI-generated)
+        "text_widget",  # legacy text widget with DB reference
         "card",
         "container",
         "section",
@@ -122,15 +123,15 @@ DashboardBlockSpec.model_rebuild()
 # -----------------------------------------------------------------------------
 
 ROLE_DEFAULTS: Dict[str, Dict[str, Any]] = {
-    "page_title": {"size": "full", "height": 2},
-    "section_title": {"size": "full", "height": 2},
+    "page_title": {"size": "full", "height": 3},      # Taller for main titles
+    "section_title": {"size": "full", "height": 3},   # Taller for section headers
     "hero": {"size": "full", "height": 10},
-    "kpi": {"size": "small", "height": 3},
-    "primary_visual": {"size": "full", "height": 8},
-    "supporting_visual": {"size": "medium", "height": 6},
-    "detail": {"size": "full", "height": 8},
-    "context_text": {"size": "medium", "height": 3},
-    "insight_callout": {"size": "medium", "height": 3},
+    "kpi": {"size": "small", "height": 4},            # Slightly taller for sparklines
+    "primary_visual": {"size": "large", "height": 9},
+    "supporting_visual": {"size": "medium", "height": 7},
+    "detail": {"size": "medium", "height": 6},
+    "context_text": {"size": "full", "height": 3},    # Taller for readability
+    "insight_callout": {"size": "medium", "height": 4},
     "filter_bar": {"size": "full", "height": 2},
 }
 
@@ -141,6 +142,16 @@ SIZE_TO_WIDTH: Dict[str, int] = {
     "large": 8,
     "xl": 10,
     "full": 12,
+}
+
+# Height defaults by size (used when role doesn't specify)
+SIZE_TO_HEIGHT: Dict[str, int] = {
+    "xs": 3,
+    "small": 4,
+    "medium": 7,
+    "large": 9,
+    "xl": 10,
+    "full": 9,
 }
 
 
@@ -156,34 +167,30 @@ def _resolve_size(spec: DashboardBlockSpec) -> tuple[int, int]:
     width = SIZE_TO_WIDTH.get(size, 6)
 
     # Height heuristics by type
-    if spec.type == "text_widget":
-        if spec.role in ("page_title", "section_title"):
-            height = 2
+    if spec.type in ("text", "text_widget"):
+        if spec.role in ("page_title",):
+            height = 3  # Main page title needs more space
+        elif spec.role in ("section_title",):
+            height = 3  # Section headers need visibility
         elif spec.role in ("insight_callout",):
-            height = 3
+            height = 4
+        elif spec.variant == "title":
+            height = 3  # Titles need breathing room
+        elif spec.variant == "subtitle":
+            height = 2  # Subtitles slightly taller
         else:
-            height = 3
+            height = 2  # Default text height
     elif spec.type == "filter_bar":
         height = 2
     elif spec.type in ("card", "container", "section", "column_layout"):
         # Containers: height will be computed from children
         height = 0  # placeholder, computed later
     else:
-        # visualization and others
-        if size == "full":
-            height = 8
-        elif size in ("large", "xl"):
-            height = 7
-        elif size == "small":
-            height = 3
-        elif size == "xs":
-            height = 2
+        # visualization and others - use role height if available, else size-based
+        if "height" in role_defaults:
+            height = role_defaults["height"]
         else:
-            height = 5
-
-    # Allow role to override height when provided
-    if "height" in role_defaults and spec.type not in ("card", "container", "section", "column_layout"):
-        height = role_defaults["height"]
+            height = SIZE_TO_HEIGHT.get(size, 7)
 
     # Clamp width to grid columns
     width = max(1, min(width, GRID_COLS))
@@ -214,52 +221,34 @@ def _compute_children_bounds(children_blocks: List[Dict[str, Any]]) -> tuple[int
 def _layout_flat_blocks(
     blocks: List[DashboardBlockSpec],
     start_y: int = 0,
-    row_gap: int = 1,
+    row_gap: int = 0,
 ) -> tuple[List[Dict[str, Any]], int]:
     """
     Lay out a flat list of blocks in rows across the 12-column grid.
     Returns (layout_blocks, next_y).
+    
+    Blocks are laid out in their INPUT ORDER - the LLM's output order
+    represents the intended narrative flow and should be preserved.
+    
+    Note: row_gap is only added BETWEEN rows, not after the last row.
     """
     if not blocks:
         return [], start_y
-
-    importance_rank = {"primary": 0, "secondary": 1, "tertiary": 2}
-    role_rank = {
-        "page_title": 0,
-        "section_title": 1,
-        "filter_bar": 2,
-        "hero": 3,
-        "kpi": 4,
-        "primary_visual": 5,
-        "supporting_visual": 6,
-        "detail": 7,
-        "context_text": 8,
-        "insight_callout": 9,
-    }
-
-    # Sort by importance, role, then order
-    sorted_blocks = sorted(
-        blocks,
-        key=lambda b: (
-            importance_rank.get(b.importance, 1),
-            role_rank.get(b.role, 99),
-            b.order,
-        ),
-    )
 
     layout_blocks: List[Dict[str, Any]] = []
     row_y = start_y
     row_x = 0
     row_max_h = 0
 
-    for b in sorted_blocks:
+    # Preserve input order - the LLM outputs blocks in the intended sequence
+    for b in blocks:
         block = _layout_single_block(b, row_x, row_y)
         w = block["width"]
         h = block["height"]
 
         # Wrap to next row if no space
         if row_x + w > GRID_COLS and row_x != 0:
-            row_y += row_max_h + row_gap
+            row_y += row_max_h + row_gap  # gap only BETWEEN rows
             row_x = 0
             row_max_h = 0
             block["x"] = row_x
@@ -269,7 +258,8 @@ def _layout_flat_blocks(
         row_x += w
         row_max_h = max(row_max_h, h)
 
-    next_y = row_y + row_max_h + row_gap
+    # No trailing gap - next_y is exactly where the next block should start
+    next_y = row_y + row_max_h
     return layout_blocks, next_y
 
 
@@ -296,50 +286,48 @@ def _layout_single_block(spec: DashboardBlockSpec, x: int, y: int) -> Dict[str, 
     if spec.type == "visualization":
         block["visualization_id"] = spec.visualization_id
 
-    elif spec.type == "text_widget":
+    elif spec.type in ("text", "text_widget"):
         block["content"] = spec.content or ""
         if spec.variant:
             block["variant"] = spec.variant
 
     elif spec.type in ("card", "container", "section"):
-        # Recursively layout children
-        if spec.children:
-            child_blocks, child_height = _layout_flat_blocks(spec.children, start_y=0, row_gap=1)
-            block["children"] = child_blocks
-            # Container height = children height + padding
-            padding = 2 if spec.type == "card" else 1
-            block["height"] = child_height + padding
-        else:
-            block["children"] = []
-            block["height"] = 3  # empty container min height
-
-        # Chrome/title for cards/containers
+        # Chrome/title for cards - add header height to calculations
+        header_height = 0
         if spec.chrome:
             block["chrome"] = spec.chrome.model_dump(exclude_none=True)
-        elif spec.type in ("card", "section"):
-            # Default chrome from title if provided
-            if spec.view_overrides and spec.view_overrides.get("title"):
-                block["chrome"] = {"title": spec.view_overrides.get("title"), "showHeader": True}
+            if spec.chrome.showHeader and (spec.chrome.title or spec.chrome.subtitle):
+                header_height = 2  # Space for header
+        
+        # Recursively layout children
+        if spec.children:
+            child_blocks, child_height = _layout_flat_blocks(spec.children, start_y=0, row_gap=0)
+            block["children"] = child_blocks
+            # Container height = header + children height (no extra padding)
+            block["height"] = header_height + child_height
+        else:
+            block["children"] = []
+            block["height"] = header_height + 3  # empty container min height
 
     elif spec.type == "column_layout":
         # Layout each column's children relative to column start
         if spec.columns:
-            col_x = 0
             max_col_height = 0
             rendered_columns: List[Dict[str, Any]] = []
 
             for col in spec.columns:
-                col_span = min(col.span, GRID_COLS - col_x)
+                col_span = col.span
                 if col.children:
-                    # Layout children within column (relative y=0)
-                    col_children, col_height = _layout_flat_blocks(col.children, start_y=0, row_gap=1)
-                    # Scale children widths to fit within column span
-                    for child in col_children:
-                        # Children x is relative to column
-                        child_w = child.get("width", 6)
-                        # Scale proportionally if needed
-                        if child_w > col_span:
-                            child["width"] = col_span
+                    # Layout children within column - children use full width within their column
+                    col_children = []
+                    col_y = 0
+                    for child_spec in col.children:
+                        child_block = _layout_single_block(child_spec, 0, col_y)
+                        # Children within a column should fill the column width
+                        child_block["width"] = col_span
+                        col_children.append(child_block)
+                        col_y += child_block["height"]
+                    col_height = col_y
                 else:
                     col_children = []
                     col_height = 2
@@ -349,7 +337,6 @@ def _layout_single_block(spec: DashboardBlockSpec, x: int, y: int) -> Dict[str, 
                     "children": col_children,
                 })
                 max_col_height = max(max_col_height, col_height)
-                col_x += col_span
 
             block["columns"] = rendered_columns
             block["height"] = max_col_height
@@ -377,33 +364,30 @@ def compute_layout(semantic_blocks: List[DashboardBlockSpec]) -> Dict[str, Any]:
     - Column layouts (horizontal splits)
     - Filter bars (sticky filter rows)
     
-    The LLM outputs semantic hints (role, size, importance) and this engine
-    computes the actual grid positions.
+    Blocks are laid out preserving the LLM's output order - the sequence
+    represents the intended narrative flow.
     """
     if not semantic_blocks:
         return {"blocks": []}
 
-    # Group by section
+    # Group by section, preserving first-appearance order of sections
     by_section: Dict[str, List[DashboardBlockSpec]] = {}
+    section_order: List[str] = []  # Track order sections first appear
     for b in semantic_blocks:
         sec = b.section or "main"
-        by_section.setdefault(sec, []).append(b)
-
-    # Stable section order: "main" / "overview" first, then alphabetical
-    def _section_sort_key(name: str) -> tuple[int, str]:
-        if name in ("main", "overview"):
-            return (0, name)
-        return (1, name)
-
-    section_names = sorted(by_section.keys(), key=_section_sort_key)
+        if sec not in by_section:
+            section_order.append(sec)
+            by_section[sec] = []
+        by_section[sec].append(b)
 
     all_blocks: List[Dict[str, Any]] = []
     current_y = 0
-    row_gap = 1
 
-    for section in section_names:
+    # Process sections in the order they first appeared (preserves LLM intent)
+    # No extra gaps between sections - blocks flow tightly
+    for section in section_order:
         section_blocks = by_section[section]
-        laid_out, next_y = _layout_flat_blocks(section_blocks, start_y=current_y, row_gap=row_gap)
+        laid_out, next_y = _layout_flat_blocks(section_blocks, start_y=current_y, row_gap=0)
         all_blocks.extend(laid_out)
         current_y = next_y
 

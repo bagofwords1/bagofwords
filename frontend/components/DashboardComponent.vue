@@ -65,7 +65,8 @@
                             @editVisualization="handleEditVisualization"
                         />
 
-                        <template v-if="widget.type === 'text'">
+                        <!-- Text widget (legacy with DB reference) -->
+                        <template v-if="widget.type === 'text' && widget.id && !widget.content">
                             <TextWidgetView
                                 :widget="widget"
                                 :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
@@ -74,6 +75,56 @@
                                 @cancel="cancelTextEdit(widget)"
                             />
                         </template>
+                        <!-- Inline text block (AI generated, no DB reference) -->
+                        <template v-else-if="widget.type === 'text' && widget.content">
+                            <TextBlock
+                                :block="widget"
+                                :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
+                                :reportOverrides="report?.theme_overrides"
+                                @save="(content) => saveInlineTextBlock(widget, content)"
+                                @cancel="cancelTextEdit(widget)"
+                            />
+                        </template>
+                        <!-- Card block with children -->
+                        <template v-else-if="widget.type === 'card'">
+                            <CardBlock
+                                :block="widget"
+                                :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
+                                :reportOverrides="report?.theme_overrides"
+                                :contentIsMetricCard="cardContainsMetricCard(widget)"
+                            >
+                                <BlockRenderer
+                                    v-for="(child, idx) in widget.children || []"
+                                    :key="`card-child-${idx}-${child.visualization_id || child.content?.substring(0,10) || idx}`"
+                                    :block="child"
+                                    :widget="getWidgetDataForBlock(child)"
+                                    :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
+                                    :reportOverrides="report?.theme_overrides"
+                                    :getWidgetForBlock="getWidgetDataForBlock"
+                                />
+                            </CardBlock>
+                        </template>
+                        <!-- Column layout block -->
+                        <template v-else-if="widget.type === 'column_layout'">
+                            <ColumnLayoutBlock :block="widget">
+                                <template v-for="(col, colIdx) in widget.columns || []" :key="colIdx" #[`column-${colIdx}`]>
+                                    <div class="flex flex-col gap-4 h-full">
+                                        <BlockRenderer
+                                            v-for="(child, childIdx) in col.children || []"
+                                            :key="`col-${colIdx}-child-${childIdx}`"
+                                            :block="child"
+                                            :widget="getWidgetDataForBlock(child)"
+                                            :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
+                                            :reportOverrides="report?.theme_overrides"
+                                            :getWidgetForBlock="getWidgetDataForBlock"
+                                            class="flex-shrink-0"
+                                            :style="{ height: `${(child.height || 6) * 40}px` }"
+                                        />
+                                    </div>
+                                </template>
+                            </ColumnLayoutBlock>
+                        </template>
+                        <!-- Regular visualization -->
                         <template v-else>
                             <RegularWidgetView
                                 :widget="widget"
@@ -136,9 +187,13 @@
     import TextWidgetView from '@/components/dashboard/text/TextWidgetView.vue';
     import RegularWidgetView from '@/components/dashboard/regular/RegularWidgetView.vue';
     import FullscreenGrid from '@/components/dashboard/FullscreenGrid.vue';
-    import Spinner from '@/components/Spinner.vue';
-    import { resolveEntryByType } from '@/components/dashboard/registry'
-    import { themes } from '@/components/dashboard/themes'
+import Spinner from '@/components/Spinner.vue';
+import BlockRenderer from '@/components/dashboard/blocks/BlockRenderer.vue';
+import TextBlock from '@/components/dashboard/blocks/TextBlock.vue';
+import CardBlock from '@/components/dashboard/blocks/CardBlock.vue';
+import ColumnLayoutBlock from '@/components/dashboard/blocks/ColumnLayoutBlock.vue';
+import { resolveEntryByType } from '@/components/dashboard/registry'
+import { themes } from '@/components/dashboard/themes'
     import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
     const toast = useToast();
@@ -246,13 +301,18 @@
 
     // --- Computed ---
     const allWidgets = computed(() => {
-        const regular = displayedWidgets.value.map(w => ({
-            ...w,
-            type: 'regular',
-            showControls: w.showControls ?? false,
-            show_data: w.show_data ?? false,
-            show_data_model: w.show_data_model ?? false
-        }));
+        // Process displayedWidgets - preserve their type (text, card, column_layout, visualization, etc.)
+        const regular = displayedWidgets.value.map(w => {
+            // Only default to 'regular' if type is not already set or is 'visualization'
+            const widgetType = w.type === 'visualization' ? 'regular' : (w.type || 'regular');
+            return {
+                ...w,
+                type: widgetType,
+                showControls: w.showControls ?? false,
+                show_data: w.show_data ?? false,
+                show_data_model: w.show_data_model ?? false
+            };
+        });
         const text = textWidgets.value.map(w => ({
             ...w,
             type: 'text',
@@ -460,6 +520,81 @@
             const nextText: any[] = [];
             const stepPromises: Promise<any>[] = [];
 
+            // Helper to recursively collect all visualization IDs from nested blocks
+            const collectVisualizationIds = (blockList: any[]): string[] => {
+                const ids: string[] = [];
+                for (const b of blockList) {
+                    if (b.type === 'visualization' && b.visualization_id) {
+                        ids.push(b.visualization_id);
+                    }
+                    if (b.children && Array.isArray(b.children)) {
+                        ids.push(...collectVisualizationIds(b.children));
+                    }
+                    if (b.columns && Array.isArray(b.columns)) {
+                        for (const col of b.columns) {
+                            if (col.children && Array.isArray(col.children)) {
+                                ids.push(...collectVisualizationIds(col.children));
+                            }
+                        }
+                    }
+                }
+                return ids;
+            };
+
+            // Pre-fetch data for ALL visualizations (including nested ones)
+            const allVizIds = collectVisualizationIds(blocks);
+            const vizFetchPromises: Promise<any>[] = [];
+            
+            // First, fetch any missing visualization data
+            for (const vid of allVizIds) {
+                if (!vizById.value[vid]) {
+                    // Visualization not in cache, try to fetch it
+                    vizFetchPromises.push(
+                        (async () => {
+                            try {
+                                const { data, error } = await useMyFetch(`/api/visualizations/${vid}`, { method: 'GET' });
+                                if (!error.value && data.value) {
+                                    const vizData = data.value as any;
+                                    vizById.value = { ...vizById.value, [vid]: vizData };
+                                    // Also cache the query if present
+                                    if (vizData.query_id && !queryById.value[vizData.query_id]) {
+                                        const qRes = await useMyFetch(`/api/queries/${vizData.query_id}`, { method: 'GET' });
+                                        if (!qRes.error.value && qRes.data.value) {
+                                            queryById.value = { ...queryById.value, [vizData.query_id]: qRes.data.value as any };
+                                        }
+                                    }
+                                }
+                            } catch {}
+                        })()
+                    );
+                }
+            }
+            
+            // Wait for visualization data to be fetched
+            if (vizFetchPromises.length > 0) {
+                await Promise.allSettled(vizFetchPromises);
+            }
+            
+            // Now pre-fetch query/step data for all visualizations
+            for (const vid of allVizIds) {
+                const viz = vizById.value[vid];
+                if (viz?.query_id) {
+                    const qid = viz.query_id;
+                    const q = queryById.value[qid];
+                    const defaultStepId = q?.default_step_id;
+                    if (!defaultStepId || !stepCache.value[defaultStepId]) {
+                        stepPromises.push(ensureDefaultStepForQuery(qid));
+                    }
+                }
+            }
+            
+            // IMPORTANT: Wait for step data BEFORE processing blocks
+            // This ensures nested visualizations have their step data available
+            if (stepPromises.length > 0) {
+                await Promise.allSettled(stepPromises);
+                stepPromises.length = 0; // Clear after awaiting
+            }
+
             // Helper to override block coords with current GridStack engine node if present
             const resolveCoords = (id: string, fallback: { x: number; y: number; width: number; height: number }) => {
                 try {
@@ -473,6 +608,7 @@
 
             for (const b of blocks) {
                 if (b.type === 'text_widget' && b.text_widget_id) {
+                    // Legacy text widget with DB reference
                     const embedded = (b as any).text_widget || null;
                     const baseSrc = embedded || textMap.get(b.text_widget_id) || { id: b.text_widget_id, content: '', isEditing: false, isNew: false, showControls: false };
                     const coords = resolveCoords(String(baseSrc.id), { x: b.x, y: b.y, width: b.width, height: b.height })
@@ -485,6 +621,42 @@
                         isEditing: baseSrc.isEditing ?? false,
                         isNew: baseSrc.isNew ?? false,
                         showControls: baseSrc.showControls ?? false,
+                    });
+                } else if ((b.type === 'text' || b.type === 'text_widget') && (b as any).content) {
+                    // Inline text block (AI generated, no DB reference)
+                    // Handles both type: "text" (new) and type: "text_widget" with content (legacy)
+                    const blockId = `inline-text-${nextDisplayed.length + nextText.length}`;
+                    const coords = resolveCoords(blockId, { x: b.x, y: b.y, width: b.width, height: b.height })
+                    nextDisplayed.push({
+                        id: blockId,
+                        x: coords.x, y: coords.y, width: coords.width, height: coords.height,
+                        type: 'text',
+                        content: (b as any).content,
+                        variant: (b as any).variant,
+                        showControls: false,
+                    });
+                } else if (b.type === 'card') {
+                    // Card block with children
+                    const blockId = `card-${nextDisplayed.length}`;
+                    const coords = resolveCoords(blockId, { x: b.x, y: b.y, width: b.width, height: b.height })
+                    nextDisplayed.push({
+                        id: blockId,
+                        x: coords.x, y: coords.y, width: coords.width, height: coords.height,
+                        type: 'card',
+                        chrome: (b as any).chrome,
+                        children: (b as any).children || [],
+                        showControls: false,
+                    });
+                } else if (b.type === 'column_layout') {
+                    // Column layout block
+                    const blockId = `columns-${nextDisplayed.length}`;
+                    const coords = resolveCoords(blockId, { x: b.x, y: b.y, width: b.width, height: b.height })
+                    nextDisplayed.push({
+                        id: blockId,
+                        x: coords.x, y: coords.y, width: coords.width, height: coords.height,
+                        type: 'column_layout',
+                        columns: (b as any).columns || [],
+                        showControls: false,
                     });
                 } else if (b.type === 'visualization' && (b as any).visualization_id) {
                     const vid = (b as any).visualization_id as string;
@@ -808,12 +980,50 @@
                 const id = typeof node.id === 'string' ? node.id : (node?.el?.getAttribute?.('gs-id') || String(node.id));
                 const w = findWidgetById(id);
                 if (!w) continue;
-                if (w.type === 'text') {
-                    if (w.isNew) continue; // skip unsaved text widgets
-                    blocks.push({ type: 'text_widget', text_widget_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h });
-                } else {
-                    blocks.push({ type: 'visualization', visualization_id: w.id, x: node.x, y: node.y, width: node.w, height: node.h });
+                
+                const basePos = { x: node.x, y: node.y, width: node.w, height: node.h };
+                
+                // Handle all block types properly
+                if (w.type === 'text' && w.content) {
+                    // Inline AI-generated text block (no DB reference)
+                    blocks.push({ 
+                        type: 'text', 
+                        content: w.content,
+                        variant: w.variant,
+                        ...basePos 
+                    });
+                } else if (w.type === 'text' && !w.content && !w.isNew) {
+                    // Legacy text widget with DB reference
+                    blocks.push({ 
+                        type: 'text_widget', 
+                        text_widget_id: w.id, 
+                        ...basePos 
+                    });
+                } else if (w.type === 'card') {
+                    // Card block with children
+                    blocks.push({ 
+                        type: 'card', 
+                        chrome: w.chrome,
+                        children: w.children || [],
+                        ...basePos 
+                    });
+                } else if (w.type === 'column_layout') {
+                    // Column layout block
+                    blocks.push({ 
+                        type: 'column_layout', 
+                        columns: w.columns || [],
+                        ...basePos 
+                    });
+                } else if (w.type === 'regular' || w.type === 'visualization' || w.isVisualization) {
+                    // Visualization block
+                    blocks.push({ 
+                        type: 'visualization', 
+                        visualization_id: w.id,
+                        view_overrides: w.layout_view_overrides || null,
+                        ...basePos 
+                    });
                 }
+                // Skip unknown types and unsaved new widgets
             }
             const { data, error } = await useMyFetch(`/api/reports/${props.report.id}/layouts/${layoutId}`, { method: 'PATCH', body: { blocks } });
             if (error.value) throw error.value;
@@ -914,6 +1124,23 @@
     }
     async function removeTextWidget(widget: any) {
         try {
+            // Check if it's an inline text block (has content, in displayedWidgets)
+            if (widget.content) {
+                const idx = displayedWidgets.value.findIndex(w => w.id === widget.id && w.type === 'text');
+                if (idx !== -1) {
+                    displayedWidgets.value.splice(idx, 1);
+                }
+                // Remove from grid
+                const el = grid.value?.engine.nodes.find(n => n.id === widget.id)?.el;
+                if (el && grid.value) {
+                    grid.value.removeWidget(el, false, false);
+                }
+                schedulePersistFullLayout();
+                toast.add({ title: 'Text block removed' });
+                return;
+            }
+            
+            // Legacy text widget - delete from DB
             if (!widget.isNew) {
                 const { error } = await useMyFetch(`/api/reports/${props.report.id}/text_widgets/${widget.id}`, { method: 'DELETE' });
                 // Treat 404 as success: widget may already be deleted; backend also cleans layout
@@ -1108,44 +1335,120 @@
     const toggleTextEdit = (widget: any) => {
         if (widget.isNew) {
             removeTextWidget(widget);
-        } else {
-            const idx = textWidgets.value.findIndex(w => w.id === widget.id);
+            return;
+        }
+        
+        // Check if it's an inline text block (has content, in displayedWidgets)
+        if (widget.content) {
+            const idx = displayedWidgets.value.findIndex(w => w.id === widget.id && w.type === 'text');
             if (idx !== -1) {
-                const w = textWidgets.value[idx];
+                const w = displayedWidgets.value[idx];
                 const nowEditing = !w.isEditing;
                 if (nowEditing && !editSnapshots.value[w.id]) {
                     editSnapshots.value[w.id] = { x: w.x, y: w.y, width: w.width, height: w.height, content: w.content };
                 }
                 w.isEditing = nowEditing;
-            } else {
-                console.warn(`Could not find original text widget with ID ${widget.id} to toggle edit state.`);
+                return;
             }
+        }
+        
+        // Legacy text widget (in textWidgets)
+        const idx = textWidgets.value.findIndex(w => w.id === widget.id);
+        if (idx !== -1) {
+            const w = textWidgets.value[idx];
+            const nowEditing = !w.isEditing;
+            if (nowEditing && !editSnapshots.value[w.id]) {
+                editSnapshots.value[w.id] = { x: w.x, y: w.y, width: w.width, height: w.height, content: w.content };
+            }
+            w.isEditing = nowEditing;
+        } else {
+            console.warn(`Could not find text widget with ID ${widget.id} to toggle edit state.`);
         }
     };
 
     const cancelTextEdit = (widget: any) => {
         if (widget.isNew) {
              removeTextWidget(widget);
-        } else {
-            const idx = textWidgets.value.findIndex(w => w.id === widget.id);
+             return;
+        }
+        
+        // Check if it's an inline text block (has content, in displayedWidgets)
+        if (widget.content) {
+            const idx = displayedWidgets.value.findIndex(w => w.id === widget.id && w.type === 'text');
             if (idx !== -1) {
-                const w = textWidgets.value[idx];
+                const w = displayedWidgets.value[idx];
                 const snap = editSnapshots.value[w.id];
                 w.isEditing = false;
                 if (snap) {
                     w.content = snap.content;
-                    w.x = snap.x; w.y = snap.y; w.width = snap.width; w.height = snap.height;
-                    try {
-                        const el = grid.value?.engine.nodes.find(n => n.id === w.id)?.el as HTMLElement | undefined;
-                        if (el && grid.value) {
-                            grid.value.update(el as HTMLElement, { id: w.id, x: snap.x, y: snap.y, w: snap.width, h: snap.height, autoPosition: false } as any);
-                        }
-                    } catch {}
                     delete editSnapshots.value[w.id];
                 }
+                return;
+            }
+        }
+        
+        // Legacy text widget (in textWidgets)
+        const idx = textWidgets.value.findIndex(w => w.id === widget.id);
+        if (idx !== -1) {
+            const w = textWidgets.value[idx];
+            const snap = editSnapshots.value[w.id];
+            w.isEditing = false;
+            if (snap) {
+                w.content = snap.content;
+                w.x = snap.x; w.y = snap.y; w.width = snap.width; w.height = snap.height;
+                try {
+                    const el = grid.value?.engine.nodes.find(n => n.id === w.id)?.el as HTMLElement | undefined;
+                    if (el && grid.value) {
+                        grid.value.update(el as HTMLElement, { id: w.id, x: snap.x, y: snap.y, w: snap.width, h: snap.height, autoPosition: false } as any);
+                    }
+                } catch {}
+                delete editSnapshots.value[w.id];
             }
         }
     };
+
+    // Save inline text block content
+    async function saveInlineTextBlock(widget: any, content: string) {
+        // First check if it's a NEW text widget (in textWidgets array, has isNew flag)
+        const textIdx = textWidgets.value.findIndex(w => w.id === widget.id);
+        if (textIdx !== -1 && textWidgets.value[textIdx].isNew) {
+            // This is a new text widget being saved - use the legacy save flow
+            await saveTextWidget(content, textWidgets.value[textIdx]);
+            return;
+        }
+        
+        // Search in displayedWidgets by id
+        let idx = displayedWidgets.value.findIndex(w => w.id === widget.id);
+        
+        // If not found by id, try to find any text block that's being edited
+        if (idx === -1) {
+            idx = displayedWidgets.value.findIndex(w => w.type === 'text' && w.isEditing);
+        }
+        
+        // Also check textWidgets for non-new items being edited
+        if (idx === -1) {
+            const textEditingIdx = textWidgets.value.findIndex(w => w.isEditing && !w.isNew);
+            if (textEditingIdx !== -1) {
+                // Use legacy save flow
+                await saveTextWidget(content, textWidgets.value[textEditingIdx]);
+                return;
+            }
+        }
+        
+        if (idx !== -1) {
+            displayedWidgets.value[idx].content = content;
+            displayedWidgets.value[idx].isEditing = false;
+            if (editSnapshots.value[displayedWidgets.value[idx].id]) {
+                delete editSnapshots.value[displayedWidgets.value[idx].id];
+            }
+            // Persist to layout
+            await persistFullLayout();
+            toast.add({ title: 'Text saved' });
+        } else {
+            console.warn('Could not find widget to save:', widget.id);
+            toast.add({ title: 'Error', description: 'Could not save text block', color: 'red' });
+        }
+    }
 
     // --- Zoom ---
     const zoomIn = () => { zoom.value = Math.min(zoom.value + zoomStep, maxZoom) };
@@ -1189,6 +1492,70 @@
         widget.show_data = !widget.show_data;
         if (widget.show_data) widget.show_data_model = false;
     };
+
+    // --- Block Data Resolution (for nested blocks in cards/columns) ---
+    // Check if a card block contains a metric_card visualization (to hide duplicate header)
+    function cardContainsMetricCard(cardWidget: any): boolean {
+        const children = cardWidget?.children || [];
+        for (const child of children) {
+            if (child.type === 'visualization' && child.visualization_id) {
+                const viz = vizById.value[child.visualization_id];
+                const viewType = viz?.view?.view?.type || viz?.view?.type;
+                if (viewType === 'metric_card' || viewType === 'count') {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    function getWidgetDataForBlock(block: any): any {
+        if (!block) return undefined;
+        
+        // If it's a visualization block, resolve from vizById
+        if (block.type === 'visualization' && block.visualization_id) {
+            const vid = block.visualization_id;
+            const viz = vizById.value[vid];
+            if (!viz) return undefined;
+            
+            const qid = viz.query_id;
+            const q = queryById.value[qid] || null;
+            const defaultStepId = q?.default_step_id;
+            const step = defaultStepId ? stepCache.value[defaultStepId] : null;
+            
+            // Merge view overrides
+            const mergedView = (() => {
+                const v = viz.view || {};
+                const o = block.view_overrides || null;
+                return o ? { ...v, ...o } : v;
+            })();
+            
+            return {
+                id: vid,
+                type: 'regular',
+                isVisualization: true,
+                query_id: qid,
+                title: viz.title || '',
+                last_step: step,
+                view: mergedView,
+                showControls: false,
+                show_data: false,
+                show_data_model: false,
+            };
+        }
+        
+        // If it's a text block with inline content
+        if ((block.type === 'text' || block.type === 'text_widget') && block.content) {
+            return {
+                type: 'text',
+                content: block.content,
+                variant: block.variant,
+            };
+        }
+        
+        // For other block types, return the block as-is
+        return block;
+    }
 
     // --- Other ---
     async function rerunReport() {
@@ -1287,13 +1654,20 @@
     
     /* Default item content style */
     .grid-stack-item-content {
-      background-color: #ffffff;
+      background-color: transparent;
       color: #2c3e50;
       text-align: left;
       overflow: hidden !important; /* CRITICAL: Prevent content spillover */
-      /* inset: 0px; */ /* No default inset, use padding on inner elements */
       position: absolute; /* Needed for Gridstack sizing */
       top: 0; bottom: 0; left: 0; right: 0; /* Fill the item */
+      display: flex;
+      flex-direction: column;
+    }
+    
+    /* Ensure direct children of grid-stack-item-content fill available space */
+    .grid-stack-item-content > * {
+      flex: 1;
+      min-height: 0;
     }
     
     /* Improve placeholder appearance */

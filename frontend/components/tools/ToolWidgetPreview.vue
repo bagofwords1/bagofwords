@@ -76,7 +76,7 @@
             <!-- Chart Content -->
             <Transition name="fade" mode="out-in">
               <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)">
-                <div v-if="resolvedCompEl" :class="chartHeightClass">
+                <div v-if="resolvedCompEl" :class="chartHeightClass" :style="chartHeightStyle">
                   <component
                     :is="resolvedCompEl"
                     :widget="effectiveWidget"
@@ -317,11 +317,43 @@ const resolvedCompEl = computed(() => {
   return getCompForType(String(vType || dmType || ''))
 })
 
-// Adjust height for compact metric cards
-const chartHeightClass = computed(() => {
+// Check if current visualization is a metric card type
+const isMetricCardType = computed(() => {
   const viewObj = visualization.value?.view as any
   const t = String((viewObj?.view?.type || viewObj?.type || effectiveStep.value?.data_model?.type || '')).toLowerCase()
-  return (t === 'count' || t === 'metric_card') ? 'h-[120px] flex items-start' : 'h-[340px]'
+  return t === 'count' || t === 'metric_card'
+})
+
+// Adjust height for compact metric cards - dynamically based on content
+const chartHeightClass = computed(() => {
+  return isMetricCardType.value ? 'flex items-start' : 'h-[340px]'
+})
+
+// Dynamic style for metric card height
+const chartHeightStyle = computed(() => {
+  if (!isMetricCardType.value) return {}
+  
+  const viewObj = visualization.value?.view as any
+  const viewConfig = viewObj?.view || viewObj || {}
+  
+  // Check if sparkline is enabled
+  const hasSparkline = viewConfig?.sparkline?.enabled === true
+  const sparklineHeight = viewConfig?.sparkline?.height || 64
+  
+  // Check if comparison/trend is present
+  const hasComparison = !!viewConfig?.comparison
+  
+  // Base height for title + value (with padding)
+  let height = 120
+  // Add space for comparison row if present
+  if (hasComparison) height += 28
+  // Add sparkline height if enabled (no extra padding - chart is edge to edge)
+  if (hasSparkline) height += sparklineHeight
+  
+  // Minimum height to ensure good appearance
+  height = Math.max(height, 160)
+  
+  return { height: `${height}px` }
 })
 
 // Determine if table/data is present
@@ -427,7 +459,17 @@ function broadcastDefaultStep(step: any) {
 const isPublished = computed(() => {
   const vizId = visualization.value?.id
   if (!vizId) return false
-  return layoutBlocks.value.some(b => b?.type === 'visualization' && b?.visualization_id === vizId)
+  // Check for direct visualization blocks
+  if (layoutBlocks.value.some(b => b?.type === 'visualization' && b?.visualization_id === vizId)) {
+    return true
+  }
+  // Check for visualizations wrapped in card blocks
+  return layoutBlocks.value.some(b => {
+    if (b?.type === 'card' && Array.isArray(b?.children)) {
+      return b.children.some((child: any) => child?.type === 'visualization' && child?.visualization_id === vizId)
+    }
+    return false
+  })
 })
 
 watch(layoutBlocks, () => {
@@ -594,9 +636,11 @@ async function onAddClick() {
         })
         if (error.value) throw error.value
         // Optimistically mark as published so the button flips immediately
-        // locallyPublished.value = true // This line was removed as per the new_code, as locallyPublished is not defined.
-        // Also update local membership list so the state is consistent
-        layoutBlocks.value = [...layoutBlocks.value, { type: 'visualization', visualization_id: visualization.value.id }]
+        // Server wraps visualization in a card, so update local state to match
+        layoutBlocks.value = [...layoutBlocks.value, { 
+          type: 'card', 
+          children: [{ type: 'visualization', visualization_id: visualization.value.id }]
+        }]
         // Broadcast to dashboard pane to refresh membership immediately
         try {
           window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: reportId.value, action: 'added', visualization_id: visualization.value.id } }))

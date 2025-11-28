@@ -85,7 +85,8 @@
   onBeforeUnmount(() => {
     unref(editor).destroy();
   });
-  defineEmits(['save']);
+  
+  defineEmits(['save', 'cancel']);
   </script>
   
   <style >

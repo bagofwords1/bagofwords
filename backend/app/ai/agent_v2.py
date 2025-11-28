@@ -1716,8 +1716,10 @@ class AgentV2:
             elif tool_name == "create_dashboard":
                 # Stream-only handling: append blocks into active layout via ProjectManager
                 if stage == "init":
-                    # No-op here; layout service ensures active layout on first write
-                    pass
+                    # Clear existing blocks before generating new dashboard layout
+                    await self.project_manager.clear_active_layout_blocks(
+                        self.db, str(self.report.id)
+                    )
                 elif stage == "block.completed":
                     block = payload.get("block") or {}
                     if isinstance(block, dict) and self.report:

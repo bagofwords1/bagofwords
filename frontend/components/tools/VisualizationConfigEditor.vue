@@ -306,6 +306,133 @@
           <button class="mt-2 px-2 py-1 text-[11px] border rounded text-gray-600 hover:bg-gray-50" @click="addDimension">Add dimension</button>
         </div>
       </div>
+
+      <!-- Metric Card -->
+      <div v-else-if="isType(['metric_card'])" class="space-y-3">
+        <!-- Value column -->
+        <div>
+          <div class="text-gray-600 mb-1">Value column</div>
+          <select v-model="encoding.value" class="w-full border rounded px-2 py-1 bg-white">
+            <option value="">-- Select column --</option>
+            <optgroup label="Suggested">
+              <option v-for="c in numericColumns" :key="`mc-val-s-${c}`" :value="c">{{ c }}</option>
+            </optgroup>
+            <optgroup label="All columns">
+              <option v-for="c in otherNumericColumns" :key="`mc-val-a-${c}`" :value="c">{{ c }}</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <!-- Format -->
+        <div>
+          <div class="text-gray-600 mb-1">Format</div>
+          <select v-model="local.metricFormat" class="w-full border rounded px-2 py-1 bg-white">
+            <option value="number">Number</option>
+            <option value="currency">Currency ($)</option>
+            <option value="percent">Percent (%)</option>
+            <option value="compact">Compact (1K, 1M)</option>
+          </select>
+        </div>
+
+        <!-- Prefix / Suffix -->
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <div class="text-gray-600 mb-1">Prefix</div>
+            <input v-model="local.metricPrefix" placeholder="e.g. $" class="w-full border rounded px-2 py-1" />
+          </div>
+          <div>
+            <div class="text-gray-600 mb-1">Suffix</div>
+            <input v-model="local.metricSuffix" placeholder="e.g. users" class="w-full border rounded px-2 py-1" />
+          </div>
+        </div>
+
+        <!-- Comparison section -->
+        <div class="border-t pt-3 mt-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-gray-600 font-medium">Comparison</div>
+          </div>
+          
+          <div>
+            <div class="text-gray-600 mb-1">Comparison column (optional)</div>
+            <select v-model="encoding.comparison" class="w-full border rounded px-2 py-1 bg-white">
+              <option value="">-- None --</option>
+              <optgroup label="Suggested">
+                <option v-for="c in numericColumns" :key="`mc-cmp-s-${c}`" :value="c">{{ c }}</option>
+              </optgroup>
+              <optgroup label="All columns">
+                <option v-for="c in otherNumericColumns" :key="`mc-cmp-a-${c}`" :value="c">{{ c }}</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div v-if="encoding.comparison" class="mt-2 space-y-2">
+            <div>
+              <div class="text-gray-600 mb-1">Comparison format</div>
+              <select v-model="local.comparisonFormat" class="w-full border rounded px-2 py-1 bg-white">
+                <option value="percent">Percent (%)</option>
+                <option value="number">Number</option>
+                <option value="compact">Compact</option>
+              </select>
+            </div>
+            <div>
+              <div class="text-gray-600 mb-1">Comparison label</div>
+              <input v-model="local.comparisonLabel" placeholder="e.g. vs last period" class="w-full border rounded px-2 py-1" />
+            </div>
+            <label class="flex items-center space-x-2 text-xs">
+              <input type="checkbox" v-model="local.invertTrend" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <span class="text-gray-600">Invert trend (down is good)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Sparkline section -->
+        <div class="border-t pt-3 mt-3">
+          <label class="flex items-center space-x-2 text-xs mb-2">
+            <input type="checkbox" v-model="local.sparklineEnabled" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span class="text-gray-600 font-medium">Enable Sparkline</span>
+          </label>
+          
+          <div v-if="local.sparklineEnabled" class="space-y-2 pl-4">
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <div class="text-gray-600 mb-1 text-[11px]">Type</div>
+                <select v-model="local.sparklineType" class="w-full border rounded px-2 py-1 bg-white text-[11px]">
+                  <option value="area">Area</option>
+                  <option value="line">Line</option>
+                </select>
+              </div>
+              <div>
+                <div class="text-gray-600 mb-1 text-[11px]">Height (px)</div>
+                <input type="number" v-model.number="local.sparklineHeight" min="32" max="120" class="w-full border rounded px-2 py-1 text-[11px]" />
+              </div>
+            </div>
+            <div>
+              <div class="text-gray-600 mb-1 text-[11px]">X-axis column (time/category)</div>
+              <select v-model="local.sparklineXColumn" class="w-full border rounded px-2 py-1 bg-white text-[11px]">
+                <option value="">-- Auto-detect --</option>
+                <optgroup label="Suggested">
+                  <option v-for="c in stringColumns" :key="`mc-spk-x-s-${c}`" :value="c">{{ c }}</option>
+                </optgroup>
+                <optgroup label="All columns">
+                  <option v-for="c in otherStringColumns" :key="`mc-spk-x-a-${c}`" :value="c">{{ c }}</option>
+                </optgroup>
+              </select>
+            </div>
+            <div>
+              <div class="text-gray-600 mb-1 text-[11px]">Value column (optional, defaults to main value)</div>
+              <select v-model="local.sparklineColumn" class="w-full border rounded px-2 py-1 bg-white text-[11px]">
+                <option value="">-- Use main value --</option>
+                <optgroup label="Suggested">
+                  <option v-for="c in numericColumns" :key="`mc-spk-v-s-${c}`" :value="c">{{ c }}</option>
+                </optgroup>
+                <optgroup label="All columns">
+                  <option v-for="c in otherNumericColumns" :key="`mc-spk-v-a-${c}`" :value="c">{{ c }}</option>
+                </optgroup>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Styling -->
@@ -427,7 +554,7 @@ const typeOptions = [
   'candlestick',
   'treemap',
   'radar_chart',
-  'count'
+  'metric_card'
 ]
 
 // Backend-provided capabilities per visualization type
@@ -463,8 +590,12 @@ function deepClone<T>(v: T): T { return JSON.parse(JSON.stringify(v || {})) }
 
 // Helper to extract v2 or legacy values
 function initFromView(view: any, step: any) {
-  const v = view || {}
+  const raw = view || {}
   const dm = step?.data_model || {}
+  
+  // Unwrap v2 format: { view: {...}, style: {...} } -> use inner view
+  const v = raw.view?.type ? raw.view : raw
+  const style = raw.style || v.style || {}
   
   // Build encoding from view.encoding, or construct from data_model.series/view fields
   let enc = deepClone(v.encoding || {})
@@ -477,6 +608,8 @@ function initFromView(view: any, step: any) {
     }
     if (v.category) enc.category = v.category
     if (v.value) enc.value = v.value
+    // For metric_card, also check comparison
+    if (v.comparison) enc.comparison = v.comparison
     // Fallback to data_model.series
     if ((!enc.category || !enc.series?.length) && dm.series?.length) {
       const s0 = dm.series[0]
@@ -517,9 +650,21 @@ function initFromView(view: any, step: any) {
     // Heatmap specific
     colorScheme: v.colorScheme ?? 'blue',
     showValues: v.showValues ?? true,
+    // Metric card specific
+    metricFormat: v.format ?? 'number',
+    metricPrefix: v.prefix ?? '',
+    metricSuffix: v.suffix ?? '',
+    comparisonFormat: v.comparisonFormat ?? 'percent',
+    comparisonLabel: v.comparisonLabel ?? '',
+    invertTrend: v.invertTrend ?? false,
+    sparklineEnabled: v.sparkline?.enabled ?? false,
+    sparklineType: v.sparkline?.type ?? 'area',
+    sparklineHeight: v.sparkline?.height ?? 64,
+    sparklineXColumn: v.sparkline?.xColumn ?? '',
+    sparklineColumn: v.sparkline?.column ?? '',
     // Legacy fields
     variant: v.variant || null,
-    style: deepClone(v.style || {}),
+    style: deepClone(style),
     options: deepClone(v.options || {}),
   }
 }
@@ -549,7 +694,7 @@ const isSmoothVariant = computed<boolean>({
   set: (v: boolean) => { local.variant = v ? 'smooth' : (local.variant === 'smooth' ? null : local.variant) }
 })
 
-const showEncoding = computed(() => !isType(['table','count']))
+const showEncoding = computed(() => !isType(['table']))
 function isType(types: string[]): boolean { return types.includes(local.type) }
 
 const allColumns = computed<string[]>(() => {
@@ -709,10 +854,33 @@ function toViewPayload() {
     view.colorScheme = local.colorScheme || 'blue'
     view.showValues = local.showValues ?? true
     view.encoding = enc
-  } else if (t === 'count' || t === 'metric_card') {
+  } else if (t === 'metric_card') {
     const enc = deepClone(encoding)
+    // Main value
     view.value = enc.value || ''
-    view.format = 'number'
+    view.format = local.metricFormat || 'number'
+    if (local.metricPrefix) view.prefix = local.metricPrefix
+    if (local.metricSuffix) view.suffix = local.metricSuffix
+    
+    // Comparison
+    if (enc.comparison) {
+      view.comparison = enc.comparison
+      view.comparisonFormat = local.comparisonFormat || 'percent'
+      if (local.comparisonLabel) view.comparisonLabel = local.comparisonLabel
+      if (local.invertTrend) view.invertTrend = true
+    }
+    
+    // Sparkline
+    if (local.sparklineEnabled) {
+      view.sparkline = {
+        enabled: true,
+        type: local.sparklineType || 'area',
+        height: local.sparklineHeight || 64,
+      }
+      if (local.sparklineXColumn) view.sparkline.xColumn = local.sparklineXColumn
+      if (local.sparklineColumn) view.sparkline.column = local.sparklineColumn
+    }
+    
     view.encoding = enc
   } else if (t === 'table') {
     // Table doesn't need much
@@ -757,6 +925,8 @@ function validate(): string | null {
     if (!e.name || !e.value) return 'Name and value are required'
   } else if (t === 'radar_chart') {
     if (!Array.isArray(e.dimensions) || !e.dimensions.length) return 'At least one dimension is required'
+  } else if (t === 'metric_card') {
+    if (!e.value) return 'Value column is required'
   }
   return null
 }
@@ -818,6 +988,7 @@ watch(() => props.viz?.view, (v) => {
       || (t === 'candlestick' && (!encoding.key || !encoding.open || !encoding.close || !encoding.low || !encoding.high))
       || (t === 'treemap' && (!encoding.name || !encoding.value))
       || (t === 'radar_chart' && (!Array.isArray(encoding.dimensions) || !encoding.dimensions.length))
+      || (t === 'metric_card' && !encoding.value)
     if (need) detectEncoding()
   } catch {}
 })
@@ -841,6 +1012,7 @@ onMounted(() => {
       || (t === 'candlestick' && (!e.key || !e.open || !e.close || !e.low || !e.high))
       || (t === 'treemap' && (!e.name || !e.value))
       || (t === 'radar_chart' && (!Array.isArray(e.dimensions) || !e.dimensions.length))
+      || (t === 'metric_card' && !e.value)
     if (need) detectEncoding()
   } catch {}
 })
@@ -885,19 +1057,34 @@ function detectEncoding() {
   } else if (t === 'radar_chart') {
     encoding.key = encoding.key || str[0] || cols[0]
     if (!Array.isArray(encoding.dimensions) || !encoding.dimensions.length) encoding.dimensions = num.slice(0, 3)
+  } else if (t === 'metric_card') {
+    // Pick the best numeric column for value
+    encoding.value = encoding.value || pickBestNumericValue('', num, cols) || num[0] || cols[0]
+    // If there's a second numeric column that looks like a comparison, suggest it
+    if (!encoding.comparison && num.length > 1) {
+      const comparisonHints = ['change', 'diff', 'delta', 'growth', 'comparison', 'percent', 'pct', 'vs']
+      for (const col of num) {
+        if (col === encoding.value) continue
+        const lower = col.toLowerCase()
+        if (comparisonHints.some(h => lower.includes(h))) {
+          encoding.comparison = col
+          break
+        }
+      }
+    }
   }
 }
 
 // When switching type between bar/line/area, ensure view.type updates and variant resets appropriately
 watch(() => local.type, (next, prev) => {
   // When switching to table-like, clear encoding and variants
-  if (next === 'table' || next === 'count') {
+  if (next === 'table') {
     Object.keys(encoding).forEach(k => delete (encoding as any)[k])
     local.variant = null
     return
   }
   // For visual types, auto-detect minimal encoding if missing
-  if (['bar_chart','line_chart','area_chart','pie_chart','scatter_plot','heatmap','candlestick','treemap','radar_chart'].includes(next)) {
+  if (['bar_chart','line_chart','area_chart','pie_chart','scatter_plot','heatmap','candlestick','treemap','radar_chart','metric_card'].includes(next)) {
     detectEncoding()
     if (next === 'area_chart') {
       local.variant = 'area'

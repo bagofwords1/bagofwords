@@ -1,11 +1,11 @@
 <template>
-  <div class="h-full w-full" :style="wrapperStyle">
-    <div v-if="!isLoading && chartOptions && Object.keys(chartOptions).length > 0 && (data?.rows?.length || 0) > 0" class="h-full">
+  <div class="h-full w-full flex flex-col" :style="wrapperStyle">
+    <div v-if="!isLoading && chartOptions && Object.keys(chartOptions).length > 0 && (data?.rows?.length || 0) > 0" class="flex-1 min-h-0">
       <VChart :key="chartKey" class="chart" :option="chartOptions" autoresize :loading="isLoading" />
     </div>
-    <div v-else-if="isLoading">Loading Chart...</div>
-    <div v-else-if="!(data?.rows?.length > 0)">No data to display.</div>
-    <div v-else>Chart configuration error or unsupported type.</div>
+    <div v-else-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500">Loading Chart...</div>
+    <div v-else-if="!(data?.rows?.length > 0)" class="flex-1 flex items-center justify-center text-gray-400">No data to display.</div>
+    <div v-else class="flex-1 flex items-center justify-center text-gray-400">Chart configuration error or unsupported type.</div>
   </div>
 </template>
 
@@ -43,15 +43,20 @@ const isLoading = ref(false)
 const chartOptions = ref<EChartsOption>({})
 const chartKey = ref(0)
 
-// Card-level wrapper style
+// Card-level wrapper style - default transparent with no border
 const wrapperStyle = computed(() => {
   const style = (props.view?.style as any) || {}
   const bg = style.cardBackground
   const border = style.cardBorder
-  const out: Record<string, any> = {}
+  const out: Record<string, any> = {
+    backgroundColor: 'transparent',
+    border: 'none'
+  }
+  // Only override if explicitly set
   if (bg) out.backgroundColor = bg
-  if (border === 'none') out.border = 'none'
-  else if (typeof border === 'string' && border.trim().length) out.border = `1px solid ${border}`
+  if (border && border !== 'none' && typeof border === 'string' && border.trim().length) {
+    out.border = `1px solid ${border}`
+  }
   return out
 })
 
@@ -175,7 +180,7 @@ function getBaseOptions(): EChartsOption {
   
   return {
     color: undefined,
-    backgroundColor: (props.view?.style as any)?.backgroundColor || tokens.value?.background || (props.view?.options as any)?.backgroundColor,
+    backgroundColor: (props.view?.style as any)?.backgroundColor || (props.view?.options as any)?.backgroundColor || 'transparent',
     title: { show: false },
     grid: { containLabel, left: leftPad, right: rightPad, bottom: bottomPad, top: topPad },
     legend: {
