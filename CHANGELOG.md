@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.256 (November 28, 2025)
+- Improved visualization
+
 ## Version 0.0.255 (November 27, 2025)
 - Extended user token validity to one week, reducing the need for frequent logins
 - Improved evaluation (Evals) features for more robust and insightful testing
