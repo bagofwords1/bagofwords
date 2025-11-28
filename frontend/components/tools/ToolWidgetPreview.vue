@@ -69,6 +69,18 @@
             >
               Data
             </button>
+            <button 
+              v-if="hasCode"
+              @click="activeTab = 'code'"
+              :class="[
+                'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
+                activeTab === 'code' 
+                  ? 'border-blue-500 text-blue-600' 
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              ]"
+            >
+              Code
+            </button>
           </div>
 
           <!-- Tab Content -->
@@ -101,6 +113,62 @@
                 :class="tableHeightClass"
               >
                 <RenderTable :widget="widget" :step="{ ...(effectiveStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
+              </div>
+            </Transition>
+
+            <!-- Code Content -->
+            <Transition name="fade" mode="out-in">
+              <div
+                v-if="(showTabs && activeTab === 'code') || (!showTabs && hasCode && !showVisual && !hasData)"
+              >
+                <div class="relative">
+                  <!-- Edit button top right -->
+                  <button
+                    v-if="queryId"
+                    @click="onEditClick"
+                    class="absolute top-2 right-2 z-10 text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
+                    title="Edit code"
+                  >
+                    <Icon name="heroicons-pencil-square" class="w-3 h-3 mr-1" />
+                    Edit
+                  </button>
+                  <div class="max-h-[300px] overflow-auto">
+                    <pre class="bg-gray-50 rounded px-4 py-3 pr-20 font-mono text-xs text-gray-800 whitespace-pre-wrap">{{ effectiveStep?.code }}</pre>
+                  </div>
+                </div>
+                
+                <!-- Execution details -->
+                <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
+                  <span v-if="executionDuration">
+                    <Icon name="heroicons-clock" class="w-3 h-3 inline-block mr-1" />
+                    {{ executionDuration }}
+                  </span>
+                  <span v-if="rowCount">
+                    <Icon name="heroicons-table-cells" class="w-3 h-3 inline-block mr-1" />
+                    {{ rowCount }} rows
+                  </span>
+                </div>
+                
+                <!-- Attempts section -->
+                <div v-if="attempts.length > 0" class="mt-3 border-t border-gray-100 pt-3">
+                  <div 
+                    class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+                    @click="attemptsExpanded = !attemptsExpanded"
+                  >
+                    <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1.5" />
+                    <span>Attempts ({{ attempts.length }})</span>
+                  </div>
+                  <Transition name="fade">
+                    <div v-if="attemptsExpanded" class="mt-2 ml-4">
+                      <ul class="text-xs text-gray-600 space-y-1.5">
+                        <li v-for="(att, idx) in attempts" :key="idx" class="flex items-start">
+                          <span class="text-gray-400 mr-2 flex-shrink-0">{{ idx + 1 }}.</span>
+                          <span class="text-red-500">{{ att }}</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </Transition>
+                </div>
               </div>
             </Transition>
           </div>
@@ -195,9 +263,10 @@ const reportThemeName = ref<string | null>(null)
 const reportOverrides = ref<Record<string, any> | null>(null)
 const reportDataSources = ref<string[]>([])
 const openEntityModal = ref(false)
+const attemptsExpanded = ref(false)
 
-// Tab state - default to chart if available, otherwise table
-const activeTab = ref<'chart' | 'table'>('chart')
+// Tab state - default to chart if available, otherwise table, then code
+const activeTab = ref<'chart' | 'table' | 'code'>('chart')
 
 const widget = computed(() => props.toolExecution?.created_widget || null)
 const step = computed(() => props.toolExecution?.created_step || null)
@@ -268,6 +337,15 @@ const rowCount = computed(() => {
     return `${rows.length.toLocaleString()}`
   }
   return null
+})
+
+// Execution duration for display
+const executionDuration = computed(() => {
+  const ms = (props.toolExecution as any)?.duration_ms
+  if (!ms || ms < 100) return null
+  if (ms < 1000) return `${ms}ms`
+  const seconds = (ms / 1000).toFixed(1)
+  return `${seconds}s`
 })
 
 const chartVisualTypes = new Set<string>([
@@ -364,8 +442,24 @@ const hasData = computed(() => {
   return !!effectiveStep.value
 })
 
-// Show tabs only when both chart and table are available
-const showTabs = computed(() => showVisual.value && hasData.value)
+// Check if code is available
+const hasCode = computed(() => !!effectiveStep.value?.code)
+
+// Get attempts/errors from tool execution
+const attempts = computed(() => {
+  const errs = (props.toolExecution?.result_json as any)?.errors || []
+  return errs.map((pair: any) => {
+    const msg = Array.isArray(pair) ? pair[1] : (pair?.message || String(pair))
+    const firstLine = (msg || '').split('\n')[0]
+    return firstLine
+  })
+})
+
+// Show tabs when we have multiple content types available
+const showTabs = computed(() => {
+  const contentTypes = [showVisual.value, hasData.value, hasCode.value].filter(Boolean).length
+  return contentTypes > 1
+})
 
 // Error / table-specific helpers
 const hasStepError = computed(() => {
@@ -391,11 +485,13 @@ const isTableType = computed(() => {
 })
 
 // Watch for data changes to update active tab
-watch([showVisual, hasData], () => {
+watch([showVisual, hasData, hasCode], () => {
   if (showVisual.value) {
     activeTab.value = 'chart'
   } else if (hasData.value) {
     activeTab.value = 'table'
+  } else if (hasCode.value) {
+    activeTab.value = 'code'
   }
 }, { immediate: true })
 

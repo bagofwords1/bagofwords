@@ -1024,6 +1024,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					}
 
+					// Progressive visualization updates for create_data tool
+					if (payload.tool_name === 'create_data' && payload.payload?.stage === 'visualization_inferred') {
+						const p = payload.payload
+						;(lastBlock.tool_execution as any).progress_visualization = {
+							chart_type: p.chart_type,
+							series: p.series || [],
+							group_by: p.group_by
+						}
+					}
+
 					// Progressive instruction drafts for suggest_instructions tool
 					if (payload.tool_name === 'suggest_instructions' && payload.payload) {
 						const p = payload.payload

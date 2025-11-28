@@ -219,7 +219,7 @@ function buildPieOptions(rows: any[], dm: any): EChartsOption {
 }
 
 function buildCartesianOptions(rows: any[], dm: any): EChartsOption {
-  const t = normalizeType((props.view?.view?.type || props.view as any)?.type || dm?.type)
+  const t = normalizeType(props.view?.view?.type || (props.view as any)?.type || dm?.type)
   const variant = props.view?.variant || props.view?.view?.area || (t === 'area_chart' ? 'area' : undefined)
   const chartType = t === 'line_chart' || variant === 'area' || t === 'area_chart' ? 'line' : 'bar'
   const isHorizontal = props.view?.view?.horizontal === true || dm?.horizontal === true
@@ -637,7 +637,7 @@ function buildOptions() {
   
   // Infer series if missing
   if (!dm || !Array.isArray(dm.series) || dm.series.length === 0) {
-    const t = normalizeType((props.view?.view?.type || props.view as any)?.type || (dm as any)?.type)
+    const t = normalizeType(props.view?.view?.type || (props.view as any)?.type || (dm as any)?.type)
     const inferred = inferDefaultSeries(t, props.data)
     if (inferred && inferred.length) dm = { ...(dm || {}), type: t, series: inferred }
   }
@@ -649,7 +649,7 @@ function buildOptions() {
     return
   }
   
-  const t = normalizeType((props.view?.view?.type || props.view as any)?.type || dm.type)
+  const t = normalizeType(props.view?.view?.type || (props.view as any)?.type || dm.type)
   const base = getBaseOptions()
   let specific: EChartsOption = {}
   

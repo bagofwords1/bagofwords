@@ -708,6 +708,15 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                 if progress_event is not None:
                     # emit the series_configured progress for UI if a non-table chart was chosen
                     yield progress_event
+                # Emit visualization_inferred event with details for UI
+                if inferred_dm:
+                    viz_payload = {
+                        "stage": "visualization_inferred",
+                        "chart_type": inferred_dm.get("type"),
+                        "series": inferred_dm.get("series", []),
+                        "group_by": inferred_dm.get("group_by"),
+                    }
+                    yield ToolProgressEvent(type="tool.progress", payload=viz_payload)
         except Exception:
             inferred_dm = None
             progress_event = None
