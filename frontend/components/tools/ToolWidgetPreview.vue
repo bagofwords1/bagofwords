@@ -88,7 +88,7 @@
                     :reportOverrides="reportOverrides"
                   />
                 </div>
-                <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
+                <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px] px-10">
                   <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" :view="normalizedView" />
                 </div>
               </div>

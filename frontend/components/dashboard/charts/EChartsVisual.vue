@@ -168,10 +168,10 @@ function getBaseOptions(): EChartsOption {
   const yVisible = props.view?.yAxisVisible ?? props.view?.view?.axisY?.show ?? true
   const legendVisible = props.view?.legendVisible ?? props.view?.view?.legend?.show ?? false
   const containLabel = xVisible || yVisible
-  const topPad: number | string = legendVisible ? 36 : 12
-  const bottomPad: number | string = legendVisible ? 24 : 8
-  const leftPad: number | string = 4
-  const rightPad: number | string = 4
+  const topPad: number | string = legendVisible ? 36 : 18
+  const bottomPad: number | string = legendVisible ? 24 : 12
+  const leftPad: number | string = 24
+  const rightPad: number | string = 24
   
   return {
     color: undefined,
