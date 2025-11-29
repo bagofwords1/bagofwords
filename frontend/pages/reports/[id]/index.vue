@@ -296,6 +296,7 @@
 				<PromptBoxV2 
 					ref="promptBoxRef"
 					:report_id="report_id"
+					:initialSelectedDataSources="report?.data_sources || []"
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
 					@submitCompletion="onSubmitCompletion"

@@ -812,17 +812,15 @@ async function fetchAvailableMentions() {
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
   setPlaceholder()
-  
-  // Fetch available mentions
-  await fetchAvailableMentions()
-  
-  // Set initial content if provided
+
   if (props.modelValue && inputRef.value) {
     inputRef.value.innerText = props.modelValue
     textContent.value = props.modelValue
   }
+
+  fetchAvailableMentions()
 })
 
 // Client-side filtering only; no refetch when selected data sources change

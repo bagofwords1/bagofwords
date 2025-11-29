@@ -219,10 +219,179 @@
       >
         <Icon :name="expandedSections.has('observations') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
         Observations
+        <span v-if="toolObservations.length" class="ml-2 text-[10px] text-gray-400">({{ toolObservations.length }} execution{{ toolObservations.length !== 1 ? 's' : '' }})</span>
       </div>
       <Transition name="fade">
-        <div v-if="expandedSections.has('observations')" class="ml-4">
-          <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ formatJson(observations) }}</pre>
+        <div v-if="expandedSections.has('observations')" class="ml-2 space-y-2">
+          <!-- No observations -->
+          <div v-if="!toolObservations.length" class="text-xs text-gray-500">No tool executions recorded</div>
+          
+          <!-- Tool Observations List -->
+          <div v-for="obs in toolObservations" :key="'obs-' + obs.execution_number" class="border rounded-md overflow-hidden">
+            <!-- Observation Header -->
+            <div 
+              class="flex items-center justify-between px-3 py-2 cursor-pointer"
+              :class="getObservationHeaderClass(obs)"
+              @click="toggleSection('obs:' + obs.execution_number)"
+            >
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-gray-700 text-white text-[10px] font-medium">
+                  {{ obs.execution_number }}
+                </span>
+                <span class="text-xs font-medium text-gray-900">{{ obs.tool_name }}</span>
+                <Icon 
+                  v-if="hasObservationError(obs)" 
+                  name="heroicons-exclamation-triangle" 
+                  class="w-3.5 h-3.5 text-red-500" 
+                />
+                <Icon 
+                  v-else-if="hasObservationSuccess(obs)" 
+                  name="heroicons-check-circle" 
+                  class="w-3.5 h-3.5 text-green-500" 
+                />
+              </div>
+              <div class="flex items-center gap-2">
+                <span v-if="obs.timestamp" class="text-[10px] text-gray-400">{{ formatObservationTime(obs.timestamp) }}</span>
+                <Icon :name="expandedSections.has('obs:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500" />
+              </div>
+            </div>
+            
+            <!-- Observation Details (expanded) -->
+            <Transition name="fade">
+              <div v-if="expandedSections.has('obs:' + obs.execution_number)" class="px-3 py-2 bg-white border-t border-gray-100 space-y-3">
+                <!-- Tool Input -->
+                <div v-if="obs.tool_input && Object.keys(obs.tool_input).length">
+                  <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Input</div>
+                  
+                  <!-- Title -->
+                  <div v-if="obs.tool_input.title" class="mb-2">
+                    <div class="text-xs font-medium text-gray-900">{{ obs.tool_input.title }}</div>
+                  </div>
+                  
+                  <!-- User Prompt -->
+                  <div v-if="obs.tool_input.user_prompt" class="mb-2">
+                    <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">User Prompt</div>
+                    <div class="text-xs text-gray-700 bg-gray-50 rounded px-2 py-1.5 border-l-2 border-gray-300">
+                      {{ truncateText(obs.tool_input.user_prompt, 200) }}
+                    </div>
+                  </div>
+                  
+                  <!-- Interpreted Prompt -->
+                  <div v-if="obs.tool_input.interpreted_prompt" class="mb-2">
+                    <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-0.5">Interpreted</div>
+                    <div class="text-xs text-gray-700 bg-blue-50 rounded px-2 py-1.5 border-l-2 border-blue-300">
+                      {{ truncateText(obs.tool_input.interpreted_prompt, 200) }}
+                    </div>
+                  </div>
+                  
+                  <!-- Tables by Source -->
+                  <div v-if="obs.tool_input.tables_by_source?.length" class="mb-2">
+                    <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1">Tables</div>
+                    <div class="flex flex-wrap gap-1">
+                      <template v-for="source in obs.tool_input.tables_by_source" :key="source.data_source_id">
+                        <span 
+                          v-for="table in (source.tables || [])" 
+                          :key="source.data_source_id + ':' + table"
+                          class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-700 border border-indigo-200"
+                        >
+                          <Icon name="heroicons-table-cells" class="w-3 h-3 mr-1 text-indigo-400" />
+                          {{ table }}
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+                  
+                  <!-- Other Input Fields (collapsible) -->
+                  <div v-if="getOtherInputFields(obs.tool_input).length" class="mt-2">
+                    <div 
+                      class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-400 mb-1"
+                      @click.stop="toggleSection('obs-input:' + obs.execution_number)"
+                    >
+                      <Icon :name="expandedSections.has('obs-input:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                      Other Fields ({{ getOtherInputFields(obs.tool_input).length }})
+                    </div>
+                    <Transition name="fade">
+                      <div v-if="expandedSections.has('obs-input:' + obs.execution_number)" class="ml-2 space-y-1">
+                        <div v-for="[key, value] in getOtherInputFields(obs.tool_input)" :key="key" class="text-xs">
+                          <span class="text-gray-500">{{ key }}:</span>
+                          <span class="text-gray-800 ml-1">{{ formatInputValue(value) }}</span>
+                        </div>
+                      </div>
+                    </Transition>
+                  </div>
+                </div>
+                
+                <!-- Observation Result -->
+                <div v-if="obs.observation">
+                  <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Result</div>
+                  
+                  <!-- Summary -->
+                  <div v-if="obs.observation.summary" class="mb-2">
+                    <div 
+                      class="text-xs rounded px-2 py-1.5 border-l-2"
+                      :class="hasObservationError(obs) ? 'bg-red-50 border-red-300 text-red-800' : 'bg-green-50 border-green-300 text-green-800'"
+                    >
+                      {{ obs.observation.summary }}
+                    </div>
+                  </div>
+                  
+                  <!-- Error Details -->
+                  <div v-if="obs.observation.error" class="mb-2">
+                    <div class="text-[10px] uppercase tracking-wide text-red-400 mb-0.5">Error</div>
+                    <div class="text-xs text-red-700 bg-red-50 rounded px-2 py-1.5 border border-red-200">
+                      <template v-if="typeof obs.observation.error === 'string'">
+                        {{ obs.observation.error }}
+                      </template>
+                      <template v-else-if="obs.observation.error.message">
+                        {{ obs.observation.error.message }}
+                        <div v-if="obs.observation.error.field_errors?.length" class="mt-1 text-[10px]">
+                          Fields: {{ obs.observation.error.field_errors.join(', ') }}
+                        </div>
+                        <div v-if="obs.observation.error.suggestion" class="mt-1 text-[10px] text-red-600">
+                          Suggestion: {{ obs.observation.error.suggestion }}
+                        </div>
+                      </template>
+                      <template v-else>
+                        {{ formatJson(obs.observation.error) }}
+                      </template>
+                    </div>
+                  </div>
+                  
+                  <!-- Other Observation Fields -->
+                  <div v-if="getOtherObservationFields(obs.observation).length">
+                    <div 
+                      class="flex items-center cursor-pointer text-[10px] uppercase tracking-wide text-gray-400 mb-1"
+                      @click.stop="toggleSection('obs-result:' + obs.execution_number)"
+                    >
+                      <Icon :name="expandedSections.has('obs-result:' + obs.execution_number) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
+                      Details
+                    </div>
+                    <Transition name="fade">
+                      <div v-if="expandedSections.has('obs-result:' + obs.execution_number)" class="ml-2">
+                        <pre class="text-[11px] text-gray-700 whitespace-pre-wrap bg-gray-50 rounded p-2 overflow-x-auto max-h-40">{{ formatJson(Object.fromEntries(getOtherObservationFields(obs.observation))) }}</pre>
+                      </div>
+                    </Transition>
+                  </div>
+                </div>
+              </div>
+            </Transition>
+          </div>
+          
+          <!-- Widget Updates Summary -->
+          <div v-if="widgetUpdates.length" class="border rounded-md px-3 py-2 bg-purple-50 border-purple-200">
+            <div class="flex items-center gap-2">
+              <Icon name="heroicons-squares-2x2" class="w-4 h-4 text-purple-500" />
+              <span class="text-xs font-medium text-purple-900">{{ widgetUpdates.length }} widget{{ widgetUpdates.length !== 1 ? 's' : '' }} created/updated</span>
+            </div>
+          </div>
+          
+          <!-- Visualization Updates Summary -->
+          <div v-if="visualizationUpdates.length" class="border rounded-md px-3 py-2 bg-teal-50 border-teal-200">
+            <div class="flex items-center gap-2">
+              <Icon name="heroicons-chart-bar" class="w-4 h-4 text-teal-500" />
+              <span class="text-xs font-medium text-teal-900">{{ visualizationUpdates.length }} visualization{{ visualizationUpdates.length !== 1 ? 's' : '' }} created/updated</span>
+            </div>
+          </div>
         </div>
       </Transition>
     </div>
@@ -462,7 +631,33 @@ const instructionsList = computed(() => {
 const resourcesContent = computed(() => props.contextData?.static?.resources?.content || '')
 const metadataResources = computed<any[]>(() => [])
 
-const observations = computed(() => props.contextData?.warm?.observations || '')
+const observations = computed(() => props.contextData?.warm?.observations || null)
+
+// Parsed observations data
+const toolObservations = computed(() => {
+  const obs = observations.value
+  if (!obs) return []
+  // Handle both object and array formats
+  if (Array.isArray(obs.tool_observations)) {
+    return obs.tool_observations
+  }
+  if (Array.isArray(obs)) {
+    return obs
+  }
+  return []
+})
+
+const widgetUpdates = computed(() => {
+  const obs = observations.value
+  if (!obs || !Array.isArray(obs.widget_updates)) return []
+  return obs.widget_updates
+})
+
+const visualizationUpdates = computed(() => {
+  const obs = observations.value
+  if (!obs || !Array.isArray(obs.visualization_updates)) return []
+  return obs.visualization_updates
+})
 
 const mentions = computed(() => props.contextData?.warm?.mentions || null)
 
@@ -649,6 +844,62 @@ function formatJson(v: any): string {
   } catch (e) {
     return String(v)
   }
+}
+
+// Observation helpers
+function getObservationHeaderClass(obs: any): string {
+  if (hasObservationError(obs)) {
+    return 'bg-red-50'
+  }
+  return 'bg-gray-50'
+}
+
+function hasObservationError(obs: any): boolean {
+  if (!obs?.observation) return false
+  return !!obs.observation.error || obs.observation.summary?.toLowerCase().includes('error') || obs.observation.summary?.toLowerCase().includes('failed')
+}
+
+function hasObservationSuccess(obs: any): boolean {
+  if (!obs?.observation) return false
+  if (hasObservationError(obs)) return false
+  return !!obs.observation.summary
+}
+
+function formatObservationTime(timestamp: string): string {
+  if (!timestamp) return ''
+  try {
+    const date = new Date(timestamp)
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return timestamp
+  }
+}
+
+function truncateText(text: string, maxLength: number): string {
+  if (!text) return ''
+  if (text.length <= maxLength) return text
+  return text.slice(0, maxLength) + '…'
+}
+
+function getOtherInputFields(input: any): Array<[string, any]> {
+  if (!input || typeof input !== 'object') return []
+  const skipKeys = ['title', 'user_prompt', 'interpreted_prompt', 'tables_by_source']
+  return Object.entries(input).filter(([k]) => !skipKeys.includes(k))
+}
+
+function formatInputValue(value: any): string {
+  if (value === null || value === undefined) return '—'
+  if (typeof value === 'string') return truncateText(value, 100)
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  if (Array.isArray(value)) return `[${value.length} items]`
+  if (typeof value === 'object') return '{...}'
+  return String(value)
+}
+
+function getOtherObservationFields(observation: any): Array<[string, any]> {
+  if (!observation || typeof observation !== 'object') return []
+  const skipKeys = ['summary', 'error']
+  return Object.entries(observation).filter(([k, v]) => !skipKeys.includes(k) && v !== null && v !== undefined)
 }
 
 // Build metrics map for object-based table entry
