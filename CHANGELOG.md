@@ -1,7 +1,11 @@
 # Release Notes
 
-## Version 0.0.256 (November 28, 2025)
-- Improved visualization
+## Version 0.0.256 (November 29, 2025)
+- Improved visualization features
+- Enhanced dashboard creation workflow
+- Suggestions now cover more user actions, such as corrections, querying the same tables, and sharing code
+- Expanded instruction categories for system, dashboard, and visualizations
+- UI improvements for agent trace, observations, and reduced visualization flicker
 
 ## Version 0.0.255 (November 27, 2025)
 - Extended user token validity to one week, reducing the need for frequent logins
