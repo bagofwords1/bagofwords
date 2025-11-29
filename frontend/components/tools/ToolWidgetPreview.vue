@@ -7,7 +7,7 @@
           <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 mr-1.5 text-gray-500" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
           <button
-            v-if="queryId"
+            v-if="queryId && canEditCode"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
             title="Edit query code"
@@ -124,7 +124,7 @@
                 <div class="relative">
                   <!-- Edit button top right -->
                   <button
-                    v-if="queryId"
+                    v-if="queryId && canEditCode"
                     @click="onEditClick"
                     class="absolute top-2 right-2 z-10 text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
                     title="Edit code"
@@ -233,6 +233,7 @@
 import { computed, ref, watch, defineAsyncComponent, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
+import { useOrgSettings } from '~/composables/useOrgSettings'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
@@ -253,6 +254,8 @@ interface ToolExecution {
 
 const props = defineProps<{ toolExecution: ToolExecution }>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
+
+const { canEditCode } = useOrgSettings()
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(false) // Start expanded

@@ -1,1 +1,2 @@
 from .suggest_instructions import SuggestInstructions
+from .trigger import InstructionTriggerEvaluator

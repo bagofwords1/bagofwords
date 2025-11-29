@@ -25,7 +25,7 @@ from sqlalchemy import select, func
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
 from app.ai.agents.judge.judge import Judge
-from app.ai.agents.suggest_instructions.suggest_instructions import SuggestInstructions
+from app.ai.agents.suggest_instructions import SuggestInstructions, InstructionTriggerEvaluator
 from app.settings.database import create_async_session_factory
 from app.dependencies import async_session_maker
 from app.core.telemetry import telemetry
@@ -707,7 +707,7 @@ class AgentV2:
                             # === Post-analysis: determine if instruction suggestions are required
                             res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
                             should_trigger_suggestions = res.get("decision", False)
-                            hint = res.get("hint", "")
+                            conditions = res.get("conditions", [])
 
                             if should_trigger_suggestions:
                                 # Stream suggestions via SSE
@@ -731,7 +731,9 @@ class AgentV2:
                                 try:
                                     if self.suggest_instructions is not None and self.report_type == 'regular':
                                         drafts = []
-                                        async for draft in self.suggest_instructions.stream_suggestions(context_view=view_for_suggest, context_hub=self.context_hub, hint=hint):
+                                        # Format trigger reason from conditions for persistence
+                                        trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
+                                        async for draft in self.suggest_instructions.stream_suggestions(context_view=view_for_suggest, context_hub=self.context_hub, conditions=conditions):
                                             # Persist immediately and stream back full instruction object
                                             inst = await self.project_manager.create_instruction_from_draft(
                                                 self.db,
@@ -739,7 +741,7 @@ class AgentV2:
                                                 text=draft.get("text", ""),
                                                 category=draft.get("category", "general"),
                                                 agent_execution_id=str(self.current_execution.id),
-                                                trigger_reason=hint,
+                                                trigger_reason=trigger_reason,
                                                 ai_source="completion",
                                                 user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
                                             )
@@ -1364,69 +1366,25 @@ class AgentV2:
     async def _should_suggest_instructions(self, prev_tool_name_before_last_user: Optional[str]) -> Dict[str, object]:
         """Decide whether to run suggest_instructions based on report history.
 
-        Always returns a dict: {"decision": bool, "hint": str}.
-
-        Conditions:
-        - A) This agent_execution includes a create_widget tool AND the previous tool before the latest user message was clarify.
-        - OR
-        - B) Within THIS agent_execution, there exists a successful create_widget whose result_json.errors has length >= 1
-             (i.e., one or more internal retries/failures before eventual success).
+        Delegates to InstructionTriggerEvaluator for condition evaluation.
+        Returns: {"decision": bool, "conditions": [{"name": str, "hint": str}, ...]}
         """
-        if not self.organization_settings.get_config("suggest_instructions") and self.organization_settings.get_config("suggest_instructions").value:
-            return {"decision": False, "hint": ""}
-        
-        hint = ""
         try:
-            report_id = str(self.report.id) if self.report else None
-            if not report_id:
-                return {"decision": False, "hint": ""}
-
-            # A) Current execution contains create_widget
-            ran_create_widget = False
-            try:
-                if self.current_execution:
-                    stmt_cw_current = (
-                        select(ToolExecution.id)
-                        .where(ToolExecution.agent_execution_id == str(self.current_execution.id))
-                        .where(ToolExecution.tool_name == "create_data")
-                        .limit(1)
-                    )
-                    res_cw_current = await self.db.execute(stmt_cw_current)
-                    ran_create_widget = res_cw_current.first() is not None
-            except Exception:
-                ran_create_widget = False
-
-            trigger_a = bool(ran_create_widget and prev_tool_name_before_last_user == "clarify")
-            hint += "Suggesting instructions due to a clarification tool call followed by a user message that triggered a create_widget tool" if trigger_a else ""
-
-            # B) Success with internal retries in the CURRENT execution (errors list present on success)
-            success_with_retries = False
-            try:
-                if self.current_execution:
-                    stmt_successes = (
-                        select(ToolExecution.result_json)
-                        .where(ToolExecution.agent_execution_id == str(self.current_execution.id))
-                        .where(ToolExecution.tool_name == "create_data")
-                        .where((ToolExecution.success == True) | (ToolExecution.status == "success"))
-                        .order_by(ToolExecution.started_at.desc())
-                        .limit(10)
-                    )
-                    res_rows = await self.db.execute(stmt_successes)
-                    for (result_json,) in res_rows.all():
-                        try:
-                            errors = (result_json or {}).get("errors", [])
-                            if isinstance(errors, list) and len(errors) >= 1:
-                                success_with_retries = True
-                                hint += "\n\nSuggesting instructions due to a successful create_widget tool with internal retries"
-                                break
-                        except Exception:
-                            continue
-            except Exception:
-                success_with_retries = False
-
-            return { "decision": bool(trigger_a or success_with_retries), "hint": hint }
+            # Get user message for condition evaluation
+            user_message = ""
+            if self.head_completion and self.head_completion.prompt:
+                user_message = self.head_completion.prompt.get("content", "")
+            
+            evaluator = InstructionTriggerEvaluator(
+                db=self.db,
+                organization_settings=self.organization_settings,
+                report_id=str(self.report.id) if self.report else None,
+                current_execution_id=str(self.current_execution.id) if self.current_execution else None,
+                user_message=user_message,
+            )
+            return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:
-            return {"decision": False, "hint": ""}
+            return {"decision": False, "conditions": []}
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type."""
