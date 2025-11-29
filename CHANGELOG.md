@@ -6,6 +6,8 @@
 - Suggestions now cover more user actions, such as corrections, querying the same tables, and sharing code
 - Expanded instruction categories for system, dashboard, and visualizations
 - UI improvements for agent trace, observations, and reduced visualization flicker
+- Improved data source onboarding and test connections
+- Added integration tests for LLMs and popular data sources
 
 ## Version 0.0.255 (November 27, 2025)
 - Extended user token validity to one week, reducing the need for frequent logins

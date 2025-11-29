@@ -1,10 +1,21 @@
-name: integrations
+name: integrations (manual)
 
 on:
-  workflow_dispatch:  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      test_type:
+        description: 'Which tests to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - data-sources
+          - llms
 
 jobs:
   data-sources:
+    if: inputs.test_type == 'all' || inputs.test_type == 'data-sources'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,6 +48,7 @@ jobs:
         pytest -v tests/integrations/ds_clients.py --disable-warnings
 
   llms:
+    if: inputs.test_type == 'all' || inputs.test_type == 'llms'
     runs-on: ubuntu-latest
     permissions:
       contents: read

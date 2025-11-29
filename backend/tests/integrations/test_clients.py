@@ -1,4 +1,5 @@
 import os
+import json
 import yaml
 import pytest
 import logging
@@ -17,6 +18,7 @@ from app.data_sources.clients.oracledb_client import OracledbClient
 from app.data_sources.clients.salesforce_client import SalesforceClient
 from app.data_sources.clients.presto_client import PrestoClient
 from app.data_sources.clients.vertica_client import VerticaClient
+from app.services.data_source_service import DataSourceService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -70,6 +72,44 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
         cfg.update(flat_selected)
 
     return cfg
+
+
+def ds_config_and_credentials(name: str) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Parse integrations.json entry for a data source and return separate config and credentials dicts.
+    This follows the DataSourceCreate schema structure expected by the service.
+    """
+    raw = dict(CREDENTIALS.get(name, {}))
+    if not raw:
+        pytest.skip(f"{name} missing in integrations.json")
+    enabled = raw.pop("enabled", False)
+    if not enabled:
+        pytest.skip(f"{name} disabled in integrations.json")
+
+    # Extract common block
+    common = raw.pop("common", {}) or {}
+
+    # Handle nested auth structure: { auth: { type, by_auth: { <type>: {...} } } }
+    auth = raw.pop("auth", None)
+    selected_auth_creds = {}
+    if isinstance(auth, dict):
+        auth_type = auth.get("type")
+        by_auth = auth.get("by_auth") or {}
+        if auth_type and isinstance(by_auth, dict):
+            selected_auth_creds = by_auth.get(auth_type, {}) or {}
+
+    # Handle flat auth structure: { auth_type: "...", "<auth_type>": {...} }
+    flat_auth_type = raw.pop("auth_type", None)
+    if flat_auth_type and isinstance(raw.get(flat_auth_type), dict):
+        selected_auth_creds = raw.pop(flat_auth_type)
+
+    # Build config from common + remaining fields (non-credential fields)
+    config = {**common, **raw}
+
+    # Credentials come from the selected auth variant
+    credentials = selected_auth_creds
+
+    return config, credentials
 
 @pytest.fixture
 def mysql_client() -> MysqlClient:
@@ -248,3 +288,102 @@ def test_aws_cost_execute_query(aws_cost_client):
     df = aws_cost_client.execute_query("get_cost_and_usage", parameters)
     logger.info(f"AWS Cost Explorer query returned {len(df)} rows.")
     assert len(df) > 0, "Expected non-empty result from AWS Cost Explorer query"
+
+
+# =============================================================================
+# Service-level connection tests using DataSourceService.test_new_data_source_connection
+# These tests validate both connectivity AND schema access (get_tables)
+# =============================================================================
+
+@pytest.mark.asyncio
+async def test_snowflake_new_connection():
+    """
+    Test Snowflake connection using DataSourceService.test_new_data_source_connection.
+    Validates both basic connectivity and schema access.
+    """
+    from app.schemas.data_source_schema import DataSourceCreate
+    from unittest.mock import MagicMock, AsyncMock
+
+    config, credentials = ds_config_and_credentials('snowflake')
+    
+    # Build DataSourceCreate payload matching the expected schema structure
+    payload = DataSourceCreate(
+        name="test-snowflake-integration",
+        type="snowflake",
+        config=config,
+        credentials=credentials,
+        auth_policy="system_only",
+    )
+    
+    # Create service instance and call test_new_data_source_connection
+    service = DataSourceService()
+    
+    # Mock db, organization, user (not used in actual connection test logic)
+    mock_db = AsyncMock()
+    mock_org = MagicMock()
+    mock_user = MagicMock()
+    
+    result = await service.test_new_data_source_connection(
+        db=mock_db,
+        data=payload,
+        organization=mock_org,
+        current_user=mock_user,
+    )
+    
+    logger.info(f"Snowflake connection test result: {result}")
+    
+    assert result.get("success") is True, f"Snowflake connection failed: {result.get('message')}"
+    assert result.get("connectivity") is True, "Expected connectivity to be True"
+    assert result.get("schema_access") is True, f"Schema access failed: {result.get('message')}"
+    assert result.get("table_count", 0) > 0, "Expected at least one table in schema"
+    
+    logger.info(f"Snowflake: Connection successful, found {result.get('table_count')} tables")
+
+
+@pytest.mark.asyncio
+async def test_bigquery_new_connection():
+    """
+    Test BigQuery connection using DataSourceService.test_new_data_source_connection.
+    Validates both basic connectivity and schema access.
+    """
+    from app.schemas.data_source_schema import DataSourceCreate
+    from unittest.mock import MagicMock, AsyncMock
+
+    config, credentials = ds_config_and_credentials('bigquery')
+    
+    # BigQuery credentials_json may need to be a JSON string
+    if 'credentials_json' in credentials and isinstance(credentials['credentials_json'], dict):
+        credentials['credentials_json'] = json.dumps(credentials['credentials_json'])
+    
+    # Build DataSourceCreate payload
+    payload = DataSourceCreate(
+        name="test-bigquery-integration",
+        type="bigquery",
+        config=config,
+        credentials=credentials,
+        auth_policy="system_only",
+    )
+    
+    # Create service instance
+    service = DataSourceService()
+    
+    # Mock db, organization, user (not used in actual connection test logic)
+    mock_db = AsyncMock()
+    mock_org = MagicMock()
+    mock_user = MagicMock()
+    
+    result = await service.test_new_data_source_connection(
+        db=mock_db,
+        data=payload,
+        organization=mock_org,
+        current_user=mock_user,
+    )
+    
+    logger.info(f"BigQuery connection test result: {result}")
+    
+    assert result.get("success") is True, f"BigQuery connection failed: {result.get('message')}"
+    assert result.get("connectivity") is True, "Expected connectivity to be True"
+    assert result.get("schema_access") is True, f"Schema access failed: {result.get('message')}"
+    assert result.get("table_count", 0) > 0, "Expected at least one table in schema"
+    
+    logger.info(f"BigQuery: Connection successful, found {result.get('table_count')} tables")

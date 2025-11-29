@@ -106,9 +106,76 @@ jobs:
       run: |
         pytest -s -m e2e --disable-warnings
 
+  # Integration tests - only run on push to main (before release)
+  integration-data-sources:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_versioned.txt
+
+    - name: Restore integrations credentials
+      run: |
+        echo "$INTEGRATIONS_JSON_B64" | base64 -d > backend/tests/integrations/integrations.json
+      env:
+        INTEGRATIONS_JSON_B64: ${{ secrets.INTEGRATIONS_JSON_B64 }}
+
+    - name: Run data source integration tests
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        pytest -v tests/integrations/ds_clients.py --disable-warnings
+
+  integration-llms:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_versioned.txt
+
+    - name: Restore integrations credentials
+      run: |
+        echo "$INTEGRATIONS_JSON_B64" | base64 -d > backend/tests/integrations/integrations.json
+      env:
+        INTEGRATIONS_JSON_B64: ${{ secrets.INTEGRATIONS_JSON_B64 }}
+
+    - name: Run LLM integration tests
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        pytest -v tests/integrations/llm_clients.py --disable-warnings
+
   dispatch-build:
     if: github.ref == 'refs/heads/main'
-    needs: e2e-tests
+    needs: [e2e-tests, integration-data-sources, integration-llms]
     runs-on: ubuntu-latest
     steps:
     - name: Trigger Docker build workflow

@@ -182,3 +182,4 @@ posthog==6.7.11
 db-dtypes==1.2.0
 pinotdb==5.7.0
 oracledb==3.4.0
+testcontainers[postgres,mysql]==4.13.3
