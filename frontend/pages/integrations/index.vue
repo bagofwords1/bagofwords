@@ -1,85 +1,101 @@
 <template>
-
-    <div class="flex pl-2 md:pl-4 text-sm mx-auto md:w-1/2 md:pt-10">
-        <div class="w-full px-4 pl-0 py-4">
-            <div>
-                <h1 class="text-lg font-semibold text-center">
-                    <GoBackChevron v-if="isExcel" />
-                    Integrations</h1>
-                <p class="mt-4 text-gray-500">Connect and manage your data sources</p>
-            </div>
-
-            <div class="mt-6 mb-4" v-if="connectedIntegrations.length > 0">
-                <div class="font-medium">Connected Integrations</div>
-                <NuxtLink :to="`/integrations/${ds.id}`" class="border-b border-gray-100 w-full pt-2.5 pb-2.5 rounded-lg flex hover:bg-gray-50"
-                    v-for="ds in connectedIntegrations" :key="ds.id">
-                    <div class=" p-2 w-18">
-                        <DataSourceIcon class="w-8" :type="ds.type" />
-                    </div>
-                    <div class="w-full pl-3">
-                        <span class="float-right">
-                            <UTooltip :text="ds.status === 'active' ? `Connected via ${getAuthTooltipSource(ds)}` : `Disconnected (${getAuthTooltipSource(ds)})`">
-                                <span class="text-green-800 bg-green-100 px-1 py-0 rounded-md text-[10px] flex items-center" v-if="ds.status === 'active'">
-                                    <UIcon name="heroicons-check" class="mr-1" /> Connected
-                                </span>
-                                <span class="text-red-800 bg-red-100 px-1 py-0 rounded-md text-[10px] flex items-center" v-else>
-                                    <UIcon name="heroicons-x-circle" /> Disconnected
-                                </span>
-                            </UTooltip>
-                        </span>
-                        {{ ds.name }}
-                        <p class="text-gray-500 text-xs">
-                            <span class="text-gray-500">Created at {{ new Date(ds.created_at).toLocaleString() }}</span>
-                        </p>
-                    </div>
-                </NuxtLink>
-            </div>
-
-            <div class="mt-6 mb-4" v-if="availableConnections.length > 0">
-                <div class="font-medium">Available Connections</div>
-                <div class="border-b border-gray-100 w-full pt-2.5 pb-2.5 rounded-lg flex hover:bg-gray-50"
-                    v-for="ds in availableConnections" :key="ds.id">
-                    <div class=" p-2 w-18">
-                        <DataSourceIcon class="w-8" :type="ds.type" />
-                    </div>
-                    <div class="w-full pl-3">
-                        <UButton size="xs" color="blue" variant="solid" class="float-right" @click="openCreds(ds)">Connect</UButton>
-                        {{ ds.name }}
-                        <p class="text-gray-500 text-xs">
-                            <span class="text-gray-500">Created at {{ new Date(ds.created_at).toLocaleString() }}</span>
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            <div class="mt-6 mb-4" v-if="canCreateDataSource()">
-                <div class="font-medium">
-                    Integrate a data source:
-                </div>
-            <NuxtLink
-                :to="`/integrations/new?type=${ds.type}`"
-                class="border-b border-gray-100 w-full pt-2.5 pb-2.5 rounded-lg flex hover:bg-gray-50"
-                v-for="ds in available_ds" :key="ds.type">
-                    <div class="p-2 w-18">
-                        <DataSourceIcon class="w-8" :type="ds.type" />
-                    </div>
-                    <div class="w-9/10 pl-3">
-                        {{ ds.title }}
-                        <p class="text-gray-500 text-xs">{{ ds.description }}</p>
-                    </div>
-                </NuxtLink>
-            </div>
-
+    <div class="flex flex-col min-h-screen">
+        <!-- Full page loading spinner -->
+        <div v-if="loading" class="flex flex-col items-center justify-center flex-grow py-20">
+            <Spinner class="h-4 w-4 text-gray-400" />
+            <p class="text-sm text-gray-500 mt-2">Loading...</p>
         </div>
-    </div>
 
-    <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="selectedDs" @saved="getConnectedDataSources" />
+        <div class="flex pl-2 md:pl-4 text-sm mx-auto md:w-1/2 md:pt-10" v-else>
+            <div class="w-full px-4 pl-0 py-4">
+                <div>
+                    <h1 class="text-lg font-semibold text-center">
+                        <GoBackChevron v-if="isExcel" />
+                        Integrations</h1>
+                    <p class="mt-4 text-gray-500">Connect and manage your data sources</p>
+                </div>
+
+                <div class="mt-6 mb-4" v-if="connectedIntegrations.length > 0">
+                    <div class="font-medium">Connected Integrations</div>
+                    <NuxtLink :to="`/integrations/${ds.id}`" class="border-b border-gray-100 w-full pt-2.5 pb-2.5 rounded-lg flex hover:bg-gray-50"
+                        v-for="ds in connectedIntegrations" :key="ds.id">
+                        <div class=" p-2 w-18">
+                            <DataSourceIcon class="w-8" :type="ds.type" />
+                        </div>
+                        <div class="w-full pl-3">
+                            <span class="float-right">
+                                <UTooltip :text="ds.status === 'active' ? `Connected via ${getAuthTooltipSource(ds)}` : `Disconnected (${getAuthTooltipSource(ds)})`">
+                                    <span class="text-green-800 bg-green-100 px-1 py-0 rounded-md text-[10px] flex items-center" v-if="ds.status === 'active'">
+                                        <UIcon name="heroicons-check" class="mr-1" /> Connected
+                                    </span>
+                                    <span class="text-red-800 bg-red-100 px-1 py-0 rounded-md text-[10px] flex items-center" v-else>
+                                        <UIcon name="heroicons-x-circle" /> Disconnected
+                                    </span>
+                                </UTooltip>
+                            </span>
+                            {{ ds.name }}
+                            <p class="text-gray-500 text-xs">
+                                <span class="text-gray-500">Created at {{ new Date(ds.created_at).toLocaleString() }}</span>
+                            </p>
+                        </div>
+                    </NuxtLink>
+                </div>
+
+                <div class="mt-6 mb-4" v-if="availableConnections.length > 0">
+                    <div class="font-medium">Available Connections</div>
+                    <div class="border-b border-gray-100 w-full pt-2.5 pb-2.5 rounded-lg flex hover:bg-gray-50"
+                        v-for="ds in availableConnections" :key="ds.id">
+                        <div class=" p-2 w-18">
+                            <DataSourceIcon class="w-8" :type="ds.type" />
+                        </div>
+                        <div class="w-full pl-3">
+                            <UButton size="xs" color="blue" variant="solid" class="float-right" @click="openCreds(ds)">Connect</UButton>
+                            {{ ds.name }}
+                            <p class="text-gray-500 text-xs">
+                                <span class="text-gray-500">Created at {{ new Date(ds.created_at).toLocaleString() }}</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mt-6 mb-4" v-if="canCreateDataSource()">
+                    <div class="font-medium">
+                        Integrate a data source:
+                    </div>
+                    <div class="mt-2 mb-3">
+                        <input 
+                            v-model="searchQuery" 
+                            type="text" 
+                            placeholder="Search data sources..." 
+                            class="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                    </div>
+                <NuxtLink
+                    :to="`/integrations/new?type=${ds.type}`"
+                    class="border-b border-gray-100 w-full pt-2.5 pb-2.5 rounded-lg flex hover:bg-gray-50"
+                    v-for="ds in filteredAvailableDs" :key="ds.type">
+                        <div class="p-2 w-18">
+                            <DataSourceIcon class="w-8" :type="ds.type" />
+                        </div>
+                        <div class="w-9/10 pl-3">
+                            {{ ds.title }}
+                            <p class="text-gray-500 text-xs">{{ ds.description }}</p>
+                        </div>
+                    </NuxtLink>
+                </div>
+
+            </div>
+        </div>
+
+        <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="selectedDs" @saved="getConnectedDataSources" />
+    </div>
 </template>
 
 <script lang="ts" setup>
 
 import GoBackChevron from '@/components/excel/GoBackChevron.vue';
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import Spinner from '~/components/Spinner.vue'
 
 const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
 
@@ -89,32 +105,53 @@ const { isExcel } = useExcel()
 definePageMeta({ auth: true })
 const available_ds = ref([]);
 const connected_ds = ref([]);
+const loadingConnected = ref(true);
+const loadingAvailable = ref(true);
+const searchQuery = ref('');
+const loading = computed(() => loadingConnected.value || loadingAvailable.value);
 const connectedIntegrations = computed(() => (connected_ds.value || []).filter((ds: any) => ds.user_status?.has_user_credentials || ds.auth_policy === 'system_only' || ds.user_status?.effective_auth === 'system'))
 const availableConnections = computed(() => (connected_ds.value || []).filter((ds: any) => ds.auth_policy === 'user_required' && !ds.user_status?.has_user_credentials && ds.user_status?.effective_auth !== 'system'))
+const filteredAvailableDs = computed(() => {
+    if (!searchQuery.value.trim()) return available_ds.value;
+    const query = searchQuery.value.toLowerCase();
+    return available_ds.value.filter((ds: any) => 
+        ds.title?.toLowerCase().includes(query) || 
+        ds.description?.toLowerCase().includes(query) ||
+        ds.type?.toLowerCase().includes(query)
+    );
+})
 
 async function getConnectedDataSources() {
-    const response = await useMyFetch('/data_sources', {
-        method: 'GET',
-    });
+    loadingConnected.value = true;
+    try {
+        const response = await useMyFetch('/data_sources', {
+            method: 'GET',
+        });
 
-    if (!response.code === 200) {
-        throw new Error('Could not fetch reports');
+        if (!response.code === 200) {
+            throw new Error('Could not fetch reports');
+        }
+
+        connected_ds.value = await response.data.value;
+    } finally {
+        loadingConnected.value = false;
     }
-
-    connected_ds.value = await response.data.value;
-
-
 }
 
 async function getAvailableDataSources() {
-    const response = await useMyFetch('/available_data_sources', {
-        method: 'GET',
-    });
+    loadingAvailable.value = true;
+    try {
+        const response = await useMyFetch('/available_data_sources', {
+            method: 'GET',
+        });
 
-    if (!response.code === 200) {
-        throw new Error('Could not fetch reports');
+        if (!response.code === 200) {
+            throw new Error('Could not fetch reports');
+        }
+        available_ds.value = await response.data.value;
+    } finally {
+        loadingAvailable.value = false;
     }
-    available_ds.value = await response.data.value;
 }
 
 const showCredsModal = ref(false)

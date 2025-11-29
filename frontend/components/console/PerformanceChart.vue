@@ -132,7 +132,7 @@ const chartOptions = computed((): EChartsOption | null => {
 
     if (isJudgeEnabled.value) {
         series.push({
-            name: 'Instructions Effectiveness',
+            name: 'Instruction Coverage',
             type: 'line',
             data: instructionsEffectivenessData,
             smooth: true,

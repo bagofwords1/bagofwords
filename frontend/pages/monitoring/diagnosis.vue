@@ -25,14 +25,14 @@
                 <div class="text-sm font-medium text-gray-600 mt-1">Negative Feedback</div>
             </div>
             
-            <!-- Instructions Effectiveness -->
+            <!-- Instruction Coverage -->
             <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
                 <div class="text-2xl font-bold text-gray-900">
                     {{ isJudgeEnabled ? (getInstructionsEffectiveness() + '%') : 'N/A' }}
                 </div>
                 <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                    Instructions Effectiveness
-                    <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions guide responses (20-100 scale, average for period)' : 'LLM Judge agent is turned off'">
+                    Instruction Coverage
+                    <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions cover responses (20-100 scale, average for period)' : 'LLM Judge agent is turned off'">
                         <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
                     </UTooltip>
                 </div>
