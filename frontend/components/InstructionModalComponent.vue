@@ -6,7 +6,7 @@
             <!-- Modal container -->
             <div class="absolute inset-0 flex items-center justify-center p-4" @click.self="closeModal">
                 <div 
-                    class="relative bg-white rounded-lg shadow-xl w-[94vw] h-[85vh] overflow-hidden transition-all z-10"
+                    class="relative bg-white rounded-lg shadow-xl w-[94vw] h-[85vh] overflow-hidden transition-all z-10 overscroll-contain"
                     :class="isAnalyzing ? 'max-w-6xl' : 'max-w-3xl'"
                 >
                     <!-- Header -->
@@ -489,5 +489,19 @@ onMounted(() => {
 })
 onUnmounted(() => {
     if (escHandler) window.removeEventListener('keydown', escHandler)
+})
+
+// Lock body scroll when modal is open
+watch(instructionModalOpen, (isOpen) => {
+    if (isOpen) {
+        document.body.style.overflow = 'hidden'
+    } else {
+        document.body.style.overflow = ''
+    }
+}, { immediate: true })
+
+onUnmounted(() => {
+    // Ensure body scroll is restored if component unmounts while modal is open
+    document.body.style.overflow = ''
 })
 </script> 

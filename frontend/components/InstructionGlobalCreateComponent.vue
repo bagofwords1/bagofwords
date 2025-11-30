@@ -1,6 +1,6 @@
 <template>
-    <div>
-        <form @submit.prevent="submitForm" class="p-4">
+    <div class="h-full flex flex-col overflow-hidden">
+        <form @submit.prevent="submitForm" class="p-4 flex-1 overflow-y-auto">
             <!-- Instruction Text -->
             <div class="flex flex-col mx-auto max-w-xl py-2">
                 <div class="flex items-center justify-between mb-4">
@@ -14,26 +14,28 @@
                         </span>
                     </UButton>
                 </div>
-                <div class="relative">
+                <div class="border border-gray-200 rounded-lg bg-white shadow-sm overflow-hidden">
                     <textarea 
                         v-model="instructionForm.text"
                         :rows="5"
                         placeholder="Describe the instruction here..."
-                        class="w-full text-sm p-3 pb-10 min-h-[100px] focus:ring-0 focus:outline-none border border-gray-200 rounded-lg bg-white shadow-sm focus:ring-0 transition"
+                        class="w-full text-sm p-3 min-h-[100px] focus:ring-0 focus:outline-none border-0 resize-none"
                         required
                     />
-                    <button 
-                        type="button"
-                        @click="enhanceInstruction"
-                        :disabled="isEnhancing"
-                        class="absolute bottom-3 left-1 inline-flex items-center gap-1.5 px-2.5 py-1 hover:bg-gray-50 rounded-full text-xs font-medium text-gray-600 shadow-none disabled:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-100" 
-                    >
-                        <Spinner v-if="isEnhancing" class="w-3.5 h-3.5 text-blue-500" />
-                        <Icon v-else name="heroicons:sparkles" class="w-4 h-4 text-blue-500" />
-                        <span class="text-[13px]">
-                            {{ isEnhancing ? 'Enhancing…' : 'Enhance with AI' }}
-                        </span>
-                    </button>
+                    <div class="flex items-center px-2 py-1.5 bg-gray-50 border-t border-gray-100">
+                        <button 
+                            type="button"
+                            @click="enhanceInstruction"
+                            :disabled="isEnhancing"
+                            class="inline-flex items-center gap-1.5 px-2.5 py-1 hover:bg-gray-100 rounded-full text-xs font-medium text-gray-600 disabled:opacity-70 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-100" 
+                        >
+                            <Spinner v-if="isEnhancing" class="w-3.5 h-3.5 text-blue-500" />
+                            <Icon v-else name="heroicons:sparkles" class="w-4 h-4 text-blue-500" />
+                            <span class="text-[13px]">
+                                {{ isEnhancing ? 'Enhancing…' : 'Enhance with AI' }}
+                            </span>
+                        </button>
+                    </div>
                 </div>
             </div>
 
