@@ -72,6 +72,32 @@ class SeriesRadar(BaseModel):
     dimensions: Optional[List[str]] = None
 
 
+class SeriesMetricCard(BaseModel):
+    """
+    Series contract for metric_card visualizations.
+
+    We keep fields optional so the LLM has flexibility, and downstream
+    logic (build_view_from_data_model) is responsible for interpreting them.
+    """
+
+    # Display label for the metric (e.g. "Revenue")
+    name: Optional[str] = None
+    # Main value column to display (required for a good card, but not enforced here)
+    value: Optional[str] = None
+    # Optional comparison / change column (e.g. "change_pct", "delta")
+    comparison: Optional[str] = None
+    # Sparkline configuration: which column to plot and which to use for x-axis
+    sparkline_column: Optional[str] = None
+    sparkline_x: Optional[str] = None
+    # Optional trend semantics
+    invert_trend: Optional[bool] = None
+    comparison_label: Optional[str] = None
+    # Alternative names the LLM might use for time fields
+    time_series: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+
+
 SeriesItem = Union[
     SeriesBarLinePieArea,
     SeriesCandlestick,
@@ -80,6 +106,7 @@ SeriesItem = Union[
     SeriesMap,
     SeriesTreemap,
     SeriesRadar,
+    SeriesMetricCard,
 ]
 
 
@@ -96,6 +123,7 @@ class DataModel(BaseModel):
         "pie_chart",
         "area_chart",
         "count",
+        "metric_card",
         "heatmap",
         "map",
         "candlestick",

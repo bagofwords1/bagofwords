@@ -89,6 +89,17 @@ class DataSourceService:
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
+        # Validate connection and schema access BEFORE saving (for system_only auth)
+        if auth_policy == "system_only":
+            validation_result = await self.test_new_data_source_connection(
+                db=db, data=data_source, organization=organization, current_user=current_user
+            )
+            if not validation_result.get("success"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=validation_result.get("message", "Connection validation failed")
+                )
+        
         # Create base data source dict
         ds_create_dict = {
             "name": data_source_dict["name"],
@@ -149,11 +160,9 @@ class DataSourceService:
             if additional_user_ids:
                 await self._create_memberships(db, new_data_source, additional_user_ids)
 
-        # Test connection and generate items...
-        connection = await self.test_data_source_connection(db=db, data_source_id=new_data_source.id, organization=organization, current_user=current_user)
-        if connection["success"]:
-            if getattr(new_data_source, "auth_policy", "system_only") == "system_only":
-                await self.save_or_update_tables(db=db, data_source=new_data_source, organization=organization, should_set_active=True)
+        # Save tables and generate items (validation already passed above)
+        if auth_policy == "system_only":
+            await self.save_or_update_tables(db=db, data_source=new_data_source, organization=organization, should_set_active=True)
 
             if generate_summary:
                 response = await self.generate_data_source_items(db=db, item="summary", data_source_id=new_data_source.id, organization=organization, current_user=current_user)
@@ -659,6 +668,7 @@ class DataSourceService:
     
     async def test_new_data_source_connection(self, db: AsyncSession, data: DataSourceCreate, organization: Organization, current_user: User):
         """Test connection for a new (unsaved) data source using DataSourceCreate payload.
+        Validates both basic connectivity AND schema access (get_tables).
         Does not persist anything to the database.
         """
         try:
@@ -674,15 +684,77 @@ class DataSourceService:
                 credentials=credentials,
             )
 
-            # Test the connection
+            # Step 1: Test basic connectivity
             connection_status = client.test_connection()
+            if not connection_status.get("success"):
+                return connection_status
+
+            # Step 2: Validate schema access by attempting to get tables
+            schema_status = self._validate_schema_access(client)
+            
+            # Combine results
+            if not schema_status.get("success"):
+                return {
+                    "success": False,
+                    "message": schema_status.get("message", "Schema validation failed"),
+                    "connectivity": True,
+                    "schema_access": False,
+                    "table_count": 0,
+                }
+            
+            return {
+                "success": True,
+                "message": f"Connected successfully. Found {schema_status.get('table_count', 0)} tables.",
+                "connectivity": True,
+                "schema_access": True,
+                "table_count": schema_status.get("table_count", 0),
+            }
         except Exception as e:
-            connection_status = {
+            return {
                 "success": False,
-                "message": str(e)
+                "message": str(e),
+                "connectivity": False,
+                "schema_access": False,
             }
 
-        return connection_status
+    def _validate_schema_access(self, client) -> dict:
+        """Validate that we can read schema metadata and find tables.
+        Returns a dict with success status, table count, and optional error message.
+        """
+        try:
+            # Try get_schemas first (most clients), fall back to get_tables
+            tables = None
+            if hasattr(client, "get_schemas"):
+                tables = client.get_schemas()
+            elif hasattr(client, "get_tables"):
+                tables = client.get_tables()
+            
+            if tables is None:
+                return {
+                    "success": False,
+                    "message": "Client does not support schema introspection",
+                    "table_count": 0,
+                }
+            
+            table_count = len(tables) if tables else 0
+            
+            if table_count == 0:
+                return {
+                    "success": False,
+                    "message": "Connected but no tables found. Check schema name or permissions.",
+                    "table_count": 0,
+                }
+            
+            return {
+                "success": True,
+                "table_count": table_count,
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Connected but cannot read schema: {str(e)}",
+                "table_count": 0,
+            }
 
     async def resolve_credentials(self, db: AsyncSession, data_source: DataSource, current_user: User | None) -> dict:
         # system_only → use stored system credentials
@@ -787,10 +859,12 @@ class DataSourceService:
         if not data_source_db:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-
-
         # Extract the update data
         update_data = data_source.dict(exclude_unset=True)
+        
+        # Detect if connection-relevant fields are being changed
+        connection_fields = {'config', 'credentials'}
+        connection_changed = bool(connection_fields & set(update_data.keys()))
         
         # Handle membership updates
         if 'member_user_ids' in update_data:
@@ -806,25 +880,82 @@ class DataSourceService:
                 if member_user_ids:
                     await self._create_memberships(db, data_source_db, member_user_ids)
         
+        # Prepare merged config/credentials for validation (if connection fields changed)
+        new_config = None
+        new_credentials = None
+        
         # Handle config updates
         if 'config' in update_data:
-            config = update_data.pop('config')
-            data_source_db.config = json.dumps(config)
+            new_config = update_data.pop('config')
+            data_source_db.config = json.dumps(new_config)
         
         # Handle credentials updates
         if 'credentials' in update_data:
-            credentials = update_data.pop('credentials')
+            new_credentials = update_data.pop('credentials')
             # Only update credentials if none of its values are None
-            if credentials and not any(value is None for value in credentials.values()):
-                data_source_db.encrypt_credentials(credentials)
+            if new_credentials and not any(value is None for value in new_credentials.values()):
+                data_source_db.encrypt_credentials(new_credentials)
         
         # Update remaining fields
         for field, value in update_data.items():
             if value is not None:
                 setattr(data_source_db, field, value)
         
+        # Re-validate connection if connection-relevant fields changed (system_only auth)
+        if connection_changed and getattr(data_source_db, "auth_policy", "system_only") == "system_only":
+            # Build validation payload with merged config/credentials
+            current_config = json.loads(data_source_db.config) if isinstance(data_source_db.config, str) else (data_source_db.config or {})
+            try:
+                current_credentials = data_source_db.decrypt_credentials() or {}
+            except Exception:
+                current_credentials = {}
+            
+            try:
+                client = self._resolve_client_by_type(
+                    data_source_type=data_source_db.type,
+                    config=current_config,
+                    credentials=current_credentials,
+                )
+                
+                # Test basic connectivity
+                conn_result = client.test_connection()
+                if not conn_result.get("success"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Updated configuration is invalid: {conn_result.get('message', 'Connection failed')}"
+                    )
+                
+                # Validate schema access
+                schema_result = self._validate_schema_access(client)
+                if not schema_result.get("success"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=schema_result.get("message", "Schema validation failed")
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Updated configuration is invalid: {str(e)}"
+                )
+        
         try:
             await db.commit()
+            
+            # Refresh tables if connection fields changed
+            if connection_changed and getattr(data_source_db, "auth_policy", "system_only") == "system_only":
+                try:
+                    await self.save_or_update_tables(
+                        db=db, 
+                        data_source=data_source_db, 
+                        organization=organization, 
+                        should_set_active=False,
+                        current_user=current_user
+                    )
+                except Exception:
+                    # Non-fatal: tables refresh can fail without blocking update
+                    pass
             
             # Reload the data source with memberships to avoid serialization issues
             stmt = (

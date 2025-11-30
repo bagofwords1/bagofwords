@@ -1,6 +1,6 @@
 import json
 import asyncio
-from typing import AsyncIterator, Dict, Any, Type
+from typing import AsyncIterator, Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel
 
 from app.ai.tools.base import Tool
@@ -21,12 +21,207 @@ from app.dependencies import async_session_maker
 from app.ai.tools.schemas import DataModel
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
+from app.schemas.view_schema import (
+    AxisOptions,
+    AreaChartView,
+    BarChartView,
+    CountView,
+    HeatmapView,
+    LegendOptions,
+    LineChartView,
+    MetricCardView,
+    Palette,
+    PieChartView,
+    ScatterPlotView,
+    SeriesStyle,
+    SparklineConfig,
+    TableView,
+    ViewSchema,
+)
 
 
 ALLOWED_VIZ_TYPES = {
-    "table","bar_chart","line_chart","pie_chart","area_chart","count",
+    "table","bar_chart","line_chart","pie_chart","area_chart","count","metric_card",
     "heatmap","map","candlestick","treemap","radar_chart","scatter_plot",
 }
+
+
+def _infer_palette_theme(runtime_ctx: Dict[str, Any]) -> Optional[str]:
+    report_theme = runtime_ctx.get("report_theme_name")
+    if report_theme:
+        return str(report_theme)
+    org_settings = runtime_ctx.get("settings")
+    try:
+        return str(org_settings.get_config("default_theme").value)
+    except Exception:
+        return None
+
+
+def _build_series_styles(series: List[Dict[str, Any]]) -> List[SeriesStyle]:
+    styles: List[SeriesStyle] = []
+    for entry in series or []:
+        key = entry.get("value") or entry.get("name")
+        if not key:
+            continue
+        label = entry.get("name")
+        try:
+            styles.append(SeriesStyle(key=str(key), label=label))
+        except Exception:
+            continue
+    return styles
+
+
+def build_view_from_data_model(
+    data_model: Dict[str, Any],
+    title: Optional[str] = None,
+    palette_theme: Optional[str] = None,
+) -> Optional[ViewSchema]:
+    try:
+        chart_type = str((data_model or {}).get("type") or "").lower()
+    except Exception:
+        return None
+
+    palette = Palette(theme=(palette_theme or "default"))
+    series = data_model.get("series") or []
+
+    if chart_type in {"bar_chart", "line_chart", "area_chart"}:
+        x_key = next((s.get("key") for s in series if s.get("key")), None)
+        value_cols = [s.get("value") for s in series if s.get("value")]
+        if not x_key or not value_cols:
+            return None
+        # Use list when multiple measures exist
+        y_value: Union[str, List[str]] = value_cols[0] if len(value_cols) == 1 else value_cols
+        series_styles = _build_series_styles(series)
+        # Show legend if multiple series or groupBy is used
+        has_multiple_series = len(series) > 1 or data_model.get("group_by")
+        view_cls = {
+            "bar_chart": BarChartView,
+            "line_chart": LineChartView,
+            "area_chart": AreaChartView,
+        }.get(chart_type, BarChartView)
+        view = view_cls(
+            title=title,
+            x=str(x_key),
+            y=y_value,
+            groupBy=data_model.get("group_by"),
+            palette=palette,
+            seriesStyles=series_styles,
+            legend=LegendOptions(show=bool(has_multiple_series)),
+        )
+        # Slightly different axis defaults for time series vs categorical
+        view.axisX = AxisOptions(rotate=45, interval=0)
+        view.axisY = AxisOptions(show=True, rotate=0, interval=0)
+        return ViewSchema(view=view)
+
+    if chart_type == "pie_chart":
+        base = series[0] if series else {}
+        category = base.get("key")
+        value = base.get("value")
+        if not category or not value:
+            return None
+        view = PieChartView(
+            title=title,
+            category=str(category),
+            value=str(value),
+            palette=palette,
+            legend=LegendOptions(show=True, position="right"),  # Pie charts benefit from legend
+        )
+        return ViewSchema(view=view)
+
+    if chart_type == "scatter_plot":
+        base = series[0] if series else {}
+        x_key = base.get("x") or base.get("key")
+        y_key = base.get("y") or base.get("value")
+        if not x_key or not y_key:
+            return None
+        view = ScatterPlotView(
+            title=title,
+            x=str(x_key),
+            y=str(y_key),
+            size=base.get("size"),
+            colorBy=base.get("color"),
+            palette=palette,
+        )
+        return ViewSchema(view=view)
+
+    if chart_type == "heatmap":
+        base = series[0] if series else {}
+        x_key = base.get("x") or base.get("key")
+        y_key = base.get("y")
+        value_key = base.get("value")
+        if not x_key or not y_key or not value_key:
+            return None
+        view = HeatmapView(
+            title=title,
+            x=str(x_key),
+            y=str(y_key),
+            value=str(value_key),
+        )
+        return ViewSchema(view=view)
+
+    if chart_type == "table":
+        view = TableView(title=title)
+        return ViewSchema(view=view)
+
+    # CountView - simple single value display (value is optional)
+    if chart_type == "count":
+        base = series[0] if series else {}
+        value_key = base.get("value") or base.get("metric") or base.get("key") or base.get("name")
+        view = CountView(
+            title=title,
+            value=str(value_key) if value_key else None,
+            palette=palette,
+        )
+        return ViewSchema(view=view)
+
+    # MetricCardView - richer KPI card with sparkline/trend support
+    if chart_type == "metric_card":
+        base = series[0] if series else {}
+        value_key = base.get("value") or base.get("metric")
+        # For metric_card, value is required; fallback gracefully
+        if not value_key:
+            # Try to use first available column name from series
+            value_key = base.get("key") or base.get("name")
+        
+        # Extract comparison/trend column
+        comparison_key = base.get("comparison") or base.get("trend") or base.get("change")
+        
+        # Build sparkline config if LLM specified time-series columns
+        sparkline = None
+        sparkline_col = base.get("sparkline_column") or base.get("time_series")
+        sparkline_x = base.get("sparkline_x") or base.get("date") or base.get("time")
+        
+        # Only enable sparkline if LLM explicitly configured it
+        if sparkline_col or data_model.get("has_time_series"):
+            sparkline = SparklineConfig(
+                enabled=True,
+                column=sparkline_col or value_key,
+                xColumn=sparkline_x,
+                type="area",
+            )
+        
+        # Determine if trend should be inverted (down is good)
+        # Use `or False` because base.get returns None if key exists with None value
+        invert_trend = base.get("invert_trend") or False
+        comparison_label = base.get("comparison_label") or base.get("trend_label")
+        
+        # value is REQUIRED for MetricCardView - if we don't have it, fall back to CountView
+        if not value_key:
+            view = CountView(title=title, palette=palette)
+            return ViewSchema(view=view)
+        
+        view = MetricCardView(
+            title=title,
+            value=str(value_key),
+            comparison=str(comparison_key) if comparison_key else None,
+            comparisonLabel=comparison_label,
+            invertTrend=invert_trend,
+            sparkline=sparkline,
+            palette=palette,
+        )
+        return ViewSchema(view=view)
+
+    return None
 
 
 class CreateDataTool(Tool):
@@ -72,26 +267,105 @@ class CreateDataTool(Tool):
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
+        # Fetch visualization-specific instructions
+        viz_instructions = ""
+        context_hub = runtime_ctx.get("context_hub")
+        if context_hub and getattr(context_hub, "instruction_builder", None):
+            try:
+                viz_section = await context_hub.instruction_builder.build(category="visualizations")
+                viz_instructions = viz_section.render() or ""
+            except Exception:
+                viz_instructions = ""
+
         allowed_types = list(ALLOWED_VIZ_TYPES)
 
-        prompt = (
-            "You are a visualization planner. Based on the data profile, choose the best visualization "
-            "type and construct a minimal series spec. Use ONLY the provided column names. Return JSON only.\n\n"
-            "Context messages (recent):\n" + (messages_context or "") + "\n\n"
-            "User prompt:\n" + (user_prompt or "") + "\n\n"
-            "Data profile (JSON):\n" + json.dumps(profile, ensure_ascii=False) + "\n\n"
-            "Return a compact JSON object with keys: type, series, view.\n"
-            "- type must be one of: " + ", ".join(allowed_types) + "\n"
-            "- series must match the chart type contract:\n"
-            "  * bar/line/area/pie/map: [{name, key, value}]\n"
-            "  * scatter: [{name, x, y}] (+ size optional)\n"
-            "  * heatmap: [{name, x, y, value}]\n"
-            "  * candlestick: [{name, open, close, low, high, key}]\n"
-            "  * treemap: [{name, id, parentId, value}]\n"
-            "  * radar_chart: [{name?, dimensions: [{axis, value}...]}]\n"
-            "- For table, return series: []\n"
-            "- Do not invent columns.\n"
-        )
+        # Build column names list for reference
+        column_names = [c.get("name", "") for c in profile.get("columns", [])]
+        row_count = profile.get("row_count", 0)
+        
+        # Build instructions block for prompt
+        instructions_block = ""
+        if viz_instructions:
+            instructions_block = f"""
+ORGANIZATION VISUALIZATION INSTRUCTIONS:
+{viz_instructions}
+
+"""
+        
+        prompt = f"""You are a visualization planner. Analyze the data profile and choose the best visualization type.
+{instructions_block}
+CRITICAL: You MUST use EXACT column names from the data. Available columns are: {column_names}
+
+Context: {messages_context or "None"}
+User prompt: {user_prompt or "None"}
+
+Data profile:
+{json.dumps(profile, ensure_ascii=False, indent=2)}
+
+═══════════════════════════════════════════════════════════════════════════════
+RULES FOR METRIC_CARD (KPI display)
+═══════════════════════════════════════════════════════════════════════════════
+
+Use metric_card when showing a single key metric. The "value" field MUST be an EXACT column name.
+
+DETECTING THE VALUE COLUMN:
+- Look for columns with names like: revenue, total, amount, count, sum, value, sales, profit, cost
+- AVOID using date/time columns (year, month, date, week, day) as the value
+- AVOID using ID columns as the value
+- Pick the column that represents the METRIC the user asked about
+
+DETECTING TIME-SERIES FOR SPARKLINE:
+If row_count > 1 AND there's a time column (month, date, week, year, period, day), enable sparkline:
+- sparkline_column: same as value column (the metric to plot over time)
+- sparkline_x: the time column (month, date, etc.)
+
+EXAMPLE 1 - Monthly revenue data (7 rows):
+Columns: ["year", "month", "revenue"]
+CORRECT:
+{{"type": "metric_card", "series": [{{"name": "Revenue", "value": "revenue", "sparkline_column": "revenue", "sparkline_x": "month"}}]}}
+
+WRONG (uses generic "value" instead of actual column name):
+{{"type": "metric_card", "series": [{{"name": "Revenue", "value": "value"}}]}}
+
+EXAMPLE 2 - Single total row:
+Columns: ["total_sales"]
+CORRECT:
+{{"type": "metric_card", "series": [{{"name": "Total Sales", "value": "total_sales"}}]}}
+
+EXAMPLE 3 - Revenue with comparison:
+Columns: ["current_revenue", "change_pct"]
+CORRECT:
+{{"type": "metric_card", "series": [{{"name": "Revenue", "value": "current_revenue", "comparison": "change_pct"}}]}}
+
+═══════════════════════════════════════════════════════════════════════════════
+OTHER CHART TYPES
+═══════════════════════════════════════════════════════════════════════════════
+
+Allowed types: {", ".join(allowed_types)}
+
+Series contracts:
+- bar/line/area/pie/map: [{{"name", "key", "value"}}]
+- scatter: [{{"name", "x", "y"}}] (+ size optional)
+- heatmap: [{{"name", "x", "y", "value"}}]
+- table: series: []
+
+DECISION LOGIC:
+1. Single numeric value → metric_card
+2. Multiple rows with time column + numeric value → metric_card WITH sparkline
+3. Category + values → bar_chart or pie_chart
+4. Two numeric columns → scatter_plot
+5. Time series for trends → line_chart or area_chart
+6. Raw data display → table
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════════
+
+Return ONLY valid JSON:
+{{"type": "...", "series": [...]}}
+
+REMEMBER: Use EXACT column names from: {column_names}
+Do NOT use generic placeholders like "value" unless that's the actual column name."""
 
         try:
             raw = llm.inference(prompt, usage_scope="create_data.viz_infer")
@@ -450,13 +724,27 @@ class CreateDataTool(Tool):
                 )
                 inferred_dm = (inference or {}).get("data_model")
                 progress_event = (inference or {}).get("progress_event")
-                inferred_view_opts = (inference or {}).get("view_options")
                 if progress_event is not None:
                     # emit the series_configured progress for UI if a non-table chart was chosen
                     yield progress_event
-        except Exception:
+                # Emit visualization_inferred event with details for UI
+                if inferred_dm:
+                    viz_payload = {
+                        "stage": "visualization_inferred",
+                        "chart_type": inferred_dm.get("type"),
+                        "series": inferred_dm.get("series", []),
+                        "group_by": inferred_dm.get("group_by"),
+                    }
+                    yield ToolProgressEvent(type="tool.progress", payload=viz_payload)
+        except Exception as viz_exc:
             inferred_dm = None
-            inferred_view_opts = None
+            progress_event = None
+            # Emit visualization error event for UI
+            viz_error_msg = str(viz_exc) if viz_exc else "Visualization inference failed"
+            yield ToolProgressEvent(type="tool.progress", payload={
+                "stage": "visualization_error",
+                "error": viz_error_msg
+            })
 
         current_step_id = runtime_ctx.get("current_step_id")
         # Always provide a minimal data_model in observation/output
@@ -470,13 +758,11 @@ class CreateDataTool(Tool):
             for key in ("series", "group_by", "sort", "limit"):
                 if inferred_dm.get(key) is not None:
                     final_dm[key] = inferred_dm.get(key)
-        # Prepare view options (e.g., colors) to send to AgentV2 for persistence
-        view_options = None
-        try:
-            if isinstance(inferred_view_opts, dict) and inferred_view_opts:
-                view_options = inferred_view_opts
-        except Exception:
-            view_options = None
+        palette_theme = _infer_palette_theme(runtime_ctx) or "default"
+        view_schema = build_view_from_data_model(final_dm, title=data.title, palette_theme=palette_theme)
+        view_payload = view_schema.model_dump(exclude_none=True) if view_schema else None
+        if not view_payload and final_dm.get("type"):
+            view_payload = {"version": "v2", "view": {"type": final_dm.get("type")}}
 
         observation = {
             "summary": f"Created data '{data.title}' successfully.",
@@ -486,8 +772,8 @@ class CreateDataTool(Tool):
             "final_answer": None,
         }
         observation["data_model"] = final_dm
-        if view_options:
-            observation["view"] = {"type": final_dm.get("type"), "options": view_options}
+        if view_payload:
+            observation["view"] = view_payload
         if current_step_id:
             observation["step_id"] = current_step_id
         yield ToolEndEvent(
@@ -502,7 +788,7 @@ class CreateDataTool(Tool):
                     "execution_log": output_log,
                     "errors": code_errors,
                     "data_model": final_dm,
-                    "view_options": view_options,
+                    "view": view_payload,
                 },
                 "observation": observation,
             },

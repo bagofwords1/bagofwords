@@ -237,7 +237,7 @@ interface DataSource {
 interface SharedForm {
     text: string
     status: 'draft' | 'published' | 'archived'
-    category: 'code_gen' | 'data_modeling' | 'general'
+    category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
     
     // Dual-status lifecycle fields
     private_status: string | null
@@ -345,7 +345,10 @@ const getSelectedDataSourceObjects = computed(() => {
 const categoryOptions = [
     { label: 'General', value: 'general' },
     { label: 'Code Generation', value: 'code_gen' },
-    { label: 'Data Modeling', value: 'data_modeling' }
+    { label: 'Data Modeling', value: 'data_modeling' },
+    { label: 'System', value: 'system' },
+    { label: 'Visualizations', value: 'visualizations' },
+    { label: 'Dashboard', value: 'dashboard' }
 ]
 
 // Methods
@@ -438,7 +441,10 @@ const formatCategory = (category: string) => {
     const categoryMap = {
         code_gen: 'Code Generation',
         data_modeling: 'Data Modeling',
-        general: 'General'
+        general: 'General',
+        system: 'System',
+        visualizations: 'Visualizations',
+        dashboard: 'Dashboard'
     }
     return categoryMap[category as keyof typeof categoryMap] || category
 }
@@ -447,7 +453,10 @@ const getCategoryIcon = (category: string) => {
     const categoryIcons = {
         code_gen: 'heroicons:code-bracket',
         data_modeling: 'heroicons:cube',
-        general: 'heroicons:document-text'
+        general: 'heroicons:document-text',
+        system: 'heroicons:cog-6-tooth',
+        visualizations: 'heroicons:chart-bar',
+        dashboard: 'heroicons:squares-2x2'
     }
     return categoryIcons[category as keyof typeof categoryIcons] || 'heroicons:document-text'
 }

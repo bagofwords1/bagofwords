@@ -4,7 +4,7 @@ import pandas as pd
 import sqlalchemy
 from sqlalchemy import text
 from contextlib import contextmanager
-from typing import List, Generator
+from typing import List, Generator, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
@@ -12,21 +12,24 @@ from urllib.parse import quote_plus
 
 
 class MysqlClient(DataSourceClient):
-    def __init__(self, host, port, database, user, password):
+    def __init__(self, host, port, database, user: Optional[str] = None, password: Optional[str] = None):
         self.host = host
         self.port = port
         self.database = database
+        if password not in (None, "") and user in (None, ""):
+            raise ValueError("A user must be provided when supplying a password.")
         self.user = user
         self.password = password
 
     @cached_property
     def mysql_uri(self):
-        safe_user = quote_plus(self.user)
-        safe_password = quote_plus(self.password)
-        uri = (
-            f"mysql+pymysql://{safe_user}:{safe_password}@"
-            f"{self.host}:{self.port}/{self.database}"
-        )
+        auth_part = ""
+        if self.user is not None:
+            auth_part = quote_plus(self.user)
+            if self.password is not None:
+                auth_part += f":{quote_plus(self.password)}"
+            auth_part += "@"
+        uri = f"mysql+pymysql://{auth_part}{self.host}:{self.port}/{self.database}"
         return uri
 
     @contextmanager

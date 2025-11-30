@@ -31,7 +31,7 @@ from app.schemas.dashboard_layout_version_schema import (
 from app.services.visualization_service import VisualizationService
 from app.services.query_service import QueryService
 from app.schemas.visualization_schema import VisualizationCreate
-from app.schemas.view_schema import ViewSchema, EncodingSchema, SeriesEncodingSchema
+from app.schemas.view_schema import ViewSchema
 
 class ProjectManager:
 
@@ -534,6 +534,43 @@ class ProjectManager:
                         view_overrides=vov,
                     )
 
+            # Inline text blocks (AI-generated, no DB reference)
+            if patch is None and btype == "text":
+                content = (block or {}).get("content", "")
+                variant = (block or {}).get("variant")
+                vov = (block or {}).get("view_overrides")
+                patch = BlockPositionPatch(
+                    type="text",
+                    content=content,
+                    variant=variant,
+                    x=x, y=y, width=width, height=height,
+                    view_overrides=vov,
+                )
+
+            # Card blocks with children
+            if patch is None and btype == "card":
+                chrome = (block or {}).get("chrome")
+                children = (block or {}).get("children", [])
+                vov = (block or {}).get("view_overrides")
+                patch = BlockPositionPatch(
+                    type="card",
+                    chrome=chrome,
+                    children=children,
+                    x=x, y=y, width=width, height=height,
+                    view_overrides=vov,
+                )
+
+            # Column layout blocks
+            if patch is None and btype == "column_layout":
+                columns = (block or {}).get("columns", [])
+                vov = (block or {}).get("view_overrides")
+                patch = BlockPositionPatch(
+                    type="column_layout",
+                    columns=columns,
+                    x=x, y=y, width=width, height=height,
+                    view_overrides=vov,
+                )
+
             if patch is None:
                 return None
 
@@ -554,6 +591,24 @@ class ProjectManager:
         except Exception as e:
             self.logger.warning(f"get_active_dashboard_layout_blocks failed: {e}")
             return []
+
+    async def clear_active_layout_blocks(self, db, report_id: str):
+        """Clear all blocks from the active dashboard layout (for fresh dashboard generation)."""
+        try:
+            layout_svc = DashboardLayoutService()
+            layout = await layout_svc.get_or_create_active_layout(db, report_id)
+            # Clear blocks by updating with empty array
+            from sqlalchemy import update
+            from app.models.dashboard_layout_version import DashboardLayoutVersion
+            await db.execute(
+                update(DashboardLayoutVersion)
+                .where(DashboardLayoutVersion.id == layout.id)
+                .values(blocks=[])
+            )
+            await db.commit()
+            self.logger.info(f"Cleared blocks for layout {layout.id} in report {report_id}")
+        except Exception as e:
+            self.logger.warning(f"clear_active_layout_blocks failed: {e}")
 
     async def update_visualization_view(self, db, visualization, view: dict | ViewSchema):
         try:

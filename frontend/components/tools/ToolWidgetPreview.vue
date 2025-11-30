@@ -7,8 +7,8 @@
           <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 mr-1.5 text-gray-500" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
           <button
-            v-if="queryId"
-            @click="onEditClick"
+            v-if="queryId && canEditCode"
+            @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
             title="Edit query code"
           >
@@ -69,27 +69,39 @@
             >
               Data
             </button>
+            <button 
+              v-if="hasCode"
+              @click="activeTab = 'code'"
+              :class="[
+                'px-3 py-1.5 text-xs font-medium border-b-2 transition-colors',
+                activeTab === 'code' 
+                  ? 'border-blue-500 text-blue-600' 
+                  : 'border-transparent text-gray-400 hover:text-gray-600'
+              ]"
+            >
+              Code
+            </button>
           </div>
 
           <!-- Tab Content -->
           <div class="tab-content">
             <!-- Chart Content -->
             <Transition name="fade" mode="out-in">
-              <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)" class="bg-gray-50 rounded-sm p-2">
-                <div v-if="resolvedCompEl" :class="chartHeightClass">
+              <div v-if="(showTabs && activeTab === 'chart') || (!showTabs && showVisual)">
+                <div v-if="resolvedCompEl" :class="chartHeightClass" :style="chartHeightStyle">
                   <component
                     :is="resolvedCompEl"
                     :widget="effectiveWidget"
                     :data="effectiveStep?.data"
                     :data_model="effectiveStep?.data_model"
                     :step="effectiveStep"
-                    :view="visualization?.view || step?.view"
+                    :view="normalizedView"
                     :reportThemeName="reportThemeName"
                     :reportOverrides="reportOverrides"
                   />
                 </div>
                 <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
-                  <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" />
+                  <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" :view="normalizedView" />
                 </div>
               </div>
             </Transition>
@@ -97,10 +109,66 @@
             <!-- Table Content -->
             <Transition name="fade" mode="out-in">
               <div
-                v-if="(showTabs && activeTab === 'table') || (!showTabs && (String((visualization?.view as any)?.type || effectiveStep?.data_model?.type || '').toLowerCase() === 'table'))"
+                v-if="(showTabs && activeTab === 'table') || (!showTabs && isTableType)"
                 :class="tableHeightClass"
               >
                 <RenderTable :widget="widget" :step="{ ...(effectiveStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
+              </div>
+            </Transition>
+
+            <!-- Code Content -->
+            <Transition name="fade" mode="out-in">
+              <div
+                v-if="(showTabs && activeTab === 'code') || (!showTabs && hasCode && !showVisual && !hasData)"
+              >
+                <div class="relative">
+                  <!-- Edit button top right -->
+                  <button
+                    v-if="queryId && canEditCode"
+                    @click="onEditClick"
+                    class="absolute top-2 right-2 z-10 text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
+                    title="Edit code"
+                  >
+                    <Icon name="heroicons-pencil-square" class="w-3 h-3 mr-1" />
+                    Edit
+                  </button>
+                  <div class="max-h-[300px] overflow-auto">
+                    <pre class="bg-gray-50 rounded px-4 py-3 pr-20 font-mono text-xs text-gray-800 whitespace-pre-wrap">{{ effectiveStep?.code }}</pre>
+                  </div>
+                </div>
+                
+                <!-- Execution details -->
+                <div v-if="executionDuration || rowCount" class="mt-2 flex items-center gap-3 text-[11px] text-gray-400">
+                  <span v-if="executionDuration">
+                    <Icon name="heroicons-clock" class="w-3 h-3 inline-block mr-1" />
+                    {{ executionDuration }}
+                  </span>
+                  <span v-if="rowCount">
+                    <Icon name="heroicons-table-cells" class="w-3 h-3 inline-block mr-1" />
+                    {{ rowCount }} rows
+                  </span>
+                </div>
+                
+                <!-- Attempts section -->
+                <div v-if="attempts.length > 0" class="mt-3 border-t border-gray-100 pt-3">
+                  <div 
+                    class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
+                    @click="attemptsExpanded = !attemptsExpanded"
+                  >
+                    <Icon :name="attemptsExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1.5" />
+                    <span>Attempts ({{ attempts.length }})</span>
+                  </div>
+                  <Transition name="fade">
+                    <div v-if="attemptsExpanded" class="mt-2 ml-4">
+                      <ul class="text-xs text-gray-600 space-y-1.5">
+                        <li v-for="(att, idx) in attempts" :key="idx" class="flex items-start">
+                          <span class="text-gray-400 mr-2 flex-shrink-0">{{ idx + 1 }}.</span>
+                          <span class="text-red-500">{{ att }}</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </Transition>
+                </div>
               </div>
             </Transition>
           </div>
@@ -113,16 +181,16 @@
               v-if="!isPublished"
               :disabled="!canAdd || isAdding"
               @click="onAddClick"
-              class="text-xs px-2 py-0.5 rounded transition-colors"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center"
               :class="[
                 canAdd && !isAdding ? 'hover:bg-gray-50' : 'text-gray-400 cursor-not-allowed'
               ]"
             >
-              <Icon v-if="isAdding" name="heroicons-arrow-path" class="w-3.5 h-3.5 inline-block mr-1 animate-spin" />
-              <span v-if="!canAdd">Generating…</span>
-              <span v-else class="flex items-center">
-                  <Icon name="heroicons-chart-pie" class="w-3.5 h-3.5 text-blue-500 inline-block mr-1" />
-                  Add to dashboard</span>
+              <Spinner v-if="isAdding" class="w-3.5 h-3.5 mr-1 text-blue-500" />
+              <Icon v-else-if="canAdd" name="heroicons-chart-pie" class="w-3.5 h-3.5 text-blue-500 mr-1" />
+              <span v-if="!canAdd && !isAdding">Generating…</span>
+              <span v-else-if="isAdding">Adding…</span>
+              <span v-else>Add to dashboard</span>
             </button>
             <span v-else class="text-xs flex items-center">
               <Icon name="heroicons-check" class="w-3.5 h-3.5 mr-1 text-green-500" />
@@ -165,10 +233,12 @@
 import { computed, ref, watch, defineAsyncComponent, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
+import { useOrgSettings } from '~/composables/useOrgSettings'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityCreateModal from '../entity/EntityCreateModal.vue'
+import Spinner from '~/components/Spinner.vue'
 
 interface ToolExecution {
   id: string
@@ -185,6 +255,8 @@ interface ToolExecution {
 const props = defineProps<{ toolExecution: ToolExecution }>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
+const { canEditCode } = useOrgSettings()
+
 // Reactive state for collapsible behavior
 const isCollapsed = ref(false) // Start expanded
 const isAdding = ref(false)
@@ -195,9 +267,10 @@ const reportThemeName = ref<string | null>(null)
 const reportOverrides = ref<Record<string, any> | null>(null)
 const reportDataSources = ref<string[]>([])
 const openEntityModal = ref(false)
+const attemptsExpanded = ref(false)
 
-// Tab state - default to chart if available, otherwise table
-const activeTab = ref<'chart' | 'table'>('chart')
+// Tab state - default to chart if available, otherwise table, then code
+const activeTab = ref<'chart' | 'table' | 'code'>('chart')
 
 const widget = computed(() => props.toolExecution?.created_widget || null)
 const step = computed(() => props.toolExecution?.created_step || null)
@@ -209,6 +282,17 @@ const visualization = computed(() => {
   const list = (props.toolExecution as any)?.created_visualizations
   if (Array.isArray(list) && list.length) return list[0]
   return null
+})
+
+// Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }
+const normalizedView = computed(() => {
+  const v = visualization.value?.view || (step.value as any)?.view
+  if (!v) return null
+  // Already in v2 format (has .view.type)
+  if (v.view?.type) return v
+  // Flat format - wrap it
+  if (v.type) return { view: v, version: 'v2' }
+  return v
 })
 
 // Provide a stable widget object for children even if upstream is null
@@ -259,6 +343,15 @@ const rowCount = computed(() => {
   return null
 })
 
+// Execution duration for display
+const executionDuration = computed(() => {
+  const ms = (props.toolExecution as any)?.duration_ms
+  if (!ms || ms < 100) return null
+  if (ms < 1000) return `${ms}ms`
+  const seconds = (ms / 1000).toFixed(1)
+  return `${seconds}s`
+})
+
 const chartVisualTypes = new Set<string>([
   'pie_chart',
   'line_chart',
@@ -273,7 +366,8 @@ const chartVisualTypes = new Set<string>([
 ])
 
 const showVisual = computed(() => {
-  const vType = (visualization.value?.view as any)?.type
+  const viewObj = visualization.value?.view as any
+  const vType = viewObj?.view?.type || viewObj?.type
   const t = vType || effectiveStep.value?.data_model?.type
   if (!t) return false
   const entry = resolveEntryByType(String(t).toLowerCase())
@@ -281,7 +375,7 @@ const showVisual = computed(() => {
     // treat table as data-only; everything else is a visual
     return entry.componentKey !== 'table.aggrid'
   }
-  return chartVisualTypes.has(String(t)) || String(t) === 'count'
+  return chartVisualTypes.has(String(t)) || String(t) === 'count' || String(t) === 'metric_card'
 })
 
 // Dashboard registry-driven dynamic component
@@ -297,16 +391,51 @@ function getCompForType(type?: string | null) {
   return comp
 }
 // Prefer the visualization.view.type if available; fall back to data_model.type
+// Support both v2 schema (view.view.type) and legacy (view.type)
 const resolvedCompEl = computed(() => {
-  const vType = (visualization.value?.view as any)?.type
+  const viewObj = visualization.value?.view as any
+  const vType = viewObj?.view?.type || viewObj?.type
   const dmType = effectiveStep.value?.data_model?.type
   return getCompForType(String(vType || dmType || ''))
 })
 
-// Adjust height for compact count tiles
+// Check if current visualization is a metric card type
+const isMetricCardType = computed(() => {
+  const viewObj = visualization.value?.view as any
+  const t = String((viewObj?.view?.type || viewObj?.type || effectiveStep.value?.data_model?.type || '')).toLowerCase()
+  return t === 'count' || t === 'metric_card'
+})
+
+// Adjust height for compact metric cards - dynamically based on content
 const chartHeightClass = computed(() => {
-  const t = String(((visualization.value?.view as any)?.type || effectiveStep.value?.data_model?.type || '')).toLowerCase()
-  return t === 'count' ? 'h-[120px] flex items-start' : 'h-[340px]'
+  return isMetricCardType.value ? 'flex items-start' : 'h-[340px]'
+})
+
+// Dynamic style for metric card height
+const chartHeightStyle = computed(() => {
+  if (!isMetricCardType.value) return {}
+  
+  const viewObj = visualization.value?.view as any
+  const viewConfig = viewObj?.view || viewObj || {}
+  
+  // Check if sparkline is enabled
+  const hasSparkline = viewConfig?.sparkline?.enabled === true
+  const sparklineHeight = viewConfig?.sparkline?.height || 64
+  
+  // Check if comparison/trend is present
+  const hasComparison = !!viewConfig?.comparison
+  
+  // Base height for title + value (with padding)
+  let height = 120
+  // Add space for comparison row if present
+  if (hasComparison) height += 28
+  // Add sparkline height if enabled (no extra padding - chart is edge to edge)
+  if (hasSparkline) height += sparklineHeight
+  
+  // Minimum height to ensure good appearance
+  height = Math.max(height, 160)
+  
+  return { height: `${height}px` }
 })
 
 // Determine if table/data is present
@@ -317,8 +446,24 @@ const hasData = computed(() => {
   return !!effectiveStep.value
 })
 
-// Show tabs only when both chart and table are available
-const showTabs = computed(() => showVisual.value && hasData.value)
+// Check if code is available
+const hasCode = computed(() => !!effectiveStep.value?.code)
+
+// Get attempts/errors from tool execution
+const attempts = computed(() => {
+  const errs = (props.toolExecution?.result_json as any)?.errors || []
+  return errs.map((pair: any) => {
+    const msg = Array.isArray(pair) ? pair[1] : (pair?.message || String(pair))
+    const firstLine = (msg || '').split('\n')[0]
+    return firstLine
+  })
+})
+
+// Show tabs when we have multiple content types available
+const showTabs = computed(() => {
+  const contentTypes = [showVisual.value, hasData.value, hasCode.value].filter(Boolean).length
+  return contentTypes > 1
+})
 
 // Error / table-specific helpers
 const hasStepError = computed(() => {
@@ -336,12 +481,21 @@ const tableHasRows = computed(() => {
 
 const tableHeightClass = computed(() => (tableHasRows.value ? 'h-[400px]' : 'min-h-[80px]'))
 
+// Check if current type is table
+const isTableType = computed(() => {
+  const viewObj = visualization.value?.view as any
+  const t = String((viewObj?.view?.type || viewObj?.type || effectiveStep.value?.data_model?.type || '')).toLowerCase()
+  return t === 'table'
+})
+
 // Watch for data changes to update active tab
-watch([showVisual, hasData], () => {
+watch([showVisual, hasData, hasCode], () => {
   if (showVisual.value) {
     activeTab.value = 'chart'
   } else if (hasData.value) {
     activeTab.value = 'table'
+  } else if (hasCode.value) {
+    activeTab.value = 'code'
   }
 }, { immediate: true })
 
@@ -405,7 +559,17 @@ function broadcastDefaultStep(step: any) {
 const isPublished = computed(() => {
   const vizId = visualization.value?.id
   if (!vizId) return false
-  return layoutBlocks.value.some(b => b?.type === 'visualization' && b?.visualization_id === vizId)
+  // Check for direct visualization blocks
+  if (layoutBlocks.value.some(b => b?.type === 'visualization' && b?.visualization_id === vizId)) {
+    return true
+  }
+  // Check for visualizations wrapped in card blocks
+  return layoutBlocks.value.some(b => {
+    if (b?.type === 'card' && Array.isArray(b?.children)) {
+      return b.children.some((child: any) => child?.type === 'visualization' && child?.visualization_id === vizId)
+    }
+    return false
+  })
 })
 
 watch(layoutBlocks, () => {
@@ -572,9 +736,11 @@ async function onAddClick() {
         })
         if (error.value) throw error.value
         // Optimistically mark as published so the button flips immediately
-        // locallyPublished.value = true // This line was removed as per the new_code, as locallyPublished is not defined.
-        // Also update local membership list so the state is consistent
-        layoutBlocks.value = [...layoutBlocks.value, { type: 'visualization', visualization_id: visualization.value.id }]
+        // Server wraps visualization in a card, so update local state to match
+        layoutBlocks.value = [...layoutBlocks.value, { 
+          type: 'card', 
+          children: [{ type: 'visualization', visualization_id: visualization.value.id }]
+        }]
         // Broadcast to dashboard pane to refresh membership immediately
         try {
           window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: reportId.value, action: 'added', visualization_id: visualization.value.id } }))

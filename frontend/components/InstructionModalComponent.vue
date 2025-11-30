@@ -192,7 +192,7 @@ interface DataSource {
 interface SharedForm {
     text: string
     status: 'draft' | 'published' | 'archived'
-    category: 'code_gen' | 'data_modeling' | 'general'
+    category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
     is_seen: boolean
     can_user_toggle: boolean
     private_status: string | null

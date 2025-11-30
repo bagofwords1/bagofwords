@@ -886,7 +886,25 @@ async function loadCaseForEdit(caseId: string) {
     testSelectedDataSources.value = Array.isArray(c.data_source_ids_json) ? c.data_source_ids_json.map((id: string) => ({ id })) : []
     // Rules → UI
     const rules = Array.isArray(c.expectations_json?.rules) ? c.expectations_json.rules : []
-    const grouped: Record<string, CategoryRuleUI> = {}
+    const groupedByCategory: Record<string, CategoryRuleUI[]> = {}
+    const ensureGroup = (catId: string, catMeta: CategoryDescriptor, forceNew: boolean = false) => {
+      if (!groupedByCategory[catId]) groupedByCategory[catId] = []
+      if (!forceNew && groupedByCategory[catId].length > 0) return groupedByCategory[catId][groupedByCategory[catId].length - 1]
+      const group: CategoryRuleUI = {
+        key: `${catId}:${Date.now()}:${Math.random().toString(36).slice(2,6)}`,
+        categoryId: catId,
+        categoryKind: catMeta.kind,
+        fieldRules: []
+      }
+      groupedByCategory[catId].push(group)
+      return group
+    }
+
+    const findJudgeGroupForModel = () => {
+      const arr = groupedByCategory['judge'] || []
+      return arr.find(g => !g.fieldRules.some(fr => fr.target.field === 'model_id'))
+    }
+
     for (const r of rules) {
       if (r?.type !== 'field') continue
       const catId = r?.target?.category
@@ -897,14 +915,20 @@ async function loadCaseForEdit(caseId: string) {
       const catMeta = categoryById.value[catId]
       const field = catMeta?.fields.find((f: any) => f.key === fieldKey)
       if (!catMeta || !field) continue
-      if (!grouped[catId]) {
-        grouped[catId] = {
-          key: `${catId}:${Date.now()}:${Math.random().toString(36).slice(2,6)}`,
-          categoryId: catId,
-          categoryKind: catMeta.kind,
-          fieldRules: []
+
+      let group: CategoryRuleUI
+      if (catId === 'judge') {
+        if (fieldKey === 'prompt') {
+          group = ensureGroup(catId, catMeta, true)
+        } else if (fieldKey === 'model_id') {
+          group = findJudgeGroupForModel() || ensureGroup(catId, catMeta, true)
+        } else {
+          group = ensureGroup(catId, catMeta, true)
         }
+      } else {
+        group = ensureGroup(catId, catMeta, false)
       }
+
       const fr = makeFieldRuleFor(catMeta, field)
       // Overwrite matcher and target occurrence if present
       fr.matcher = r.matcher || fr.matcher
@@ -914,10 +938,12 @@ async function loadCaseForEdit(caseId: string) {
         fr.valuesComma = vals.join(', ')
       }
       if (typeof r?.target?.occurrence === 'number') fr.target.occurrence = r.target.occurrence
-      grouped[catId].fieldRules.push(fr)
+      group.fieldRules.push(fr)
     }
-    const groups = Object.values(grouped)
-    categoryRules.value = groups.length ? groups : categoryRules.value
+    const flattened = Object.values(groupedByCategory).flat()
+    if (flattened.length) {
+      categoryRules.value = flattened
+    }
   } catch (e) {
     console.error('Failed to load case for edit', e)
   }

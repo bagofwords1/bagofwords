@@ -149,7 +149,7 @@
                 <div class="p-4">
                   <div class="text-xs text-gray-700 mb-2">Expectations</div>
                   <div class="space-y-2">
-                    <div v-for="it in displayRules(row.case)" :key="it.originalIdx" class="border border-gray-200 rounded-md p-3">
+                    <div v-for="it in displayRules(row)" :key="it.originalIdx" class="border border-gray-200 rounded-md p-3">
                       <!-- Type -->
                       <div class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] mb-1" :class="badgeClassesFor(categoryName(it.rule?.target?.category || ''))">
                         {{ categoryName(it.rule?.target?.category || '') }}
@@ -188,7 +188,7 @@
                         </template>
                       </div>
                     </div>
-                    <div v-if="(row.case.expectations_json?.rules || []).length === 0" class="text-xs text-gray-500">No rules configured for this case.</div>
+                    <div v-if="assertionCount(row) === 0" class="text-xs text-gray-500">No rules configured for this case.</div>
                   </div>
                 </div>
               </div>
@@ -228,7 +228,8 @@ type RuleResult = { ok: boolean, status?: 'pass' | 'fail' | 'skipped', message?:
 
 type ResultTotals = { total: number, passed: number, failed: number, skipped?: number, duration_ms?: number | null }
 
-type ResultJson = { totals: ResultTotals, rule_results: RuleResult[] }
+type ResultSpec = { spec_version?: number, rules?: any[] }
+type ResultJson = { totals: ResultTotals, rule_results: RuleResult[], spec?: ResultSpec }
 
 type TestResult = { id: string, run_id: string, case_id: string, status: 'in_progress' | 'pass' | 'fail' | 'error', result_json?: ResultJson }
   & { report_id?: string }
@@ -244,7 +245,8 @@ type TestCase = {
 const run = ref<TestRun | null>(null)
 const results = ref<TestResult[]>([])
 const suiteName = ref<string>('')
-const caseRows = ref<{ result: TestResult, case: TestCase }[]>([])
+type CaseRow = { result: TestResult, case: TestCase }
+const caseRows = ref<CaseRow[]>([])
 const expanded = ref<Record<string, boolean>>({})
 const openRows = ref<Record<string, boolean>>({})
 const models = ref<any[]>([])
@@ -659,8 +661,26 @@ const formatDuration = (start?: string | null, end?: string | null) => {
   return `${mins}m ${rem}s`
 }
 
-const assertionCount = (row: { result: TestResult, case: TestCase }) => {
-  return (row.case.expectations_json?.rules || []).length
+const specRulesForRow = (row: CaseRow): any[] => {
+  const specRules = row.result.result_json?.spec?.rules
+  if (Array.isArray(specRules)) return specRules
+  return row.case.expectations_json?.rules || []
+}
+
+const displayRules = (row: CaseRow): Array<{ rule: any, originalIdx: number }> => {
+  const rules = specRulesForRow(row)
+  const out: Array<{ rule: any, originalIdx: number }> = []
+  for (let i = 0; i < rules.length; i++) {
+    const r = rules[i]
+    // Hide Judge model_id - it's a configuration, not a pass/fail assertion
+    if (r?.target?.category === 'judge' && r?.target?.field === 'model_id') continue
+    out.push({ rule: r, originalIdx: i })
+  }
+  return out
+}
+
+const assertionCount = (row: CaseRow) => {
+  return displayRules(row).length
 }
 
 const modelProviderType = (modelId?: string, caseObj?: TestCase) => {
@@ -693,13 +713,13 @@ const summarizeRule = (rule: any) => {
   }
 }
 
-const mockRuleDuration = (row: { result: TestResult, case: TestCase }) => {
+const mockRuleDuration = (row: CaseRow) => {
   // Placeholder per-rule duration for UI; replace with real metrics later
   const base = 2 + (row.case.id.charCodeAt(0) % 5)
   return `${base}s`
 }
 
-const caseDuration = (row: { result: TestResult, case: TestCase }) => {
+const caseDuration = (row: CaseRow) => {
   // Prefer duration from result_json; otherwise a lightweight placeholder
   const ms = row.result.result_json && row.result.result_json.totals && typeof row.result.result_json.totals.duration_ms === 'number'
     ? Number(row.result.result_json.totals.duration_ms)
@@ -787,17 +807,6 @@ const badgeClassesFor = (catLabel: string): string => {
 // ---- Expectation summary and status helpers ----
 const quote = (s: string) => `"${s}"`
 const joinedQuoted = (arr: any[]) => quote(arr.map((v) => String(v)).join('; '))
-const displayRules = (testCase: TestCase): Array<{ rule: any, originalIdx: number }> => {
-  const rules = (testCase?.expectations_json?.rules || []) as any[]
-  const out: Array<{ rule: any, originalIdx: number }> = []
-  for (let i = 0; i < rules.length; i++) {
-    const r = rules[i]
-    // Hide Judge model_id - it's a configuration, not a pass/fail assertion
-    if (r?.target?.category === 'judge' && r?.target?.field === 'model_id') continue
-    out.push({ rule: r, originalIdx: i })
-  }
-  return out
-}
 const ruleSummaryText = (rule: any): string => {
   try {
     // For judge expectations, display the actual prompt text (expected value)
@@ -1070,14 +1079,16 @@ const ruleFailed = (result: TestResult, idx: number) => {
   return rr[idx]?.ok === false
 }
 
-// Passed assertions counter per row
-const passedAssertions = (row: { result: TestResult, case: TestCase }): number => {
+// Passed assertions counter per row (only counting visible rules)
+const passedAssertions = (row: CaseRow): number => {
   try {
     const rr = row.result.result_json?.rule_results || []
     if (!Array.isArray(rr)) return 0
+    const visible = displayRules(row).map(it => it.originalIdx)
     let cnt = 0
-    for (const it of rr) {
-      if (it && it.ok === true) cnt++
+    for (const idx of visible) {
+      const entry = rr[idx]
+      if (entry && entry.ok === true) cnt++
     }
     return cnt
   } catch {

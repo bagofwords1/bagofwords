@@ -33,6 +33,7 @@ class CreateDataInput(BaseModel):
             "pie_chart",
             "area_chart",
             "count",
+            "metric_card",  # KPI card with optional sparkline
             "heatmap",
             "map",
             "candlestick",

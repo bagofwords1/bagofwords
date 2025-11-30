@@ -14,7 +14,22 @@
                 </div>
             </div>
             
-            <div class="flex items-center justify-end gap-2 w-full md:w-auto">
+            <div class="flex items-center justify-end gap-4 w-full md:w-auto">
+                <!-- AI Mode toggle button -->
+                <UButton
+                    :icon="learningEnabled ? 'i-heroicons-bolt' : 'i-heroicons-bolt-slash'"
+                    variant="outline"
+                    color="gray"
+                    @click="openLearningSettingsModal"
+                    class="w-full md:w-auto"
+                    :ui="{ 
+                        icon: { base: learningEnabled ? 'text-amber-500' : 'text-gray-400' },
+                        color: { gray: { outline: 'ring-1 ring-gray-200 text-gray-600 hover:bg-gray-50' } }
+                    }"
+                >
+                    <span class="text-sm font-medium">AI Mode</span>
+                </UButton>
+
                 <UButton
                     icon="i-heroicons-plus"
                     color="blue"
@@ -342,12 +357,20 @@
         :instructions="instructions"
         @labels-updated="handleLabelsUpdated"
     />
+
+    <!-- Learning Settings Modal -->
+    <InstructionLearningSettingsModal
+        v-model="showLearningSettingsModal"
+        :settings="learningSettings"
+        @saved="handleLearningSettingsSaved"
+    />
 </template>
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import InstructionLabelsManagerModal from '~/components/InstructionLabelsManagerModal.vue'
+import InstructionLearningSettingsModal from '~/components/InstructionLearningSettingsModal.vue'
 import { useCan, usePermissionsLoaded } from '~/composables/usePermissions'
 
 // Define interfaces based on the backend schema
@@ -384,7 +407,7 @@ interface Instruction {
     text: string
     thumbs_up: number
     status: 'draft' | 'published' | 'archived'
-    category: 'code_gen' | 'data_modeling' | 'general'
+    category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
     user_id: string
     organization_id: string
     user: User
@@ -444,6 +467,19 @@ const labelFilter = ref<string[]>([])
 // Label management state
 const showManageLabelsModal = ref(false)
 
+// Learning settings state
+const showLearningSettingsModal = ref(false)
+type LearningMode = 'off' | 'on'
+interface LearningSettings {
+    enabled: boolean
+    sensitivity: number
+    conditions: Record<string, boolean>
+    mode?: LearningMode
+}
+const learningSettings = ref<LearningSettings | null>(null)
+const learningMode = computed(() => learningSettings.value?.mode ?? 'on')
+const learningEnabled = computed(() => learningMode.value !== 'off')
+
 // Modal state
 const showInstructionModal = ref(false)
 const editingInstruction = ref<Instruction | null>(null)
@@ -490,7 +526,10 @@ const categoryOptions = [
     { label: 'All', value: 'all' },
     { label: 'General', value: 'general' },
     { label: 'Code Generation', value: 'code_gen' },
-    { label: 'Data Modeling', value: 'data_modeling' }
+    { label: 'Data Modeling', value: 'data_modeling' },
+    { label: 'System', value: 'system' },
+    { label: 'Visualizations', value: 'visualizations' },
+    { label: 'Dashboard', value: 'dashboard' }
 ]
 
 // Computed properties
@@ -673,6 +712,46 @@ const handleLabelsUpdated = () => {
     fetchInstructions()
 }
 
+const openLearningSettingsModal = () => {
+    showLearningSettingsModal.value = true
+}
+
+const handleLearningSettingsSaved = (settings: LearningSettings) => {
+    learningSettings.value = settings
+}
+
+const fetchLearningSettings = async () => {
+    try {
+        const { data, error } = await useMyFetch('/api/organization/settings', {
+            method: 'GET'
+        })
+        
+        if (error.value) {
+            console.error('Error fetching organization settings:', error.value)
+            return
+        }
+        
+        if (data.value) {
+            const config = (data.value as any)?.config
+            const suggestInstructions = config?.suggest_instructions
+            
+            if (suggestInstructions) {
+                const isEnabled = suggestInstructions.value !== undefined 
+                    ? suggestInstructions.value 
+                    : (suggestInstructions.state === 'enabled')
+                learningSettings.value = {
+                    enabled: isEnabled ?? true,
+                    sensitivity: suggestInstructions.sensitivity ?? 0.6,
+                    conditions: suggestInstructions.conditions ?? {},
+                    mode: suggestInstructions.mode ?? (isEnabled ? 'on' : 'off')
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Error fetching learning settings:', err)
+    }
+}
+
 const handleLabelFilterChange = (values: string[]) => {
     // Filter out the "__manage__" option if it was selected
     labelFilter.value = values.filter(v => v !== '__manage__')
@@ -695,7 +774,10 @@ const formatCategory = (category: string) => {
     const categoryMap = {
         code_gen: 'Code Generation',
         data_modeling: 'Data Modeling',
-        general: 'General'
+        general: 'General',
+        system: 'System',
+        visualizations: 'Visualizations',
+        dashboard: 'Dashboard'
     }
     return categoryMap[category as keyof typeof categoryMap] || category
 }
@@ -766,5 +848,6 @@ onMounted(async () => {
     // Wait a bit for organization to be loaded by parent components
     await nextTick()
     fetchInstructions()
+    fetchLearningSettings()
 })
 </script> 

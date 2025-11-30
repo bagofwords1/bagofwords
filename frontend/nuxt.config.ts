@@ -118,7 +118,7 @@ export default defineNuxtConfig({
       token: {
         signInResponseTokenPointer: '/access_token',
         type: 'Bearer',
-        maxAgeInSeconds: 60 * 60 * 24, // 24 hours
+        maxAgeInSeconds: 60 * 60 * 24 * 7, // 7 days
         cookie: {
           name: 'auth_token',
           options: {

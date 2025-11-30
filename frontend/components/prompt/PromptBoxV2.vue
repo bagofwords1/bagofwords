@@ -15,7 +15,15 @@
         <div class="border border-gray-200 rounded-xl bg-white focus-within:border-gray-300 transition-colors">
             <!-- Input -->
             <div class="p-3">
+                <div
+                    v-if="isHydratingDataSources"
+                    class="flex items-center justify-center py-6 space-x-2 text-xs text-gray-500"
+                >
+                    <Spinner class="w-4 h-4 text-gray-400" />
+                    <span>Loading report context…</span>
+                </div>
                 <MentionInput
+                    v-else
                     v-model="text"
                     @update:mentions="handleMentionsUpdate"
                     @submit="submit"
@@ -26,7 +34,10 @@
             </div>
 
             <!-- Bottom controls -->
-            <div class="px-3 pb-3 flex items-center justify-between">
+            <div
+                class="px-3 pb-3 flex items-center justify-between"
+                :class="{ 'opacity-50 pointer-events-none': isHydratingDataSources }"
+            >
                 <div class="flex items-center space-x-1 relative">
                     <!-- Data source selector -->
                     <DataSourceSelector v-model:selectedDataSources="selectedDataSources" :reportId="report_id" />
@@ -147,7 +158,11 @@ const props = defineProps({
     popoverOffset: { type: Number, default: 16 },
     // Landing page prefill support
     textareaContent: { type: String, default: '' },
-    showContextIndicator: { type: Boolean, default: false }
+    showContextIndicator: { type: Boolean, default: false },
+    initialSelectedDataSources: {
+        type: Array,
+        default: () => []
+    }
 })
 
 const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue'])
@@ -155,10 +170,20 @@ const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue
 const text = ref('')
 const placeholder = 'Ask for data, dashboard or a deep analysis'
 const mode = ref<'chat' | 'deep'>('chat')
-const selectedDataSources = ref<any[]>([])
+const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
+const isHydratingDataSources = ref(!!props.report_id && selectedDataSources.value.length === 0)
 const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
 const inlineMentions = ref<any[]>([])
+const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
+watch(() => props.initialSelectedDataSources, (newVal) => {
+    if (!Array.isArray(newVal)) return
+    if (hasBootstrappedFromInitial.value) return
+    if (newVal.length === 0) return
+    selectedDataSources.value = [...newVal]
+    hasBootstrappedFromInitial.value = selectedDataSources.value.length > 0
+    isHydratingDataSources.value = false
+}, { deep: true })
 
 type CompletionContextEstimate = {
     model_id: string
@@ -265,6 +290,34 @@ async function loadModels() {
     }
 }
 
+async function hydrateReportDataSources(reportId?: string, { showSpinner = true } = {}) {
+    if (!reportId) {
+        selectedDataSources.value = []
+        if (showSpinner) isHydratingDataSources.value = false
+        return
+    }
+
+    if (showSpinner) {
+        isHydratingDataSources.value = true
+    }
+    try {
+        const res = await useMyFetch(`/reports/${reportId}`, { method: 'GET' })
+        const report = (res as any)?.data?.value as any
+        if (report && Array.isArray(report.data_sources)) {
+            selectedDataSources.value = report.data_sources
+        } else {
+            selectedDataSources.value = []
+        }
+        hasBootstrappedFromInitial.value = selectedDataSources.value.length > 0
+    } catch (e) {
+        console.error('Failed to hydrate data sources for report:', e)
+    } finally {
+        if (showSpinner) {
+            isHydratingDataSources.value = false
+        }
+    }
+}
+
 async function refreshContextEstimate(force = false) {
     if (!props.showContextIndicator || !props.report_id) return
     if (!force && hasRequestedContextEstimate.value) return
@@ -322,7 +375,7 @@ function onInput() {
     emit('update:modelValue', text.value)
 }
 
-const canSubmit = computed(() => text.value.trim().length > 0 && !props.latestInProgressCompletion)
+const canSubmit = computed(() => text.value.trim().length > 0 && !props.latestInProgressCompletion && !isHydratingDataSources.value)
 
 function submit() {
     if (!canSubmit.value) return
@@ -365,17 +418,14 @@ function openInstructions() { instructionsListModalRef.value?.openModal?.() }
 onMounted(async () => {
     await loadModels()
     await refreshContextEstimate(false)
-    // Hydrate selected data sources from report when in a report context
-    try {
-        if (props.report_id) {
-            const res = await useMyFetch(`/reports/${props.report_id}`, { method: 'GET' })
-            const report = (res as any)?.data?.value as any
-            if (report && Array.isArray(report.data_sources)) {
-                selectedDataSources.value = report.data_sources
-            }
+    if (props.report_id) {
+        const shouldShowSpinner = selectedDataSources.value.length === 0
+        await hydrateReportDataSources(props.report_id, { showSpinner: shouldShowSpinner })
+        if (!shouldShowSpinner) {
+            isHydratingDataSources.value = false
         }
-    } catch (e) {
-        console.error('Failed to hydrate data sources for report:', e)
+    } else {
+        isHydratingDataSources.value = false
     }
     // Compact mode: if container is narrow, hide labels
     const root = document.querySelector('.flex-shrink-0') as HTMLElement
@@ -387,9 +437,18 @@ onMounted(async () => {
 })
 
 watch(() => props.report_id, async (newId, oldId) => {
-    if (props.showContextIndicator && newId && newId !== oldId) {
-        hasRequestedContextEstimate.value = false
-        await refreshContextEstimate(false)
+    if (newId !== oldId) {
+        selectedDataSources.value = [...(props.initialSelectedDataSources || [])]
+        hasBootstrappedFromInitial.value = selectedDataSources.value.length > 0
+        const shouldShowSpinner = selectedDataSources.value.length === 0
+        await hydrateReportDataSources(newId, { showSpinner: shouldShowSpinner })
+        if (!shouldShowSpinner) {
+            isHydratingDataSources.value = false
+        }
+        if (props.showContextIndicator && newId) {
+            hasRequestedContextEstimate.value = false
+            await refreshContextEstimate(false)
+        }
     }
 })
 
@@ -417,20 +476,6 @@ watch(() => props.textareaContent, (newVal) => {
         text.value = newVal
     }
 }, { immediate: true })
-
-// Re-hydrate data sources if report_id changes
-watch(() => props.report_id, async (newId) => {
-    if (!newId) return
-    try {
-        const res = await useMyFetch(`/reports/${newId}`, { method: 'GET' })
-        const report = (res as any)?.data?.value as any
-        if (report && Array.isArray(report.data_sources)) {
-            selectedDataSources.value = report.data_sources
-        }
-    } catch (e) {
-        console.error('Failed to rehydrate data sources when report changed:', e)
-    }
-})
 
 const router = useRouter()
 

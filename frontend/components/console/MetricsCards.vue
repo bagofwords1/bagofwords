@@ -44,14 +44,14 @@
             </div>
         </div>
         
-        <!-- Instructions Effectiveness -->
+        <!-- Instruction Coverage -->
         <div class="bg-white p-6 border border-gray-200 rounded-xl shadow-sm">
             <div class="text-2xl font-bold text-gray-900">
                {{ isJudgeEnabled ? (metricsComparison?.current?.instructions_effectiveness != null ? Math.round(metricsComparison.current.instructions_effectiveness) + '%' : 'N/A') : 'N/A' }}
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                Instructions Effectiveness
-                <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions guide responses (20-100 scale)' : 'LLM Judge agent is turned off'">
+                Instruction Coverage
+                <UTooltip :text="isJudgeEnabled ? 'AI judge score for how well instructions cover responses (20-100 scale)' : 'LLM Judge agent is turned off'">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>
@@ -62,14 +62,14 @@
             </div>
         </div>
         
-        <!-- Context Effectiveness -->
+        <!-- Context Coverage -->
         <div class="bg-white p-6 border hidden border-gray-200 rounded-xl shadow-sm">
             <div class="text-2xl font-bold text-gray-900">
                 {{ formatScore(metricsComparison?.current.context_effectiveness) }}
             </div>
             <div class="text-sm font-medium text-gray-600 mt-1 flex items-center">
-                Context Effectiveness
-                <UTooltip :text="isJudgeEnabled ? 'AI judge score for context quality and relevance (0-100)' : 'LLM Judge agent is turned off'">
+                Context Coverage
+                <UTooltip :text="isJudgeEnabled ? 'AI judge score for context coverage and relevance (0-100)' : 'LLM Judge agent is turned off'">
                     <Icon name="heroicons-information-circle" class="w-4 h-4 ml-1 text-gray-400 cursor-help" />
                 </UTooltip>
             </div>

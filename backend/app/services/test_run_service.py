@@ -667,32 +667,40 @@ class TestRunService:
                 head = await db.get(Completion, str(r.head_completion_id))
                 if not head:
                     continue
-                # Pre-store expectations spec into result_json so UI shows pending assertions immediately
+                # Pre-store expectations spec into result_json so UI shows pending assertions immediately.
+                # Only backfill when the snapshot is missing to avoid overwriting historical specs.
                 try:
-                    spec_raw = dict(getattr(case, "expectations_json", {}) or {})
-                    rules = list(spec_raw.get("rules") or [])
+                    spec_raw = dict(getattr(r, "result_json", {}) or {}).get("spec")
+                    existing_rules = []
+                    if isinstance(spec_raw, dict):
+                        existing_rules = spec_raw.get("rules") or []
+                    if not existing_rules:
+                        case_spec_raw = dict(getattr(case, "expectations_json", {}) or {})
+                        rules = list(case_spec_raw.get("rules") or [])
+                        current_rj = getattr(r, "result_json", None)
+                        if not isinstance(current_rj, dict):
+                            current_rj = {}
+                        current_rj["spec"] = {
+                            "spec_version": case_spec_raw.get("spec_version") or 1,
+                            "rules": rules,
+                            "order_mode": case_spec_raw.get("order_mode"),
+                        }
+                        existing_rules = rules
+                        r.result_json = current_rj
+                    # Ensure totals present and aligned with whichever spec we're using
                     current_rj = getattr(r, "result_json", None)
-                    if not isinstance(current_rj, dict):
-                        current_rj = {}
-                    # Write spec snapshot
-                    current_rj["spec"] = {
-                        "spec_version": spec_raw.get("spec_version") or 1,
-                        "rules": rules,
-                        "order_mode": spec_raw.get("order_mode"),
-                    }
-                    # Ensure totals present and aligned
-                    totals = dict(current_rj.get("totals") or {})
-                    totals.setdefault("passed", 0)
-                    totals.setdefault("failed", 0)
-                    totals.setdefault("duration_ms", None)
-                    totals["total"] = len(rules)
-                    current_rj["totals"] = totals
-                    # Ensure rule_results exists
-                    if not isinstance(current_rj.get("rule_results"), list):
-                        current_rj["rule_results"] = []
-                    r.result_json = current_rj
-                    db.add(r)
-                    await db.commit()
+                    if isinstance(current_rj, dict):
+                        totals = dict(current_rj.get("totals") or {})
+                        totals.setdefault("passed", 0)
+                        totals.setdefault("failed", 0)
+                        totals.setdefault("duration_ms", None)
+                        totals["total"] = len(existing_rules or [])
+                        current_rj["totals"] = totals
+                        if not isinstance(current_rj.get("rule_results"), list):
+                            current_rj["rule_results"] = []
+                        r.result_json = current_rj
+                        db.add(r)
+                        await db.commit()
                 except Exception:
                     pass
                 # Detect an existing system completion for this head/report (latest)

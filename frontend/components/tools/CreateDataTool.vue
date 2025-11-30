@@ -1,82 +1,74 @@
 <template>
   <div class="mb-2">
-    <div class="flex items-center text-xs text-gray-500 hidden">
-      <Icon v-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-      <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
-      <span v-if="status === 'running'" class="tool-shimmer">{{ actionLabel }}</span>
-      <span v-else class="text-gray-700">{{ actionLabel }}</span>
-      <span v-if="progressStage" class="ml-2 px-1.5 py-0.5 rounded bg-gray-100 text-gray-400">{{ progressStageLabel }}</span>
-      <span v-if="showDuration" class="ml-2 text-gray-400">{{ formatDuration }}</span>
+    <!-- Main Header: Creating Data (always collapsible) -->
+    <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCreateData">
+      <Icon :name="createDataCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 mr-1.5 text-gray-400" />
+      <Spinner v-if="status === 'running'" class="w-3 h-3 mr-1.5 text-gray-400" />
+      <Icon v-else-if="status === 'success'" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+      <Icon v-else-if="status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
+      <span v-if="status === 'running'" class="tool-shimmer">Creating Data</span>
+      <span v-else-if="status === 'success'" class="text-gray-700">Created Data</span>
+      <span v-else-if="status === 'error'" class="text-gray-700">Create Data</span>
+      <span v-else class="text-gray-700">Create Data</span>
+      <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
+    <!-- Error message below header -->
+    <div v-if="status === 'error' && lastErrorMessage" class="mt-1 ml-4 text-xs text-gray-500">
+      {{ lastErrorMessage }}
+    </div>
+
+    <!-- Collapsible content: Generating Code & Visualizing sections -->
     <Transition name="fade">
-      <div class="mt-3">
-        <!-- Section: Generating Code -->
-        <div class="mb-2">
-          <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click="toggleCode">
+      <div v-if="!createDataCollapsed" class="mt-2 ml-4 space-y-2">
+        <!-- Generating Code section -->
+        <div>
+          <div class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700" @click.stop="toggleCode">
             <Spinner v-if="isCodeRunning" class="w-3 h-3 mr-1.5 text-gray-400" />
-            <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
+            <Icon v-else-if="status === 'error'" name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-gray-400" />
             <Icon v-else-if="codeDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
             <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">Validating Code</span>
             <span v-else-if="isCodeRunning" class="tool-shimmer">Generating Code</span>
-            <span v-else class="text-gray-700">Generating Code</span>
+            <span v-else class="text-gray-700">Generated Code</span>
             <Icon :name="codeCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3 h-3 ml-2" />
           </div>
           <Transition name="fade">
-            <div v-if="!codeCollapsed" class="mt-1 ml-4">
-              <div v-if="codeContent" class="text-xs mb-2 mt-1">
-                <div class="mb-2 text-xs bg-gray-50 rounded-lg px-4 py-3 text-gray-500 flex items-center">
-                  <span v-if="isCodeRunning && progressStage === 'validating_code'" class="tool-shimmer">Validating... (Attempt {{ currentAttempt }})</span>
-                  <span v-else-if="isCodeRunning" class="tool-shimmer">Running... (Attempt {{ currentAttempt }})</span>
-                  <span v-else-if="status === 'success'" class="flex items-center">
-                    <span class="text-green-500 flex items-center">
-                      <Icon name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
-                      {{ validationSucceeded ? 'Success and validated' : 'Success' }}</span>
-                    <span class="ml-2" v-if="successDetails"> • {{ successDetails }}</span>
-                  </span>
-                  <span v-else-if="status === 'error'" class="flex items-center">
-                    <span class="text-red-500 flex items-center">
-                      <Icon name="heroicons-x-mark" class="w-3 h-3 mr-1.5 text-red-500" />
-                      Failed</span>
-                    <span class="ml-2 text-red-500" v-if="lastErrorMessage"> • {{ lastErrorMessage }}</span>
-                  </span>
-                  <div class="flex-1"></div>
-                  <div class="relative group">
-                    <span class="text-gray-400 cursor-default">attempts: {{ currentAttempt }}</span>
-                    <div class="hidden group-hover:block absolute right-0 z-10 mt-1 w-80 bg-white border border-gray-200 rounded shadow-lg p-2 text-xs text-gray-600">
-                      <div v-if="attempts && attempts.length">
-                        <div class="font-medium text-gray-700 mb-1">Errors</div>
-                        <ul class="list-disc ml-5 max-h-48 overflow-auto">
-                          <li v-for="(att, idx) in attempts" :key="idx">Attempt {{ idx + 1 }}: {{ att }}</li>
-                        </ul>
-                      </div>
-                      <div v-else class="text-gray-400"></div>
-                    </div>
-                  </div>
-                </div>
-                <div class="bg-gray-50 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto relative">
-                  <button
-                    class="absolute top-2 right-2 px-2 py-1 text-xs rounded border border-gray-300 bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-800"
-                    :disabled="!canOpenEditor"
-                    v-if="canOpenEditor"
-                    @click.stop="openEditor"
-                  >
-                    Edit code
-                  </button>
-                  <pre class="text-gray-800 whitespace-pre-wrap pr-20">{{ codeContent }}</pre>
-                </div>
+            <div v-if="!codeCollapsed && codeContent" class="mt-1 ml-4">
+              <div class="bg-gray-50 rounded px-4 py-3 font-mono text-xs max-h-42 overflow-y-auto relative">
+                <button
+                  class="absolute top-2 right-2 px-2 py-1 text-xs rounded border border-gray-300 bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-800"
+                  :disabled="!canOpenEditor"
+                  v-if="canOpenEditor"
+                  @click.stop="openEditor"
+                >
+                  Edit code
+                </button>
+                <pre class="text-gray-800 whitespace-pre-wrap pr-20">{{ codeContent }}</pre>
               </div>
-              <div v-else class="text-xs text-gray-400 mt-1 hidden">Preparing…</div>
             </div>
           </Transition>
         </div>
 
-        <!-- Results Preview -->
-        <div class="mt-1" v-if="hasPreview">
-          <ToolWidgetPreview :tool-execution="toolExecution" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
+        <!-- Visualizing section -->
+        <div v-if="showVisualizingSection">
+          <div class="flex items-center text-xs text-gray-500">
+            <Spinner v-if="isVisualizing" class="w-3 h-3 mr-1.5 text-gray-400" />
+            <Icon v-else-if="vizError" name="heroicons-exclamation-circle" class="w-3 h-3 mr-1.5 text-amber-500" />
+            <Icon v-else-if="vizDone" name="heroicons-check" class="w-3 h-3 mr-1.5 text-green-500" />
+            <span v-if="isVisualizing" class="tool-shimmer">Visualizing</span>
+            <span v-else-if="vizError" class="text-gray-700">Visualizing</span>
+            <span v-else class="text-gray-700">{{ chartTypeLabel }}</span>
+            <span v-if="vizSummary && !vizError" class="ml-1.5 text-gray-400">· {{ vizSummary }}</span>
+          </div>
+          <div v-if="vizError" class="mt-1 ml-4 text-xs text-gray-500">{{ vizError }}</div>
         </div>
       </div>
     </Transition>
+
+    <!-- Results Preview - only show if not failed -->
+    <div class="mt-2" v-if="hasPreview && status !== 'error'">
+      <ToolWidgetPreview :tool-execution="toolExecution" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
+    </div>
   </div>
   <QueryCodeEditorModal
     :visible="showEditor"
@@ -127,6 +119,7 @@ const props = defineProps<Props>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
 const codeCollapsed = ref(false)
+const createDataCollapsed = ref(true) // Collapsed by default
 const dataTitle = computed(() => props.toolExecution.arguments_json?.title || 'Data')
 const status = computed(() => props.toolExecution.status)
 const progressStage = computed(() => (props.toolExecution as any).progress_stage || '')
@@ -188,6 +181,55 @@ const isCodeRunning = computed(() => progressStage.value && [
 ].includes(progressStage.value))
 const codeDone = computed(() => !!codeContent.value && !isCodeRunning.value)
 
+// Visualization state
+const isVisualizing = computed(() => progressStage.value === 'inferring_visualization')
+const vizInferredData = computed(() => (props.toolExecution as any).progress_visualization || null)
+const vizError = computed(() => (props.toolExecution as any).progress_visualization_error || null)
+const vizDone = computed(() => {
+  // Check if we have visualization data from progress or result
+  const fromProgress = vizInferredData.value
+  const fromResult = props.toolExecution.result_json as any
+  return !!(fromProgress || fromResult?.data_model?.type)
+})
+const showVisualizingSection = computed(() => {
+  // Show if visualizing, if visualization was inferred (not table), or if there's an error
+  const resultType = (props.toolExecution.result_json as any)?.data_model?.type
+  return isVisualizing.value || vizError.value || (vizDone.value && resultType && resultType !== 'table')
+})
+
+// Chart type display
+const chartType = computed(() => {
+  const fromProgress = vizInferredData.value?.chart_type
+  const fromResult = (props.toolExecution.result_json as any)?.data_model?.type
+  return fromProgress || fromResult || ''
+})
+const chartTypeLabel = computed(() => {
+  const typeMap: Record<string, string> = {
+    bar_chart: 'Bar Chart',
+    line_chart: 'Line Chart',
+    area_chart: 'Area Chart',
+    pie_chart: 'Pie Chart',
+    scatter_chart: 'Scatter Plot',
+    metric_card: 'Metric Card',
+    table: 'Table',
+    grouped_bar_chart: 'Grouped Bar',
+    stacked_bar_chart: 'Stacked Bar',
+    stacked_area_chart: 'Stacked Area'
+  }
+  return typeMap[chartType.value] || chartType.value
+})
+
+// Simple visualization summary (e.g., "x → y")
+const vizSummary = computed(() => {
+  const series = vizInferredData.value?.series || (props.toolExecution.result_json as any)?.data_model?.series || []
+  if (!series.length) return ''
+  const s = series[0]
+  if (s.x && s.y) return `${s.x} → ${s.y}`
+  if (s.key && s.value) return `${s.key} → ${s.value}`
+  if (s.value) return s.value
+  return ''
+})
+
 const actionLabel = computed(() => {
   if (status.value === 'running') return `Creating data: ${dataTitle.value}`
   if (status.value === 'success') return `Created data: ${dataTitle.value}`
@@ -195,7 +237,6 @@ const actionLabel = computed(() => {
   return `Create data: ${dataTitle.value}`
 })
 
-const showDuration = computed(() => props.toolExecution.duration_ms && props.toolExecution.duration_ms > 2000)
 const formatDuration = computed(() => {
   if (!props.toolExecution.duration_ms) return ''
   const seconds = (props.toolExecution.duration_ms / 1000).toFixed(1)
@@ -203,14 +244,14 @@ const formatDuration = computed(() => {
 })
 
 watch([codeDone, status], ([codeNow, st]) => {
-  if (st === 'error') {
-    codeCollapsed.value = false
-  } else if (codeNow) {
+  // Keep code section collapsed by default
+  if (st === 'error' || st === 'success') {
     codeCollapsed.value = true
   }
 }, { immediate: true })
 
 function toggleCode() { codeCollapsed.value = !codeCollapsed.value }
+function toggleCreateData() { createDataCollapsed.value = !createDataCollapsed.value }
 function onAddWidget(payload: { widget?: any, step?: any }) { emit('addWidget', payload) }
 
 const initialStepId = computed(() => props.toolExecution?.created_step_id || props.toolExecution?.created_step?.id || null)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, List
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # PostgreSQL
@@ -60,8 +60,24 @@ class SQLiteConfig(BaseModel):
 
 # MySQL/MariaDB/MSSQL - Combined since they share the same structure
 class SQLCredentials(BaseModel):
-    user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
-    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+    user: Optional[str] = Field(
+        None,
+        title="User",
+        description="Leave blank to use anonymous database access.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: Optional[str] = Field(
+        None,
+        title="Password",
+        description="Leave blank to use anonymous database access or empty password.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+    @model_validator(mode="after")
+    def validate_user_password(cls, model: "SQLCredentials") -> "SQLCredentials":
+        if model.password not in (None, "") and model.user in (None, ""):
+            raise ValueError("A user must be provided when supplying a password.")
+        return model
 
 
 class SQLConfig(BaseModel):

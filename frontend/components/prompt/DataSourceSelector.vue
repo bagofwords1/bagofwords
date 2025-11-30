@@ -2,8 +2,14 @@
     <div class="inline-block relative" ref="containerRef">
         <UPopover :popper="{ strategy: 'absolute', placement: 'bottom-start', offset: [0,8] }">
             <UTooltip :text="isCompactFinal ? dataTooltip : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
-                <button class="inline-flex items-center text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-2 text-xs">
-                    <span v-if="internalSelectedDataSources.length > 0" class="flex items-center">
+                <button
+                    class="inline-flex items-center text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md p-2 text-xs"
+                    :disabled="isLoading"
+                >
+                    <span v-if="isLoading" class="flex items-center">
+                        <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
+                    </span>
+                    <span v-else-if="internalSelectedDataSources.length > 0" class="flex items-center">
                         <template v-if="isCompactFinal">
                             <!-- Compact: show only first icon -->
                             <DataSourceIcon :type="internalSelectedDataSources[0].type" class="h-4 w-4" />
@@ -25,13 +31,28 @@
             </UTooltip>
             <template #panel>
                 <div class="p-2 text-xs max-h-64 overflow-y-auto w-[260px] rounded-xl">
-                    <div v-for="ds in dataSources" :key="ds.id" class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between" @click="() => { toggleDataSource(ds); }">
-                        <div class="flex items-center">
-                            <DataSourceIcon :type="ds.type" class="w-4" />
-                            <span class="ml-2 text-[13px]">{{ ds.name }}</span>
-                        </div>
-                        <Icon v-if="isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
+                    <div v-if="isLoading" class="flex items-center justify-center py-6 text-gray-500 space-x-2">
+                        <Spinner class="w-4 h-4 text-gray-400 animate-spin" />
+                        <span>Loading data sources…</span>
                     </div>
+                    <template v-else>
+                        <div v-if="dataSources.length === 0" class="text-center text-gray-500 py-4">
+                            No data sources found
+                        </div>
+                        <div
+                            v-else
+                            v-for="ds in dataSources"
+                            :key="ds.id"
+                            class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
+                            @click="() => { toggleDataSource(ds); }"
+                        >
+                            <div class="flex items-center">
+                                <DataSourceIcon :type="ds.type" class="w-4" />
+                                <span class="ml-2 text-[13px]">{{ ds.name }}</span>
+                            </div>
+                            <Icon v-if="isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />
+                        </div>
+                    </template>
                 </div>
             </template>
         </UPopover>
@@ -40,10 +61,11 @@
 </template>
 
 <script lang="ts" setup>
-
+import Spinner from '@/components/Spinner.vue'
 type DataSource = { id: string; name: string; type?: string }
 const internalSelectedDataSources = ref<DataSource[]>([])
 const dataSources = ref<DataSource[]>([])
+const isLoading = ref(true)
 const isOpen = ref(false)
 const containerRef = ref<HTMLElement | null>(null)
 const isCompact = ref(false)
@@ -63,23 +85,25 @@ const props = defineProps({
 const emit = defineEmits(['update:selectedDataSources']);
 
 async function getDataSources() {
-    const response = await useMyFetch('/data_sources/active', {
-        method: 'GET',
-    }).then((response) => {
+    try {
+        const response = await useMyFetch('/data_sources/active', {
+            method: 'GET',
+        })
         dataSources.value = (response.data.value as any[]) || []
-    })
-    // Initialize selection from prop if provided, otherwise leave empty for parent to decide
-    if ((props.selectedDataSources as any[])?.length) {
-        // Align to the objects from the current dataSources list by id
-        const ids = new Set((props.selectedDataSources as any[]).map((x: any) => x.id))
-        internalSelectedDataSources.value = dataSources.value.filter((ds: any) => ids.has(ds.id))
-        handleSelectionChange()
-    } else if (!props.reportId) {
-        // Landing page (no report): default to ALL active data sources
-        internalSelectedDataSources.value = dataSources.value
-        handleSelectionChange()
+        // Initialize selection from prop if provided, otherwise leave empty for parent to decide
+        if ((props.selectedDataSources as any[])?.length) {
+            // Align to the objects from the current dataSources list by id
+            const ids = new Set((props.selectedDataSources as any[]).map((x: any) => x.id))
+            internalSelectedDataSources.value = dataSources.value.filter((ds: any) => ids.has(ds.id))
+            handleSelectionChange()
+        } else if (!props.reportId) {
+            // Landing page (no report): default to ALL active data sources
+            internalSelectedDataSources.value = dataSources.value
+            handleSelectionChange()
+        }
+    } finally {
+        isLoading.value = false
     }
-
 }
 
 function handleSelectionChange() {
