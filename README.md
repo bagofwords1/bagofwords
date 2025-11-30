@@ -30,7 +30,7 @@ Bag of words is an open-source AI data layer — connect any LLM to any data sou
 
 * **Any LLM, any data**
 
-   Connect multiple data sources: Snowflake, BigQuery, Azure Data Explorer, Redshift, Postgres, dbt, Tableau, and more — then pair with the LLM of your choice (OpenAI, Anthropic, or local models). Swap models/data sources without breaking workflows.
+   Connect multiple data sources: Snowflake, BigQuery, Redshift, Postgres, dbt, Tableau, and more — then pair with the LLM of your choice (OpenAI, Anthropic, or local models). Swap models/data sources without breaking workflows.
 
 *  **Transparency, trust & deployment**
 

@@ -165,6 +165,33 @@ class BigqueryClient(DataSourceClient):
 
     @property
     def description(self):
+
+        system_prompt = """
+        You can call the execute_query method to run BigQuery compatible SQL queries.
+
+        The below are examples for how to use the execute_query method. Note that the actual SQL will vary based on the schema.
+        Notice only the SQL syntax and instructions on how to use the execute_query method, not the actual SQL queries.
+
+        ```python
+        df = client.execute_query("SELECT * FROM users")
+        ```
+        or:
+        ```python
+        df = client.execute_query("SELECT * FROM users WHERE age > 30")
+        ```
+
+        BigQuery specific syntax notes:
+        - Don’t use reserved keywords as aliases (e.g., AT, ON, IN, ALL, GROUP, ORDER, JOIN, WHERE, SELECT).
+        - No trailing commas in SELECT or CTEs.
+        - Every JOIN must have an ON/USING clause.
+        - All non-aggregated columns must be in GROUP BY.
+        - Use QUALIFY for filtering window functions.
+        """
+
+
+        description = f"BigQuery project {self.project_id}; datasets: {self._datasets}\n\n"
+        description += system_prompt
+        return description
         if self._datasets:
             listed = ", ".join(self._datasets)
             return f"BigQuery project {self.project_id}; datasets: {listed}"
