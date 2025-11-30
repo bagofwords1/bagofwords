@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.257 (November 30, 2025)
+- Added Azure Data Explorer data source (thanks @licanhua)
+- Improved BigQuery system prompt to consider special syntax guidelines when generating code
+
 ## Version 0.0.256 (November 29, 2025)
 - Improved visualization features
 - Enhanced dashboard creation workflow
