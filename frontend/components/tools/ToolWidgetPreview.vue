@@ -18,7 +18,7 @@
         </div>
         <div class="flex items-center gap-2">
           <div v-if="rowCount" class="text-[11px] text-gray-400">
-            {{ rowCount }} rows
+            {{ activeFilterCount > 0 ? `${filteredRowCount}/` : '' }}{{ rowCount }} rows
           </div>
 
           <button 
@@ -83,6 +83,97 @@
             </button>
           </div>
 
+          <!-- Filter Row (above chart) -->
+          <div v-if="hasData && filterableColumns.length > 0" class="flex justify-end mb-2">
+            <UPopover :popper="{ placement: 'bottom-end', strategy: 'fixed' }">
+              <button 
+                class="relative p-1 rounded transition-colors"
+                :class="activeFilterCount > 0 ? 'text-blue-500 bg-blue-50' : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'"
+              >
+                <Icon name="heroicons:funnel" class="w-4 h-4" />
+                <span
+                  v-if="activeFilterCount > 0"
+                  class="absolute -top-1 -right-1 w-3.5 h-3.5 bg-blue-500 text-white text-[8px] font-medium rounded-full flex items-center justify-center"
+                >
+                  {{ activeFilterCount }}
+                </span>
+              </button>
+
+              <template #panel>
+                <div class="p-3 w-[280px]">
+                  <div class="text-xs font-medium text-gray-700 mb-2">Filter Data</div>
+                  
+                  <!-- Add Filter Form -->
+                  <div class="space-y-2">
+                    <select
+                      v-model="pendingFilter.column"
+                      class="w-full text-xs border border-gray-200 rounded px-2 py-1.5 bg-white"
+                      @change="pendingFilter.value = ''"
+                    >
+                      <option value="">Select column...</option>
+                      <option v-for="col in filterableColumns" :key="col.key" :value="col.key">
+                        {{ col.label }}
+                      </option>
+                    </select>
+
+                    <div class="flex gap-2">
+                      <select
+                        v-model="pendingFilter.operator"
+                        class="text-xs border border-gray-200 rounded px-2 py-1.5 bg-white"
+                      >
+                        <option value="equals">equals</option>
+                        <option value="contains">contains</option>
+                        <option value="not_equals">≠</option>
+                        <option value="greater_than">&gt;</option>
+                        <option value="less_than">&lt;</option>
+                      </select>
+
+                      <input
+                        v-model="pendingFilter.value"
+                        type="text"
+                        placeholder="Value..."
+                        class="flex-1 text-xs border border-gray-200 rounded px-2 py-1.5 bg-white"
+                        @keyup.enter="addFilter"
+                      />
+                    </div>
+
+                    <button
+                      @click="addFilter"
+                      :disabled="!pendingFilter.column || !pendingFilter.value"
+                      class="w-full text-xs px-2 py-1.5 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Add Filter
+                    </button>
+                  </div>
+
+                  <!-- Active Filters -->
+                  <div v-if="localFilters.length > 0" class="mt-3 pt-3 border-t border-gray-100">
+                    <div class="flex items-center justify-between mb-2">
+                      <span class="text-[10px] text-gray-500 uppercase">Active Filters</span>
+                      <button @click="clearAllFilters" class="text-[10px] text-gray-400 hover:text-red-500">
+                        Clear all
+                      </button>
+                    </div>
+                    <div class="space-y-1">
+                      <div
+                        v-for="(filter, idx) in localFilters"
+                        :key="idx"
+                        class="flex items-center justify-between text-xs bg-gray-50 rounded px-2 py-1"
+                      >
+                        <span class="text-gray-700">
+                          {{ getColumnLabel(filter.column) }} {{ filter.operator }} "{{ filter.value }}"
+                        </span>
+                        <button @click="removeFilter(idx)" class="text-gray-400 hover:text-red-500 ml-2">
+                          <Icon name="heroicons:x-mark" class="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </UPopover>
+          </div>
+
           <!-- Tab Content -->
           <div class="tab-content">
             <!-- Chart Content -->
@@ -92,16 +183,16 @@
                   <component
                     :is="resolvedCompEl"
                     :widget="effectiveWidget"
-                    :data="effectiveStep?.data"
+                    :data="filteredData"
                     :data_model="effectiveStep?.data_model"
-                    :step="effectiveStep"
+                    :step="filteredStep"
                     :view="normalizedView"
                     :reportThemeName="reportThemeName"
                     :reportOverrides="reportOverrides"
                   />
                 </div>
                 <div v-else-if="chartVisualTypes.has(effectiveStep?.data_model?.type)" class="h-[340px]">
-                  <RenderVisual :widget="effectiveWidget" :data="effectiveStep?.data" :data_model="effectiveStep?.data_model" :view="normalizedView" />
+                  <RenderVisual :widget="effectiveWidget" :data="filteredData" :data_model="effectiveStep?.data_model" :view="normalizedView" />
                 </div>
               </div>
             </Transition>
@@ -112,7 +203,7 @@
                 v-if="(showTabs && activeTab === 'table') || (!showTabs && isTableType)"
                 :class="tableHeightClass"
               >
-                <RenderTable :widget="widget" :step="{ ...(effectiveStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
+                <RenderTable :widget="widget" :step="{ ...(filteredStep || {}), data_model: { ...(effectiveStep?.data_model || {}), type: 'table' } } as any" />
               </div>
             </Transition>
 
@@ -277,6 +368,95 @@ const step = computed(() => props.toolExecution?.created_step || null)
 const stepOverride = ref<any | null>(null)
 const effectiveStep = computed(() => stepOverride.value || step.value)
 const hydratedVisualization = ref<any | null>(null)
+
+// ============ FILTER LOGIC ============
+interface LocalFilter {
+  column: string
+  operator: string
+  value: string
+}
+
+const localFilters = ref<LocalFilter[]>([])
+const pendingFilter = ref<LocalFilter>({ column: '', operator: 'equals', value: '' })
+
+// Discover filterable columns from data
+const filterableColumns = computed(() => {
+  const rows = effectiveStep.value?.data?.rows
+  if (!Array.isArray(rows) || !rows.length) return []
+  const sample = rows[0]
+  return Object.keys(sample || {}).map(key => ({
+    key,
+    label: key.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2')
+      .split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+  }))
+})
+
+const activeFilterCount = computed(() => localFilters.value.length)
+
+// Apply filters to get filtered rows
+const filteredRows = computed(() => {
+  const rows = effectiveStep.value?.data?.rows
+  if (!Array.isArray(rows)) return []
+  if (localFilters.value.length === 0) return rows
+  
+  return rows.filter((row: any) => {
+    return localFilters.value.every(f => {
+      const val = row[f.column]
+      const target = f.value
+      const strVal = String(val ?? '').toLowerCase()
+      const strTarget = target.toLowerCase()
+      
+      switch (f.operator) {
+        case 'equals': return strVal === strTarget
+        case 'not_equals': return strVal !== strTarget
+        case 'contains': return strVal.includes(strTarget)
+        case 'greater_than': return Number(val) > Number(target)
+        case 'less_than': return Number(val) < Number(target)
+        default: return true
+      }
+    })
+  })
+})
+
+const filteredRowCount = computed(() => filteredRows.value.length)
+
+// Filtered data object for components
+const filteredData = computed(() => {
+  if (!effectiveStep.value?.data) return null
+  return {
+    ...effectiveStep.value.data,
+    rows: filteredRows.value
+  }
+})
+
+// Filtered step for table component
+const filteredStep = computed(() => {
+  if (!effectiveStep.value) return null
+  return {
+    ...effectiveStep.value,
+    data: filteredData.value
+  }
+})
+
+function getColumnLabel(key: string): string {
+  const col = filterableColumns.value.find(c => c.key === key)
+  return col?.label || key
+}
+
+function addFilter() {
+  if (!pendingFilter.value.column || !pendingFilter.value.value) return
+  localFilters.value.push({ ...pendingFilter.value })
+  pendingFilter.value = { column: '', operator: 'equals', value: '' }
+}
+
+function removeFilter(idx: number) {
+  localFilters.value.splice(idx, 1)
+}
+
+function clearAllFilters() {
+  localFilters.value = []
+}
+// ============ END FILTER LOGIC ============
 const visualization = computed(() => {
   if (hydratedVisualization.value) return hydratedVisualization.value
   const list = (props.toolExecution as any)?.created_visualizations

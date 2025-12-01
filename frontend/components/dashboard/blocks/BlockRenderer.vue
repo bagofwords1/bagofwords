@@ -18,6 +18,8 @@
           :widget="widget"
           :themeName="themeName"
           :reportOverrides="reportOverrides"
+          :reportId="reportId"
+          :hideFilter="insideCard"
         />
         <div v-else class="flex items-center justify-center h-full text-gray-400 text-sm">
           Loading visualization...
@@ -27,7 +29,16 @@
 
     <!-- Card Block -->
     <template v-else-if="blockType === 'card'">
-      <CardBlock :block="block" :themeName="themeName" :reportOverrides="reportOverrides" :contentIsMetricCard="cardContainsMetricCard">
+      <CardBlock 
+        :block="block" 
+        :themeName="themeName" 
+        :reportOverrides="reportOverrides" 
+        :contentIsMetricCard="cardContainsMetricCard"
+        :reportId="reportId"
+        :visualizationId="cardVisualizationId"
+        :rows="cardVisualizationRows"
+        :columns="cardVisualizationColumns"
+      >
         <!-- Single child: fill available space -->
         <template v-if="children.length === 1">
           <div class="h-full w-full">
@@ -38,6 +49,8 @@
               :themeName="themeName"
               :reportOverrides="reportOverrides"
               :getWidgetForBlock="props.getWidgetForBlock"
+              :reportId="reportId"
+              :insideCard="true"
             >
               <template #visualization="{ block: childBlock }">
                 <slot name="visualization" :block="childBlock" />
@@ -60,6 +73,8 @@
                   :themeName="themeName"
                   :reportOverrides="reportOverrides"
                   :getWidgetForBlock="props.getWidgetForBlock"
+                  :reportId="reportId"
+                  :insideCard="true"
                 >
                   <template #visualization="{ block: childBlock }">
                     <slot name="visualization" :block="childBlock" />
@@ -89,6 +104,7 @@
                   :themeName="themeName"
                   :reportOverrides="reportOverrides"
                   :getWidgetForBlock="props.getWidgetForBlock"
+                  :reportId="reportId"
                 >
                   <template #visualization="{ block: childBlock }">
                     <slot name="visualization" :block="childBlock" />
@@ -164,7 +180,11 @@ const props = defineProps<{
   themeName?: string | null
   reportOverrides?: Record<string, any> | null
   getWidgetForBlock?: (block: Block) => any
+  reportId?: string  // For per-viz filtering
+  insideCard?: boolean  // Hide viz filter when inside a card (card shows it in header)
 }>()
+
+const insideCard = computed(() => props.insideCard || false)
 
 // Block type detection
 const blockType = computed(() => props.block.type || 'unknown')
@@ -177,6 +197,9 @@ const columns = computed(() => props.block.columns || [])
 
 // Depth for styling
 const depth = computed(() => props.depth ?? 0)
+
+// ReportId for per-viz filtering
+const reportId = computed(() => props.reportId)
 
 // Block-level styling class
 const blockClass = computed(() => {
@@ -196,6 +219,26 @@ const cardContainsMetricCard = computed(() => {
     }
   }
   return false
+})
+
+// Get first visualization's data for CardBlock filter (single-child cards)
+const cardVisualizationWidget = computed(() => {
+  if (children.value.length !== 1) return null
+  const child = children.value[0]
+  if (child.type !== 'visualization') return null
+  return getWidgetForBlock(child)
+})
+
+const cardVisualizationId = computed(() => {
+  return cardVisualizationWidget.value?.id || children.value[0]?.visualization_id
+})
+
+const cardVisualizationRows = computed(() => {
+  return cardVisualizationWidget.value?.last_step?.data?.rows || []
+})
+
+const cardVisualizationColumns = computed(() => {
+  return cardVisualizationWidget.value?.last_step?.data?.columns
 })
 
 // Helper to get widget data for a child block

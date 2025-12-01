@@ -6,9 +6,10 @@
                     Made with <span class="font-bold text-white">Bag of words</span>
                 </a>
                 <div class="p-2 pl-5">
+                    <!-- Header row with title and filter -->
+                    <div class="flex items-start justify-between mt-4">
                     <div>
-                        <h1 class="text-xl font-semibold mt-4" :style="titleStyle">{{ report.title }}
-
+                            <h1 class="text-xl font-semibold" :style="titleStyle">{{ report.title }}
                             <button @click="copyToClipboard(`/r/${report_id}`)" class="hover:opacity-70 relative" :style="{ color: 'inherit' }">
                                 <Icon name="heroicons:link" class="w-4 h-4" />
                                 <span v-if="showCopied"
@@ -19,12 +20,28 @@
                         </h1>
                         <span class="text-sm" :style="{ color: subtitleColor }">
                             {{ report.user.name }}
-
                         </span>
-
+                        </div>
+                        
+                        <!-- Filter Builder - aligned with title -->
+                        <FilterBuilder
+                            ref="filterBuilderRef"
+                            :visualizations="visualizationsForFilter"
+                            :isLoading="isLoading"
+                            :reportId="report_id"
+                            @update:filters="onFiltersUpdate"
+                        />
                     </div>
-                    <div class="pt-10">
-                        <DashboardComponent :widgets="displayedWidgets" :report="report" :edit="false" />
+                    
+                    <div class="pt-6">
+                        <DashboardComponent 
+                            ref="dashboardRef"
+                            :widgets="displayedWidgets" 
+                            :report="report" 
+                            :edit="false"
+                            :externalFilters="activeFilters"
+                            @visualizations-ready="onVisualizationsReady"
+                        />
                     </div>
                 </div>
             </div>
@@ -34,6 +51,7 @@
 
 <script setup>
 import DashboardComponent from '~/components/DashboardComponent.vue';
+import FilterBuilder from '~/components/dashboard/FilterBuilder.vue';
 import { useDashboardTheme } from '~/components/dashboard/composables/useDashboardTheme';
 
 const route = useRoute();
@@ -58,6 +76,22 @@ const displayedWidgets = computed(() => widgets.value) ;
 const widgets = ref([]);
 
 const showCopied = ref(false);
+
+// Filter state
+const dashboardRef = ref(null);
+const filterBuilderRef = ref(null);
+const activeFilters = ref([]);
+const visualizationsForFilter = ref([]);
+const isLoading = ref(true);
+
+function onFiltersUpdate(filters) {
+    activeFilters.value = filters;
+}
+
+function onVisualizationsReady(visualizations) {
+    visualizationsForFilter.value = visualizations;
+    isLoading.value = false;
+}
 
 // Theme application for the page
 const themeName = computed(() => report.value?.report_theme_name || report.value?.theme_name || 'default');

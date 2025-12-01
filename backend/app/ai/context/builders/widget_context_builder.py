@@ -12,6 +12,7 @@ from app.ai.context.sections.widgets_section import WidgetsSection, WidgetObserv
 
 from app.settings.logging_config import get_logger
 
+logger = get_logger(__name__)
 
 
 class WidgetContextBuilder:

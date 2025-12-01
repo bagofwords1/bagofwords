@@ -31,6 +31,15 @@
         </template>
       </UPopover>
 
+      <!-- Filter Builder -->
+      <FilterBuilder
+        :visualizations="visualizations"
+        :isLoading="isLoading"
+        :reportId="report?.id"
+        @update:filters="$emit('update:filters', $event)"
+        ref="filterBuilderRef"
+      />
+
       <UPopover v-model="showThemeMenu" :popper="{ placement: 'bottom-start' }">
         <UTooltip text="Theme">
           <button class="text-lg items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded" type="button">
@@ -83,6 +92,7 @@
 <script setup lang="ts">
 import CronModal from '../CronModal.vue'
 import ShareModal from '../ShareModal.vue'
+import FilterBuilder from './FilterBuilder.vue'
 import { computed, ref } from 'vue'
 
 const props = defineProps<{
@@ -91,6 +101,8 @@ const props = defineProps<{
   themeOverride: string
   themeOptions: Array<any>
   currentThemeDisplay: string
+  visualizations: Array<any>
+  isLoading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -99,7 +111,10 @@ const emit = defineEmits<{
   (e: 'rerun'): void
   (e: 'openFullscreen'): void
   (e: 'toggleSplitScreen'): void
+  (e: 'update:filters', filters: any[]): void
 }>()
+
+const filterBuilderRef = ref<InstanceType<typeof FilterBuilder> | null>(null)
 
 const showAddMenu = ref(false)
 const showThemeMenu = ref(false)

@@ -1,18 +1,34 @@
 <template>
     <div class="container mx-auto">
         <!-- Header: Kept -->
-        <Toolbar
-            v-if="props.edit"
-            :report="report"
-            :edit="props.edit"
-            v-model:themeOverride="themeOverride"
-            :themeOptions="themeOptions"
-            :currentThemeDisplay="currentThemeDisplay"
-            @add:text="addNewTextWidgetToGrid"
-            @rerun="rerunReport"
-            @openFullscreen="openModal"
-            @toggleSplitScreen="$emit('toggleSplitScreen')"
-        />
+        <div class="flex items-center justify-between gap-4 mb-2">
+            <Toolbar
+                v-if="props.edit"
+                :report="report"
+                :edit="props.edit"
+                v-model:themeOverride="themeOverride"
+                :themeOptions="themeOptions"
+                :currentThemeDisplay="currentThemeDisplay"
+                :visualizations="visualizationsForFilter"
+                :isLoading="isLoading"
+                @add:text="addNewTextWidgetToGrid"
+                @rerun="rerunReport"
+                @openFullscreen="openModal"
+                @toggleSplitScreen="$emit('toggleSplitScreen')"
+                @update:filters="onFiltersUpdate"
+                class="flex-1"
+            />
+            <div v-else class="flex-1"></div>
+            
+            <!-- Filter Builder - Top Right (only when NOT in edit mode AND parent doesn't handle filters) -->
+            <FilterBuilder
+                v-if="!props.edit && !props.externalFilters"
+                :visualizations="visualizationsForFilter"
+                :isLoading="isLoading"
+                @update:filters="onFiltersUpdate"
+                ref="filterBuilderRef"
+            />
+        </div>
     
         <!-- Main container for grid and floating editor -->
         <div class="relative w-full h-full dashboard-area bg-white" :style="wrapperStyle">
@@ -97,10 +113,11 @@
                                     v-for="(child, idx) in widget.children || []"
                                     :key="`card-child-${idx}-${child.visualization_id || child.content?.substring(0,10) || idx}`"
                                     :block="child"
-                                    :widget="getWidgetDataForBlock(child)"
+                                    :widget="getFilteredWidgetData(getWidgetDataForBlock(child))"
                                     :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
                                     :reportOverrides="report?.theme_overrides"
-                                    :getWidgetForBlock="getWidgetDataForBlock"
+                                    :getWidgetForBlock="(b) => getFilteredWidgetData(getWidgetDataForBlock(b))"
+                                    :reportId="report?.id"
                                 />
                             </CardBlock>
                         </template>
@@ -113,10 +130,11 @@
                                             v-for="(child, childIdx) in col.children || []"
                                             :key="`col-${colIdx}-child-${childIdx}`"
                                             :block="child"
-                                            :widget="getWidgetDataForBlock(child)"
+                                            :widget="getFilteredWidgetData(getWidgetDataForBlock(child))"
                                             :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
                                             :reportOverrides="report?.theme_overrides"
-                                            :getWidgetForBlock="getWidgetDataForBlock"
+                                            :getWidgetForBlock="(b) => getFilteredWidgetData(getWidgetDataForBlock(b))"
+                                            :reportId="report?.id"
                                             class="flex-shrink-0"
                                             :style="{ height: `${(child.height || 6) * 40}px` }"
                                         />
@@ -127,9 +145,10 @@
                         <!-- Regular visualization -->
                         <template v-else>
                             <RegularWidgetView
-                                :widget="widget"
+                                :widget="getFilteredWidgetData(widget)"
                                 :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
                                 :reportOverrides="report?.theme_overrides"
+                                :reportId="report?.id"
                             />
                         </template>
                     </WidgetFrame>
@@ -158,7 +177,7 @@
                     <!-- Modal Content Area -->
                     <div class="flex-1 overflow-auto p-4" :style="wrapperStyle">
                         <FullscreenGrid
-                          :widgets="allWidgets"
+                          :widgets="allWidgets.map(w => getFilteredWidgetData(w))"
                           :report="report"
                           :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
                           :reportOverrides="report?.theme_overrides"
@@ -192,13 +211,15 @@ import BlockRenderer from '@/components/dashboard/blocks/BlockRenderer.vue';
 import TextBlock from '@/components/dashboard/blocks/TextBlock.vue';
 import CardBlock from '@/components/dashboard/blocks/CardBlock.vue';
 import ColumnLayoutBlock from '@/components/dashboard/blocks/ColumnLayoutBlock.vue';
+import FilterBuilder from '@/components/dashboard/FilterBuilder.vue';
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import { themes } from '@/components/dashboard/themes'
     import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
     const toast = useToast();
     const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
-    const emit = defineEmits(['removeWidget', 'toggleSplitScreen', 'editVisualization']);
+    const filterInstanceId = `dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const emit = defineEmits(['removeWidget', 'toggleSplitScreen', 'editVisualization', 'visualizations-ready']);
 
     const props = defineProps<{
         report: any
@@ -206,6 +227,7 @@ import { themes } from '@/components/dashboard/themes'
         visualizations?: any[]
         textWidgetsIds?: string[]
         isStreaming?: boolean  // Skip heavy updates during active streaming
+        externalFilters?: any[]  // Filters from parent (for public page)
     }>();
 
     const reportThemeName = ref(props.report?.report_theme_name || 'default');
@@ -227,6 +249,10 @@ import { themes } from '@/components/dashboard/themes'
     let suppressGridReload = false;
     let isApplyingLayout = false;  // Guard against recursive layout application
     const editSnapshots = ref<Record<string, { x: number; y: number; width: number; height: number; content: string }>>({});
+
+    // Filter state
+    const filterBuilderRef = ref<InstanceType<typeof FilterBuilder> | null>(null);
+    const activeFilters = ref<any[]>([]);
 
     // Zoom state
     const zoom = ref(1);
@@ -325,6 +351,236 @@ import { themes } from '@/components/dashboard/themes'
         return [...regular, ...text].sort((a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0));
     });
 
+    // Computed for FilterBuilder - extracts visualizations with their actual data
+    // Uses stepCache directly for better reactivity (displayedWidgets.last_step mutations don't trigger recompute)
+    const visualizationsForFilter = computed(() => {
+        const result: Array<{
+            id: string
+            title: string
+            queryId: string
+            rows: any[]
+            columns: any[]
+        }> = [];
+
+        // Force dependency on stepCache by accessing keys
+        const _stepCacheKeys = Object.keys(stepCache.value);
+        
+        // Iterate through all visualizations
+        for (const [vizId, viz] of Object.entries(vizById.value) as [string, any][]) {
+            const qid = viz.query_id;
+            if (!qid) continue;
+            
+            const query = queryById.value[qid];
+            const defaultStepId = query?.default_step_id;
+            if (!defaultStepId) continue;
+            
+            const step = stepCache.value[defaultStepId];
+            const rows = step?.data?.rows;
+            
+            // Only include if we have actual row data
+            if (!Array.isArray(rows) || rows.length === 0) continue;
+            
+            result.push({
+                id: vizId,
+                title: viz.title || `Visualization ${vizId.slice(0, 6)}`,
+                queryId: qid,
+                rows: rows,
+                columns: step?.data?.columns || Object.keys(rows[0] || {}).map(k => ({ field: k }))
+            });
+        }
+
+        return result;
+    });
+
+    // --- Filter Methods ---
+    function onFiltersUpdate(filters: any[]) {
+        activeFilters.value = filters;
+        // Broadcast to other components via shared filter event
+        if (props.report?.id) {
+            window.dispatchEvent(new CustomEvent('filter:updated', {
+                detail: {
+                    reportId: props.report.id,
+                    filters: filters,
+                    source: filterInstanceId
+                }
+            }));
+        }
+    }
+
+    // Listen for filter changes from per-visualization filters
+    function handleSharedFilterUpdate(ev: Event) {
+        const detail = (ev as CustomEvent).detail;
+        if (!detail || detail.source === filterInstanceId) return;
+        if (detail.reportId !== props.report?.id) return;
+        activeFilters.value = JSON.parse(JSON.stringify(detail.filters || []));
+    }
+
+    // Effective filters - use external if provided, otherwise internal
+    const effectiveFilters = computed(() => props.externalFilters || activeFilters.value);
+
+    // Emit visualizations when ready (for parent components that handle their own FilterBuilder)
+    watch(visualizationsForFilter, (visualizations) => {
+        if (visualizations.length > 0) {
+            emit('visualizations-ready', visualizations);
+        }
+    }, { immediate: true });
+
+    // Track which visualization IDs are targeted by current filters
+    const targetedVizIds = computed(() => {
+        const ids = new Set<string>();
+        for (const group of effectiveFilters.value) {
+            for (const condition of group.conditions || []) {
+                const [vizId] = (condition.column || '').split(':');
+                if (vizId) ids.add(vizId);
+            }
+        }
+        return ids;
+    });
+
+    // Track previously targeted viz IDs to know which ones need to "unfilter"
+    const previouslyTargetedVizIds = ref<Set<string>>(new Set());
+
+    // Cache for filtered widget data - only recalculate when filters or widget data changes
+    const filteredWidgetCache = ref<Map<string, any>>(new Map());
+    
+    // Filter version - increments when filters change to force re-render
+    const filterVersion = ref(0);
+    
+    // Clear cache and update tracking when filters change
+    watch(effectiveFilters, (newFilters, oldFilters) => {
+        // Track which viz IDs were previously targeted
+        const oldIds = new Set<string>();
+        for (const group of (oldFilters || [])) {
+            for (const condition of group.conditions || []) {
+                const [vizId] = (condition.column || '').split(':');
+                if (vizId) oldIds.add(vizId);
+            }
+        }
+        previouslyTargetedVizIds.value = oldIds;
+        
+        // Clear cache and bump version
+        filteredWidgetCache.value.clear();
+        filterVersion.value++;
+    }, { deep: true });
+
+    // Apply filters to widget data - optimized to only affect targeted visualizations
+    function getFilteredWidgetData(widget: any): any {
+        // Access filterVersion to create reactivity dependency
+        const _version = filterVersion.value;
+        
+        // Skip filtering for non-visualization widgets
+        if (!widget || !widget.isVisualization) {
+            return widget;
+        }
+
+        const vizId = widget.id || '';
+
+        // No filters active - check if this widget was previously filtered
+        if (!effectiveFilters.value.length) {
+            // If it was previously filtered, return a fresh copy to trigger re-render
+            if (previouslyTargetedVizIds.value.has(vizId)) {
+                return { ...widget };
+            }
+            return widget;
+        }
+        
+        // Check if this widget is targeted by any filter - if not, check if it was previously
+        if (!targetedVizIds.value.has(vizId)) {
+            // If it was previously filtered but not anymore, return fresh copy
+            if (previouslyTargetedVizIds.value.has(vizId)) {
+                return { ...widget };
+            }
+            return widget;
+        }
+
+        // Check cache first
+        const cacheKey = vizId;
+        const cached = filteredWidgetCache.value.get(cacheKey);
+        if (cached && cached.originalRows === widget?.last_step?.data?.rows) {
+            return cached.filteredWidget;
+        }
+
+        const filterBuilder = filterBuilderRef.value;
+        const evaluateFn = filterBuilder?.evaluateFilters || evaluateFiltersStatic;
+
+        // Get the rows from the widget
+        const rows = widget?.last_step?.data?.rows || [];
+        if (!rows.length) {
+            return widget;
+        }
+
+        // Filter the rows (pass viz ID for targeted filtering)
+        const filteredRows = rows.filter((row: any) => 
+            evaluateFn(row, effectiveFilters.value, vizId)
+        );
+
+        // Only create new object if rows actually changed
+        if (filteredRows.length === rows.length) {
+            return widget;
+        }
+
+        // Create filtered widget
+        const filteredWidget = {
+            ...widget,
+            last_step: {
+                ...widget.last_step,
+                data: {
+                    ...widget.last_step.data,
+                    rows: filteredRows
+                }
+            }
+        };
+
+        // Cache the result
+        filteredWidgetCache.value.set(cacheKey, {
+            originalRows: rows,
+            filteredWidget
+        });
+
+        return filteredWidget;
+    }
+
+    // Check if filters are active
+    const hasActiveFilters = computed(() => effectiveFilters.value.length > 0);
+
+    // Static filter evaluation function (used when FilterBuilder ref is not available)
+    function evaluateFiltersStatic(row: any, groups: any[], targetVizId: string): boolean {
+        if (!groups.length) return true;
+        
+        // OR across groups
+        return groups.some(group => {
+            // AND within group
+            return group.conditions.every((cond: any) => {
+                const [vizId, ...rest] = (cond.column || '').split(':');
+                const columnName = rest.join(':');
+                // Only apply condition if it targets the current visualization
+                if (vizId !== targetVizId) return true;
+                
+                const value = row[columnName];
+                const target = cond.value;
+                
+                const stringValue = String(value).toLowerCase();
+                const stringTarget = String(target).toLowerCase();
+
+                switch (cond.operator) {
+                    case 'equals': return stringValue === stringTarget;
+                    case 'not_equals': return stringValue !== stringTarget;
+                    case 'contains': return stringValue.includes(stringTarget);
+                    case 'not_contains': return !stringValue.includes(stringTarget);
+                    case 'starts_with': return stringValue.startsWith(stringTarget);
+                    case 'ends_with': return stringValue.endsWith(stringTarget);
+                    case 'greater_than': return Number(value) > Number(target);
+                    case 'less_than': return Number(value) < Number(target);
+                    case 'gte': return Number(value) >= Number(target);
+                    case 'lte': return Number(value) <= Number(target);
+                    case 'is_empty': return value == null || value === '';
+                    case 'is_not_empty': return value != null && value !== '';
+                    default: return true;
+                }
+            });
+        });
+    }
+
     // --- Lifecycle Hooks ---
     onMounted(async () => {
         initializeMainGrid();
@@ -338,6 +594,8 @@ import { themes } from '@/components/dashboard/themes'
         window.addEventListener('dashboard:layout_changed', handleExternalLayoutChanged as any)
         window.addEventListener('query:default_step_changed', handleExternalDefaultStepChanged as any)
         window.addEventListener('visualization:updated', handleVisualizationUpdated as any)
+        // Shared filter sync
+        window.addEventListener('filter:updated', handleSharedFilterUpdate as any)
     });
 
     onBeforeUnmount(() => {
@@ -347,6 +605,7 @@ import { themes } from '@/components/dashboard/themes'
         window.removeEventListener('dashboard:layout_changed', handleExternalLayoutChanged as any)
         window.removeEventListener('query:default_step_changed', handleExternalDefaultStepChanged as any)
         window.removeEventListener('visualization:updated', handleVisualizationUpdated as any)
+        window.removeEventListener('filter:updated', handleSharedFilterUpdate as any)
     });
 
     // --- Grid Initialization ---
@@ -449,7 +708,10 @@ import { themes } from '@/components/dashboard/themes'
             for (const q of items) {
                 if (q?.id) qMap[q.id] = q;
                 for (const v of (q?.visualizations || [])) {
-                    if (v?.id) vMap[v.id] = v;
+                    if (v?.id) {
+                        // Ensure query_id is set on the visualization
+                        vMap[v.id] = { ...v, query_id: v.query_id || q.id };
+                    }
                 }
             }
             queryById.value = qMap;

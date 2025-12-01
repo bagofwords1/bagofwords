@@ -1,16 +1,29 @@
 <template>
   <div 
-    class="card-block h-full w-full flex flex-col overflow-hidden"
+    class="card-block h-full w-full flex flex-col overflow-hidden relative"
     :class="[borderClass, backgroundClass]"
     :style="cardStyle"
   >
+    <!-- Filter button (absolute top-right, same level as title) -->
+    <div
+      v-if="showFilter"
+      class="absolute top-0 right-0 z-10 p-4"
+    >
+      <VisualizationFilter
+        :report-id="reportId!"
+        :visualization-id="visualizationId!"
+        :rows="rows || []"
+        :columns="columns || []"
+      />
+    </div>
+
     <!-- Card Header -->
     <div 
       v-if="showHeader" 
       class="card-header flex-shrink-0 px-6 pt-5 pb-1"
     >
       <div class="flex items-center justify-between">
-        <div class="flex-1 min-w-0">
+        <div class="flex-1 min-w-0 pr-8">
           <h3 v-if="chrome?.title" class="text-base font-semibold text-gray-900 truncate">
             {{ chrome.title }}
           </h3>
@@ -18,7 +31,7 @@
             {{ chrome.subtitle }}
           </p>
         </div>
-        <!-- Optional: Action slot for buttons -->
+        <!-- Action slot -->
         <slot name="actions" />
       </div>
     </div>
@@ -32,6 +45,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
 
 interface ContainerChrome {
   title?: string
@@ -52,6 +66,11 @@ const props = defineProps<{
   reportOverrides?: Record<string, any> | null
   // When true, hides header if content is metric_card (to avoid duplicate titles)
   contentIsMetricCard?: boolean
+  // Filter props
+  reportId?: string
+  visualizationId?: string
+  rows?: any[]
+  columns?: any[]
 }>()
 
 const chrome = computed(() => props.block.chrome || {})
@@ -62,6 +81,10 @@ const showHeader = computed(() => {
   // Hide for metric cards to avoid duplicate titles
   if (props.contentIsMetricCard) return false
   return !!(chrome.value.title || chrome.value.subtitle)
+})
+
+const showFilter = computed(() => {
+  return !!(props.reportId && props.visualizationId && props.rows?.length)
 })
 
 const borderClass = computed(() => {
