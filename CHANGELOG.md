@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.259 (December 1, 2025)
+- Introducing Filters in dashboards
+- Performance improvements, page loads, indices, reliability, and more
+- Improved resources selector in context page (toggle between chunks/files, index status info, and more)
+- UI enhancements
+
+
 ## Version 0.0.258 (December 1, 2025)
 - Increase anthropic max tokens to 32k
 - Impove behavior of reindexing (do not auto-add)
