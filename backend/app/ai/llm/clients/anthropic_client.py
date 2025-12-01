@@ -11,7 +11,7 @@ class Anthropic(LLMClient):
         super().__init__()
         self.client = AnthropicAPI(api_key=api_key)
         self.async_client = AsyncAnthropic(api_key=api_key)
-        self.max_tokens = 1024
+        self.max_tokens = 32768
         self.temperature = 0.3
 
     def inference(self, model_id: str, prompt: str) -> LLMResponse:

@@ -27,7 +27,7 @@
                         color: { gray: { outline: 'ring-1 ring-gray-200 text-gray-600 hover:bg-gray-50' } }
                     }"
                 >
-                    <span class="text-sm font-medium">AI Mode</span>
+                    <span class="text-sm font-medium">AI Suggestions</span>
                 </UButton>
 
                 <UButton

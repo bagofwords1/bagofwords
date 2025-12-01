@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.258 (December 1, 2025)
+- Increase anthropic max tokens to 32k
+- Impove behavior of reindexing (do not auto-add)
+
 ## Version 0.0.257 (November 30, 2025)
 - Added Azure Data Explorer data source (thanks @licanhua)
 - Improved BigQuery system prompt to consider special syntax guidelines when generating code

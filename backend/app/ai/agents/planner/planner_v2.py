@@ -83,6 +83,22 @@ class PlannerV2:
             except Exception:
                 raw_decision = None
             if raw_decision:
+                # Track reasoning/assistant field timing transitions
+                current_reasoning = raw_decision.get("reasoning_message") or raw_decision.get("reasoning") or raw_decision.get("thought") or ""
+                current_assistant = raw_decision.get("assistant_message") or raw_decision.get("message") or ""
+                
+                # Detect when reasoning_message first gets content
+                if current_reasoning and not state._prev_reasoning and state.reasoning_start_time is None:
+                    state.reasoning_start_time = time.monotonic()
+                
+                # Detect when assistant_message first gets content (marks reasoning end)
+                if current_assistant and not state._prev_assistant and state.assistant_start_time is None:
+                    state.assistant_start_time = time.monotonic()
+                
+                # Update previous states for next iteration
+                state._prev_reasoning = current_reasoning
+                state._prev_assistant = current_assistant
+                
                 decision = self._create_decision(raw_decision, state, False)
                 yield PlannerDecisionEvent(
                     type="planner.decision.partial", 
@@ -119,14 +135,23 @@ class PlannerV2:
         # Calculate metrics if final
         metrics = None
         if is_final and state.start_time:
-            thinking_ms = (time.monotonic() - state.start_time) * 1000.0
+            total_duration_ms = (time.monotonic() - state.start_time) * 1000.0
             first_token_ms = None
             if state.first_token_time and state.start_time:
                 first_token_ms = (state.first_token_time - state.start_time) * 1000.0
+            
+            # Calculate actual reasoning duration:
+            # From when reasoning_message first has content to when assistant_message starts
+            # (or end of stream if no assistant_message yet)
+            thinking_ms = None
+            if state.reasoning_start_time is not None:
+                reasoning_end = state.assistant_start_time or time.monotonic()
+                thinking_ms = (reasoning_end - state.reasoning_start_time) * 1000.0
                 
             metrics = PlannerMetrics(
                 first_token_ms=round(first_token_ms, 2) if first_token_ms else None,
-                thinking_ms=round(thinking_ms, 2),
+                thinking_ms=round(thinking_ms, 2) if thinking_ms is not None else None,
+                total_duration_ms=round(total_duration_ms, 2),
                 token_usage=TokenUsage(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,

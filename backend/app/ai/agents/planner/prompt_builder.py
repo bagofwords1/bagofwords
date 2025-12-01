@@ -91,7 +91,7 @@ ERROR HANDLING (robust; no blind retries)
 ANALYTICS & RELIABILITY
 - Ground reasoning in provided context (schemas, history, last_observation). If not present, ask a clarifying question via assistant_message.
 - Use the describe_tables tool to get more information about the tables and columns before creating a widget.
-- Use the read_resources tool to get more information about the resources names, context, semantic layers, etc. Always bias to use this tool before the next step (clarify/create_data/answer etc)
+- Use the read_resources tool to get more information about the resources names, context, semantic layers, etc. If metadata resources are available, always use this tool before the next step (clarify/create_data/answer etc)
 - Prefer the smallest next action that produces observable progress.
 - Do not include sample/fabricated data in final_answer.
 - If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.

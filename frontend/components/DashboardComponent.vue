@@ -665,7 +665,7 @@ import { themes } from '@/components/dashboard/themes'
         if (!hasEmbeddedText) {
             await loadTextWidgetsForReport();
         }
-        applyLayoutToLocalState();
+        await applyLayoutToLocalState();
     }
 
     async function loadTextWidgetsForReport() {
@@ -1001,7 +1001,7 @@ import { themes } from '@/components/dashboard/themes'
 
     async function refreshLayout() {
         await fetchActiveLayout();
-        applyLayoutToLocalState();
+        await applyLayoutToLocalState();
         await loadWidgetsIntoGrid(grid.value, allWidgets.value);
         if (isModalOpen.value && modalGrid.value) {
             await loadWidgetsIntoGrid(modalGrid.value, allWidgets.value, true);
@@ -1084,7 +1084,7 @@ import { themes } from '@/components/dashboard/themes'
 
     async function getTextWidgetsInternal() {
         await loadTextWidgetsForReport();
-        applyLayoutToLocalState();
+        await applyLayoutToLocalState();
     }
 
     function updateDisplayedWidgets(newWidgets: any[]) {

@@ -500,7 +500,7 @@ class MetadataIndexingJobService:
             current_time = datetime.utcnow()
 
             if existing_resource:
-                # Update existing resource
+                # Update existing resource - preserve user's is_active preference
                 logger.debug(f"Updating existing resource: {resource_type} {resource_data.name}")
                 update_data = resource_data.dict(exclude_unset=True)
                 # Ensure essential fields like raw_data, columns, depends_on are updated
@@ -509,7 +509,8 @@ class MetadataIndexingJobService:
                 update_data['depends_on'] = resource_data.depends_on
                 update_data['last_synced_at'] = current_time
                 update_data['metadata_indexing_job_id'] = job_id # Link to the latest job
-                update_data['is_active'] = True # Mark as active on update
+                # NOTE: Do NOT override is_active - preserve user's selection preference
+                update_data.pop('is_active', None)
                 update_data['updated_at'] = current_time # Explicitly set updated_at
 
                 # Apply updates

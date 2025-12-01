@@ -102,7 +102,7 @@ class ContextObjectsSnapshot(BaseModel):
 
 class SchemaContextConfig(BaseModel):
     """Configuration for schema context building."""
-    include_inactive: bool = False
+    active_only: bool = True
     with_stats: bool = True
     top_k: Optional[int] = None
 

@@ -91,7 +91,7 @@ class Coder:
                     past_observations = []
                     last_observation = None
                 try:
-                    history_summary = await self.context_hub.get_history_summary()
+                    history_summary = self.context_hub.get_history_summary()
                 except Exception:
                     history_summary = ""
             except Exception:
@@ -476,6 +476,8 @@ class Coder:
             3. **Schema Adherence**:
                - Use only columns and relationships that exist in the provided schemas.
                - Do NOT invent columns that do not exist or cannot be derived.
+               - Use metadata resources for tables/cols enrichments, code examples, etc.
+               - Never use tables/cols that exist in metadata resources but are not in the provided schemas.
 
             4. **Handling Previous Code and Errors**:
                - If `retries` ≥ 1, review the code_and_error_messages:
@@ -548,7 +550,7 @@ class Coder:
                     past_observations = []
                     last_observation = None
                 try:
-                    history_summary = await self.context_hub.get_history_summary()
+                    history_summary = self.context_hub.get_history_summary()
                 except Exception:
                     history_summary = ""
             except Exception:

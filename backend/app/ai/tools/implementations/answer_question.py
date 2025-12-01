@@ -94,7 +94,7 @@ class AnswerQuestionTool(Tool):
         history_summary = ""
         if context_hub and hasattr(context_hub, "get_history_summary"):
             try:
-                history_summary = await context_hub.get_history_summary(context_hub.observation_builder.to_dict() if getattr(context_hub, "observation_builder", None) else None)
+                history_summary = context_hub.get_history_summary(context_hub.observation_builder.to_dict() if getattr(context_hub, "observation_builder", None) else None)
             except Exception:
                 history_summary = ""
 

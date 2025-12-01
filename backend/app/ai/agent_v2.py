@@ -20,6 +20,7 @@ from app.project_manager import ProjectManager
 from app.models.step import Step
 from app.models.widget import Widget
 from app.models.completion import Completion
+from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
 from sqlalchemy import select, func
 from app.models.tool_execution import ToolExecution
@@ -215,6 +216,155 @@ class AgentV2:
         except Exception as e:
             pass
 
+    async def _stream_suggestions_inline(self, prev_tool_name: Optional[str], conditions: list):
+        """Stream instruction suggestions inline before the SSE stream closes.
+        
+        This runs in the main execution flow using the existing DB session,
+        ensuring SSE events reach the frontend before the stream ends.
+        """
+        try:
+            # Use existing context view
+            view_for_suggest = self.context_hub.get_view()
+
+            try:
+                seq_si = await self.project_manager.next_seq(self.db, self.current_execution)
+                await self._emit_sse_event(SSEEvent(
+                    event="instructions.suggest.started",
+                    completion_id=str(self.system_completion.id),
+                    agent_execution_id=str(self.current_execution.id),
+                    seq=seq_si,
+                    data={}
+                ))
+            except Exception:
+                pass
+
+            try:
+                if self.suggest_instructions is not None and self.report_type == 'regular':
+                    drafts = []
+                    # Format trigger reason from conditions for persistence
+                    trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
+                    async for draft in self.suggest_instructions.stream_suggestions(
+                        context_view=view_for_suggest, 
+                        context_hub=self.context_hub, 
+                        conditions=conditions
+                    ):
+                        # Persist immediately and stream back full instruction object
+                        inst = await self.project_manager.create_instruction_from_draft(
+                            self.db,
+                            self.organization,
+                            text=draft.get("text", ""),
+                            category=draft.get("category", "general"),
+                            agent_execution_id=str(self.current_execution.id),
+                            trigger_reason=trigger_reason,
+                            ai_source="completion",
+                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+                        )
+                        # Append a minimal client payload
+                        draft_payload = {
+                            "id": str(inst.id),
+                            "text": inst.text,
+                            "category": inst.category,
+                            "status": inst.status,
+                            "private_status": inst.private_status,
+                            "global_status": inst.global_status,
+                            "is_seen": inst.is_seen,
+                            "can_user_toggle": inst.can_user_toggle,
+                            "user_id": inst.user_id,
+                            "organization_id": str(inst.organization_id),
+                            "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
+                            "trigger_reason": inst.trigger_reason,
+                            "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
+                            "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
+                            "ai_source": getattr(inst, 'ai_source', None),
+                        }
+                        drafts.append(draft_payload)
+
+                        try:
+                            seq_si_p = await self.project_manager.next_seq(self.db, self.current_execution)
+                            await self._emit_sse_event(SSEEvent(
+                                event="instructions.suggest.partial",
+                                completion_id=str(self.system_completion.id),
+                                agent_execution_id=str(self.current_execution.id),
+                                seq=seq_si_p,
+                                data={"instruction": draft_payload}
+                            ))
+                        except Exception:
+                            pass
+
+                    try:
+                        seq_si_f = await self.project_manager.next_seq(self.db, self.current_execution)
+                        await self._emit_sse_event(SSEEvent(
+                            event="instructions.suggest.finished",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=seq_si_f,
+                            data={"instructions": drafts}
+                        ))
+                    except Exception:
+                        pass
+            except Exception:
+                try:
+                    seq_si_e = await self.project_manager.next_seq(self.db, self.current_execution)
+                    await self._emit_sse_event(SSEEvent(
+                        event="instructions.suggest.finished",
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id),
+                        seq=seq_si_e,
+                        data={"instructions": []}
+                    ))
+                except Exception:
+                    pass
+        except Exception:
+            # Best-effort; don't fail on suggestion errors
+            pass
+
+    async def _generate_title_background(self, messages_context: str, plan_info: list):
+        """Generate report title in background after completion.finished is sent."""
+        import logging
+        logger = logging.getLogger(__name__)
+        try:
+            SessionLocal = create_async_session_factory()
+            async with SessionLocal() as session:
+                try:
+                    title = await self.reporter.generate_report_title(messages_context, plan_info)
+                    if not title or not title.strip():
+                        logger.warning("Title generation returned empty result")
+                        return
+                    # Re-fetch report using select query (more reliable than session.get with UUID)
+                    stmt = select(Report).where(Report.id == self.report.id)
+                    result = await session.execute(stmt)
+                    report = result.scalar_one_or_none()
+                    if report:
+                        await self.project_manager.update_report_title(session, report, title)
+                        logger.info(f"Report title updated to: {title}")
+                    else:
+                        logger.warning(f"Report not found for title update: {self.report.id}")
+                except Exception as e:
+                    logger.error(f"Failed to generate/update report title: {e}")
+        except Exception as e:
+            logger.error(f"Failed to create session for title generation: {e}")
+
+    async def _save_context_snapshot_background(self, kind: str, context_view_json: dict, prompt_text: str = ""):
+        """Save context snapshot in background to avoid blocking main execution flow."""
+        try:
+            SessionLocal = create_async_session_factory()
+            async with SessionLocal() as session:
+                try:
+                    # Re-fetch agent execution in this session
+                    agent_execution = await session.get(type(self.current_execution), self.current_execution.id)
+                    if agent_execution:
+                        await self.project_manager.save_context_snapshot(
+                            session,
+                            agent_execution=agent_execution,
+                            kind=kind,
+                            context_view_json=context_view_json,
+                            prompt_text=prompt_text,
+                        )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     async def _handle_completion_update(self, message: str):
         # Mirror existing sigkill behavior
         try:
@@ -257,6 +407,24 @@ class AgentV2:
             # Best-effort; ignore persistence failures
             pass
 
+    async def _capture_telemetry_background(self, event_name: str, properties: dict):
+        """Capture telemetry in background to avoid blocking main execution."""
+        try:
+            await telemetry.capture(
+                event_name,
+                properties,
+                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                org_id=str(self.organization.id) if self.organization else None,
+            )
+        except Exception:
+            pass
+
+    async def _update_context_token_metadata_background(self, view):
+        """Update context token metadata in background."""
+        try:
+            await self._update_context_token_metadata(view)
+        except Exception:
+            pass
 
     async def main_execution(self):
         try:
@@ -269,65 +437,49 @@ class AgentV2:
                 report_id=str(self.report.id) if self.report else None,
             )
 
-            # Telemetry: agent execution started
-            try:
-                await telemetry.capture(
-                    "agent_execution_started",
-                    {
-                        "agent_execution_id": str(self.current_execution.id),
-                        "report_id": str(self.report.id) if self.report else None,
-                        "model_id": self.model.model_id if self.model else None,
-                    },
-                    user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                    org_id=str(self.organization.id) if self.organization else None,
-                )
-            except Exception:
-                pass
+            # Telemetry in background (non-blocking)
+            asyncio.create_task(self._capture_telemetry_background(
+                "agent_execution_started",
+                {
+                    "agent_execution_id": str(self.current_execution.id),
+                    "report_id": str(self.report.id) if self.report else None,
+                    "model_id": self.model.model_id if self.model else None,
+                },
+            ))
 
-            
-            # Prime static once; then refresh warm each loop
-            await self.context_hub.prime_static()
-            await self.context_hub.refresh_warm()
-            # Populate metadata counts (schemas/messages/etc) before first snapshot
-            try:
-                await self.context_hub.build_context()
-            except Exception:
-                pass
+            # Prime static and refresh warm in parallel for faster startup
+            await asyncio.gather(
+                self.context_hub.prime_static(),
+                self.context_hub.refresh_warm(),
+            )
             view = self.context_hub.get_view()
-            await self._update_context_token_metadata(view)
+            # Token metadata update in background (non-blocking)
+            asyncio.create_task(self._update_context_token_metadata_background(view))
             
-            # Save initial context snapshot
-            await self.project_manager.save_context_snapshot(
-                self.db,
-                agent_execution=self.current_execution,
+            # Save initial context snapshot in background (non-blocking)
+            prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
+            asyncio.create_task(self._save_context_snapshot_background(
                 kind="initial",
                 context_view_json=view.model_dump(),
-                prompt_text=self.head_completion.prompt.get("content", "") if self.head_completion.prompt else "",
-            )
+                prompt_text=prompt_text,
+            ))
             
-            # Initial context values (combined per data source: sample Top-K + index)
+            # Use cached schemas from prime_static() - no duplicate build
+            schemas_ctx = view.static.schemas
             try:
-                schemas_ctx = await self.context_hub.schema_builder.build(
-                    include_inactive=False,
-                    with_stats=True,
-                    active_only=True,
-                )
-                combined_schemas = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
-                schemas_excerpt = combined_schemas
+                schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT) if schemas_ctx else ""
             except Exception:
-                schemas_excerpt = view.static.schemas.render() if view.static.schemas else ""
-            # Resources combined (sample + index)
+                schemas_excerpt = schemas_ctx.render() if schemas_ctx else ""
+            
+            # Use cached resources from prime_static() - no duplicate build
+            resources_ctx = view.static.resources
             try:
-                resources_ctx = await self.context_hub.resource_builder.build()
-                resources_combined = resources_ctx.render_combined(top_k_per_repo=self.top_k_metadata_resources, index_limit=INDEX_LIMIT)
+                resources_combined = resources_ctx.render_combined(top_k_per_repo=self.top_k_metadata_resources, index_limit=INDEX_LIMIT) if resources_ctx else ""
             except Exception:
-                try:
-                    resources_section_fallback = await self.context_hub.resource_builder.build()
-                    resources_combined = resources_section_fallback.render()
-                except Exception:
-                    resources_combined = ""
+                resources_combined = resources_ctx.render() if resources_ctx else ""
+            
             # History summary based on observation context only
-            history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+            history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
             # Compute previous tool call before this user message (DB-based, robust)
             prev_tool_name_before_last_user = None
@@ -353,9 +505,9 @@ class AgentV2:
             except Exception:
                 prev_tool_name_before_last_user = None
 
-            # Instructions
-            inst_section = await self.context_hub.instruction_builder.build()
-            instructions = inst_section.render()
+            # Use cached instructions from prime_static() - no duplicate build
+            inst_section = view.static.instructions
+            instructions = inst_section.render() if inst_section else ""
 
             observation: Optional[dict] = None
             step_limit = 10
@@ -372,38 +524,46 @@ class AgentV2:
             successful_tool_actions = []
             max_repeated_successes = 2
             
+            # Track whether completion.finished has been emitted to avoid duplicates
+            completion_finished_emitted = False
+            
             # Early scoring will be launched as a background task using an isolated session
 
             for loop_index in range(step_limit):
                 if self.sigkill_event.is_set():
                     break
 
-                # Save pre-tool context snapshot
-                await self.context_hub.refresh_warm()
-                view = self.context_hub.get_view()
-                await self._update_context_token_metadata(view)
-                await self.project_manager.save_context_snapshot(
-                    self.db,
-                    agent_execution=self.current_execution,
-                    kind="pre_tool",
-                    context_view_json=view.model_dump(),
-                )
+                # Refresh warm context (skip on first loop - already done above)
+                if loop_index > 0:
+                    await self.context_hub.refresh_warm()
+                    view = self.context_hub.get_view()
+                    await self._update_context_token_metadata(view)
+                
+                # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
+                if loop_index > 0:
+                    asyncio.create_task(self._save_context_snapshot_background(
+                        kind="pre_tool",
+                        context_view_json=view.model_dump(),
+                    ))
 
                 # Build enhanced planner input with validation and retry on failure
                 try:
                     # Get messages context for detailed conversation history
-                    # Render messages from object section
-                    messages_section = await self.context_hub.message_builder.build(max_messages=20)
-                    messages_context = messages_section.render()
-                    # Get resources context from metadata resources
-                    resources_section = await self.context_hub.resource_builder.build()
-                    resources_context = resources_section.render()
+                    # On first loop, use cached messages from refresh_warm(); rebuild on subsequent loops
+                    if loop_index == 0 and view.warm.messages:
+                        messages_section = view.warm.messages
+                    else:
+                        messages_section = await self.context_hub.message_builder.build(max_messages=20)
+                    messages_context = messages_section.render() if messages_section else ""
+                    # Use cached resources from prime_static() - static, no need to rebuild
+                    resources_section = view.static.resources
+                    resources_context = resources_section.render() if resources_section else ""
                     # Smaller combined excerpt to control tokens per-iteration
                     try:
-                        resources_combined_small = resources_section.render_combined(top_k_per_repo=10, index_limit=200)
+                        resources_combined_small = resources_section.render_combined(top_k_per_repo=10, index_limit=200) if resources_section else ""
                     except Exception:
                         resources_combined_small = resources_context
-                    # Files context (uploaded files schemas/metadata)
+                    # Files context (uploaded files schemas/metadata) - use cached
                     files_context = view.static.files.render() if getattr(view.static, "files", None) else ""
                     # Mentions context (current user turn mentions)
                     mentions_context = (view.warm.mentions.render() if getattr(view.warm, "mentions", None) else "")
@@ -704,101 +864,34 @@ class AgentV2:
                         if decision.analysis_complete:
                             # Final answer path
                             invalid_retry_count = 0
-                            # === Post-analysis: determine if instruction suggestions are required
+                            
+                            # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
+                            # This unblocks thumbs up/debug icons and stop→submit button
+                            if self.system_completion and not completion_finished_emitted:
+                                await self.project_manager.update_completion_status(
+                                    self.db, 
+                                    self.system_completion, 
+                                    'success'
+                                )
+                                if self.event_queue:
+                                    await self.event_queue.put(SSEEvent(
+                                        event="completion.finished",
+                                        completion_id=str(self.system_completion.id),
+                                        data={"status": "success"}
+                                    ))
+                                completion_finished_emitted = True
+                            
+                            # === INLINE: Post-analysis tasks (suggestions) ===
+                            # Run suggestions inline so SSE events reach the frontend before stream closes
                             res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
                             should_trigger_suggestions = res.get("decision", False)
                             conditions = res.get("conditions", [])
 
                             if should_trigger_suggestions:
-                                # Stream suggestions via SSE
-                                try:
-                                    # Build fresh context for suggestions
-                                    await self.context_hub.refresh_warm()
-                                    view_for_suggest = self.context_hub.get_view()
-                                except Exception:
-                                    view_for_suggest = None
-                                try:
-                                    seq_si = await self.project_manager.next_seq(self.db, self.current_execution)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="instructions.suggest.started",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=seq_si,
-                                        data={}
-                                    ))
-                                except Exception:
-                                    pass
-                                try:
-                                    if self.suggest_instructions is not None and self.report_type == 'regular':
-                                        drafts = []
-                                        # Format trigger reason from conditions for persistence
-                                        trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
-                                        async for draft in self.suggest_instructions.stream_suggestions(context_view=view_for_suggest, context_hub=self.context_hub, conditions=conditions):
-                                            # Persist immediately and stream back full instruction object
-                                            inst = await self.project_manager.create_instruction_from_draft(
-                                                self.db,
-                                                self.organization,
-                                                text=draft.get("text", ""),
-                                                category=draft.get("category", "general"),
-                                                agent_execution_id=str(self.current_execution.id),
-                                                trigger_reason=trigger_reason,
-                                                ai_source="completion",
-                                                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
-                                            )
-                                            # Append a minimal client payload too
-                                            draft_payload = {
-                                                "id": str(inst.id),
-                                                "text": inst.text,
-                                                "category": inst.category,
-                                                "status": inst.status,
-                                                "private_status": inst.private_status,
-                                                "global_status": inst.global_status,
-                                                "is_seen": inst.is_seen,
-                                                "can_user_toggle": inst.can_user_toggle,
-                                                "user_id": inst.user_id,
-                                                "organization_id": str(inst.organization_id),
-                                                "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
-                                                "trigger_reason": inst.trigger_reason,
-                                                "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
-                                                "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
-                                                "ai_source": getattr(inst, 'ai_source', None),
-                                            }
-                                            drafts.append(draft_payload)
-
-                                            try:
-                                                seq_si_p = await self.project_manager.next_seq(self.db, self.current_execution)
-                                                await self._emit_sse_event(SSEEvent(
-                                                    event="instructions.suggest.partial",
-                                                    completion_id=str(self.system_completion.id),
-                                                    agent_execution_id=str(self.current_execution.id),
-                                                    seq=seq_si_p,
-                                                    data={"instruction": draft_payload}
-                                                ))
-                                            except Exception:
-                                                pass
-                                        try:
-                                            seq_si_f = await self.project_manager.next_seq(self.db, self.current_execution)
-                                            await self._emit_sse_event(SSEEvent(
-                                                event="instructions.suggest.finished",
-                                                completion_id=str(self.system_completion.id),
-                                                agent_execution_id=str(self.current_execution.id),
-                                                seq=seq_si_f,
-                                                data={"instructions": drafts}
-                                            ))
-                                        except Exception:
-                                            pass
-                                except Exception:
-                                    try:
-                                        seq_si_e = await self.project_manager.next_seq(self.db, self.current_execution)
-                                        await self._emit_sse_event(SSEEvent(
-                                            event="instructions.suggest.finished",
-                                            completion_id=str(self.system_completion.id),
-                                            agent_execution_id=str(self.current_execution.id),
-                                            seq=seq_si_e,
-                                            data={"instructions": []}
-                                        ))
-                                    except Exception:
-                                        pass
+                                await self._stream_suggestions_inline(
+                                    prev_tool_name_before_last_user,
+                                    conditions
+                                )
                             break
 
                         action = decision.action
@@ -910,15 +1003,13 @@ class AgentV2:
                             pass
                         try:
                             schemas_ctx = await self.context_hub.schema_builder.build(
-                                include_inactive=False,
                                 with_stats=True,
-                                active_only=True,
                             )
                             schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
                         except Exception:
                             schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
                         # Refresh history summary with updated context
-                        history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+                        history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
                         # RUN TOOL with enhanced context tracking
                         runtime_ctx = {
@@ -999,6 +1090,20 @@ class AgentV2:
 
                         if observation and observation.get("analysis_complete"):
                             analysis_done = True
+                            # Emit completion.finished immediately so UI updates
+                            if self.system_completion and not completion_finished_emitted:
+                                await self.project_manager.update_completion_status(
+                                    self.db, 
+                                    self.system_completion, 
+                                    'success'
+                                )
+                                if self.event_queue:
+                                    await self.event_queue.put(SSEEvent(
+                                        event="completion.finished",
+                                        completion_id=str(self.system_completion.id),
+                                        data={"status": "success"}
+                                    ))
+                                completion_finished_emitted = True
 
                         # Extract created objects from observation
                         created_widget_id = None
@@ -1115,7 +1220,7 @@ class AgentV2:
                         await self.context_hub.refresh_warm()
                         view = self.context_hub.get_view()
                         schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
-                        history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+                        history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
                         break
 
@@ -1138,7 +1243,7 @@ class AgentV2:
                 context_view_json=view.model_dump(),
             )
             
-            # Generate report title if this is the first completion
+            # Generate report title if this is the first completion (non-blocking)
             try:
                 if self.head_completion and self.report:
                     first_completion = await self.db.execute(
@@ -1150,7 +1255,7 @@ class AgentV2:
                     first_completion = first_completion.scalar_one_or_none()
                     
                     if first_completion and self.head_completion.id == first_completion.id:
-                        # Generate title based on the conversation and plan decisions
+                        # Generate title in background to not block completion
                         messages_section = await self.context_hub.message_builder.build(max_messages=5)
                         messages_context = messages_section.render()
                         
@@ -1160,13 +1265,13 @@ class AgentV2:
                             if hasattr(current_plan_decision, 'action_name') and current_plan_decision.action_name:
                                 plan_info.append({"action": current_plan_decision.action_name})
                         
-                        title = await self.reporter.generate_report_title(messages_context, plan_info)
-                        await self.project_manager.update_report_title(self.db, self.report, title)
+                        # Run title generation in background
+                        asyncio.create_task(self._generate_title_background(messages_context, plan_info))
             except Exception as e:
                 # Don't fail the entire execution if title generation fails
                 import logging
                 logger = logging.getLogger(__name__)
-                logger.warning(f"Failed to generate report title: {e}")
+                logger.warning(f"Failed to start title generation: {e}")
             
             # Late scoring (non-blocking): capture context string and observation snapshot, then run in isolated session
             try:
@@ -1197,8 +1302,9 @@ class AgentV2:
             except Exception:
                 pass
             
-            # Update system completion status and emit event
-            if self.system_completion:
+            # Update system completion status and emit event if not already done
+            # Success case is typically handled earlier in the analysis_complete block for faster UI response
+            if self.system_completion and not completion_finished_emitted:
                 completion_status = 'stopped' if self.sigkill_event.is_set() else 'success'
                 await self.project_manager.update_completion_status(
                     self.db, 
@@ -1214,6 +1320,7 @@ class AgentV2:
                         data={"status": completion_status}
                     )
                     await self.event_queue.put(finished_event)
+                completion_finished_emitted = True
             
         except Exception as e:
             # Handle errors and finish execution with error status
@@ -1284,13 +1391,11 @@ class AgentV2:
         instructions_section = await self.context_hub.instruction_builder.build()
         instructions = instructions_section.render()
 
-        history_summary = await self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
+        history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
         try:
             schemas_ctx = await self.context_hub.schema_builder.build(
-                include_inactive=False,
                 with_stats=True,
-                active_only=True,
             )
             schemas_combined = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
         except Exception:

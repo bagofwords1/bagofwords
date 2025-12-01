@@ -77,13 +77,29 @@ class DashboardLayoutService:
             from app.models.widget import Widget
             from app.models.visualization import Visualization
             from app.models.text_widget import TextWidget
-            # Preload all referenced ids for this report in one shot
-            result_widgets = await db.execute(select(Widget).where(Widget.report_id == report_id))
-            widgets = {str(w.id): w for w in result_widgets.scalars().all()}
-            result_visualizations = await db.execute(select(Visualization))
-            visualizations = {str(v.id): v for v in result_visualizations.scalars().all()}
-            result_text = await db.execute(select(TextWidget).where(TextWidget.report_id == report_id))
-            text_widgets = {str(t.id): t for t in result_text.scalars().all()}
+            
+            # Collect block types present in layouts to avoid unnecessary queries
+            all_blocks = [b for s in schemas for b in (s.blocks or [])]
+            block_types = {b.type for b in all_blocks if hasattr(b, 'type')}
+            
+            # Only fetch entities that are actually referenced in blocks
+            widgets: dict = {}
+            if 'widget' in block_types:
+                result_widgets = await db.execute(select(Widget).where(Widget.report_id == report_id))
+                widgets = {str(w.id): w for w in result_widgets.scalars().all()}
+            
+            # CRITICAL FIX: Filter visualizations by report_id (was fetching ALL visualizations!)
+            visualizations: dict = {}
+            if 'visualization' in block_types:
+                result_visualizations = await db.execute(
+                    select(Visualization).where(Visualization.report_id == report_id)
+                )
+                visualizations = {str(v.id): v for v in result_visualizations.scalars().all()}
+            
+            text_widgets: dict = {}
+            if 'text_widget' in block_types:
+                result_text = await db.execute(select(TextWidget).where(TextWidget.report_id == report_id))
+                text_widgets = {str(t.id): t for t in result_text.scalars().all()}
 
             for s in schemas:
                 typed_blocks = []

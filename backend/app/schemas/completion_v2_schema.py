@@ -7,6 +7,7 @@ from .step_schema import StepSchema
 from .tool_execution_schema import ToolExecutionSchema
 from .agent_execution_schema import PlanDecisionReducedSchema
 from .visualization_schema import VisualizationSchema
+from .completion_feedback_schema import CompletionFeedbackSchema
 
 
 class ToolExecutionUISchema(ToolExecutionSchema):
@@ -123,6 +124,10 @@ class CompletionV2Schema(BaseModel):
 
     # Suggested instructions produced during this agent execution (optional, outside blocks)
     instruction_suggestions: Optional[List[Dict[str, Any]]] = None
+
+    # Feedback - pre-loaded to avoid N+1 API calls
+    feedback_score: int = 0  # Legacy aggregate score from Completion model
+    user_feedback: Optional[CompletionFeedbackSchema] = None  # Current user's feedback if any
 
     # Control & timing
     sigkill: Optional[datetime] = None
