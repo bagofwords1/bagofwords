@@ -102,12 +102,10 @@ class DescribeTablesTool(Tool):
                 # Build without top_k slicing so we can compute truncation accurately
                 yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_excerpt"})
                 ctx = await builder.build(
-                    include_inactive=False,
                     with_stats=True,
                     data_source_ids=data.data_source_ids,
                     table_names=table_names or None,
                     name_patterns=name_patterns or None,
-                    active_only=True,
                 )
                 # Compute counts before render limits
                 try:

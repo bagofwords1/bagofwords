@@ -454,10 +454,8 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                 name_patterns = [f"(?i){re.escape(k)}" for k in keywords] if keywords else None
 
                 ctx = await context_hub.schema_builder.build(
-                    include_inactive=False,
                     with_stats=True,
                     name_patterns=name_patterns,
-                    active_only=True,
                 )
                 return ctx.render_combined(top_k_per_ds=top_k, index_limit=0, include_index=False)
             _schemas_section_obj = getattr(context_view.static, "schemas", None) if context_view else None
@@ -467,68 +465,101 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             return _schemas_section_obj.render() if _schemas_section_obj else ""
 
     @staticmethod
-    async def _check_inactive_tables(
-        tables_by_source: Optional[List[Any]],
-        db,
-    ) -> List[Dict[str, Any]]:
-        """Fast check for inactive/missing tables. Returns list of inactive tables or empty list."""
-        if not tables_by_source or not db:
-            return []
-        try:
-            from sqlalchemy import select, func, and_, or_
-            from app.models.datasource_table import DataSourceTable
-
-            # Collect (ds_id, table_name_lower) pairs - skip regex patterns
-            requested: List[tuple] = []
-            ds_ids_set: set = set()
-            for group in tables_by_source:
-                ds_id = str(group.data_source_id) if getattr(group, "data_source_id", None) else None
-                if ds_id:
-                    ds_ids_set.add(ds_id)
-                for name in getattr(group, "tables", []) or []:
-                    if isinstance(name, str) and not any(c in name for c in ".*+?^${}()|[]\\"):
-                        requested.append((ds_id, name.lower()))
-
-            if not requested:
-                return []
-
-            # Single fast query: only fetch tables we care about
-            ds_ids = list(ds_ids_set)
-            table_names = list({t[1] for t in requested})
+    async def _resolve_active_tables(
+        tables_by_source: List[Any],
+        schema_builder,
+        data_sources: Optional[List[Any]] = None,
+    ) -> tuple[List[Dict[str, Any]], List[str]]:
+        """Resolve table patterns to active tables only.
+        
+        Args:
+            tables_by_source: List of TablesBySource with table names/patterns
+            schema_builder: SchemaContextBuilder instance
+            data_sources: Optional list of data sources to get all ds_ids
             
-            stmt = select(
-                DataSourceTable.datasource_id,
-                func.lower(DataSourceTable.name).label("name_lower"),
-                DataSourceTable.is_active,
-            ).where(
-                and_(
-                    DataSourceTable.datasource_id.in_(ds_ids) if ds_ids else True,
-                    func.lower(DataSourceTable.name).in_(table_names),
-                )
-            )
-            result = await db.execute(stmt)
+        Returns:
+            (resolved_tables_by_source, warnings) where:
+            - resolved_tables_by_source: List of dicts with resolved active table names
+            - warnings: List of warning messages for patterns with no matches
+        """
+        import re
+        
+        if not tables_by_source or not schema_builder:
+            return [], ["No tables_by_source or schema_builder provided"]
+        
+        resolved: List[Dict[str, Any]] = []
+        warnings: List[str] = []
+        
+        # Detect special regex characters
+        special_chars = re.compile(r"[\^\$\.\*\+\?\[\]\(\)\{\}\|]")
+        
+        for group in tables_by_source:
+            ds_id = str(group.data_source_id) if getattr(group, "data_source_id", None) else None
+            input_tables = getattr(group, "tables", []) or []
             
-            # Build fast lookup
-            active_map = {
-                (str(r.datasource_id), r.name_lower): r.is_active
-                for r in result.fetchall()
-            }
-
-            # Check each requested table
-            inactive = []
-            for ds_id, name in requested:
-                if ds_id:
-                    is_active = active_map.get((ds_id, name))
-                    if is_active is not True:  # False or missing
-                        inactive.append({"table": name, "data_source_id": ds_id})
+            if not input_tables:
+                continue
+            
+            # Build name_patterns from table names/patterns
+            name_patterns: List[str] = []
+            for name in input_tables:
+                if not isinstance(name, str) or not name.strip():
+                    continue
+                name = name.strip()
+                
+                if special_chars.search(name):
+                    # Already contains regex chars - use as-is (make case-insensitive)
+                    name_patterns.append(f"(?i){name}")
                 else:
-                    # No ds_id: check if active in ANY data source
-                    found_active = any(v for (d, n), v in active_map.items() if n == name and v)
-                    if not found_active:
-                        inactive.append({"table": name, "data_source_id": None})
-            return inactive
-        except Exception:
-            return []
+                    # Literal name - escape and allow optional schema prefix
+                    esc = re.escape(name)
+                    name_patterns.append(f"(?i)(?:^|\\.){esc}$")
+            
+            if not name_patterns:
+                continue
+            
+            # Resolve via schema_builder (only returns active tables)
+            try:
+                ctx = await schema_builder.build(
+                    with_stats=False,
+                    data_source_ids=[ds_id] if ds_id else None,
+                    name_patterns=name_patterns,
+                )
+                
+                # Extract resolved table names per data source
+                matched_by_ds: Dict[str, List[str]] = {}
+                for ds in (getattr(ctx, "data_sources", []) or []):
+                    ds_info = getattr(ds, "info", None)
+                    resolved_ds_id = getattr(ds_info, "id", None) if ds_info else None
+                    for t in (getattr(ds, "tables", []) or []):
+                        tbl_name = getattr(t, "name", None)
+                        if tbl_name:
+                            key = str(resolved_ds_id) if resolved_ds_id else "__all__"
+                            matched_by_ds.setdefault(key, []).append(tbl_name)
+                
+                # Build resolved group(s)
+                if ds_id:
+                    # Scoped to specific ds_id
+                    matched = matched_by_ds.get(ds_id, [])
+                    if matched:
+                        resolved.append({"data_source_id": ds_id, "tables": matched})
+                    else:
+                        warnings.append(f"No active tables matched patterns {input_tables} in data source {ds_id}")
+                else:
+                    # Cross-source: create one group per ds that had matches
+                    any_match = False
+                    for resolved_ds_id, matched in matched_by_ds.items():
+                        if matched:
+                            any_match = True
+                            actual_ds_id = None if resolved_ds_id == "__all__" else resolved_ds_id
+                            resolved.append({"data_source_id": actual_ds_id, "tables": matched})
+                    if not any_match:
+                        warnings.append(f"No active tables matched patterns {input_tables} across any data source")
+                        
+            except Exception as e:
+                warnings.append(f"Failed to resolve tables {input_tables}: {str(e)}")
+        
+        return resolved, warnings
 
     @staticmethod
     def _summarize_errors(errors) -> dict:
@@ -602,10 +633,12 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             # Best-effort only; if creation fails now, later stages may still create
             pass
 
-        # Validate that requested tables are active before expensive code generation
-        inactive_tables = await self._check_inactive_tables(data.tables_by_source, runtime_ctx.get("db"))
-        if inactive_tables:
-            names = [t["table"] for t in inactive_tables]
+        # Resolve table patterns to active tables only (filters out inactive tables)
+        resolved_tables: List[Dict[str, Any]] = []
+        resolution_warnings: List[str] = []
+        schemas_excerpt = ""
+        
+        if not context_hub or not getattr(context_hub, "schema_builder", None):
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -619,53 +652,76 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                         "errors": [],
                     },
                     "observation": {
-                        "summary": "Table validation failed - tables are inactive or not found",
+                        "summary": "Table resolution failed - no schema builder available",
                         "error": {
-                            "type": "inactive_tables",
-                            "message": f"Tables are inactive or not found: {', '.join(names)}",
-                            "inactive_tables": inactive_tables,
+                            "type": "configuration_error",
+                            "message": "Schema builder not available in context",
                         },
                     },
                 },
             )
             return
-
-        # Build filtered schemas excerpt using tables_by_source (regex-aware), or fallback to keywords
-        schemas_excerpt = ""
+        
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "resolving_tables"})
+        resolved_tables, resolution_warnings = await self._resolve_active_tables(
+            data.tables_by_source,
+            context_hub.schema_builder,
+        )
+        
+        # Check if any tables were resolved
+        total_resolved = sum(len(g.get("tables", [])) for g in resolved_tables)
+        if total_resolved == 0:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "code": "",
+                        "data": {},
+                        "data_preview": {},
+                        "stats": {},
+                        "execution_log": "",
+                        "errors": [],
+                    },
+                    "observation": {
+                        "summary": "No active tables matched the requested patterns",
+                        "error": {
+                            "type": "no_active_tables",
+                            "message": "No active tables matched the requested patterns. Tables may be inactive or not found.",
+                            "warnings": resolution_warnings,
+                            "requested_tables": [
+                                {"data_source_id": g.data_source_id, "tables": g.tables}
+                                for g in (data.tables_by_source or [])
+                            ],
+                        },
+                    },
+                },
+            )
+            return
+        
+        # Build schemas excerpt using resolved active tables
         try:
-            if data.tables_by_source and context_hub and getattr(context_hub, "schema_builder", None):
-                import re
-                special = re.compile(r"[.*+?^${}()|\[\]\\]")
-                data_source_ids = []
-                name_patterns = []
-                for group in (data.tables_by_source or []):
-                    if group.data_source_id:
-                        data_source_ids.append(group.data_source_id)
-                    for q in (group.tables or []):
-                        if not isinstance(q, str):
-                            continue
-                        try:
-                            if special.search(q or ""):
-                                name_patterns.append(q)
-                            else:
-                                esc = re.escape(q)
-                                name_patterns.append(f"(?i)(?:^|\\.){esc}$")
-                        except Exception:
-                            continue
-                ds_scope = list({str(x) for x in data_source_ids}) or None
-                ctx = await context_hub.schema_builder.build(
-                    include_inactive=False,
-                    with_stats=True,
-                    data_source_ids=ds_scope,
-                    name_patterns=name_patterns or None,
-                    active_only=True,
-                )
-                # Fixed default size for per-datasource schema excerpt
-                schemas_excerpt = ctx.render_combined(top_k_per_ds=10, index_limit=0, include_index=False)
-            else:
-                raw_text = (data.interpreted_prompt or data.user_prompt or "")
-                schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)
-        except Exception:
+            # Collect all resolved table names for schema building
+            all_resolved_names: List[str] = []
+            ds_ids: List[str] = []
+            for group in resolved_tables:
+                if group.get("data_source_id"):
+                    ds_ids.append(group["data_source_id"])
+                all_resolved_names.extend(group.get("tables", []))
+            
+            ds_scope = list(set(ds_ids)) if ds_ids else None
+            # Use exact name patterns for resolved tables
+            import re
+            name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
+            
+            ctx = await context_hub.schema_builder.build(
+                with_stats=True,
+                data_source_ids=ds_scope,
+                name_patterns=name_patterns,
+            )
+            schemas_excerpt = ctx.render_combined(top_k_per_ds=20, index_limit=0, include_index=False)
+        except Exception as e:
+            # Fallback to keyword-based excerpt if resolution-based build fails
             raw_text = (data.interpreted_prompt or data.user_prompt or "")
             schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)
 
@@ -711,13 +767,13 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         )
         streamer = StreamingCodeExecutor(organization_settings=organization_settings, logger=None, context_hub=context_hub)
 
-        # Build typed context via helper
+        # Build typed context via helper (use resolved active tables, not original patterns)
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
             user_prompt=(data.user_prompt or data.interpreted_prompt or ""),
             interpreted_prompt=(data.interpreted_prompt or None),
             schemas_excerpt=(schemas_excerpt or ""),
-            tables_by_source=(data.tables_by_source or None),
+            tables_by_source=resolved_tables or None,
         )
 
         # Combine schemas with files for additional grounding (keep previous semantics)

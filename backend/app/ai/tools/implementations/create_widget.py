@@ -37,10 +37,8 @@ class CreateWidgetTool(Tool):
                 name_patterns = [f"(?i){re.escape(k)}" for k in keywords] if keywords else None
 
                 ctx = await context_hub.schema_builder.build(
-                    include_inactive=False,
                     with_stats=True,
                     name_patterns=name_patterns,
-                    active_only=True,
                 )
                 return ctx.render_combined(top_k_per_ds=top_k, index_limit=0, include_index=False)
             # Fallback to compact static renderers
@@ -132,11 +130,9 @@ class CreateWidgetTool(Tool):
                 ds_scope = list({str(x) for x in data_source_ids}) or None
                 # Build filtered schema
                 ctx = await context_hub.schema_builder.build(
-                    include_inactive=False,
                     with_stats=True,
                     data_source_ids=ds_scope,
                     name_patterns=name_patterns or None,
-                    active_only=True,
                 )
                 limit = int(getattr(data, "schema_limit", 10) or 10)
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=max(1, limit), index_limit=0, include_index=False)

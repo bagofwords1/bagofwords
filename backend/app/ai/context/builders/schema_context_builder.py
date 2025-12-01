@@ -31,7 +31,6 @@ class SchemaContextBuilder:
 
     async def build(
         self,
-        include_inactive: bool = False,
         with_stats: bool = True,
         top_k: Optional[int] = None,
         *,
@@ -43,9 +42,15 @@ class SchemaContextBuilder:
     ) -> TablesSchemaContext:
         """Return TablesSchemaContext with optional filtering and sorting.
 
-        Backward compatible: existing callers may pass only include_inactive/with_stats/top_k.
+        Args:
+            with_stats: Include usage statistics for tables.
+            top_k: Limit number of tables returned.
+            data_source_ids: Filter to specific data sources.
+            table_names: Filter to specific table names (exact match).
+            name_patterns: Filter tables by regex patterns.
+            active_only: If True (default), only return active tables. If False, include inactive.
+            sort: Sort order for tables.
         """
-
         ds_sections: List[TablesSchemaContext.DataSource] = []
 
         ds_filter = set(str(x) for x in (data_source_ids or [])) if data_source_ids else None
@@ -103,6 +108,11 @@ class SchemaContextBuilder:
                     overlay_cols = cols_by_table.get(str(ot.id), [])
                     columns = [{"name": getattr(c, 'column_name', ''), "dtype": getattr(c, 'data_type', None)} for c in overlay_cols]
                     base = canonical_by_name.get(name)
+                    # Respect canonical table's is_active status (default False if not found)
+                    canonical_is_active = bool(getattr(base, 'is_active', False)) if base is not None else False
+                    # Skip inactive tables when active_only is True
+                    if active_only and not canonical_is_active:
+                        continue
                     pks = getattr(base, 'pks', []) if base is not None else []
                     fks = getattr(base, 'fks', []) if base is not None else []
                     metadata_json = getattr(base, 'metadata_json', None) if base is not None else None
@@ -117,11 +127,13 @@ class SchemaContextBuilder:
                         "degree_in": getattr(base, 'degree_in', None) if base is not None else None,
                         "degree_out": getattr(base, 'degree_out', None) if base is not None else None,
                         "entity_like": getattr(base, 'entity_like', None) if base is not None else None,
-                        "is_active": True,
+                        "is_active": canonical_is_active,
                     })
             else:
                 for t in ds_tables:
-                    if not include_inactive and not getattr(t, 'is_active', False):
+                    table_is_active = bool(getattr(t, 'is_active', False))
+                    # Skip inactive tables when active_only is True
+                    if active_only and not table_is_active:
                         continue
                     columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown")} for col in (getattr(t, 'columns', []) or [])]
                     normalized.append({
@@ -135,7 +147,7 @@ class SchemaContextBuilder:
                         "degree_in": getattr(t, 'degree_in', None),
                         "degree_out": getattr(t, 'degree_out', None),
                         "entity_like": getattr(t, 'entity_like', None),
-                        "is_active": bool(getattr(t, 'is_active', False)),
+                        "is_active": table_is_active,
                     })
 
             # Common rendering and scoring
@@ -164,7 +176,7 @@ class SchemaContextBuilder:
                     columns=columns,
                     pks=pks,
                     fks=fks,
-                    is_active=bool(item.get("is_active", True)),
+                    is_active=bool(item.get("is_active", False)),  # Default False for safety
                     centrality_score=item.get("centrality_score"),
                     richness=item.get("richness"),
                     degree_in=item.get("degree_in"),
@@ -237,8 +249,8 @@ class SchemaContextBuilder:
             except Exception:
                 pass
 
-            # Apply table-level filters and active flag after initial build
-            if table_names or name_patterns or active_only:
+            # Apply table-level filters (name matching only - active filtering already done above)
+            if table_names or name_patterns:
                 name_set = set((table_names or []))
                 patterns = []
                 for p in (name_patterns or []):
@@ -258,9 +270,7 @@ class SchemaContextBuilder:
                     return (not name_set) and (not patterns)
                 filtered = []
                 for t in tables:
-                    if active_only and not getattr(t, 'is_active', True):
-                        continue
-                    if (table_names or name_patterns) and not _match(getattr(t, 'name', '')):
+                    if not _match(getattr(t, 'name', '')):
                         continue
                     filtered.append(t)
                 tables = filtered

@@ -1224,8 +1224,10 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 				}
 			}
-			await loadReport()
-			await promptBoxRef.value?.refreshContextEstimate?.()
+			// Fire-and-forget: don't block stream processing with network calls
+			// This ensures [DONE] is processed immediately, updating isStreaming and UI
+			loadReport()
+			promptBoxRef.value?.refreshContextEstimate?.()
 			break
 
 		case 'completion.error':

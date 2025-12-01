@@ -172,9 +172,9 @@ class ContextHub:
             # Build object using config params
             schema_cfg = spec.schema_config or SchemaContextConfig()
             schemas_section = await self.schema_builder.build(
-                include_inactive=schema_cfg.include_inactive,
                 with_stats=schema_cfg.with_stats,
                 top_k=schema_cfg.top_k,
+                active_only=schema_cfg.active_only,
             )
             context.schemas_excerpt = schemas_section.render()
             # Prefer object-based count of tables if available; fallback to rendered lines
@@ -366,9 +366,9 @@ class ContextHub:
         if spec.include_schemas:
             schema_cfg = spec.schema_config or SchemaContextConfig()
             schemas_obj = await self.schema_builder.build(
-                include_inactive=schema_cfg.include_inactive,
                 with_stats=schema_cfg.with_stats,
                 top_k=schema_cfg.top_k,
+                active_only=schema_cfg.active_only,
             )
 
         # Files

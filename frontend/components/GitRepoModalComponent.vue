@@ -201,7 +201,7 @@ const props = defineProps<{
     metadataResources?: any;
 }>();
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'changed']);
 
 const gitModalOpen = computed({
     get: () => props.modelValue,
@@ -325,6 +325,7 @@ async function handleSubmit() {
                 description: 'Git repository connected successfully',
                 color: 'green'
             });
+            emit('changed');
             gitModalOpen.value = false;
         }
     } catch (error) {
@@ -363,6 +364,7 @@ async function confirmDelete() {
             description: 'Git repository disconnected successfully',
             color: 'green'
         });
+        emit('changed');
         gitModalOpen.value = false;
     } catch (error) {
         toast.add({
@@ -390,6 +392,7 @@ async function reindexRepository() {
                 description: 'Repository reindexing started',
                 color: 'green'
             });
+            emit('changed');
         }
     } catch (error) {
         toast.add({

@@ -1,11 +1,11 @@
 <template>
-  <div class="w-full" v-if="totalResources > 0">
+  <div class="w-full">
     <div v-if="showHeader" class="mb-2">
       <h1 class="text-lg font-semibold">{{ headerTitle }}</h1>
       <p class="text-gray-500 text-sm">{{ headerSubtitle }}</p>
     </div>
 
-    <div>
+    <div v-if="!loading && totalResources > 0">
       <div class="relative flex items-center gap-2">
         <input v-model="resourceSearch" type="text" placeholder="Search resources..." class="border border-gray-300 rounded-lg px-3 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
         <button
@@ -78,7 +78,7 @@
       <div class="mt-1 text-xs text-gray-500 text-right">{{ filteredResources.length }} of {{ totalResources }} shown</div>
     </div>
 
-    <div v-if="canUpdate" class="mt-2 flex items-center justify-end gap-2">
+    <div v-if="canUpdate && !loading && totalResources > 0" class="mt-2 flex items-center justify-end gap-2">
       <button
         @click="selectAll"
         :disabled="loading || saving"
@@ -124,7 +124,7 @@
       </div>
     </div>
 
-    <div v-if="showSave && canUpdate" class="mt-3 flex justify-end">
+    <div v-if="showSave && canUpdate && totalResources > 0" class="mt-3 flex justify-end">
       <button @click="onSave" :disabled="saving" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
         <span v-if="saving">Saving...</span>
         <span v-else>{{ saveLabel }}</span>

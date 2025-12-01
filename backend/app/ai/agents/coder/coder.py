@@ -476,6 +476,8 @@ class Coder:
             3. **Schema Adherence**:
                - Use only columns and relationships that exist in the provided schemas.
                - Do NOT invent columns that do not exist or cannot be derived.
+               - Use metadata resources for tables/cols enrichments, code examples, etc.
+               - Never use tables/cols that exist in metadata resources but are not in the provided schemas.
 
             4. **Handling Previous Code and Errors**:
                - If `retries` ≥ 1, review the code_and_error_messages:

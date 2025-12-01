@@ -1010,9 +1010,7 @@ class AgentV2:
                             pass
                         try:
                             schemas_ctx = await self.context_hub.schema_builder.build(
-                                include_inactive=False,
                                 with_stats=True,
-                                active_only=True,
                             )
                             schemas_excerpt = schemas_ctx.render_combined(top_k_per_ds=10, index_limit=200)
                         except Exception:
@@ -1404,9 +1402,7 @@ class AgentV2:
 
         try:
             schemas_ctx = await self.context_hub.schema_builder.build(
-                include_inactive=False,
                 with_stats=True,
-                active_only=True,
             )
             schemas_combined = schemas_ctx.render_combined(top_k_per_ds=self.top_k_schema, index_limit=INDEX_LIMIT)
         except Exception:
