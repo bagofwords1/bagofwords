@@ -24,7 +24,8 @@ class TokenUsage(BaseModel):
 
 class PlannerMetrics(BaseModel):
     first_token_ms: Optional[float] = None
-    thinking_ms: Optional[float] = None
+    thinking_ms: Optional[float] = None  # Duration of reasoning only
+    total_duration_ms: Optional[float] = None  # Full completion duration
     token_usage: Optional[TokenUsage] = None
 
 

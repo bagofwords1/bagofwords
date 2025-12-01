@@ -168,8 +168,11 @@
 													<template v-if="isBlockFinalized(block)">
 														<MDC :value="block.content || ''" class="markdown-content" />
 													</template>
+													<template v-else-if="shouldUseMdcDuringStream(block)">
+														<MDC :value="getDebouncedContent(block.id, block.content)" class="markdown-content" />
+													</template>
 													<template v-else>
-														<div class="streaming-text">{{ block.content || '' }}</div>
+														<div class="streaming-text">{{ block.content }}</div>
 													</template>
 												</div>
 
@@ -484,6 +487,36 @@ const collapsedReasoning = ref<Set<string>>(new Set())
 const expandedToolDetails = ref<Set<string>>(new Set())
 // Track blocks where user has manually toggled reasoning (so we don't auto-collapse them)
 const manuallyToggledReasoning = ref<Set<string>>(new Set())
+
+// Debounced content for MDC rendering during streaming (prevents flicker)
+const debouncedBlockContent = ref<Map<string, string>>(new Map())
+const debounceTimers = ref<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+const CONTENT_DEBOUNCE_MS = 150
+const CONTENT_THRESHOLD = 80 // chars before switching to MDC
+
+function getDebouncedContent(blockId: string, content: string): string {
+	// Update debounced value with delay
+	const existing = debounceTimers.value.get(blockId)
+	if (existing) clearTimeout(existing)
+	
+	const timer = setTimeout(() => {
+		debouncedBlockContent.value.set(blockId, content)
+	}, CONTENT_DEBOUNCE_MS)
+	debounceTimers.value.set(blockId, timer)
+	
+	// Return last debounced value or current if none exists
+	return debouncedBlockContent.value.get(blockId) || content
+}
+
+function shouldUseMdcDuringStream(block: CompletionBlock): boolean {
+	const content = block.content || ''
+	// Use MDC for longer content or content with markdown indicators
+	return content.length > CONTENT_THRESHOLD || 
+		content.includes('\n') || 
+		content.includes('```') ||
+		content.includes('**') ||
+		content.includes('- ')
+}
 function isRealCompletion(m: ChatMessage): boolean {
     // During streaming we use a temporary client id like "system-<ts>".
     // Only allow feedback UI when we have a real backend id (UUID) either in
@@ -1490,6 +1523,11 @@ onUnmounted(() => {
 	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
+	// Clear debounce timers
+	for (const timer of debounceTimers.value.values()) {
+		clearTimeout(timer)
+	}
+	debounceTimers.value.clear()
 })
 
 function rerunReport() {
@@ -1905,14 +1943,17 @@ onMounted(async () => {
 .markdown-wrapper :deep(.markdown-content) {
 	@apply leading-relaxed;
 	font-size: 14px;
+	/* Prevent layout thrashing during streaming */
+	contain: content;
+	content-visibility: auto;
 
 	:where(h1, h2, h3, h4, h5, h6) {
 		@apply font-bold mb-4 mt-6;
 	}
 
-	h1 { @apply text-3xl; }
-	h2 { @apply text-2xl; }
-	h3 { @apply text-xl; }
+	h1 { @apply text-2xl; }
+	h2 { @apply text-xl; }
+	h3 { @apply text-lg; }
 
 	ul, ol { @apply pl-6 mb-4; }
 	ul { @apply list-disc; }
@@ -1921,7 +1962,30 @@ onMounted(async () => {
 
 	pre { @apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto; }
 	code { @apply bg-gray-50 px-1 py-0.5 rounded text-sm font-mono; }
-	a { @apply text-blue-600 hover:text-blue-800 underline; }
+	a { 
+		@apply text-gray-900 no-underline relative;
+		transition: color 0.15s ease;
+	}
+	a:hover {
+		@apply text-gray-700;
+	}
+	a::before {
+		content: '';
+		position: absolute;
+		left: -18px;
+		top: 50%;
+		transform: translateY(-50%);
+		width: 14px;
+		height: 14px;
+		background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke-width='1.5' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25'/%3E%3C/svg%3E");
+		background-size: contain;
+		background-repeat: no-repeat;
+		opacity: 0;
+		transition: opacity 0.15s ease;
+	}
+	a:hover::before {
+		opacity: 1;
+	}
 	blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; }
 	table { @apply w-full border-collapse mb-4; }
 	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
@@ -1930,6 +1994,10 @@ onMounted(async () => {
 /* Streaming text (no re-mount, minimal styles, prevent flicker) */
 .streaming-text {
     will-change: contents;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 14px;
+    line-height: 1.625;
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }

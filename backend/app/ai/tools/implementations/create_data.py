@@ -604,7 +604,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         history_summary = ""
         if context_hub and hasattr(context_hub, "get_history_summary"):
             try:
-                history_summary = await context_hub.get_history_summary()
+                history_summary = context_hub.get_history_summary()
             except Exception:
                 history_summary = ""
 

@@ -70,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 interface UserFeedback {
   id: string;
@@ -83,42 +83,40 @@ interface UserFeedback {
   updated_at: string;
 }
 
-interface FeedbackSummary {
-  completion_id: string;
-  total_upvotes: number;
-  total_downvotes: number;
-  net_score: number;
-  total_feedbacks: number;
-  user_feedback?: UserFeedback;
-}
-
 const props = defineProps<{
   completion: {
     id: string;
     [key: string]: any;
   };
   feedbackScore: number;
+  // Pre-loaded user feedback from completions API (avoids N+1 API calls)
+  initialUserFeedback?: UserFeedback | null;
 }>();
 
 const isLoading = ref(false);
-const feedbackSummary = ref<FeedbackSummary | null>(null);
-const userFeedback = computed(() => feedbackSummary.value?.user_feedback);
+// Local state for user feedback - initialized from prop, updated after actions
+const localUserFeedback = ref<UserFeedback | null>(props.initialUserFeedback || null);
+const userFeedback = computed(() => localUserFeedback.value);
+
+// Sync local state when prop changes (e.g., after page reload)
+watch(() => props.initialUserFeedback, (newVal) => {
+  if (newVal !== undefined) {
+    localUserFeedback.value = newVal;
+  }
+}, { immediate: true });
 
 // Negative feedback modal state
 const showNegativeFeedbackModal = ref(false);
 const feedbackMessage = ref('');
 const isSubmittingNegativeFeedback = ref(false);
 
-// Fetch feedback summary on component mount
-onMounted(async () => {
-  await fetchFeedbackSummary();
-});
-
+// Fetch feedback summary - only called after user submits feedback to refresh state
 const fetchFeedbackSummary = async () => {
   try {
     const response = await useMyFetch(`/api/completions/${props.completion.id}/feedback/summary`);
     if (response.data.value) {
-      feedbackSummary.value = response.data.value as FeedbackSummary;
+      const summary = response.data.value as { user_feedback?: UserFeedback };
+      localUserFeedback.value = summary.user_feedback || null;
     }
   } catch (err) {
     console.error('Failed to fetch feedback summary:', err);

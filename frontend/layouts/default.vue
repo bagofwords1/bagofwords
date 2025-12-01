@@ -50,20 +50,23 @@
              <button
                name="create-report"
                @click="createNewReport"
+               :disabled="creatingReport"
                :class="[
-                 'flex items-center px-2 py-2 w-full rounded-lg text-blue-500 hover:bg-gray-200',
+                 'flex items-center px-2 py-2 w-full rounded-lg text-blue-500 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed',
                  isCollapsed ? 'justify-center' : 'gap-3'
                ]">
-              <UTooltip v-if="isCollapsed" text="New report" :popper="{ placement: 'right' }">
+              <UTooltip v-if="isCollapsed" :text="creatingReport ? 'Creating...' : 'New report'" :popper="{ placement: 'right' }">
                 <span class="flex items-center justify-center w-5 h-5 text-lg">
-                  <UIcon name="heroicons-plus-circle" />
+                  <Spinner v-if="creatingReport" class="animate-spin" />
+                  <UIcon v-else name="heroicons-plus-circle" />
                 </span>
               </UTooltip>
               <template v-else>
                 <span class="flex items-center justify-center w-5 h-5 text-lg">
-                  <UIcon name="heroicons-plus-circle" />
+                  <Spinner v-if="creatingReport" class="animate-spin" />
+                  <UIcon v-else name="heroicons-plus-circle" />
                 </span>
-                <span v-if="showText" class="text-sm font-medium">New report</span>
+                <span v-if="showText" class="text-sm font-medium">{{ creatingReport ? 'Creating...' : 'New report' }}</span>
               </template>
             </button>
           </div>
@@ -276,6 +279,8 @@
 </template>
 
 <script setup lang="ts">
+  import Spinner from '~/components/Spinner.vue'
+  
   const workspaceIconUrl = computed<string | null>(() => {
     const orgId = organization.value?.id
     const orgs = (currentUser.value as any)?.organizations || []
@@ -311,24 +316,31 @@
     return ob.current_step === 'llm_configured' ? '/onboarding/llm' : '/onboarding/data'
   })
 
+  const { isExcel } = useExcel()
+  const router = useRouter()
+  const selectedDataSources = ref<Array<{ id: string | number }>>([])
+  const dataSourcesLoaded = ref(false)
+  const { $intercom } = useNuxtApp()
+
   onMounted(async () => {
     try {
       const route = useRoute()
       const inOnboarding = route.path.startsWith('/onboarding')
       if (!inOnboarding) {
-        await fetchOnboarding({ in_onboarding: false })
+        // Fetch onboarding and data sources in parallel for faster load
+        await Promise.all([
+          fetchOnboarding({ in_onboarding: false }),
+          getDataSourceOptions()
+        ])
       }
     } catch {}
   })
-  const { isExcel } = useExcel()
-  const router = useRouter()
-  const selectedDataSources = ref<Array<{ id: string | number }>>([])
-  const { $intercom } = useNuxtApp()
   const { version, environment, app_url, intercom } = useRuntimeConfig().public
   
   // Sidebar collapse state
   const isCollapsed = ref(false)
   const showText = ref(true) // Controls text visibility during transitions
+  const creatingReport = ref(false)
   
   const toggleSidebar = () => {
     if (!isCollapsed.value) {
@@ -404,7 +416,15 @@
 
 
 const createNewReport = async () => {
-  await getDataSourceOptions()
+  if (creatingReport.value) return
+  creatingReport.value = true
+  
+  try {
+    // Only fetch if not already loaded
+    if (!selectedDataSources.value.length) {
+      await getDataSourceOptions()
+    }
+    
     const response = await useMyFetch('/reports', {
         method: 'POST',
         body: JSON.stringify({title: 'untitled report',
@@ -417,9 +437,12 @@ const createNewReport = async () => {
     }
 
     const data = ((response as any).data?.value) as any;
-    router.push({
+    await router.push({
         path: `/reports/${data.id}`
     })
+  } finally {
+    creatingReport.value = false
+  }
 }
 
   async function signOff() {

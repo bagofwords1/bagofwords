@@ -91,7 +91,7 @@ class Coder:
                     past_observations = []
                     last_observation = None
                 try:
-                    history_summary = await self.context_hub.get_history_summary()
+                    history_summary = self.context_hub.get_history_summary()
                 except Exception:
                     history_summary = ""
             except Exception:
@@ -548,7 +548,7 @@ class Coder:
                     past_observations = []
                     last_observation = None
                 try:
-                    history_summary = await self.context_hub.get_history_summary()
+                    history_summary = self.context_hub.get_history_summary()
                 except Exception:
                     history_summary = ""
             except Exception:

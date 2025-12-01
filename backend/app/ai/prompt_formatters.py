@@ -87,7 +87,7 @@ async def build_codegen_context(
             last_observation = None
         try:
             if context_hub and hasattr(context_hub, "get_history_summary"):
-                history_summary = await context_hub.get_history_summary()
+                history_summary = context_hub.get_history_summary()
         except Exception:
             history_summary = ""
     except Exception:

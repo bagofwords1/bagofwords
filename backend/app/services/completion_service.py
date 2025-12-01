@@ -26,7 +26,8 @@ from app.schemas.completion_v2_schema import (
     CompletionsV2Response,
 )
 from app.services.llm_service import LLMService
-from app.serializers.completion_v2 import serialize_block_v2
+from app.serializers.completion_v2 import serialize_block_v2, serialize_block_v2_sync
+from app.models.visualization import Visualization
 from app.schemas.agent_execution_schema import PlanDecisionSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
 from app.streaming.completion_stream import CompletionEventQueue
@@ -661,29 +662,186 @@ class CompletionService:
                 if te is not None:
                     te_map[te.id] = te
 
-        # 5) Build per-completion block lists and compute aggregates
+        # 4) Batch-load all artifacts referenced by tool executions
+        # Collect all IDs we need to fetch
+        widget_ids: set[str] = set()
+        step_ids: set[str] = set()
+        visualization_ids: set[str] = set()
+        
+        for te in te_map.values():
+            if te.created_widget_id:
+                widget_ids.add(te.created_widget_id)
+            if te.created_step_id:
+                step_ids.add(te.created_step_id)
+            # Collect visualization IDs from artifact_refs_json
+            try:
+                refs = getattr(te, 'artifact_refs_json', None) or {}
+                vis_ids = refs.get('visualizations') or []
+                for vid in vis_ids:
+                    visualization_ids.add(str(vid))
+            except Exception:
+                pass
+        
+        # Batch fetch widgets
+        widget_map: dict[str, Widget] = {}
+        if widget_ids:
+            widget_stmt = select(Widget).where(Widget.id.in_(list(widget_ids)))
+            widget_res = await db.execute(widget_stmt)
+            for w in widget_res.scalars().all():
+                widget_map[w.id] = w
+        
+        # Batch fetch last steps for widgets
+        widget_last_step_map: dict[str, Step] = {}
+        if widget_map:
+            # For each widget, get its most recent step
+            last_steps_stmt = (
+                select(Step)
+                .where(Step.widget_id.in_(list(widget_map.keys())))
+                .order_by(Step.widget_id, Step.created_at.desc())
+            )
+            last_steps_res = await db.execute(last_steps_stmt)
+            all_widget_steps = last_steps_res.scalars().all()
+            
+            # Keep only the first (most recent) step per widget
+            seen_widgets: set[str] = set()
+            for step in all_widget_steps:
+                if step.widget_id not in seen_widgets:
+                    widget_last_step_map[step.widget_id] = step
+                    seen_widgets.add(step.widget_id)
+        
+        # Batch fetch created steps
+        step_map: dict[str, Step] = {}
+        if step_ids:
+            step_stmt = select(Step).where(Step.id.in_(list(step_ids)))
+            step_res = await db.execute(step_stmt)
+            for s in step_res.scalars().all():
+                step_map[s.id] = s
+        
+        # Batch fetch visualizations
+        visualization_map: dict[str, Visualization] = {}
+        if visualization_ids:
+            vis_stmt = select(Visualization).where(Visualization.id.in_(list(visualization_ids)))
+            vis_res = await db.execute(vis_stmt)
+            for v in vis_res.scalars().all():
+                visualization_map[v.id] = v
+
+        # 5) Build per-completion block lists and compute aggregates using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in completion_ids}
         total_blocks = 0
         total_widgets = 0
         total_steps = 0
 
         for b in blocks:
-            # Count created artifacts for aggregates using the joined ToolExecution
-            if b.tool_execution_id and b.tool_execution_id in te_map:
-                te = te_map[b.tool_execution_id]
+            # Get pre-loaded related objects
+            pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
+            te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
+            
+            # Count created artifacts for aggregates
+            if te:
                 if te.created_widget_id:
                     total_widgets += 1
                 if te.created_step_id:
                     total_steps += 1
 
-            # Use the enriched serializer so the block includes created_widget (with last_step)
-            # and created_step, and strips heavy widget_data from result_json
-            block_schema = await serialize_block_v2(db, b)
+            # Get artifact objects from pre-loaded maps
+            created_widget = None
+            widget_last_step = None
+            created_step = None
+            created_visualizations = None
+            
+            if te:
+                if te.created_widget_id:
+                    created_widget = widget_map.get(te.created_widget_id)
+                    if created_widget:
+                        widget_last_step = widget_last_step_map.get(created_widget.id)
+                if te.created_step_id:
+                    created_step = step_map.get(te.created_step_id)
+                # Get visualizations from artifact refs
+                try:
+                    refs = getattr(te, 'artifact_refs_json', None) or {}
+                    vis_ids = refs.get('visualizations') or []
+                    if vis_ids:
+                        created_visualizations = [
+                            visualization_map[str(vid)] 
+                            for vid in vis_ids 
+                            if str(vid) in visualization_map
+                        ]
+                except Exception:
+                    pass
+
+            # Use the sync serializer with pre-loaded data (no DB queries)
+            block_schema = serialize_block_v2_sync(
+                block=b,
+                plan_decision=pd,
+                tool_execution=te,
+                created_widget=created_widget,
+                widget_last_step=widget_last_step,
+                created_step=created_step,
+                created_visualizations=created_visualizations,
+            )
 
             completion_id_to_blocks[b.completion_id].append(block_schema)
             total_blocks += 1
 
-        # 6) Assemble completion objects (attach simple per-AE suggestions list outside blocks)
+        # 6) Batch-load instruction suggestions for all agent executions at once
+        ae_id_to_suggestions: dict[str, list[dict]] = {}
+        system_ae_ids = [
+            e.id for cid, e in completion_id_to_exec.items() 
+            if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed'] 
+                        for c in all_completions)
+        ]
+        if system_ae_ids:
+            instr_stmt = (
+                select(Instruction)
+                .where(Instruction.agent_execution_id.in_(system_ae_ids))
+                .where(Instruction.deleted_at == None)
+                .order_by(Instruction.agent_execution_id, Instruction.created_at.asc())
+            )
+            instr_res = await db.execute(instr_stmt)
+            all_instructions = instr_res.scalars().all()
+            
+            for instr in all_instructions:
+                if not (instr.text or "").strip():
+                    continue
+                ae_id = str(instr.agent_execution_id)
+                if ae_id not in ae_id_to_suggestions:
+                    ae_id_to_suggestions[ae_id] = []
+                ae_id_to_suggestions[ae_id].append({
+                    "id": str(instr.id),
+                    "text": instr.text,
+                    "category": instr.category,
+                    "status": instr.status,
+                    "private_status": instr.private_status,
+                    "global_status": instr.global_status,
+                    "is_seen": instr.is_seen,
+                    "can_user_toggle": instr.can_user_toggle,
+                    "user_id": instr.user_id,
+                    "organization_id": str(instr.organization_id),
+                    "agent_execution_id": ae_id,
+                    "trigger_reason": instr.trigger_reason,
+                    "created_at": instr.created_at.isoformat() if instr.created_at else None,
+                    "updated_at": instr.updated_at.isoformat() if instr.updated_at else None,
+                    "ai_source": getattr(instr, 'ai_source', None),
+                })
+
+        # 6b) Batch-load user feedback for all completions (avoids N+1 API calls from frontend)
+        from app.models.completion_feedback import CompletionFeedback
+        from app.schemas.completion_feedback_schema import CompletionFeedbackSchema
+        
+        completion_id_to_user_feedback: dict[str, CompletionFeedbackSchema] = {}
+        if current_user and completion_ids:
+            feedback_stmt = (
+                select(CompletionFeedback)
+                .where(CompletionFeedback.completion_id.in_(completion_ids))
+                .where(CompletionFeedback.user_id == current_user.id)
+                .where(CompletionFeedback.organization_id == organization.id)
+            )
+            feedback_res = await db.execute(feedback_stmt)
+            user_feedbacks = feedback_res.scalars().all()
+            for fb in user_feedbacks:
+                completion_id_to_user_feedback[fb.completion_id] = CompletionFeedbackSchema.from_orm(fb)
+
+        # 7) Assemble completion objects
         v2_completions: list[CompletionV2Schema] = []
         for c in all_completions:
             exec_obj = completion_id_to_exec.get(c.id)
@@ -702,13 +860,17 @@ class CompletionService:
                     completion_data = {}
                 else:
                     try:
-                        import json
                         completion_data = json.loads(completion_data)
                     except (json.JSONDecodeError, TypeError):
                         completion_data = {"content": completion_data}
 
-            # Get instruction suggestions for this completion if it generated them
-            suggestions_list = await _get_instruction_suggestions_for_completion(db, c, exec_obj)
+            # Get instruction suggestions from pre-loaded map
+            suggestions_list = None
+            if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
+                suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
+
+            # Get user feedback from pre-loaded map
+            user_feedback = completion_id_to_user_feedback.get(c.id)
 
             v2 = CompletionV2Schema(
                 id=c.id,
@@ -728,10 +890,12 @@ class CompletionService:
                 created_at=c.created_at,
                 updated_at=c.updated_at,
                 instruction_suggestions=suggestions_list,
+                feedback_score=c.feedback_score or 0,
+                user_feedback=user_feedback,
             )
             v2_completions.append(v2)
 
-        # 7) Global aggregates
+        # 8) Global aggregates
         earliest = min((c.created_at for c in all_completions), default=None)
         latest = max((c.updated_at for c in all_completions), default=None)
 
@@ -797,11 +961,143 @@ class CompletionService:
                 if te is not None:
                     te_map[te.id] = te
 
-        # Build per-completion block lists
+        # Batch-load all artifacts referenced by tool executions
+        widget_ids: set[str] = set()
+        step_ids: set[str] = set()
+        visualization_ids: set[str] = set()
+        
+        for te in te_map.values():
+            if te.created_widget_id:
+                widget_ids.add(te.created_widget_id)
+            if te.created_step_id:
+                step_ids.add(te.created_step_id)
+            try:
+                refs = getattr(te, 'artifact_refs_json', None) or {}
+                vis_ids = refs.get('visualizations') or []
+                for vid in vis_ids:
+                    visualization_ids.add(str(vid))
+            except Exception:
+                pass
+        
+        # Batch fetch widgets
+        widget_map: dict[str, Widget] = {}
+        if widget_ids:
+            widget_stmt = select(Widget).where(Widget.id.in_(list(widget_ids)))
+            widget_res = await db.execute(widget_stmt)
+            for w in widget_res.scalars().all():
+                widget_map[w.id] = w
+        
+        # Batch fetch last steps for widgets
+        widget_last_step_map: dict[str, Step] = {}
+        if widget_map:
+            last_steps_stmt = (
+                select(Step)
+                .where(Step.widget_id.in_(list(widget_map.keys())))
+                .order_by(Step.widget_id, Step.created_at.desc())
+            )
+            last_steps_res = await db.execute(last_steps_stmt)
+            all_widget_steps = last_steps_res.scalars().all()
+            seen_widgets: set[str] = set()
+            for step in all_widget_steps:
+                if step.widget_id not in seen_widgets:
+                    widget_last_step_map[step.widget_id] = step
+                    seen_widgets.add(step.widget_id)
+        
+        # Batch fetch created steps
+        step_map: dict[str, Step] = {}
+        if step_ids:
+            step_stmt = select(Step).where(Step.id.in_(list(step_ids)))
+            step_res = await db.execute(step_stmt)
+            for s in step_res.scalars().all():
+                step_map[s.id] = s
+        
+        # Batch fetch visualizations
+        visualization_map: dict[str, Visualization] = {}
+        if visualization_ids:
+            vis_stmt = select(Visualization).where(Visualization.id.in_(list(visualization_ids)))
+            vis_res = await db.execute(vis_stmt)
+            for v in vis_res.scalars().all():
+                visualization_map[v.id] = v
+
+        # Build per-completion block lists using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in ids}
         for b in blocks:
-            block_schema = await serialize_block_v2(db, b)
+            pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
+            te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
+            
+            created_widget = None
+            widget_last_step = None
+            created_step = None
+            created_visualizations = None
+            
+            if te:
+                if te.created_widget_id:
+                    created_widget = widget_map.get(te.created_widget_id)
+                    if created_widget:
+                        widget_last_step = widget_last_step_map.get(created_widget.id)
+                if te.created_step_id:
+                    created_step = step_map.get(te.created_step_id)
+                try:
+                    refs = getattr(te, 'artifact_refs_json', None) or {}
+                    vis_ids = refs.get('visualizations') or []
+                    if vis_ids:
+                        created_visualizations = [
+                            visualization_map[str(vid)] 
+                            for vid in vis_ids 
+                            if str(vid) in visualization_map
+                        ]
+                except Exception:
+                    pass
+
+            block_schema = serialize_block_v2_sync(
+                block=b,
+                plan_decision=pd,
+                tool_execution=te,
+                created_widget=created_widget,
+                widget_last_step=widget_last_step,
+                created_step=created_step,
+                created_visualizations=created_visualizations,
+            )
             completion_id_to_blocks[b.completion_id].append(block_schema)
+
+        # Batch-load instruction suggestions
+        ae_id_to_suggestions: dict[str, list[dict]] = {}
+        system_ae_ids = [
+            e.id for cid, e in completion_id_to_exec.items() 
+            if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed'] 
+                        for c in all_completions)
+        ]
+        if system_ae_ids:
+            instr_stmt = (
+                select(Instruction)
+                .where(Instruction.agent_execution_id.in_(system_ae_ids))
+                .where(Instruction.deleted_at == None)
+                .order_by(Instruction.agent_execution_id, Instruction.created_at.asc())
+            )
+            instr_res = await db.execute(instr_stmt)
+            for instr in instr_res.scalars().all():
+                if not (instr.text or "").strip():
+                    continue
+                ae_id = str(instr.agent_execution_id)
+                if ae_id not in ae_id_to_suggestions:
+                    ae_id_to_suggestions[ae_id] = []
+                ae_id_to_suggestions[ae_id].append({
+                    "id": str(instr.id),
+                    "text": instr.text,
+                    "category": instr.category,
+                    "status": instr.status,
+                    "private_status": instr.private_status,
+                    "global_status": instr.global_status,
+                    "is_seen": instr.is_seen,
+                    "can_user_toggle": instr.can_user_toggle,
+                    "user_id": instr.user_id,
+                    "organization_id": str(instr.organization_id),
+                    "agent_execution_id": ae_id,
+                    "trigger_reason": instr.trigger_reason,
+                    "created_at": instr.created_at.isoformat() if instr.created_at else None,
+                    "updated_at": instr.updated_at.isoformat() if instr.updated_at else None,
+                    "ai_source": getattr(instr, 'ai_source', None),
+                })
 
         # Assemble v2 objects
         v2_list: list[CompletionV2Schema] = []
@@ -821,8 +1117,10 @@ class CompletionService:
                     except (json.JSONDecodeError, TypeError):
                         completion_data = {"content": completion_data}
 
-            # Get instruction suggestions for this completion if it generated them
-            suggestions_list = await _get_instruction_suggestions_for_completion(db, c, exec_obj)
+            # Get instruction suggestions from pre-loaded map
+            suggestions_list = None
+            if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
+                suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
 
             v2 = CompletionV2Schema(
                 id=c.id,
@@ -843,6 +1141,8 @@ class CompletionService:
                 created_at=c.created_at,
                 updated_at=c.updated_at,
                 instruction_suggestions=suggestions_list,
+                feedback_score=c.feedback_score or 0,
+                user_feedback=None,  # Not available without current_user context
             )
             v2_list.append(v2)
 
@@ -970,7 +1270,7 @@ class CompletionService:
 
             small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
 
-            # Create user completion
+            # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
             last_completion = await self.get_last_completion(db, report.id)
@@ -988,32 +1288,15 @@ class CompletionService:
                 external_platform=external_platform
             )
 
-            try:
-                db.add(completion)
-                await db.commit()
-                await db.refresh(completion)
-            except Exception as e:
-                await db.rollback()
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to save user completion: {str(e)}"
-                )
-
-            # Store mentions associated with the user completion (best-effort)
-            try:
-                await self.mention_service.create_completion_mentions(db, completion)
-            except Exception as e:
-                logging.error(f"Failed to create mentions for completion {completion.id}: {e}")
-
-            # Create system completion
+            # Create system completion (parent_id will be set after flush)
             system_completion = Completion(
                 prompt=None,
                 completion={"content": ""},
                 model=model.model_id,
                 widget_id=prompt_dict['widget_id'],
                 report_id=report.id,
-                parent_id=completion.id,
-                turn_index=completion.turn_index + 1,
+                parent_id=None,  # Set after flush
+                turn_index=(last_completion.turn_index + 2 if last_completion else 1),
                 message_type="table",
                 role="system",
                 status="in_progress",
@@ -1022,15 +1305,26 @@ class CompletionService:
             )
 
             try:
+                # Add both completions and flush to get IDs
+                db.add(completion)
+                await db.flush()  # Get completion.id without committing
+                system_completion.parent_id = completion.id
                 db.add(system_completion)
                 await db.commit()
+                await db.refresh(completion)
                 await db.refresh(system_completion)
             except Exception as e:
                 await db.rollback()
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to save system completion: {str(e)}"
+                    detail=f"Failed to save completions: {str(e)}"
                 )
+
+            # Store mentions associated with the user completion (best-effort, non-blocking)
+            try:
+                await self.mention_service.create_completion_mentions(db, completion)
+            except Exception as e:
+                logging.error(f"Failed to create mentions for completion {completion.id}: {e}")
 
             org_settings = await organization.get_settings(db)
 

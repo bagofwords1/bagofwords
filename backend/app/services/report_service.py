@@ -117,12 +117,12 @@ class ReportService:
         # Extract widget data and remove it from report_data
         widget_data = report_data.widget
         del report_data.widget
-        file_uuids = report_data.files
+        file_uuids = report_data.files or []
         del report_data.files
-        data_sources = report_data.data_sources
+        data_source_ids = report_data.data_sources or []
         del report_data.data_sources
 
-        # Create and persist the report
+        # Create the report object
         report = Report(**report_data.dict())
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
@@ -131,49 +131,62 @@ class ReportService:
         report.organization_id = organization.id
         await self._set_slug_for_report(db, report)
         db.add(report)
-        await db.commit()
-        await db.refresh(report)
+        
+        # Flush to get report.id without committing (stays in same transaction)
+        await db.flush()
+        
+        # Refresh to initialize relationships for async access
+        await db.refresh(report, ["files", "data_sources"])
 
-        # Telemetry: report created (minimal fields only)
+        # Create dashboard layout in the same transaction
+        empty_layout = DashboardLayoutVersion(
+            report_id=report.id,
+            name="",
+            version=1,
+            is_active=True,
+            theme_name=report.theme_name,
+            theme_overrides=report.theme_overrides or {},
+            blocks=[],
+        )
+        db.add(empty_layout)
+
+        # Associate files only if there are any (skip unnecessary query)
+        if file_uuids:
+            file_result = await db.execute(select(File).filter(File.id.in_(file_uuids)))
+            files = file_result.scalars().all()
+            report.files.extend(files)
+
+        # Associate data sources only if there are any (skip unnecessary query)
+        if data_source_ids:
+            ds_result = await db.execute(
+                select(DataSource)
+                .options(selectinload(DataSource.data_source_memberships))
+                .filter(DataSource.id.in_(data_source_ids))
+            )
+            data_sources = ds_result.scalars().all()
+            report.data_sources.extend(data_sources)
+
+        # Single commit for the entire transaction
+        await db.commit()
+        
+        # Final refresh to load all relationships needed by ReportSchema
+        await db.refresh(report, ["user", "widgets", "dashboard_layout_versions"])
+
+        # Fire-and-forget telemetry (non-blocking)
         try:
             await telemetry.capture(
                 "report_created",
                 {
                     "report_id": str(report.id),
                     "status": report.status,
-                    "count_files": len(file_uuids or []),
-                    "count_data_sources": len(data_sources or [])
+                    "count_files": len(file_uuids),
+                    "count_data_sources": len(data_source_ids)
                 },
                 user_id=current_user.id,
                 org_id=organization.id,
             )
         except Exception:
             pass
-
-        # Create an empty dashboard layout version for this report
-        try:
-            empty_layout = DashboardLayoutVersion(
-                report_id=report.id,
-                name="",
-                version=1,
-                is_active=True,
-                theme_name=report.theme_name,
-                theme_overrides=report.theme_overrides or {},
-                blocks=[],
-            )
-            db.add(empty_layout)
-            await db.commit()
-        except Exception as e:
-            logger.exception("Failed to create initial DashboardLayoutVersion: %s", e)
-            # Do not fail report creation on layout init issues
-            await db.rollback()
-
-        # Associate files with the report
-        await self._associate_files_with_report(db, report, file_uuids)
-        await self._associate_data_sources_with_report(db, report, data_sources)
-
-        # Explicitly load the user and widgets relationships to avoid lazy-loading
-        await db.refresh(report, ["user", "data_sources", "files"])
 
         return ReportSchema.from_orm(report).copy(update={"user": UserSchema.from_orm(current_user)})
 

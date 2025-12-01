@@ -47,24 +47,24 @@ def _trim_none(d: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> CompletionBlockV2Schema:
-    """Serialize a CompletionBlock to the v2 UI schema with joined decision/tool info.
-
-    Note: For efficiency, callers who already have joined objects can inline them.
-    This helper performs minimal fetches by ID.
+def serialize_block_v2_sync(
+    block: CompletionBlock,
+    plan_decision: Optional[PlanDecision] = None,
+    tool_execution: Optional[ToolExecution] = None,
+    created_widget: Optional[Widget] = None,
+    widget_last_step: Optional[Step] = None,
+    created_step: Optional[Step] = None,
+    created_visualizations: Optional[List[Visualization]] = None,
+) -> CompletionBlockV2Schema:
+    """Serialize a CompletionBlock to the v2 UI schema using pre-loaded data.
+    
+    This is the optimized version that accepts all related objects pre-loaded
+    to avoid N+1 queries.
     """
-    # Fetch linked decision and tool execution if present
-    plan_decision: Optional[PlanDecision] = None
-    tool_execution: Optional[ToolExecution] = None
-
-    if getattr(block, "plan_decision_id", None):
-        plan_decision = await db.get(PlanDecision, block.plan_decision_id)
-    if getattr(block, "tool_execution_id", None):
-        tool_execution = await db.get(ToolExecution, block.tool_execution_id)
-
     # Map to schemas
     pd_schema = PlanDecisionSchema.from_orm(plan_decision) if plan_decision else None
     te_schema: Optional[ToolExecutionUISchema] = None
+    
     if tool_execution:
         # Start from the base ToolExecution schema
         base_te = ToolExecutionSchema.from_orm(tool_execution)
@@ -75,55 +75,37 @@ async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> Comple
             result_json.pop("widget_data", None)
         te_data["result_json"] = result_json
 
-        # Enrich with created widget (including last_step), created step, and created visualizations if available
+        # Build widget schema with last_step if provided
         created_widget_schema: Optional[WidgetSchema] = None
-        created_step_schema: Optional[StepSchema] = None
-        # Visualizations list as full schemas (type-compatible with UI schema)
-        created_visualizations_schemas: list[VisualizationSchema] = []
-
-        if getattr(tool_execution, "created_widget_id", None):
-            widget_obj = await db.get(Widget, tool_execution.created_widget_id)
-            if widget_obj:
-                # Fetch last step for the widget
-                last_step_result = await db.execute(
-                    select(Step).filter(Step.widget_id == widget_obj.id).order_by(Step.created_at.desc()).limit(1)
-                )
-                last_step_obj = last_step_result.scalar_one_or_none()
-                last_step_schema: Optional[StepSchema] = None
-                if last_step_obj:
-                    # Ensure data_model is a dict even if None in DB
-                    step_dict = {
-                        **last_step_obj.__dict__,
-                        "data_model": getattr(last_step_obj, "data_model", None) or {},
-                        "data": getattr(last_step_obj, "data", None) or {},
-                    }
-                    last_step_schema = StepSchema.model_validate(step_dict)
-
-                created_widget_schema = WidgetSchema.from_orm(widget_obj).copy(update={"last_step": last_step_schema})
-
-        if getattr(tool_execution, "created_step_id", None):
-            step_obj = await db.get(Step, tool_execution.created_step_id)
-            if step_obj:
+        if created_widget:
+            last_step_schema: Optional[StepSchema] = None
+            if widget_last_step:
                 step_dict = {
-                    **step_obj.__dict__,
-                    "data_model": getattr(step_obj, "data_model", None) or {},
-                    "data": getattr(step_obj, "data", None) or {},
+                    **widget_last_step.__dict__,
+                    "data_model": getattr(widget_last_step, "data_model", None) or {},
+                    "data": getattr(widget_last_step, "data", None) or {},
                 }
-                created_step_schema = StepSchema.model_validate(step_dict)
+                last_step_schema = StepSchema.model_validate(step_dict)
+            created_widget_schema = WidgetSchema.from_orm(created_widget).copy(update={"last_step": last_step_schema})
 
-        # Visualizations list from artifact refs (supports multiple)
-        try:
-            refs = getattr(tool_execution, 'artifact_refs_json', None) or {}
-            vis_ids = refs.get('visualizations') or []
-            for vid in vis_ids:
+        # Build step schema if provided
+        created_step_schema: Optional[StepSchema] = None
+        if created_step:
+            step_dict = {
+                **created_step.__dict__,
+                "data_model": getattr(created_step, "data_model", None) or {},
+                "data": getattr(created_step, "data", None) or {},
+            }
+            created_step_schema = StepSchema.model_validate(step_dict)
+
+        # Build visualizations list
+        created_visualizations_schemas: list[VisualizationSchema] = []
+        if created_visualizations:
+            for vobj in created_visualizations:
                 try:
-                    vobj = await db.get(Visualization, str(vid))
-                    if vobj is not None:
-                        created_visualizations_schemas.append(VisualizationSchema.from_orm(vobj))
+                    created_visualizations_schemas.append(VisualizationSchema.from_orm(vobj))
                 except Exception:
                     continue
-        except Exception:
-            pass
 
         # Build the UI schema, attaching created artifacts
         te_schema = ToolExecutionUISchema(
@@ -158,3 +140,58 @@ async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> Comple
     )
 
 
+async def serialize_block_v2(db: AsyncSession, block: CompletionBlock) -> CompletionBlockV2Schema:
+    """Serialize a CompletionBlock to the v2 UI schema with joined decision/tool info.
+
+    Note: For efficiency, prefer serialize_block_v2_sync with pre-loaded objects.
+    This helper performs fetches by ID for backward compatibility.
+    """
+    # Fetch linked decision and tool execution if present
+    plan_decision: Optional[PlanDecision] = None
+    tool_execution: Optional[ToolExecution] = None
+    created_widget: Optional[Widget] = None
+    widget_last_step: Optional[Step] = None
+    created_step: Optional[Step] = None
+    created_visualizations: List[Visualization] = []
+
+    if getattr(block, "plan_decision_id", None):
+        plan_decision = await db.get(PlanDecision, block.plan_decision_id)
+    if getattr(block, "tool_execution_id", None):
+        tool_execution = await db.get(ToolExecution, block.tool_execution_id)
+
+    if tool_execution:
+        if getattr(tool_execution, "created_widget_id", None):
+            created_widget = await db.get(Widget, tool_execution.created_widget_id)
+            if created_widget:
+                # Fetch last step for the widget
+                last_step_result = await db.execute(
+                    select(Step).filter(Step.widget_id == created_widget.id).order_by(Step.created_at.desc()).limit(1)
+                )
+                widget_last_step = last_step_result.scalar_one_or_none()
+
+        if getattr(tool_execution, "created_step_id", None):
+            created_step = await db.get(Step, tool_execution.created_step_id)
+
+        # Visualizations list from artifact refs (supports multiple)
+        try:
+            refs = getattr(tool_execution, 'artifact_refs_json', None) or {}
+            vis_ids = refs.get('visualizations') or []
+            for vid in vis_ids:
+                try:
+                    vobj = await db.get(Visualization, str(vid))
+                    if vobj is not None:
+                        created_visualizations.append(vobj)
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    return serialize_block_v2_sync(
+        block=block,
+        plan_decision=plan_decision,
+        tool_execution=tool_execution,
+        created_widget=created_widget,
+        widget_last_step=widget_last_step,
+        created_step=created_step,
+        created_visualizations=created_visualizations or None,
+    )

@@ -388,29 +388,38 @@ class ContextHub:
     # Simple lifecycle helpers to prime static and refresh warm
     # --------------------------------------------------------------
     async def prime_static(self) -> None:
-        """Build and cache static sections once (schemas, instructions, code, resources)."""
-        self._static_cache["schemas"] = await self.schema_builder.build()
-        # Instructions as object
-        self._static_cache["instructions"] = await self.instruction_builder.build()
-        # Optional sections depending on flags (code left None unless provided per data model)
+        """Build and cache static sections once (schemas, instructions, code, resources).
+        
+        Runs all builders in parallel for faster startup.
+        """
+        import asyncio
+        # Run all static builders in parallel
+        schemas_task = asyncio.create_task(self.schema_builder.build())
+        instructions_task = asyncio.create_task(self.instruction_builder.build())
+        resources_task = asyncio.create_task(self.resource_builder.build())
+        files_task = asyncio.create_task(self.files_builder.build())
+        
+        # Wait for all to complete
+        schemas, instructions, resources, files = await asyncio.gather(
+            schemas_task, instructions_task, resources_task, files_task,
+            return_exceptions=True
+        )
+        
+        # Store results (handle exceptions gracefully)
+        self._static_cache["schemas"] = schemas if not isinstance(schemas, Exception) else None
+        self._static_cache["instructions"] = instructions if not isinstance(instructions, Exception) else None
         self._static_cache["code"] = None
-        self._static_cache["resources"] = await self.resource_builder.build()
-        # Files object
-        self._static_cache["files"] = await self.files_builder.build()
+        self._static_cache["resources"] = resources if not isinstance(resources, Exception) else None
+        self._static_cache["files"] = files if not isinstance(files, Exception) else None
 
     async def refresh_warm(self) -> None:
-        """Rebuild warm sections each loop (messages, queries, observations)."""
-        messages = await self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])
-        # Deprecate widgets from warm context: keep for backward compatibility but do not rebuild aggressively
-        widgets = None
-
-        # include_data_preview is computed below from org settings; use a safe default first
-        queries = await self.query_builder.build(max_queries=5)
-
-        observations = self.observation_builder.build()
-        # Limit observations to the last N to avoid oversized prompt/context
-        _safe_setattr_list(observations, "items", DEFAULT_CONTEXT_LIMITS["observations_max"])
-        # Decide mentions data preview from org settings
+        """Rebuild warm sections each loop (messages, queries, observations).
+        
+        Runs builders in parallel where possible for faster refresh.
+        """
+        import asyncio
+        
+        # Get org settings first (needed for queries)
         include_data_preview = True
         try:
             org_settings = await self.organization.get_settings(self.db)
@@ -418,13 +427,28 @@ class ContextHub:
             include_data_preview = bool(cfg.value) if cfg is not None else True
         except Exception:
             include_data_preview = True
+        
+        # Run all warm builders in parallel
+        messages_task = asyncio.create_task(self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))
+        queries_task = asyncio.create_task(self.query_builder.build(max_queries=5, include_data_preview=include_data_preview))
+        mentions_task = asyncio.create_task(self.mention_builder.build())
+        
+        # Wait for all to complete
+        messages, queries, mentions = await asyncio.gather(
+            messages_task, queries_task, mentions_task,
+            return_exceptions=True
+        )
+        
+        # Build observations synchronously (it's fast, no DB calls)
+        observations = self.observation_builder.build()
+        _safe_setattr_list(observations, "items", DEFAULT_CONTEXT_LIMITS["observations_max"])
+        
         self._warm_cache.update({
-            "messages": messages,
-            "widgets": widgets,
-            # Rebuild queries with include_data_preview honoring org settings
-            "queries": await self.query_builder.build(max_queries=5, include_data_preview=include_data_preview),
+            "messages": messages if not isinstance(messages, Exception) else None,
+            "widgets": None,  # Deprecated
+            "queries": queries if not isinstance(queries, Exception) else None,
             "observations": observations,
-            "mentions": await self.mention_builder.build(),
+            "mentions": mentions if not isinstance(mentions, Exception) else None,
         })
 
     def get_view(self) -> ContextView:
@@ -479,19 +503,51 @@ class ContextHub:
         section = await self.resource_builder.build()
         return section.render()
     
-    async def get_history_summary(self, research_context: Optional[Dict[str, Any]] = None) -> str:
-        """Quick access to history summary."""
-        # Build minimal context for summary
-        spec = ContextBuildSpec(
-            include_schemas=False,
-            include_code=False,
-            include_resource=False,
-            max_messages=10,
-            max_widgets=3,
-            max_memories=5
-        )
-        context = await self.build_context(spec, research_context)
-        return context.history_summary
+    def get_history_summary(self, research_context: Optional[Dict[str, Any]] = None) -> str:
+        """Quick access to history summary from cached warm sections.
+        
+        This is a fast synchronous method that uses already-cached data from
+        refresh_warm() instead of rebuilding context via build_context().
+        """
+        summary_parts = []
+        
+        # Use cached messages section
+        messages_section = self._warm_cache.get("messages")
+        if messages_section:
+            try:
+                items = getattr(messages_section, 'items', []) or []
+                user_count = sum(1 for m in items if getattr(m, 'role', '') == 'user')
+                summary_parts.append(f"Previous conversation: {user_count} exchanges")
+            except Exception:
+                pass
+        
+        # Use cached widgets section
+        widgets_section = self._warm_cache.get("widgets")
+        if widgets_section:
+            try:
+                items = getattr(widgets_section, 'items', []) or []
+                if items:
+                    summary_parts.append(f"Created widgets: {len(items)}")
+            except Exception:
+                pass
+        
+        # Use cached queries section
+        queries_section = self._warm_cache.get("queries")
+        if queries_section:
+            try:
+                items = getattr(queries_section, 'items', []) or []
+                if items:
+                    summary_parts.append(f"Queries executed: {len(items)}")
+            except Exception:
+                pass
+        
+        # Include research context if provided
+        if research_context:
+            research_tools = list(research_context.keys())
+            if research_tools:
+                summary_parts.append(f"Research completed: {', '.join(research_tools)}")
+        
+        return "; ".join(summary_parts) if summary_parts else "No previous context"
     
     async def render(self, format_for_prompt: bool = True, include_metadata: bool = False) -> str:
         """
