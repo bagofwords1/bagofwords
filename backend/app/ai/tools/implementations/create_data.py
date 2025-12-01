@@ -467,6 +467,70 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             return _schemas_section_obj.render() if _schemas_section_obj else ""
 
     @staticmethod
+    async def _check_inactive_tables(
+        tables_by_source: Optional[List[Any]],
+        db,
+    ) -> List[Dict[str, Any]]:
+        """Fast check for inactive/missing tables. Returns list of inactive tables or empty list."""
+        if not tables_by_source or not db:
+            return []
+        try:
+            from sqlalchemy import select, func, and_, or_
+            from app.models.datasource_table import DataSourceTable
+
+            # Collect (ds_id, table_name_lower) pairs - skip regex patterns
+            requested: List[tuple] = []
+            ds_ids_set: set = set()
+            for group in tables_by_source:
+                ds_id = str(group.data_source_id) if getattr(group, "data_source_id", None) else None
+                if ds_id:
+                    ds_ids_set.add(ds_id)
+                for name in getattr(group, "tables", []) or []:
+                    if isinstance(name, str) and not any(c in name for c in ".*+?^${}()|[]\\"):
+                        requested.append((ds_id, name.lower()))
+
+            if not requested:
+                return []
+
+            # Single fast query: only fetch tables we care about
+            ds_ids = list(ds_ids_set)
+            table_names = list({t[1] for t in requested})
+            
+            stmt = select(
+                DataSourceTable.datasource_id,
+                func.lower(DataSourceTable.name).label("name_lower"),
+                DataSourceTable.is_active,
+            ).where(
+                and_(
+                    DataSourceTable.datasource_id.in_(ds_ids) if ds_ids else True,
+                    func.lower(DataSourceTable.name).in_(table_names),
+                )
+            )
+            result = await db.execute(stmt)
+            
+            # Build fast lookup
+            active_map = {
+                (str(r.datasource_id), r.name_lower): r.is_active
+                for r in result.fetchall()
+            }
+
+            # Check each requested table
+            inactive = []
+            for ds_id, name in requested:
+                if ds_id:
+                    is_active = active_map.get((ds_id, name))
+                    if is_active is not True:  # False or missing
+                        inactive.append({"table": name, "data_source_id": ds_id})
+                else:
+                    # No ds_id: check if active in ANY data source
+                    found_active = any(v for (d, n), v in active_map.items() if n == name and v)
+                    if not found_active:
+                        inactive.append({"table": name, "data_source_id": None})
+            return inactive
+        except Exception:
+            return []
+
+    @staticmethod
     def _summarize_errors(errors) -> dict:
         last_text = (errors[-1][1] if errors else "") or ""
         last_line = last_text.strip().splitlines()[0][:300]
@@ -537,6 +601,34 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         except Exception:
             # Best-effort only; if creation fails now, later stages may still create
             pass
+
+        # Validate that requested tables are active before expensive code generation
+        inactive_tables = await self._check_inactive_tables(data.tables_by_source, runtime_ctx.get("db"))
+        if inactive_tables:
+            names = [t["table"] for t in inactive_tables]
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "code": "",
+                        "data": {},
+                        "data_preview": {},
+                        "stats": {},
+                        "execution_log": "",
+                        "errors": [],
+                    },
+                    "observation": {
+                        "summary": "Table validation failed - tables are inactive or not found",
+                        "error": {
+                            "type": "inactive_tables",
+                            "message": f"Tables are inactive or not found: {', '.join(names)}",
+                            "inactive_tables": inactive_tables,
+                        },
+                    },
+                },
+            )
+            return
 
         # Build filtered schemas excerpt using tables_by_source (regex-aware), or fallback to keywords
         schemas_excerpt = ""
