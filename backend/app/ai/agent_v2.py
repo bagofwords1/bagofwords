@@ -216,110 +216,104 @@ class AgentV2:
         except Exception as e:
             pass
 
-    async def _stream_suggestions_background(self, prev_tool_name: Optional[str], conditions: list):
-        """Stream instruction suggestions in background after completion.finished is sent.
+    async def _stream_suggestions_inline(self, prev_tool_name: Optional[str], conditions: list):
+        """Stream instruction suggestions inline before the SSE stream closes.
         
-        This runs in a fresh DB session to avoid blocking the main completion flow.
-        Suggestions are streamed via SSE events that the frontend handles independently.
+        This runs in the main execution flow using the existing DB session,
+        ensuring SSE events reach the frontend before the stream ends.
         """
         try:
-            SessionLocal = create_async_session_factory()
-            async with SessionLocal() as session:
-                try:
-                    # Build fresh context for suggestions
-                    await self.context_hub.refresh_warm()
-                    view_for_suggest = self.context_hub.get_view()
-                except Exception:
-                    view_for_suggest = None
+            # Use existing context view
+            view_for_suggest = self.context_hub.get_view()
 
-                try:
-                    seq_si = await self.project_manager.next_seq(session, self.current_execution)
-                    await self._emit_sse_event(SSEEvent(
-                        event="instructions.suggest.started",
-                        completion_id=str(self.system_completion.id),
-                        agent_execution_id=str(self.current_execution.id),
-                        seq=seq_si,
-                        data={}
-                    ))
-                except Exception:
-                    pass
+            try:
+                seq_si = await self.project_manager.next_seq(self.db, self.current_execution)
+                await self._emit_sse_event(SSEEvent(
+                    event="instructions.suggest.started",
+                    completion_id=str(self.system_completion.id),
+                    agent_execution_id=str(self.current_execution.id),
+                    seq=seq_si,
+                    data={}
+                ))
+            except Exception:
+                pass
 
-                try:
-                    if self.suggest_instructions is not None and self.report_type == 'regular':
-                        drafts = []
-                        # Format trigger reason from conditions for persistence
-                        trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
-                        async for draft in self.suggest_instructions.stream_suggestions(
-                            context_view=view_for_suggest, 
-                            context_hub=self.context_hub, 
-                            conditions=conditions
-                        ):
-                            # Persist immediately and stream back full instruction object
-                            inst = await self.project_manager.create_instruction_from_draft(
-                                session,
-                                self.organization,
-                                text=draft.get("text", ""),
-                                category=draft.get("category", "general"),
-                                agent_execution_id=str(self.current_execution.id),
-                                trigger_reason=trigger_reason,
-                                ai_source="completion",
-                                user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
-                            )
-                            # Append a minimal client payload
-                            draft_payload = {
-                                "id": str(inst.id),
-                                "text": inst.text,
-                                "category": inst.category,
-                                "status": inst.status,
-                                "private_status": inst.private_status,
-                                "global_status": inst.global_status,
-                                "is_seen": inst.is_seen,
-                                "can_user_toggle": inst.can_user_toggle,
-                                "user_id": inst.user_id,
-                                "organization_id": str(inst.organization_id),
-                                "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
-                                "trigger_reason": inst.trigger_reason,
-                                "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
-                                "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
-                                "ai_source": getattr(inst, 'ai_source', None),
-                            }
-                            drafts.append(draft_payload)
-
-                            try:
-                                seq_si_p = await self.project_manager.next_seq(session, self.current_execution)
-                                await self._emit_sse_event(SSEEvent(
-                                    event="instructions.suggest.partial",
-                                    completion_id=str(self.system_completion.id),
-                                    agent_execution_id=str(self.current_execution.id),
-                                    seq=seq_si_p,
-                                    data={"instruction": draft_payload}
-                                ))
-                            except Exception:
-                                pass
+            try:
+                if self.suggest_instructions is not None and self.report_type == 'regular':
+                    drafts = []
+                    # Format trigger reason from conditions for persistence
+                    trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
+                    async for draft in self.suggest_instructions.stream_suggestions(
+                        context_view=view_for_suggest, 
+                        context_hub=self.context_hub, 
+                        conditions=conditions
+                    ):
+                        # Persist immediately and stream back full instruction object
+                        inst = await self.project_manager.create_instruction_from_draft(
+                            self.db,
+                            self.organization,
+                            text=draft.get("text", ""),
+                            category=draft.get("category", "general"),
+                            agent_execution_id=str(self.current_execution.id),
+                            trigger_reason=trigger_reason,
+                            ai_source="completion",
+                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+                        )
+                        # Append a minimal client payload
+                        draft_payload = {
+                            "id": str(inst.id),
+                            "text": inst.text,
+                            "category": inst.category,
+                            "status": inst.status,
+                            "private_status": inst.private_status,
+                            "global_status": inst.global_status,
+                            "is_seen": inst.is_seen,
+                            "can_user_toggle": inst.can_user_toggle,
+                            "user_id": inst.user_id,
+                            "organization_id": str(inst.organization_id),
+                            "agent_execution_id": str(inst.agent_execution_id) if getattr(inst, 'agent_execution_id', None) else None,
+                            "trigger_reason": inst.trigger_reason,
+                            "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
+                            "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
+                            "ai_source": getattr(inst, 'ai_source', None),
+                        }
+                        drafts.append(draft_payload)
 
                         try:
-                            seq_si_f = await self.project_manager.next_seq(session, self.current_execution)
+                            seq_si_p = await self.project_manager.next_seq(self.db, self.current_execution)
                             await self._emit_sse_event(SSEEvent(
-                                event="instructions.suggest.finished",
+                                event="instructions.suggest.partial",
                                 completion_id=str(self.system_completion.id),
                                 agent_execution_id=str(self.current_execution.id),
-                                seq=seq_si_f,
-                                data={"instructions": drafts}
+                                seq=seq_si_p,
+                                data={"instruction": draft_payload}
                             ))
                         except Exception:
                             pass
-                except Exception:
+
                     try:
-                        seq_si_e = await self.project_manager.next_seq(session, self.current_execution)
+                        seq_si_f = await self.project_manager.next_seq(self.db, self.current_execution)
                         await self._emit_sse_event(SSEEvent(
                             event="instructions.suggest.finished",
                             completion_id=str(self.system_completion.id),
                             agent_execution_id=str(self.current_execution.id),
-                            seq=seq_si_e,
-                            data={"instructions": []}
+                            seq=seq_si_f,
+                            data={"instructions": drafts}
                         ))
                     except Exception:
                         pass
+            except Exception:
+                try:
+                    seq_si_e = await self.project_manager.next_seq(self.db, self.current_execution)
+                    await self._emit_sse_event(SSEEvent(
+                        event="instructions.suggest.finished",
+                        completion_id=str(self.system_completion.id),
+                        agent_execution_id=str(self.current_execution.id),
+                        seq=seq_si_e,
+                        data={"instructions": []}
+                    ))
+                except Exception:
+                    pass
         except Exception:
             # Best-effort; don't fail on suggestion errors
             pass
@@ -887,18 +881,17 @@ class AgentV2:
                                     ))
                                 completion_finished_emitted = True
                             
-                            # === BACKGROUND: Post-analysis tasks (suggestions, etc.) ===
-                            # These run after completion.finished so they don't block UI
+                            # === INLINE: Post-analysis tasks (suggestions) ===
+                            # Run suggestions inline so SSE events reach the frontend before stream closes
                             res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
                             should_trigger_suggestions = res.get("decision", False)
                             conditions = res.get("conditions", [])
 
                             if should_trigger_suggestions:
-                                # Run suggestions in background to not block the stream
-                                asyncio.create_task(self._stream_suggestions_background(
+                                await self._stream_suggestions_inline(
                                     prev_tool_name_before_last_user,
                                     conditions
-                                ))
+                                )
                             break
 
                         action = decision.action

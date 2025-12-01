@@ -220,22 +220,10 @@
 										</div>
 									</div>
 
-									<!-- Instruction Suggestions (outside blocks) -->
-									<div v-if="m.instruction_suggestions && m.instruction_suggestions.length > 0" class="mt-4 mb-4">
-										<InstructionSuggestions 
-											:tool-execution="{ 
-												id: `suggestions-${m.id}`, 
-												tool_name: 'suggest_instructions',
-												status: 'success',
-												result_json: { drafts: m.instruction_suggestions }
-											}"
-										/>
-									</div>
-
 									<!-- Show status messages for stopped/error completions -->
 									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
 										<div class="flex items-center space-x-2">
-											<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" />
+											<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" :initialUserFeedback="m.user_feedback" />
 
 											<!-- Debug button -->
 											<button
@@ -247,6 +235,18 @@
 												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
 											</button>
 										</div>
+									</div>
+
+									<!-- Instruction Suggestions (below thumbs) -->
+									<div v-if="m.instruction_suggestions && m.instruction_suggestions.length > 0" class="mt-3">
+										<InstructionSuggestions 
+											:tool-execution="{ 
+												id: `suggestions-${m.id}`, 
+												tool_name: 'suggest_instructions',
+												status: 'success',
+												result_json: { drafts: m.instruction_suggestions }
+											}"
+										/>
 									</div>
 									<div v-if="m.status === 'stopped'" class="text-xs text-gray-500 mt-2 italic">
 										<Icon name="heroicons-stop-circle" class="w-4 h-4 inline mr-1" />
@@ -1223,9 +1223,13 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						sysMessage.completion_blocks.push({ id: `error-${Date.now()}`, block_index: 999, status: 'error', content: sysMessage.error_message })
 					}
 				}
+				// Set isStreaming = false immediately on terminal status so thumbs up and 
+				// stop→submit button appear at the same time (don't wait for [DONE])
+				if (['success', 'error', 'stopped'].includes(completionStatus)) {
+					isStreaming.value = false
+				}
 			}
 			// Fire-and-forget: don't block stream processing with network calls
-			// This ensures [DONE] is processed immediately, updating isStreaming and UI
 			loadReport()
 			promptBoxRef.value?.refreshContextEstimate?.()
 			break

@@ -9,7 +9,7 @@
                         class="w-5 h-5"
                         :class="currentSavedMode === 'on' ? 'text-amber-500' : 'text-gray-400'"
                     />
-                    <h3 class="text-lg font-semibold text-gray-900">AI Mode</h3>
+                    <h3 class="text-lg font-semibold text-gray-900">AI Suggestions</h3>
                 </div>
                 <button @click="close" class="text-gray-400 hover:text-gray-600">
                     <UIcon name="i-heroicons-x-mark" class="w-5 h-5" />
