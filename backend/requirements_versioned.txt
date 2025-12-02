@@ -71,7 +71,7 @@ iniconfig==2.0.0
 ipython==8.22.2
 isodate==0.7.2
 jedi==0.19.1
-Jinja2==3.1.4
+Jinja2==3.1.5
 jiter==0.8.0
 jmespath==1.0.1
 jsonschema==4.23.0
@@ -153,7 +153,7 @@ SQLAlchemy==2.0.29
 sqlparse==0.5.1
 sseclient-py==1.8.0
 stack-data==0.6.3
-starlette>=0.45.0
+starlette>=0.50.0
 stripe==11.4.1
 tenacity==9.0.0
 text-unidecode==1.3

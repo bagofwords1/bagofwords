@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.259 (December 2, 2025)
+- Dependencies updates
+
 ## Version 0.0.259 (December 1, 2025)
 - Introducing Filters in dashboards
 - Performance improvements, page loads, indices, reliability, and more
