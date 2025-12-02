@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.261 (December 2, 2025)
+- Bias partitions in bigquery
+
 ## Version 0.0.260 (December 2, 2025)
 - Dependencies updates
 - Improve instructions list modal 

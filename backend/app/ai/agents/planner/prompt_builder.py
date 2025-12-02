@@ -85,6 +85,7 @@ ERROR HANDLING (robust; no blind retries)
   "I see the previous attempt failed: <specific error>."
 - Verify tool name/arguments against the schema before retrying.
 - Change something meaningful on retry (parameters, SQL, path). Max two retries per phase; otherwise pivot to ask a focused clarifying question via final_answer.
+- If the error is related to size of the query, try to use known partitions or search through metadata resources for partitions.
 - Treat “already exists/conflict” as a verification branch, not a fatal error.
 - Never repeat the exact same failing call.
 

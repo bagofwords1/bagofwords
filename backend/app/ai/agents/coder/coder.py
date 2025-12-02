@@ -485,6 +485,7 @@ class Coder:
                  * If it's related to a missing column or invalid query, fix it by removing or correcting that column/query.
                - If `retries` ≥ 2 and still failing due to a specific column or measure, remove that problematic part and return a reduced but valid DataFrame.
                - Ensure you produce some output even if reduced.
+               - If the error is related to size of the query, try to use partitions when available in context/metadata resources.
 
             5. **Sorting and Final Output**:
                - If not mentioned by user, sort by the most relevant key column.

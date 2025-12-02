@@ -186,6 +186,7 @@ class BigqueryClient(DataSourceClient):
         - Every JOIN must have an ON/USING clause.
         - All non-aggregated columns must be in GROUP BY.
         - Use QUALIFY for filtering window functions.
+        - Always use partitions when available in context/metadata resources.
         """
 
 
