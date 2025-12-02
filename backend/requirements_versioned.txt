@@ -37,7 +37,7 @@ email_validator==2.1.2
 et-xmlfile==1.1.0
 exceptiongroup==1.2.2
 executing==2.0.1
-fastapi==0.116.1
+fastapi==0.123.1
 fastapi-mail==1.4.0
 fastapi-users==14.0.1
 fastapi-users-db-sqlalchemy==6.0.1
