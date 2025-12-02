@@ -61,6 +61,19 @@ LLM_MODEL_DETAILS = [
 
     },
 
+        {
+        "name": "Claude 4.5 Opus",
+        "model_id": "claude-opus-4-5-20251101",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True,
+        "context_window_tokens": 200000,
+        "input_cost_per_million_tokens_usd": 3.00,
+        "output_cost_per_million_tokens_usd": 15.00
+
+    },
+
     {
         "name": "Claude 4 Sonnet",
         "model_id": "claude-sonnet-4-20250514",

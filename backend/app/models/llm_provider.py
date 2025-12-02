@@ -4,7 +4,7 @@ from app.models.base import BaseSchema
 import json
 from cryptography.fernet import Fernet
 from app.settings.config import settings
-from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials
+from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials, CustomCredentials
 
 # LLM Provider Classes
 
@@ -36,6 +36,13 @@ LLM_PROVIDER_DETAILS = [
          "description": "Google's API for accessing their LLM models",
          "config": "GoogleConfig",
          "credentials": GoogleCredentials.schema()
+     },
+     {
+         "type": "custom",
+         "name": "Custom (OpenAI Compatible)",
+         "description": "Connect to any OpenAI-compatible API (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)",
+         "config": "CustomConfig",
+         "credentials": CustomCredentials.schema()
      }
 ]
 

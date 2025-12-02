@@ -58,6 +58,18 @@
                                 class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
                             />
                         </div>
+                        <div class="" v-if="selectedProvider?.provider_type === 'custom' || selectedProvider?.type === 'custom'">
+                            <label class="text-sm font-medium text-gray-700 mb-2">
+                                Base URL <span class="text-red-500">*</span>
+                            </label>
+                            <input 
+                                v-model="selectedProvider.credentials.base_url" 
+                                type="text" 
+                                placeholder="http://localhost:11434/v1"
+                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
+                            />
+                            <p class="text-xs text-gray-500 mt-1">OpenAI-compatible endpoint (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)</p>
+                        </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
                             <div class="mt-1">
                                 <button type="button" @click="toggleBaseUrl" class="text-xs text-blue-600 hover:underline">
@@ -159,15 +171,23 @@
 
                     <div v-else class="space-y-4">
                         <div class="flex flex-col">
-                            <div class="flex flex-row gap-4 mt-2">
+                            <div class="grid grid-cols-3 gap-2 mt-2">
                                 <button v-for="provider in providers" 
                                     @click="providerForm.provider_type = provider.type" 
                                     :key="provider.type" 
-                                    class="bg-gray-50 hover:bg-gray-100 border border-gray-300 p-4 rounded-lg flex flex-col items-center justify-center min-w-[120px]"
+                                    class="bg-white hover:border-blue-300 border border-gray-200 rounded-lg flex items-center justify-center py-4 transition-colors"
                                     type="button"
-                                    :class="{ '!border-blue-500 border-2 bg-white': providerForm.provider_type === provider.type }"
+                                    :class="{ '!border-blue-500 border-2': providerForm.provider_type === provider.type }"
                                 >
-                                    <LLMProviderIcon :provider="provider.type" class="w-16" />
+                                    <!-- Custom provider: show icon + text inline -->
+                                    <template v-if="provider.type === 'custom'">
+                                        <div class="flex items-center gap-1.5">
+                                            <Icon name="heroicons-cpu-chip" class="w-6 h-6 text-gray-500" />
+                                            <span class="text-base text-gray-600 font-medium">Custom</span>
+                                        </div>
+                                    </template>
+                                    <!-- Other providers: show logo -->
+                                    <LLMProviderIcon v-else :provider="provider.type" class="w-20 h-10" />
                                 </button>
                             </div>
                         </div>
@@ -182,7 +202,7 @@
                             <div v-for="(field, index) in credentialFieldsForNewProvider" :key="field.key">
                                 <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
                                 <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required"
-                                    :placeholder="field.description || ''"
+                                    :placeholder="getFieldPlaceholder(field)"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
                             <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
@@ -392,6 +412,14 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     return all;
 });
 
+function getFieldPlaceholder(field: CredentialField): string {
+    // Custom placeholders for specific fields
+    if (providerForm.value.provider_type === 'custom' && field.key === 'base_url') {
+        return 'http://localhost:11434/v1';
+    }
+    return field.description || '';
+}
+
   function selectOption(option: any) {
     if (option.type === 'new_provider') {
       selectedProvider.value = { type: 'new_provider', name: 'New Provider' } as any;
@@ -484,6 +512,16 @@ watch(providerModalOpen, (newValue) => {
                     (selectedProvider.value.credentials as any).endpoint_url = null;
                 }
             }
+            // Hydrate Custom base_url for edit
+            if ((selectedProvider.value.provider_type === 'custom' || selectedProvider.value.type === 'custom')) {
+                const existingBaseUrl = selectedProvider.value.additional_config?.base_url;
+                if (existingBaseUrl && (!selectedProvider.value.credentials.base_url || selectedProvider.value.credentials.base_url === '')) {
+                    (selectedProvider.value.credentials as any).base_url = existingBaseUrl;
+                }
+                if (selectedProvider.value.credentials.base_url === undefined) {
+                    (selectedProvider.value.credentials as any).base_url = null;
+                }
+            }
         }
     }
 });
@@ -521,6 +559,16 @@ watch(() => props.editProviderId, (newId) => {
                 }
                 if (selectedProvider.value.credentials.endpoint_url === undefined) {
                     (selectedProvider.value.credentials as any).endpoint_url = null;
+                }
+            }
+            // Hydrate Custom base_url for edit
+            if ((selectedProvider.value.provider_type === 'custom' || selectedProvider.value.type === 'custom')) {
+                const existingBaseUrl = selectedProvider.value.additional_config?.base_url;
+                if (existingBaseUrl && (!selectedProvider.value.credentials.base_url || selectedProvider.value.credentials.base_url === '')) {
+                    (selectedProvider.value.credentials as any).base_url = existingBaseUrl;
+                }
+                if (selectedProvider.value.credentials.base_url === undefined) {
+                    (selectedProvider.value.credentials as any).base_url = null;
                 }
             }
         }
@@ -690,6 +738,16 @@ watch(selectedProvider, (newValue) => {
             }
             if (newValue.credentials.endpoint_url === undefined) {
                 (newValue.credentials as any).endpoint_url = null;
+            }
+        }
+        // Ensure base_url field exists for Custom so users can view/update it
+        if ((newValue.provider_type === 'custom' || newValue.type === 'custom')) {
+            const existingBaseUrl = (newValue as any)?.additional_config?.base_url;
+            if (existingBaseUrl && (!newValue.credentials.base_url || newValue.credentials.base_url === '')) {
+                (newValue.credentials as any).base_url = existingBaseUrl;
+            }
+            if (newValue.credentials.base_url === undefined) {
+                (newValue.credentials as any).base_url = null;
             }
         }
         providerForm.value = {

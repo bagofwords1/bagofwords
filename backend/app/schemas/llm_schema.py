@@ -45,6 +45,7 @@ class LLMProviderCreate(LLMProviderBase):
             'openai': OpenAICredentials,
             'google': GoogleCredentials,
             'azure': AzureCredentials,
+            'custom': CustomCredentials,
         }
         
         schema = credential_schemas.get(values['provider_type'])
@@ -94,6 +95,15 @@ class AzureCredentials(BaseModel):
 
 class AzureConfig(BaseModel):
     max_tokens: Optional[int] = 2048
+    temperature: Optional[float] = 0.7
+
+class CustomCredentials(BaseModel):
+    """Credentials for OpenAI-compatible APIs (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)"""
+    base_url: str  # Required - the OpenAI-compatible endpoint
+    api_key: Optional[str] = None  # Optional - some local servers don't require auth
+
+class CustomConfig(BaseModel):
+    max_tokens: Optional[int] = 4096
     temperature: Optional[float] = 0.7
 
 # Model Classes

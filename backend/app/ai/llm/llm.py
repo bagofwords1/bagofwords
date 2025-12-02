@@ -41,6 +41,13 @@ class LLM:
             if not endpoint_url:
                 raise ValueError("Azure provider requires endpoint_url in additional_config")
             self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
+        elif self.provider == "custom":
+            base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
+            if not base_url:
+                raise ValueError("Custom provider requires base_url in additional_config")
+            # Use empty string for api_key if not provided (some local servers don't need auth)
+            api_key = self.api_key or ""
+            self.client = OpenAi(api_key=api_key, base_url=base_url)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 

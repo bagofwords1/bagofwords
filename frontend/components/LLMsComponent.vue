@@ -34,8 +34,8 @@
                     <tr v-for="model in filteredModels" :key="model.id" class="hover:bg-gray-50">
                         <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center">
-                                <div class="flex-shrink-0 h-10 w-10">
-                                    <LLMProviderIcon :provider="model.provider.provider_type" class="h-8 w-8 text-gray-500" />
+                                <div class="flex-shrink-0 h-10 w-10 flex items-center justify-center">
+                                    <LLMProviderIcon :provider="model.provider.provider_type" :icon="true" class="h-6 w-6" />
                                 </div>
                                 <div class="ml-4">
                                     <div class="text-sm font-medium text-gray-900">
