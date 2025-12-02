@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.262 (December 2, 2025)
+- Added data source integration to MongoDB
+- Added native support for Custom LLM endpoints (openai compatible)
+- Added support for Claude Opus 4.5
+
 ## Version 0.0.261 (December 2, 2025)
 - Bias partitions in bigquery
 

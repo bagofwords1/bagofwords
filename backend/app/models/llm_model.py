@@ -69,8 +69,8 @@ LLM_MODEL_DETAILS = [
         "is_enabled": True,
         "is_default": True,
         "context_window_tokens": 200000,
-        "input_cost_per_million_tokens_usd": 3.00,
-        "output_cost_per_million_tokens_usd": 15.00
+        "input_cost_per_million_tokens_usd": 5.00,
+        "output_cost_per_million_tokens_usd": 25.00
 
     },
 
