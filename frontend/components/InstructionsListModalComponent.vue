@@ -1,6 +1,6 @@
 <template>
     <UModal v-model="instructionsListModal" :ui="{ width: 'sm:max-w-4xl' }">
-        <div class="p-6 relative">
+        <div class="p-6 relative h-[600px] flex flex-col">
             <button @click="instructionsListModal = false"
                 class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
@@ -105,12 +105,12 @@
             </div>
 
             <!-- Instructions List -->
-            <div v-if="isLoading" class="flex items-center justify-center py-12">
+            <div v-if="isLoading" class="flex items-center justify-center py-12 flex-1">
                 <Spinner />
             </div>
-            <div v-else-if="filteredInstructions.length > 0">
-                <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden">
-                    <div class="overflow-x-auto">
+            <div v-else-if="filteredInstructions.length > 0" class="flex-1 flex flex-col min-h-0">
+                <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden flex flex-col flex-1 min-h-0">
+                    <div class="overflow-x-auto overflow-y-auto flex-1">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
                                 <tr>
@@ -137,7 +137,17 @@
                                 >
                                     <td class="px-3 py-2 text-xs">
                                         <div class="max-w-md">
-                                            <p class="text-gray-900 leading-tight">{{ instruction.text }}</p>
+                                            <p 
+                                                class="text-gray-900 leading-tight"
+                                                :class="{ 'line-clamp-2': !expandedInstructions.has(instruction.id) }"
+                                            >{{ instruction.text }}</p>
+                                            <button 
+                                                v-if="instruction.text.length > 100"
+                                                @click.stop="toggleExpand(instruction.id)"
+                                                class="text-blue-500 hover:text-blue-700 text-[10px] mt-0.5 font-medium"
+                                            >
+                                                {{ expandedInstructions.has(instruction.id) ? 'show less' : 'show more' }}
+                                            </button>
                                         </div>
                                     </td>
                                     <td class="px-3 py-2 text-xs">
@@ -218,7 +228,7 @@
                         </table>
                     </div>
                     <!-- Pagination -->
-                    <div v-if="filteredInstructions.length > pageSize" class="px-3 py-2 border-t border-gray-200 flex items-center justify-between">
+                    <div class="px-3 py-2 border-t border-gray-200 flex items-center justify-between flex-shrink-0">
                         <div class="text-xs text-gray-700">
                             Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, filteredInstructions.length) }} of {{ filteredInstructions.length }} instructions
                         </div>
@@ -260,7 +270,7 @@
                     </div>
                 </div>
             </div>
-            <div v-else class="flex items-center justify-center py-12">
+            <div v-else class="flex items-center justify-center py-12 flex-1">
                 <div class="flex flex-col items-center justify-center gap-2">
                     <Icon name="heroicons:document-text" class="mx-auto h-12 w-12 text-gray-400" />
                     <h3 class="mt-2 text-sm font-medium text-gray-900">No instructions found</h3>
@@ -345,6 +355,7 @@ const showDetailsModal = ref(false)
 const viewingInstruction = ref<Instruction | null>(null)
 const searchQuery = ref('')
 const labelFilter = ref<string[]>([])
+const expandedInstructions = ref<Set<string>>(new Set())
 
 // Pagination state
 const currentPage = ref(1)
@@ -587,6 +598,16 @@ const handleInstructionSaved = (savedInstruction: Instruction) => {
 const addInstruction = () => {
     editingInstruction.value = null
     showInstructionModal.value = true
+}
+
+const toggleExpand = (instructionId: string) => {
+    if (expandedInstructions.value.has(instructionId)) {
+        expandedInstructions.value.delete(instructionId)
+    } else {
+        expandedInstructions.value.add(instructionId)
+    }
+    // Trigger reactivity
+    expandedInstructions.value = new Set(expandedInstructions.value)
 }
 
 const getEmptyStateMessage = () => {

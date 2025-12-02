@@ -1,7 +1,8 @@
 # Release Notes
 
-## Version 0.0.259 (December 2, 2025)
+## Version 0.0.260 (December 2, 2025)
 - Dependencies updates
+- Improve instructions list modal 
 
 ## Version 0.0.259 (December 1, 2025)
 - Introducing Filters in dashboards
