@@ -143,6 +143,7 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | Presto                   | Database/Warehouse  |
 | Apache Pinot             | Database/Warehouse  |
 | Oracle DB                | Database/Warehouse  |
+| MongoDB                  | Database/Warehouse  |
 
 > **Note:** Some data sources (like NetSuite) may be marked as inactive or beta in the registry. "Service" refers to APIs or SaaS platforms, while "Database/Warehouse" refers to systems that store and query structured data.
 
