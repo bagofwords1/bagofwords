@@ -25,6 +25,7 @@ from app.schemas.data_sources.configs import (
     SalesforceConfig,
     ClickhouseConfig,
     PinotConfig,
+    MongoDBConfig,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -54,6 +55,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftAssumeRoleCredentials,
     TableauPATCredentials,
     SalesforceCredentials,
+    MongoDBCredentials,
 )
 
 from app.settings.config import settings
@@ -93,6 +95,8 @@ class DataSourceRegistryEntry(BaseModel):
     # Optional explicit client path; if None, fallback to dynamic resolution
     client_path: Optional[str] = None
     dev_only: bool = False
+    # Flag for document-based data sources (MongoDB, Elasticsearch, etc.)
+    is_document_based: bool = False
 
     class Config:
         arbitrary_types_allowed = True
@@ -339,6 +343,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "azure": AuthVariant(title="Azure Connection String", schema=DuckDBAzureCredentials, scopes=["system"])  
         }),
         client_path="app.data_sources.clients.duckdb_client.DuckDBClient",
+    ),
+    "mongodb": DataSourceRegistryEntry(
+        type="mongodb",
+        title="MongoDB",
+        description="Document-oriented NoSQL database for flexible, scalable applications.",
+        config_schema=MongoDBConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=MongoDBCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.mongodb_client.MongodbClient",
+        is_document_based=True,
     ),
 }
 

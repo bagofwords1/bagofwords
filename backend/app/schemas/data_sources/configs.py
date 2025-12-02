@@ -392,6 +392,57 @@ class PinotConfig(BaseModel):
     )
 
 
+# MongoDB
+class MongoDBCredentials(BaseModel):
+    user: Optional[str] = Field(
+        None,
+        title="User",
+        description="Username for authentication. Leave blank for unauthenticated connections.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: Optional[str] = Field(
+        None,
+        title="Password",
+        description="Password for authentication.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class MongoDBConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="MongoDB host (e.g., localhost or cluster URL)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    port: int = Field(
+        27017,
+        ge=1,
+        le=65535,
+        title="Port",
+        description="MongoDB port (default: 27017)",
+        json_schema_extra={"ui:type": "number"}
+    )
+    database: str = Field(
+        ...,
+        title="Database",
+        description="Database name to connect to",
+        json_schema_extra={"ui:type": "string"}
+    )
+    auth_source: Optional[str] = Field(
+        "admin",
+        title="Auth Database",
+        description="Database to authenticate against (default: admin)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    tls: bool = Field(
+        False,
+        title="Enable TLS/SSL",
+        description="Enable TLS/SSL for the connection",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+
+
 # Azure Data Explorer (Kusto)
 class AzureDataExplorerCredentials(BaseModel):
     client_id: str = Field(..., title="Client ID", description="Azure AD Application (Client) ID", json_schema_extra={"ui:type": "string"})
@@ -427,6 +478,7 @@ __all__ = [
     "TableauConfig",
     "DuckDBConfig",
     "PinotConfig",
+    "MongoDBConfig",
     "DuckDBNoAuthCredentials",
     "DuckDBAwsCredentials",
     "DuckDBGcpCredentials",
@@ -453,7 +505,8 @@ __all__ = [
     "DuckDBGcpCredentials",
     "DuckDBAzureCredentials",
     "AzureDataExplorerCredentials",
-    "AzureDataExplorerConfig"
+    "AzureDataExplorerConfig",
+    "MongoDBCredentials",
 ]
 
 

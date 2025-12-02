@@ -529,6 +529,19 @@ class ReportService:
 
     async def set_data_sources_for_report(self, db: AsyncSession, report: Report, data_source_ids: list[str]) -> Report:
         """Replace a report's data source associations atomically with the provided ids."""
+        from sqlalchemy import delete
+        
+        # Delete existing associations directly via SQL to avoid ORM state tracking issues
+        await db.execute(
+            delete(report_data_source_association).where(
+                report_data_source_association.c.report_id == report.id
+            )
+        )
+        
+        # Expire and refresh the relationship so ORM sees it as empty (avoids MissingGreenlet on lazy load)
+        db.expire(report, ["data_sources"])
+        await db.refresh(report, ["data_sources"])
+        
         if data_source_ids:
             # Load all requested data sources
             result = await db.execute(
@@ -537,13 +550,11 @@ class ReportService:
                 .filter(DataSource.id.in_(data_source_ids))
             )
             new_data_sources = result.scalars().all()
-        else:
-            new_data_sources = []
-
-        # Replace associations
-        report.data_sources = list(new_data_sources)
-        await db.commit()
-        await db.refresh(report, ["data_sources"])
+            
+            # Add new associations
+            report.data_sources.extend(new_data_sources)
+        
+        await db.flush()
         return report
     
 

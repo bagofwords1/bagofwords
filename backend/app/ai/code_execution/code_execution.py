@@ -179,13 +179,13 @@ class StreamingCodeExecutor:
 
     def format_df_for_widget(self, df: pd.DataFrame, max_rows: int = 1000) -> Dict:
         """Format a DataFrame into a widget-compatible structure."""
-        columns = [{"headerName": col, "field": col} for col in df.columns]
+        columns = [{"headerName": str(col), "field": str(col)} for col in df.columns]
         if df.empty:
             rows = []
             df_info = {
                 "total_rows": 0,
                 "total_columns": int(len(df.columns)),
-                "column_info": {col: {
+                "column_info": {str(col): {
                     "dtype": str(df[col].dtype),
                     "non_null_count": 0,
                     "memory_usage": 0,
