@@ -181,9 +181,11 @@
                           :report="report"
                           :themeName="themeOverride || report?.report_theme_name || report?.theme_name"
                           :reportOverrides="report?.theme_overrides"
-                          :tokens="tokens.value"
+                          :tokens="tokens"
                           :itemStyle="itemStyle"
                           :zoom="modalZoom"
+                          :getWidgetForBlock="(b) => getFilteredWidgetData(getWidgetDataForBlock(b))"
+                          :cardContainsMetricCard="cardContainsMetricCard"
                         />
                     </div>
 

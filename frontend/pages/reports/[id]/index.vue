@@ -171,9 +171,19 @@
 													<template v-else-if="shouldUseMdcDuringStream(block)">
 														<MDC :value="getDebouncedContent(block.id, block.content)" class="markdown-content" />
 													</template>
-													<template v-else>
-														<div class="streaming-text">{{ block.content }}</div>
-													</template>
+												<template v-else>
+													<div class="streaming-text">
+														<!-- Render chunks if available, otherwise fallback to full content -->
+														<template v-if="getBlockChunks(`${block.id}:content`).length > 0">
+															<span 
+																v-for="chunk in getBlockChunks(`${block.id}:content`)" 
+																:key="chunk.id" 
+																class="chunk-fade"
+															>{{ chunk.text }}</span>
+														</template>
+														<template v-else>{{ block.content }}</template>
+													</div>
+												</template>
 												</div>
 
 												<!-- Final answer (if this is the last block and analysis is complete) -->
@@ -493,6 +503,26 @@ const debouncedBlockContent = ref<Map<string, string>>(new Map())
 const debounceTimers = ref<Map<string, ReturnType<typeof setTimeout>>>(new Map())
 const CONTENT_DEBOUNCE_MS = 150
 const CONTENT_THRESHOLD = 80 // chars before switching to MDC
+
+// Chunk tracking for fade-in effect during streaming
+const blockChunks = ref<Map<string, { id: number; text: string }[]>>(new Map())
+let chunkIdCounter = 0
+
+function getBlockChunks(blockId: string): { id: number; text: string }[] {
+	return blockChunks.value.get(blockId) || []
+}
+
+function addBlockChunk(blockId: string, text: string) {
+	if (!blockChunks.value.has(blockId)) {
+		blockChunks.value.set(blockId, [])
+	}
+	const chunks = blockChunks.value.get(blockId)!
+	chunks.push({ id: chunkIdCounter++, text })
+}
+
+function clearBlockChunks(blockId: string) {
+	blockChunks.value.delete(blockId)
+}
 
 function getDebouncedContent(blockId: string, content: string): string {
 	// Update debounced value with delay
@@ -939,10 +969,14 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					const t = String(payload.token || '')
 					if (payload.field === 'content') {
 						block.content = (block.content || '') + t
+						// Track chunk for fade-in animation
+						addBlockChunk(`${payload.block_id}:content`, t)
 					} else if (payload.field === 'reasoning') {
 						block.reasoning = (block.reasoning || '') + t
 						if (!block.plan_decision) block.plan_decision = {}
 						block.plan_decision.reasoning = (block.plan_decision.reasoning || '') + t
+						// Track chunk for fade-in animation
+						addBlockChunk(`${payload.block_id}:reasoning`, t)
 					}
 				}
 			}
@@ -1227,6 +1261,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				// stop→submit button appear at the same time (don't wait for [DONE])
 				if (['success', 'error', 'stopped'].includes(completionStatus)) {
 					isStreaming.value = false
+					// Clear streaming chunks to free memory (content is preserved in block.content)
+					blockChunks.value.clear()
 				}
 			}
 			// Fire-and-forget: don't block stream processing with network calls
@@ -1534,6 +1570,8 @@ onUnmounted(() => {
 		clearTimeout(timer)
 	}
 	debounceTimers.value.clear()
+	// Clear streaming chunks
+	blockChunks.value.clear()
 })
 
 function rerunReport() {
@@ -1997,13 +2035,46 @@ onMounted(async () => {
 	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
 }
 
-/* Streaming text (no re-mount, minimal styles, prevent flicker) */
+/* Streaming text container */
 .streaming-text {
-    will-change: contents;
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 14px;
     line-height: 1.625;
+    position: relative;
+}
+
+/* Each chunk fades in smoothly */
+.chunk-fade {
+    display: inline;
+    animation: chunkFadeIn 0.2s ease-out forwards;
+}
+
+@keyframes chunkFadeIn {
+    0% {
+        opacity: 0;
+        filter: blur(2px);
+    }
+    100% {
+        opacity: 1;
+        filter: blur(0);
+    }
+}
+
+/* Typing cursor at the end */
+.typing-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    background: #9ca3af;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    animation: cursorBlink 0.7s ease-in-out infinite;
+}
+
+@keyframes cursorBlink {
+    0%, 45% { opacity: 1; }
+    50%, 100% { opacity: 0; }
 }
 
 @keyframes simple-ellipsis { 0% { content: '.'; } 33% { content: '..'; } 66% { content: '...'; } }

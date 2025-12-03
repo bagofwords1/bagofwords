@@ -22,23 +22,71 @@
           :itemStyle="props.itemStyle"
           :cardBorder="props.tokens?.cardBorder || '#e5e7eb'"
         >
-          <template v-if="widget.type === 'text'">
-            <div class="p-2 flex-grow overflow-auto">
-              <TextWidgetView
-                :widget="widget"
-                :themeName="props.themeName"
-                :reportOverrides="props.reportOverrides"
-              />
-            </div>
+          <!-- Legacy text widget (with DB reference, no inline content) -->
+          <template v-if="widget.type === 'text' && widget.id && !widget.content">
+            <TextWidgetView
+              :widget="widget"
+              :themeName="props.themeName"
+              :reportOverrides="props.reportOverrides"
+            />
           </template>
-          <template v-else>
-            <div class="flex-grow overflow-auto p-2 min-h-0">
-              <RegularWidgetView
-                :widget="widget"
+          <!-- Inline text block (AI generated, has content) -->
+          <template v-else-if="widget.type === 'text' && widget.content">
+            <TextBlock
+              :block="widget"
+              :themeName="props.themeName"
+              :reportOverrides="props.reportOverrides"
+            />
+          </template>
+          <!-- Card block with children -->
+          <template v-else-if="widget.type === 'card'">
+            <CardBlock
+              :block="widget"
+              :themeName="props.themeName"
+              :reportOverrides="props.reportOverrides"
+              :contentIsMetricCard="props.cardContainsMetricCard?.(widget) || false"
+            >
+              <BlockRenderer
+                v-for="(child, idx) in widget.children || []"
+                :key="`card-child-${idx}-${child.visualization_id || child.content?.substring(0,10) || idx}`"
+                :block="child"
+                :widget="props.getWidgetForBlock?.(child)"
                 :themeName="props.themeName"
                 :reportOverrides="props.reportOverrides"
+                :getWidgetForBlock="props.getWidgetForBlock"
+                :reportId="props.report?.id"
               />
-            </div>
+            </CardBlock>
+          </template>
+          <!-- Column layout block -->
+          <template v-else-if="widget.type === 'column_layout'">
+            <ColumnLayoutBlock :block="widget">
+              <template v-for="(col, colIdx) in widget.columns || []" :key="colIdx" #[`column-${colIdx}`]>
+                <div class="flex flex-col gap-4 h-full">
+                  <BlockRenderer
+                    v-for="(child, childIdx) in col.children || []"
+                    :key="`col-${colIdx}-child-${childIdx}`"
+                    :block="child"
+                    :widget="props.getWidgetForBlock?.(child)"
+                    :themeName="props.themeName"
+                    :reportOverrides="props.reportOverrides"
+                    :getWidgetForBlock="props.getWidgetForBlock"
+                    :reportId="props.report?.id"
+                    class="flex-shrink-0"
+                    :style="{ height: `${(child.height || 6) * 40}px` }"
+                  />
+                </div>
+              </template>
+            </ColumnLayoutBlock>
+          </template>
+          <!-- Regular visualization -->
+          <template v-else>
+            <RegularWidgetView
+              :widget="widget"
+              :themeName="props.themeName"
+              :reportOverrides="props.reportOverrides"
+              :reportId="props.report?.id"
+            />
           </template>
         </WidgetFrame>
       </div>
@@ -53,6 +101,10 @@ import { ref, onMounted, nextTick, watch, onBeforeUnmount } from 'vue'
 import WidgetFrame from '@/components/dashboard/WidgetFrame.vue'
 import TextWidgetView from '@/components/dashboard/text/TextWidgetView.vue'
 import RegularWidgetView from '@/components/dashboard/regular/RegularWidgetView.vue'
+import TextBlock from '@/components/dashboard/blocks/TextBlock.vue'
+import CardBlock from '@/components/dashboard/blocks/CardBlock.vue'
+import ColumnLayoutBlock from '@/components/dashboard/blocks/ColumnLayoutBlock.vue'
+import BlockRenderer from '@/components/dashboard/blocks/BlockRenderer.vue'
 
 const props = defineProps<{
   widgets: any[]
@@ -62,6 +114,8 @@ const props = defineProps<{
   tokens?: any
   itemStyle?: any
   zoom?: number
+  getWidgetForBlock?: (block: any) => any
+  cardContainsMetricCard?: (widget: any) => boolean
 }>()
 
 const container = ref<HTMLElement | null>(null)

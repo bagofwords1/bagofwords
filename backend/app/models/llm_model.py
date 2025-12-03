@@ -9,7 +9,7 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": False,
+        "is_default": True,
         "context_window_tokens": 400000,
         "input_cost_per_million_tokens_usd": 1.25,
         "output_cost_per_million_tokens_usd": 10.00
@@ -31,7 +31,7 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "context_window_tokens": 1047576,
         "input_cost_per_million_tokens_usd": 2.00,
         "output_cost_per_million_tokens_usd": 8.00
