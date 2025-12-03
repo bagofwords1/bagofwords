@@ -15,7 +15,7 @@
                 >
                   <div class="flex flex-col items-center text-center">
                     <div class="p-1">
-                      <DataSourceIcon class="h-6" :type="ds.type" />
+                      <DataSourceIcon class="h-5" :type="ds.type" />
                     </div>
                     <div class="text-xs text-gray-500">
                       {{ ds.title }}

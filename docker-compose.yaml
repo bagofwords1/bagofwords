@@ -1,0 +1,92 @@
+# =============================================================================
+# Bag of Words - Docker Compose with PostgreSQL
+# =============================================================================
+# 
+# Quick Start:
+#   1. Create a .env file with your configuration (see below)
+#   2. Run: docker compose up -d
+#
+# Environment Variables (create .env file):
+#   POSTGRES_USER=bow                    # PostgreSQL username
+#   POSTGRES_PASSWORD=your_secure_pw     # PostgreSQL password (CHANGE THIS!)
+#   POSTGRES_DB=bagofwords               # Database name
+#   POSTGRES_PORT=5432                   # PostgreSQL port (optional)
+#   APP_PORT=3000                        # Application port (optional)
+#   BOW_ENCRYPTION_KEY=                  # Fernet encryption key - should be 44 characters long and ends with = 
+#
+# Generate encryption key:
+#   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#
+# =============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bow-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bowpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-bagofwords}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bow} -d ${POSTGRES_DB:-bagofwords}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - bow-network
+
+  app:
+    image: bagofwords/bagofwords:latest
+    pull_policy: always
+    container_name: bow-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=production
+      - ENVIRONMENT=production
+      # Database configuration - connects to PostgreSQL
+      - BOW_DATABASE_URL=postgresql://${POSTGRES_USER:-bow}:${POSTGRES_PASSWORD:-bowpassword}@postgres:5432/${POSTGRES_DB:-bagofwords}
+      # Encryption key - generate a secure key for production
+      - BOW_ENCRYPTION_KEY=${BOW_ENCRYPTION_KEY:-}
+      # Optional: Override config path if needed
+      - BOW_CONFIG_PATH=/app/bow-config.yaml
+    volumes:
+      # Mount bow-config.yaml for runtime configuration
+      - ./bow-config.yaml:/app/bow-config.yaml:ro
+      # Persistent storage for uploads
+      - uploads_data:/app/backend/uploads
+      - branding_data:/app/backend/branding_uploads
+      # Logs (optional - can be removed if using external logging)
+      - logs_data:/app/backend/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    networks:
+      - bow-network
+
+volumes:
+  postgres_data:
+    driver: local
+  uploads_data:
+    driver: local
+  branding_data:
+    driver: local
+  logs_data:
+    driver: local
+
+networks:
+  bow-network:
+    driver: bridge

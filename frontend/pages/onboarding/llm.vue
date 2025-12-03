@@ -254,11 +254,17 @@ onMounted(async () => {
 })
 
 const providersWithNewOption = computed(() => [])
-const providerTypeOptions = computed(() => providers.value.map(p => ({ type: p.type, name: p.name })))
+
+// Helper to clean provider names by removing "(OpenAI Compatible)" suffix
+function cleanProviderName(name: string): string {
+  return name.replace(/\s*\(OpenAI Compatible\)/gi, '').trim()
+}
+
+const providerTypeOptions = computed(() => providers.value.map(p => ({ type: p.type, name: cleanProviderName(p.name) })))
 const selectedProviderDisplayName = computed(() => {
   const type = providerForm.value.provider_type
   const match = providers.value.find(p => p.type === type)
-  return match?.name || type || 'Provider'
+  return cleanProviderName(match?.name || type || 'Provider')
 })
 
 const isNewProviderSelected = computed(() => selectedProvider.value?.type === 'new_provider')
@@ -268,7 +274,7 @@ function selectProviderType(type: string) {
   providerForm.value.provider_type = type
   // Set default name to the provider type display name
   const provider = providers.value.find(p => p.type === type)
-  providerForm.value.name = provider?.name || type
+  providerForm.value.name = cleanProviderName(provider?.name || type)
   clearTestResult()
 }
 

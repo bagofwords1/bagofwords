@@ -1,12 +1,5 @@
 <template>
   <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4">
-    <!-- Page-level loading overlay so spinner shows even before slot renders -->
-    <div v-if="isLoading" class="fixed inset-0 z-50 flex items-center justify-center bg-white/70">
-      <div class="flex items-center gap-2 text-gray-700">
-        <Spinner class="w-5 h-5" />
-        <span class="text-sm">{{ loadingText }}</span>
-      </div>
-    </div>
     <div class="w-full max-w-6xl">
       <OnboardingView forcedStepKey="instructions_added" :hideNextButton="true">
         <template #instructions>
@@ -107,7 +100,7 @@
                     :name="enrichmentExpanded ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
                     class="w-5 h-5 text-gray-500 mr-2 transition-transform duration-200"
                   />
-                  <h3 class="text-sm font-semibold text-gray-900">Enrich Context</h3>
+                  <h3 class="text-sm font-semibold text-gray-900">Connect your git repository and enrich context</h3>
                 </div>
                 <div class="flex items-center gap-2">
                   <UTooltip text="Tableau">
