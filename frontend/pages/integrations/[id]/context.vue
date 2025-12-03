@@ -45,7 +45,7 @@
                                     </template>
                                     <template v-else-if="lastIndexedAt">
                                         <UIcon name="heroicons:check-circle" class="w-4 h-4 text-green-500" />
-                                        <span>Indexed {{ lastIndexedAt }}</span>
+                                        <span>Indexed <NuxtTime :datetime="lastIndexedAt" relative /></span>
                                     </template>
                                 </div>
                             </div>
@@ -106,20 +106,7 @@ const isIndexing = computed(() => ['pending', 'indexing', 'running'].includes(re
 
 const lastIndexedAt = computed(() => {
   // metadataResources might contain completed_at from the job
-  const jobCompletedAt = metadataResources.value?.completed_at
-  const dt = jobCompletedAt || integration.value?.git_repository?.last_indexed_at
-  if (!dt) return null
-  const date = new Date(dt)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
-  const diffHours = Math.floor(diffMs / 3600000)
-  const diffDays = Math.floor(diffMs / 86400000)
-  if (diffMins < 1) return 'just now'
-  if (diffMins < 60) return `${diffMins}m ago`
-  if (diffHours < 24) return `${diffHours}h ago`
-  if (diffDays < 7) return `${diffDays}d ago`
-  return date.toLocaleDateString()
+  return metadataResources.value?.completed_at || integration.value?.git_repository?.last_indexed_at || null
 })
 
 async function fetchIntegration(silent = false) {
