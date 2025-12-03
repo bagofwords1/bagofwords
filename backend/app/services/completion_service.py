@@ -205,10 +205,13 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400,
-                    detail="No default LLM model configured. Please configure a default model in organization settings."
+                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
 
             small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
+            # Fallback: if no small model configured, use the main model
+            if not small_model:
+                small_model = model
             org_settings = await organization.get_settings(db)
 
             prompt_dict = completion_data.prompt.dict()
@@ -335,8 +338,12 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400,
-                    detail="No default LLM model configured. Please configure a default model in organization settings."
+                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
+            
+            # Fallback: if no small model configured, use the main model
+            if not small_model:
+                small_model = model
 
             # Create user completion (head)
             prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
@@ -1265,10 +1272,13 @@ class CompletionService:
             if not model:
                 raise HTTPException(
                     status_code=400, 
-                    detail="No default LLM model configured. Please configure a default model in organization settings."
+                    detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
 
             small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
+            # Fallback: if no small model configured, use the main model
+            if not small_model:
+                small_model = model
 
             # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()

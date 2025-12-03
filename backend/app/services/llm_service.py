@@ -391,11 +391,20 @@ class LLMService:
                 db_model.is_default = True
                 # Only allow one default model
                 has_default_model = True
+            # Fallback: if org still has no default and this is an enabled model, make it the default
+            # This ensures custom/Azure providers (not in LLM_MODEL_DETAILS) get a default model
+            elif not has_default_model and db_model.is_enabled:
+                db_model.is_default = True
+                has_default_model = True
             else:
                 db_model.is_default = False
             
             # Only set as small default if there's no existing small default and this model should be small default
             if model_details and model_details.get("is_small_default", False) and not has_small_default_model:
+                setattr(db_model, "is_small_default", True)
+                has_small_default_model = True
+            # Fallback: if org still has no small default and this is an enabled model, make it the small default
+            elif not has_small_default_model and db_model.is_enabled:
                 setattr(db_model, "is_small_default", True)
                 has_small_default_model = True
             else:
@@ -490,6 +499,20 @@ class LLMService:
         current_user: User,
         models: list[LLMModelSchema]
     ):
+        # Check if org already has default models (needed for new model creation)
+        existing_default = await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.is_default == True)
+        )
+        has_default_model = existing_default.scalar_one_or_none() is not None
+        existing_small_default = await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(getattr(LLMModel, "is_small_default") == True)
+        )
+        has_small_default_model = existing_small_default.scalar_one_or_none() is not None
+
         for model in models:
             # If model has an ID, update existing model
             if model.id:
@@ -559,6 +582,10 @@ class LLMService:
                     input_cost = getattr(model, "input_cost_per_million_tokens_usd", None)
                     output_cost = getattr(model, "output_cost_per_million_tokens_usd", None)
                 
+                # Set as default if org has no default and this model is enabled
+                should_be_default = not has_default_model and model.is_enabled
+                should_be_small_default = not has_small_default_model and model.is_enabled
+                
                 db_model = LLMModel(
                     name=model.name or model.model_id,
                     model_id=model.model_id,
@@ -567,13 +594,20 @@ class LLMService:
                     is_enabled=model.is_enabled,
                     is_custom=model.is_custom,
                     is_preset=model.is_preset,
-                    is_default=False,  # New models are not default by default
+                    is_default=should_be_default,
+                    is_small_default=should_be_small_default,
                     context_window_tokens=context_window_tokens,
                     max_output_tokens=getattr(model, "max_output_tokens", None),
                     input_cost_per_million_tokens_usd=input_cost,
                     output_cost_per_million_tokens_usd=output_cost,
                 )
                 db.add(db_model)
+                
+                # Update flags so subsequent models don't also become default
+                if should_be_default:
+                    has_default_model = True
+                if should_be_small_default:
+                    has_small_default_model = True
 
         await db.commit()
     
@@ -623,7 +657,7 @@ class LLMService:
         current_user: User,
         is_small: bool = False
     ):
-        """Get the default model for an organization. If is_small=True, prefer small default, fallback to regular."""
+        """Get the default model for an organization. If is_small=True, prefer small default, fallback to regular, then first enabled."""
         if is_small:
             small_default = await db.execute(
                 select(LLMModel)
@@ -641,7 +675,18 @@ class LLMService:
             .filter(LLMModel.is_default == True)
             .filter(LLMModel.is_enabled == True)
         )
-        return default.scalar_one_or_none()
+        default_model = default.scalar_one_or_none()
+        if default_model:
+            return default_model
+        
+        # Fallback: return first enabled model (for custom providers without is_default set)
+        first_enabled = await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.is_enabled == True)
+            .limit(1)
+        )
+        return first_enabled.scalar_one_or_none()
     
     async def set_default_models_from_config(
         self,
