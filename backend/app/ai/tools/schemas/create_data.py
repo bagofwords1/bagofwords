@@ -16,11 +16,12 @@ class CreateDataInput(BaseModel):
     user_prompt: str = Field(..., description="Original user instruction")
     interpreted_prompt: str = Field(..., description="LLM-interpreted, clarified version of the user prompt")
 
-    tables_by_source: List[TablesBySource] = Field(
-        ...,
+    tables_by_source: Optional[List[TablesBySource]] = Field(
+        default=None,
         description=(
-            "Required. Compact per-source table targeting: [{data_source_id, tables:[...]}, ...]. "
+            "Compact per-source table targeting: [{data_source_id, tables:[...]}, ...]. "
             "Avoids repeating ds_id per table and supports cross-source patterns when data_source_id is null."
+            "For file analysis only, keep this empty."
         ),
     )
     visualization_type: Optional[str] = Field(

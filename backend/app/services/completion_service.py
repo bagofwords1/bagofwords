@@ -238,6 +238,8 @@ class CompletionService:
             clients = {}
             for data_source in report.data_sources:
                 clients[data_source.name] = await self.data_source_service.construct_client(db, data_source, current_user)
+            # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
+            _ = report.files
 
             agent = AgentV2(
                 db=db,
@@ -423,6 +425,8 @@ class CompletionService:
                             clients = {}
                             for data_source in report_obj.data_sources:
                                 clients[data_source.name] = await self.data_source_service.construct_client(session, data_source, current_user)
+                            # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
+                            _ = report_obj.files
 
                             agent = AgentV2(
                                 db=session,
@@ -470,6 +474,8 @@ class CompletionService:
                     clients = {}
                     for data_source in report.data_sources:
                         clients[data_source.name] = await self.data_source_service.construct_client(db, data_source, current_user)
+                    # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
+                    _ = report.files
                     agent = AgentV2(
                         db=db,
                         organization=organization,
@@ -1366,6 +1372,10 @@ class CompletionService:
                         clients = {}
                         for data_source in report_obj.data_sources:
                             clients[data_source.name] = await self.data_source_service.construct_client(session, data_source, current_user)
+
+                        # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
+                        # (AgentV2.__init__ is synchronous, so lazy-loading files there would fail)
+                        _ = report_obj.files
 
                         # Create agent with event queue
                         agent = AgentV2(

@@ -633,44 +633,56 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             # Best-effort only; if creation fails now, later stages may still create
             pass
 
-        # Resolve table patterns to active tables only (filters out inactive tables)
+        # Determine data sources: tables and/or files
         resolved_tables: List[Dict[str, Any]] = []
         resolution_warnings: List[str] = []
         schemas_excerpt = ""
         
-        if not context_hub or not getattr(context_hub, "schema_builder", None):
-            yield ToolEndEvent(
-                type="tool.end",
-                payload={
-                    "output": {
-                        "success": False,
-                        "code": "",
-                        "data": {},
-                        "data_preview": {},
-                        "stats": {},
-                        "execution_log": "",
-                        "errors": [],
-                    },
-                    "observation": {
-                        "summary": "Table resolution failed - no schema builder available",
-                        "error": {
-                            "type": "configuration_error",
-                            "message": "Schema builder not available in context",
+        # Get available files from context
+        excel_files = runtime_ctx.get("excel_files", [])
+        has_tables_request = bool(data.tables_by_source)
+        has_files = bool(excel_files)
+        
+        # Resolve tables only if tables_by_source is provided
+        if has_tables_request:
+            if not context_hub or not getattr(context_hub, "schema_builder", None):
+                # Only fail on missing schema_builder if tables were requested and no files available
+                if not has_files:
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": {
+                                "success": False,
+                                "code": "",
+                                "data": {},
+                                "data_preview": {},
+                                "stats": {},
+                                "execution_log": "",
+                                "errors": [],
+                            },
+                            "observation": {
+                                "summary": "Table resolution failed - no schema builder available",
+                                "error": {
+                                    "type": "configuration_error",
+                                    "message": "Schema builder not available in context",
+                                },
+                            },
                         },
-                    },
-                },
-            )
-            return
+                    )
+                    return
+                # If files exist, proceed without tables
+            else:
+                yield ToolProgressEvent(type="tool.progress", payload={"stage": "resolving_tables"})
+                resolved_tables, resolution_warnings = await self._resolve_active_tables(
+                    data.tables_by_source,
+                    context_hub.schema_builder,
+                )
         
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "resolving_tables"})
-        resolved_tables, resolution_warnings = await self._resolve_active_tables(
-            data.tables_by_source,
-            context_hub.schema_builder,
-        )
-        
-        # Check if any tables were resolved
+        # Check if we have any data sources (tables or files)
         total_resolved = sum(len(g.get("tables", [])) for g in resolved_tables)
-        if total_resolved == 0:
+        
+        if total_resolved == 0 and not has_files:
+            # No tables resolved AND no files available - fail
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -684,46 +696,60 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                         "errors": [],
                     },
                     "observation": {
-                        "summary": "No active tables matched the requested patterns",
+                        "summary": "No data sources available - no tables matched and no files uploaded",
                         "error": {
-                            "type": "no_active_tables",
-                            "message": "No active tables matched the requested patterns. Tables may be inactive or not found.",
+                            "type": "no_data_sources",
+                            "message": "No active tables matched the requested patterns and no files are available. Either provide valid table names in tables_by_source or upload files.",
                             "warnings": resolution_warnings,
                             "requested_tables": [
                                 {"data_source_id": g.data_source_id, "tables": g.tables}
                                 for g in (data.tables_by_source or [])
-                            ],
+                            ] if data.tables_by_source else [],
                         },
                     },
                 },
             )
             return
         
-        # Build schemas excerpt using resolved active tables
-        try:
-            # Collect all resolved table names for schema building
-            all_resolved_names: List[str] = []
-            ds_ids: List[str] = []
-            for group in resolved_tables:
-                if group.get("data_source_id"):
-                    ds_ids.append(group["data_source_id"])
-                all_resolved_names.extend(group.get("tables", []))
-            
-            ds_scope = list(set(ds_ids)) if ds_ids else None
-            # Use exact name patterns for resolved tables
-            import re
-            name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
-            
-            ctx = await context_hub.schema_builder.build(
-                with_stats=True,
-                data_source_ids=ds_scope,
-                name_patterns=name_patterns,
-            )
-            schemas_excerpt = ctx.render_combined(top_k_per_ds=20, index_limit=0, include_index=False)
-        except Exception as e:
-            # Fallback to keyword-based excerpt if resolution-based build fails
-            raw_text = (data.interpreted_prompt or data.user_prompt or "")
-            schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)
+        # Log the mode we're operating in
+        if total_resolved > 0 and has_files:
+            mode = "tables_and_files"
+        elif total_resolved > 0:
+            mode = "tables_only"
+        else:
+            mode = "files_only"
+        
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "data_sources_resolved", "mode": mode, "tables_count": total_resolved, "files_count": len(excel_files)})
+        
+        # Build schemas excerpt using resolved active tables (skip if file-only mode)
+        if total_resolved > 0:
+            try:
+                # Collect all resolved table names for schema building
+                all_resolved_names: List[str] = []
+                ds_ids: List[str] = []
+                for group in resolved_tables:
+                    if group.get("data_source_id"):
+                        ds_ids.append(group["data_source_id"])
+                    all_resolved_names.extend(group.get("tables", []))
+                
+                ds_scope = list(set(ds_ids)) if ds_ids else None
+                # Use exact name patterns for resolved tables
+                import re
+                name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
+                
+                ctx = await context_hub.schema_builder.build(
+                    with_stats=True,
+                    data_source_ids=ds_scope,
+                    name_patterns=name_patterns,
+                )
+                schemas_excerpt = ctx.render_combined(top_k_per_ds=20, index_limit=0, include_index=False)
+            except Exception as e:
+                # Fallback to keyword-based excerpt if resolution-based build fails
+                raw_text = (data.interpreted_prompt or data.user_prompt or "")
+                schemas_excerpt = await self._build_schemas_excerpt(context_hub, context_view, raw_text, top_k=10)
+        else:
+            # File-only mode: no database schemas needed
+            schemas_excerpt = ""
 
         # Static and warm sections for prompt grounding
         _resources_section_obj = getattr(context_view.static, "resources", None) if context_view else None

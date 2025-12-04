@@ -14,7 +14,7 @@
           <h2 class="text-md font-semibold pb-2">Upload files</h2>
           <hr />
 
-          <span class="text-xs text-gray-500 mt-2 block">Upload excel or PDF files to analyze</span>
+          <span class="text-sm text-gray-500 mt-4 mb-2 block">Upload excel or PDF files to analyze</span>
           <input 
             type="file" 
             ref="fileInput" 
@@ -22,27 +22,42 @@
             class="hidden" 
             multiple 
           />
-          <div v-if="allFiles.length === 0"> 
-          <button @click="$refs.fileInput.click()" class="text-xs text-center w-full pt-5 pb-5 text-blue-500">
-                <Icon name="heroicons-folder-plus" class="w-20 h-20 block bg-green-400 mt-4 mx-auto" />
-                <span class="mt-4 block">
-                   Click to upload
+          <div 
+            v-if="allFiles.length === 0"
+            @dragover.prevent="isDragging = true"
+            @dragenter.prevent="isDragging = true"
+            @dragleave.prevent="isDragging = false"
+            @drop.prevent="handleDrop"
+            :class="['drop-zone cursor-pointer', isDragging ? 'drop-zone-active' : '']"
+            @click="$refs.fileInput.click()"
+          > 
+            <div class="flex mt-2 flex-col items-center justify-center py-10">
+              <Icon 
+                name="heroicons-cloud-arrow-up" 
+                :class="['w-12 h-12 transition-colors', isDragging ? 'text-blue-500' : 'text-blue-400']" 
+              />
+              <span class="mt-3 text-sm text-blue-500">
+                {{ isDragging ? 'Drop files here' : 'Click or drag files to upload' }}
               </span>
-              </button>
+            </div>
           </div>
           <ul
             v-if="allFiles.length > 0"
-            class="w-full mt-4">
+            class="w-full mt-4"
+            @dragover.prevent="isDragging = true"
+            @dragenter.prevent="isDragging = true"
+            @dragleave.prevent="isDragging = false"
+            @drop.prevent="handleDrop">
             <li 
               v-for="(file, index) in allFiles" 
               :key="file.id" 
-              :class="['text-sm border-t py-1 text-gray-500 mt-1 flex items-center justify-between', 
-                       index === allFiles.length - 1 ? 'border-b' : '']">
-              <div>
-                {{ file.filename }}
-                <Icon v-if="file.status === 'processing'" name="heroicons-arrow-path-rounded-square" class="animate-spin inline-block" />
-                <Icon v-else-if="file.status === 'uploaded'" name="heroicons-check" class="text-green-500 inline-block" />
-                <Icon v-else-if="file.status === 'error'" name="heroicons-x-circle" class="text-red-500 inline-block" />
+              class="text-xs py-2 text-gray-600 flex items-center justify-between border-b border-gray-100 last:border-b-0">
+              <div class="flex items-center gap-1.5">
+                <Spinner v-if="file.status === 'processing'" class="w-3 h-3 text-blue-500 flex-shrink-0" />
+                <Icon v-else-if="file.status === 'uploaded'" name="heroicons-check-circle" class="text-blue-500 w-4 h-4 flex-shrink-0" />
+                <Icon v-else-if="file.status === 'error'" name="heroicons-x-circle" class="text-red-500 w-4 h-4 flex-shrink-0" />
+
+                <span class="truncate">{{ file.filename }}</span>
               </div>
               <div>
               <button @click="removeFile(file)" class="text-gray-500 hover:bg-gray-100 rounded-full ml-auto items-center justify-center"> 
@@ -50,10 +65,15 @@
               </button>
             </div>
             </li>
-            <li class="bg-blue-50 text-center items-center py-1 mt-2" v-if="allFiles.length > 0">
-              <button @click="$refs.fileInput.click()" class="text-xs hover:underline text-center text-blue-500">
-                Click to upload more
-              </button>
+            <li 
+              :class="['text-center items-center py-4 mt-3 rounded-lg transition-all cursor-pointer', 
+                isDragging ? 'bg-blue-50 border-1 border-dashed border-blue-400' : 'border-2 border-dashed border-gray-200 hover:border-blue-300 hover:bg-blue-50/50']" 
+              v-if="allFiles.length > 0"
+              @click="$refs.fileInput.click()">
+              <div class="text-sm text-blue-500 flex items-center justify-center gap-2 w-full">
+                <Icon name="heroicons-cloud-arrow-up" class="w-5 h-5" />
+                {{ isDragging ? 'Drop files here' : 'Click or drag to upload more' }}
+              </div>
             </li>
           </ul>
         </div>
@@ -61,12 +81,14 @@
     </div>
   </template>
   
-  <script setup lang="ts">
-  import { ref, computed, onMounted } from 'vue';
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue';
+import Spinner from './Spinner.vue';
 
   
-  const isFilesOpen = ref(false);
-  const allFiles = ref([]);
+const isFilesOpen = ref(false);
+const allFiles = ref([]);
+const isDragging = ref(false);
 
   const props = defineProps({
     report_id: String
@@ -99,6 +121,18 @@
     allFiles.value.push(...selectedFiles);
     selectedFiles.forEach(file => uploadFile(file));
   }
+
+  function handleDrop(e) {
+    isDragging.value = false;
+    const droppedFiles = Array.from(e.dataTransfer.files).map(file => ({
+      id: generateUniqueId(),
+      file,
+      filename: file.name,
+      status: "processing"
+    }));
+    allFiles.value.push(...droppedFiles);
+    droppedFiles.forEach(file => uploadFile(file));
+  }
   
   async function uploadFile(file) {
     const formData = new FormData();
@@ -109,21 +143,32 @@
       formData.append('report_id', report_id);
     }
 
-    try {
-      // Update file status to 'processing' before the upload starts
-      const index = allFiles.value.findIndex(f => f.id === file.id);
-      if (index !== -1) {
-        allFiles.value[index] = { ...allFiles.value[index], status: 'processing' };
-      }
+    // Update file status to 'processing' before the upload starts
+    const index = allFiles.value.findIndex(f => f.id === file.id);
+    if (index !== -1) {
+      allFiles.value[index] = { ...allFiles.value[index], status: 'processing' };
+    }
 
-      const { data } = await useMyFetch('/files', {
+    try {
+      const { data, error } = await useMyFetch('/files', {
         method: 'POST',
         body: formData,
       });
 
+      // Check for errors in the response
+      if (error.value || !data.value) {
+        console.error('Error uploading file:', error.value);
+        const idx = allFiles.value.findIndex(f => f.id === file.id);
+        if (idx !== -1) {
+          allFiles.value[idx] = { ...allFiles.value[idx], status: 'error' };
+        }
+        return;
+      }
+
       // Update the file status after successful upload
-      if (index !== -1) {
-        allFiles.value[index] = { ...data.value, status: 'uploaded' };
+      const successIdx = allFiles.value.findIndex(f => f.id === file.id);
+      if (successIdx !== -1) {
+        allFiles.value[successIdx] = { ...data.value, status: 'uploaded' };
       }
 
       // Emit the updated list of uploaded files to the parent component
@@ -131,9 +176,9 @@
     } catch (error) {
       console.error('Error uploading file:', error);
       // Update file status to 'error'
-      const index = allFiles.value.findIndex(f => f.id === file.id);
-      if (index !== -1) {
-        allFiles.value[index] = { ...allFiles.value[index], status: 'error' };
+      const idx = allFiles.value.findIndex(f => f.id === file.id);
+      if (idx !== -1) {
+        allFiles.value[idx] = { ...allFiles.value[idx], status: 'error' };
       }
     }
   }
@@ -164,6 +209,21 @@
   
   </script>
   
-  <style scoped>
-  /* Add any specific styles here */
-  </style>
+<style scoped>
+.drop-zone {
+  border: 1px dashed #e5e7eb;
+  border-radius: 12px;
+  transition: all 0.2s ease;
+  margin-top: 0.75rem;
+}
+
+.drop-zone:hover {
+  border-color: #93c5fd;
+  background-color: #f0f9ff;
+}
+
+.drop-zone-active {
+  border-color: #3b82f6;
+  background-color: #eff6ff;
+}
+</style>

@@ -6,22 +6,19 @@ import uuid
 from app.models.report import Report
 from app.models.user import User
 from app.models.organization import Organization
-from app.ai.agents.excel import ExcelAgent
 from app.models.sheet_schema import SheetSchema
 from typing import Optional
 from fastapi import HTTPException
 from app.models.file import report_file_association
-from openpyxl import load_workbook
-from openpyxl.utils.exceptions import InvalidFileException
-import xlrd
-from app.ai.agents.doc.doc import DocAgent
 from app.models.file_tag import FileTag
-import tiktoken
 from sqlalchemy.ext.asyncio import AsyncSession
-import aiofiles  # Add this import for async file operations
+import aiofiles
 from sqlalchemy import select, exists
-from app.models.llm_model import LLMModel
 from app.core.telemetry import telemetry
+from app.services.file_preview import generate_file_preview
+import logging
+
+logger = logging.getLogger(__name__)
 
 class FileService:
     def __init__(self):
@@ -42,12 +39,14 @@ class FileService:
             filename=file.filename,
             content_type=file.content_type,
             path=file_location,
-            user_id = current_user.id,
-            organization_id = organization.id)
+            user_id=current_user.id,
+            organization_id=organization.id
+        )
 
         db.add(db_file)
         await db.commit()
         await db.refresh(db_file)
+        
         # Telemetry: file uploaded (minimal fields only)
         try:
             await telemetry.capture(
@@ -63,6 +62,8 @@ class FileService:
             )
         except Exception:
             pass
+        
+        # Associate with report if provided
         if report_id:
             stmt = select(Report).filter(Report.id == report_id)
             result = await db.execute(stmt)
@@ -73,13 +74,16 @@ class FileService:
                 await db.commit()
                 await db.refresh(report)
 
-        # should be in as a seperate job 
-        # currently doing this for one sheet only
-        model = await organization.get_default_llm_model(db)
-        if db_file.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" or db_file.content_type == "application/vnd.ms-excel":
-            sc = await self._create_sheet_schemas(db, db_file, model)
-        elif db_file.content_type == "application/pdf":
-            tags = await self._process_pdf(db, db_file, model)
+        # Generate raw preview (no LLM) - fast, instant
+        try:
+            db_file.preview = generate_file_preview(db_file)
+            db.add(db_file)
+            await db.commit()
+            await db.refresh(db_file)
+            logger.info(f"Generated preview for file {db_file.filename} (type: {db_file.preview.get('type', 'unknown') if db_file.preview else 'none'})")
+        except Exception as e:
+            # Preview generation failure is non-fatal - log and continue
+            logger.warning(f"Failed to generate preview for {db_file.filename}: {e}")
         
         # Return the file schema
         file_schema = FileSchema.from_orm(db_file)
@@ -144,83 +148,103 @@ class FileService:
         files = report.files
         return [FileSchema.from_orm(file) for file in files]
 
-    async def _create_sheet_schemas(self, db: AsyncSession, file: File, model: LLMModel):
+    # ==========================================================================
+    # DEPRECATED: LLM-based schema extraction methods
+    # These methods are no longer called during file upload.
+    # We now use raw preview generation instead (see generate_file_preview).
+    # Kept for backward compatibility and potential manual re-processing.
+    # ==========================================================================
+    
+    async def _create_sheet_schemas_legacy(self, db: AsyncSession, file: File, model):
+        """
+        DEPRECATED: LLM-based Excel schema extraction.
+        
+        This method uses LLM to extract structured schema from Excel files.
+        It is no longer called during upload - we now use raw previews instead.
+        Kept for backward compatibility if manual schema extraction is needed.
+        """
+        import warnings
+        warnings.warn(
+            "_create_sheet_schemas_legacy is deprecated. Use generate_file_preview instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
+        from openpyxl import load_workbook
+        from openpyxl.utils.exceptions import InvalidFileException
+        import xlrd
+        from app.ai.agents.excel import ExcelAgent
+        
         sheet_names = []
-        workbook = None # Initialize workbook variable
+        workbook = None
 
-        # Handle .xlsx files with openpyxl
         if file.content_type == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
             try:
-                # Note: load_workbook is synchronous, consider running in threadpool for production
                 workbook = load_workbook(filename=file.path, read_only=True)
                 sheet_names = workbook.sheetnames
             except InvalidFileException as e:
-                print(f"Error opening .xlsx file {file.filename} with openpyxl: {e}")
-                # Handle error appropriately, maybe raise HTTPException or return
                 raise HTTPException(status_code=400, detail=f"Failed to process .xlsx file: {e}")
-            except Exception as e: # Catch other potential openpyxl errors
-                print(f"Unexpected error opening .xlsx file {file.filename} with openpyxl: {e}")
+            except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error processing Excel file: {e}")
         
-        # Handle .xls files with xlrd
         elif file.content_type == "application/vnd.ms-excel":
             try:
-                # Note: xlrd.open_workbook is synchronous, consider running in threadpool
                 workbook = xlrd.open_workbook(filename=file.path)
                 sheet_names = workbook.sheet_names()
             except xlrd.XLRDError as e:
-                print(f"Error opening .xls file {file.filename} with xlrd: {e}")
-                # Handle error appropriately
                 raise HTTPException(status_code=400, detail=f"Failed to process .xls file: {e}")
-            except Exception as e: # Catch other potential xlrd errors
-                print(f"Unexpected error opening .xls file {file.filename} with xlrd: {e}")
+            except Exception as e:
                 raise HTTPException(status_code=500, detail=f"Error processing Excel file: {e}")
 
-        # If we couldn't get sheet names (e.g., unsupported format or error)
         if not sheet_names:
-            print(f"Could not extract sheet names from file {file.filename} (content type: {file.content_type})")
-            return 0 # Or raise an error if processing must succeed
+            return 0
 
-        # Common processing logic using sheet names and ExcelAgent
         try:
             processed_sheets_count = 0
             for index, sheet_name in enumerate(sheet_names):
-                # Assuming ExcelAgent can handle the file path and sheet index
-                # regardless of whether it's .xls or .xlsx
                 ea = ExcelAgent(file, model) 
-                schema = ea.get_schema(index) # This call needs to work for both formats
+                schema = ea.get_schema(index)
 
-                # Ensure schema is not None or handle appropriately
                 if schema and "sheet_name" in schema:
                     sc = SheetSchema(
-                        sheet_name=schema["sheet_name"], # Use name from agent if available
+                        sheet_name=schema["sheet_name"],
                         sheet_index=index,
-                        schema=schema, # Store the schema obtained from the agent
+                        schema=schema,
                         file_id=file.id
                     )
                     db.add(sc)
                     processed_sheets_count += 1
-                else:
-                     print(f"Warning: Could not get valid schema for sheet '{sheet_name}' (index {index}) in file {file.filename}")
-
 
             if processed_sheets_count > 0:
                 await db.commit()
             return processed_sheets_count
         
-        except Exception as e: # Catch errors during agent processing or db commit
-             await db.rollback() # Rollback commit if error occurs during loop/commit
-             print(f"Error during schema processing or commit for file {file.filename}: {e}")
-             # Decide how to handle this: raise error, return partial count, etc.
-             raise HTTPException(status_code=500, detail=f"Error processing sheet schemas: {e}")
+        except Exception as e:
+            await db.rollback()
+            raise HTTPException(status_code=500, detail=f"Error processing sheet schemas: {e}")
 
         finally:
-            # Close openpyxl workbook if it was opened
             if hasattr(workbook, 'close') and callable(workbook.close):
-                 workbook.close()
-            # xlrd objects don't typically need explicit closing like openpyxl file handles
+                workbook.close()
 
-    async def _process_pdf(self, db: AsyncSession, file: File, model: LLMModel):
+    async def _process_pdf_legacy(self, db: AsyncSession, file: File, model):
+        """
+        DEPRECATED: LLM-based PDF tag extraction.
+        
+        This method uses LLM to extract semantic tags from PDF files.
+        It is no longer called during upload - we now use raw text preview instead.
+        Kept for backward compatibility if manual tag extraction is needed.
+        """
+        import warnings
+        warnings.warn(
+            "_process_pdf_legacy is deprecated. Use generate_file_preview instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        
+        import tiktoken
+        from app.ai.agents.doc.doc import DocAgent
+        
         da = DocAgent(file, model)
         content = da.get_content()
 
@@ -231,17 +255,14 @@ class FileService:
         chunk_size = 100000
         overlap = 300
 
-        # for chunk_of_9k, extract tags from text
         for i in range(0, len(tokens), chunk_size - overlap):
             chunk = tokenizer.decode(tokens[i:i+chunk_size])
             new_tags = da.get_tags_from_text(chunk, tags)
             tags.extend(new_tags)
         
-        # Create a list to hold all FileTag objects
         file_tags = []
         
         for tag in tags:
-            # Assuming FileTag is a model with fields 'tag', 'value', and 'file_id'
             file_tag = FileTag(
                 key=tag["tag"],
                 value=tag["value"],
@@ -249,7 +270,6 @@ class FileService:
             )
             file_tags.append(file_tag)
         
-        # Replace bulk_save_objects with add_all
         for file_tag in file_tags:
             db.add(file_tag)
         await db.commit()

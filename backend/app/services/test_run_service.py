@@ -904,6 +904,8 @@ class TestRunService:
                                     clients[data_source.name] = await self.completions.data_source_service.construct_client(session, data_source, current_user)
                                 except Exception:
                                     pass
+                            # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
+                            _ = getattr(report_obj, "files", [])
                             agent = AgentV2(
                                 db=session,
                                 organization=organization,
