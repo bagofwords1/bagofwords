@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.263 (December 4, 2025)
+- System prompt improvements and a new section for analytical standards
+- Improvements to custom LLM integration (set default/small default models)
+- Data source onboarding improvement
+
 ## Version 0.0.262 (December 2, 2025)
 - Added data source integration to MongoDB
 - Added native support for Custom LLM endpoints (openai compatible)
