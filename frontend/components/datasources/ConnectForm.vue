@@ -51,7 +51,7 @@
 
         <div class="pt-1">
           <div v-if="showLLMToggle !== false" class="flex items-center gap-2 mb-2">
-            <UToggle color="blue" v-model="generate_summary" />
+            <UToggle color="blue" v-model="use_llm_onboarding" />
             <span class="text-xs text-gray-700">Use LLM to learn data source</span>
           </div>
           <div v-if="testResultOk !== null" class="mb-2">
@@ -110,9 +110,7 @@ const formData = reactive<{ config: Record<string, any>; credentials: Record<str
 const selectedAuth = ref<string | undefined>(undefined)
 const is_public = ref(true)
 const require_user_auth = ref(Boolean(props.initialRequireUserAuth))
-const generate_summary = ref(true)
-const generate_conversation_starters = ref(true)
-const generate_ai_rules = ref(true)
+const use_llm_onboarding = ref(true)
 const submitting = ref(false)
 const isTestingConnection = ref(false)
 const connectionTestPassed = ref(false)
@@ -290,9 +288,10 @@ async function onSubmit() {
       credentials: showSystemCredentialFields.value ? formData.credentials : {},
       is_public: is_public.value,
       auth_policy: auth_policy.value,
-      generate_summary: generate_summary.value,
-      generate_conversation_starters: generate_conversation_starters.value,
-      generate_ai_rules: generate_ai_rules.value
+      generate_summary: use_llm_onboarding.value,
+      generate_conversation_starters: use_llm_onboarding.value,
+      generate_ai_rules: use_llm_onboarding.value,
+      use_llm_sync: use_llm_onboarding.value
     }
     emit('submitted', payload)
     if (isEditMode.value && props.dataSourceId) {

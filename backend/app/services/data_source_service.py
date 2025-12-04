@@ -229,6 +229,10 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
+        # Respect the use_llm_sync flag - if disabled, skip all LLM generation
+        if not getattr(data_source, "use_llm_sync", True):
+            return {"skipped": True, "reason": "LLM sync disabled for this data source"}
+
 
         try:
             summary = await self.generate_data_source_items(db=db, item="summary", data_source_id=data_source_id, organization=organization, current_user=current_user or User())

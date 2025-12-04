@@ -350,7 +350,10 @@ function markLLMSyncAttempted() {
 }
 
 function shouldRunLLMSync() {
-  return suggestedInstructions.value.length === 0 && 
+  // Respect the use_llm_sync flag from the data source
+  const llmEnabled = integration.value?.use_llm_sync !== false
+  return llmEnabled && 
+         suggestedInstructions.value.length === 0 && 
          !hasAttemptedLLMSync.value && 
          !hasTriedLLMSyncBefore()
 }

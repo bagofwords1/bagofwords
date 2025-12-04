@@ -194,7 +194,11 @@ async function fetchInstructions() {
 function getLLMSyncKey() { return `llm_sync_attempted_${dsId.value}` }
 function hasTriedLLMSyncBefore() { if (typeof window === 'undefined') return false; return localStorage.getItem(getLLMSyncKey()) === 'true' }
 function markLLMSyncAttempted() { if (typeof window !== 'undefined') localStorage.setItem(getLLMSyncKey(), 'true'); hasAttemptedLLMSync.value = true }
-function shouldRunLLMSync() { return suggestedInstructions.value.length === 0 && !hasAttemptedLLMSync.value && !hasTriedLLMSyncBefore() }
+function shouldRunLLMSync() {
+  // Respect the use_llm_sync flag from the data source
+  const llmEnabled = integration.value?.use_llm_sync !== false
+  return llmEnabled && suggestedInstructions.value.length === 0 && !hasAttemptedLLMSync.value && !hasTriedLLMSyncBefore()
+}
 
 async function runLLMSync() {
   if (!dsId.value) return
