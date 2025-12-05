@@ -23,7 +23,7 @@ class DescribeTablesTool(Tool):
             description=(
                 "Describe specific tables to get more information about them. Returns tables, columns, usage metrics, etc. Use this to ensure you have the right tables and columns for your analysis."
             ),
-            category="action",
+            category="research",
             version="1.0.0",
             input_schema=DescribeTablesInput.model_json_schema(),
             output_schema=DescribeTablesOutput.model_json_schema(),

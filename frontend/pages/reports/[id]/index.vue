@@ -66,161 +66,106 @@
 								<div class="w-full ml-4 max-w-2xl">
 									<!-- System message -->
 									<div>
-										<!-- Render each completion block -->
+										<!-- Render each completion block - unified structure -->
 										<div v-for="(block, blockIndex) in m.completion_blocks" :key="block.id">
-											<!-- Research blocks: put reasoning, tool execution, and assistant in thinking toggle -->
-											<div v-if="isResearchBlock(block)">
-												<!-- Thinking toggle for research blocks -->
-												<div v-if="block.plan_decision?.reasoning || block.reasoning || block.tool_execution || block.status === 'stopped'">
-													<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
-														<div class="font-normal text-sm text-gray-400  mb-2">
-															<div class="flex items-center">
-																<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
-																<span v-if="hasCompletedContent(block)" class="ml-1 font-normal">
-																	{{ getThoughtProcessLabel(block) }}
-																</span>
-																<span v-else class="ml-1">
-																	<div class="dots" />
-																</span>
-															</div>
-														</div>
-													</div>
-													<Transition name="fade">
-														<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content">
-															<!-- Reasoning -->
-															<div v-if="block.plan_decision?.reasoning || block.reasoning" class="markdown-wrapper mb-2">
-																<template v-if="isBlockFinalized(block)">
-																	<MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
-																</template>
-																<template v-else>
-																	<div class="streaming-text">{{ block.plan_decision?.reasoning || block.reasoning || '' }}</div>
-																</template>
-															</div>
-
-															<!-- Fallback for stopped blocks with no reasoning -->
-															<div v-else-if="block.status === 'stopped'" class="text-gray-400 italic mb-2">
-																Generation was stopped before completion.
-															</div>
-
-															<!-- Tool execution details in thinking -->
-															<div v-if="block.tool_execution" class="mb-4">
-																<!-- Use specialized tool component if available -->
-																<component 
-																	v-if="shouldUseToolComponent(block.tool_execution)"
-																	:is="getToolComponent(block.tool_execution.tool_name)"
-																	:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
-																	:tool-execution="block.tool_execution"
-																	@addWidget="handleAddWidgetFromPreview"
-																	@refreshDashboard="refreshDashboardFast"
-																	@toggleSplitScreen="toggleSplitScreen"
-																	@editQuery="handleEditQuery"
-																/>
-
-
-																<!-- Fallback to generic tool display -->
-																<div v-else>
-																	<div class="text-xs text-gray-600 mb-1 font-medium" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
-																		{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
-																	</div>
-																	<div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-																		<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
-																		<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
-																		<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
-																		<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
-																	</div>
-																</div>
-															</div>
-														</div>
-													</Transition>
+											<!-- 1. Thinking box (reasoning only) -->
+											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
+												<div class="thinking-header" @click="toggleReasoning(block.id)">
+													<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-400" />
+													<span v-if="hasCompletedContent(block) || block.tool_execution" class="ml-1">
+														{{ getThoughtProcessLabel(block) }}
+													</span>
+													<span v-else class="ml-1">
+														<div class="dots" />
+													</span>
 												</div>
+												<Transition name="fade">
+													<div 
+														v-if="!isReasoningCollapsed(block.id)" 
+														:ref="el => setReasoningRef(block.id, el)"
+														class="thinking-content"
+													>
+														<template v-if="block.plan_decision?.reasoning || block.reasoning">
+															<template v-if="isBlockFinalized(block)">
+																<MDC :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
+															</template>
+															<template v-else>
+																<div class="streaming-text">{{ block.plan_decision?.reasoning || block.reasoning || '' }}</div>
+															</template>
+														</template>
+														<template v-else-if="block.status === 'stopped'">
+															<div class="text-gray-400 italic">Generation was stopped before completion.</div>
+														</template>
+													</div>
+												</Transition>
 											</div>
 
-											<!-- Action blocks: render like before -->
-											<div v-else>
-												<!-- Block reasoning section -->
-												<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'">
-													<div class="flex justify-between items-center cursor-pointer" @click="toggleReasoning(block.id)">
-														<div class="font-normal text-sm text-gray-500 mb-2">
-															<div class="flex items-center">
-																<Icon :name="isReasoningCollapsed(block.id) ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-4 h-4 text-gray-500" />
-																<span v-if="hasCompletedContent(block)" class="ml-1">
-																	{{ getThoughtProcessLabel(block) }}
-																</span>
-																<span v-else class="ml-1">
-																	<div class="dots" />
-																</span>
+											<!-- 2. Block content - assistant message (hybrid streaming) -->
+											<div v-if="block.content && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper">
+												<!-- Finalized: show only MDC -->
+												<template v-if="isBlockFinalized(block)">
+													<MDC :value="block.content || ''" class="markdown-content" />
+												</template>
+												<!-- Streaming: hybrid layer approach -->
+												<template v-else>
+													<div class="hybrid-stream-container">
+														<!-- Layer 1: Plain text streaming (visible, smooth) -->
+														<div class="streaming-layer streaming-layer--active">
+															<div class="streaming-text">
+																<template v-if="getBlockChunks(`${block.id}:content`).length > 0">
+																	<span 
+																		v-for="chunk in getBlockChunks(`${block.id}:content`)" 
+																		:key="chunk.id" 
+																		class="chunk-fade"
+																	>{{ chunk.text }}</span>
+																</template>
+																<template v-else>{{ block.content }}</template>
 															</div>
 														</div>
-													</div>
-													<Transition name="fade">
-														<div v-if="!isReasoningCollapsed(block.id)" class="text-sm mt-2 leading-relaxed text-gray-500 mb-2 reasoning-content markdown-wrapper">
-															<template v-if="block.plan_decision?.reasoning || block.reasoning">
-																<MDC :key="block.id + ':' + (block.content?.length || 0)" :value="block.plan_decision?.reasoning || block.reasoning || ''" class="markdown-content" />
-															</template>
-															<template v-else-if="block.status === 'stopped'">
-																<div class="text-gray-400 italic">Generation was stopped before completion.</div>
-															</template>
+														<!-- Layer 2: MDC preview (hidden, pre-rendering for instant switch) -->
+														<div class="streaming-layer streaming-layer--mdc-preview" aria-hidden="true">
+															<MDC :value="block.content || ''" class="markdown-content" />
 														</div>
-													</Transition>
-												</div>
-												<!-- Block content -->
-												<div v-if="block.content && !block.plan_decision?.final_answer && block.status !== 'error'" class="markdown-wrapper">
-													<template v-if="isBlockFinalized(block)">
-														<MDC :value="block.content || ''" class="markdown-content" />
-													</template>
-													<template v-else-if="shouldUseMdcDuringStream(block)">
-														<MDC :value="getDebouncedContent(block.id, block.content)" class="markdown-content" />
-													</template>
-												<template v-else>
-													<div class="streaming-text">
-														<!-- Render chunks if available, otherwise fallback to full content -->
-														<template v-if="getBlockChunks(`${block.id}:content`).length > 0">
-															<span 
-																v-for="chunk in getBlockChunks(`${block.id}:content`)" 
-																:key="chunk.id" 
-																class="chunk-fade"
-															>{{ chunk.text }}</span>
-														</template>
-														<template v-else>{{ block.content }}</template>
 													</div>
 												</template>
-												</div>
+											</div>
 
-												<!-- Final answer (if this is the last block and analysis is complete) -->
-												<div v-else-if="block.plan_decision?.final_answer && block.plan_decision?.analysis_complete" class="mt-2 markdown-wrapper">
-													<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
-												</div>
-
-												<!-- Tool execution details -->
-												<div v-if="block.tool_execution" class="mt-3 mb-4">
-													<!-- Use specialized tool component if available -->
-													<component 
-														v-if="shouldUseToolComponent(block.tool_execution)"
-														:is="getToolComponent(block.tool_execution.tool_name)"
-														:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
-														:tool-execution="block.tool_execution"
-														@addWidget="handleAddWidgetFromPreview"
-														@toggleSplitScreen="toggleSplitScreen"
-														@editQuery="handleEditQuery"
-													/>
-													<!-- Fallback to generic expandable tool display -->
-													<div v-else>
-														<div class="text-xs text-gray-500 mb-1">
-															<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
-																{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
-															</span>
-															<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
-																<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
-																<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
-																<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
-																<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
-															</div>
+											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
+											<div v-if="block.tool_execution" class="tool-execution-container">
+												<component 
+													v-if="shouldUseToolComponent(block.tool_execution)"
+													:is="getToolComponent(block.tool_execution.tool_name)"
+													:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
+													:tool-execution="block.tool_execution"
+													@addWidget="handleAddWidgetFromPreview"
+													@refreshDashboard="refreshDashboardFast"
+													@toggleSplitScreen="toggleSplitScreen"
+													@editQuery="handleEditQuery"
+												/>
+												<!-- Fallback to generic expandable tool display -->
+												<div v-else>
+													<div class="text-xs text-gray-500 mb-1">
+														<span class="cursor-pointer hover:text-gray-700" @click="toggleToolDetails(block.tool_execution.id)" v-if="block.tool_execution.tool_name !== 'clarify' && block.tool_execution.tool_name !== 'answer_question' && block.tool_execution.tool_name !== 'suggest_instructions'">
+															{{ block.tool_execution.tool_name }}{{ block.tool_execution.tool_action ? ` → ${block.tool_execution.tool_action}` : '' }} ({{ block.tool_execution.status }})
+														</span>
+														<div v-if="isToolDetailsExpanded(block.tool_execution.id)" class="ml-2 mt-1 text-xs text-gray-400 bg-gray-50 p-2 rounded">
+															<div v-if="block.tool_execution.result_summary">{{ block.tool_execution.result_summary }}</div>
+															<div v-if="block.tool_execution.duration_ms">Duration: {{ block.tool_execution.duration_ms }}ms</div>
+															<div v-if="block.tool_execution.created_widget_id" class="text-green-600">→ Widget: {{ block.tool_execution.created_widget_id }}</div>
+															<div v-if="block.tool_execution.created_step_id" class="text-purple-600">→ Step: {{ block.tool_execution.created_step_id }}</div>
 														</div>
 													</div>
 												</div>
-												<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
-													<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
-												</div>
+											</div>
+											
+											<!-- Tool widget preview -->
+											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
+												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
+											</div>
+
+											<!-- 4. Final answer -->
+											<div v-if="block.plan_decision?.final_answer && block.plan_decision?.analysis_complete" class="mt-2 markdown-wrapper">
+												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
 											</div>
 										</div>
 
@@ -361,7 +306,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onMounted, onUnmounted, watch, computed } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted, watch, computed, type ComponentPublicInstance } from 'vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
@@ -369,6 +314,7 @@ import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
+import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -498,11 +444,23 @@ const expandedToolDetails = ref<Set<string>>(new Set())
 // Track blocks where user has manually toggled reasoning (so we don't auto-collapse them)
 const manuallyToggledReasoning = ref<Set<string>>(new Set())
 
-// Debounced content for MDC rendering during streaming (prevents flicker)
-const debouncedBlockContent = ref<Map<string, string>>(new Map())
-const debounceTimers = ref<Map<string, ReturnType<typeof setTimeout>>>(new Map())
-const CONTENT_DEBOUNCE_MS = 150
-const CONTENT_THRESHOLD = 80 // chars before switching to MDC
+// Reasoning box refs for auto-scroll
+const reasoningRefs = ref<Map<string, HTMLElement>>(new Map())
+
+function setReasoningRef(blockId: string, el: Element | ComponentPublicInstance | null) {
+	if (el && el instanceof HTMLElement) {
+		reasoningRefs.value.set(blockId, el)
+	} else {
+		reasoningRefs.value.delete(blockId)
+	}
+}
+
+function scrollReasoningToBottom(blockId: string) {
+	const el = reasoningRefs.value.get(blockId)
+	if (el) {
+		el.scrollTop = el.scrollHeight
+	}
+}
 
 // Chunk tracking for fade-in effect during streaming
 const blockChunks = ref<Map<string, { id: number; text: string }[]>>(new Map())
@@ -524,29 +482,6 @@ function clearBlockChunks(blockId: string) {
 	blockChunks.value.delete(blockId)
 }
 
-function getDebouncedContent(blockId: string, content: string): string {
-	// Update debounced value with delay
-	const existing = debounceTimers.value.get(blockId)
-	if (existing) clearTimeout(existing)
-	
-	const timer = setTimeout(() => {
-		debouncedBlockContent.value.set(blockId, content)
-	}, CONTENT_DEBOUNCE_MS)
-	debounceTimers.value.set(blockId, timer)
-	
-	// Return last debounced value or current if none exists
-	return debouncedBlockContent.value.get(blockId) || content
-}
-
-function shouldUseMdcDuringStream(block: CompletionBlock): boolean {
-	const content = block.content || ''
-	// Use MDC for longer content or content with markdown indicators
-	return content.length > CONTENT_THRESHOLD || 
-		content.includes('\n') || 
-		content.includes('```') ||
-		content.includes('**') ||
-		content.includes('- ')
-}
 function isRealCompletion(m: ChatMessage): boolean {
     // During streaming we use a temporary client id like "system-<ts>".
     // Only allow feedback UI when we have a real backend id (UUID) either in
@@ -576,16 +511,12 @@ function getMessageError(m: any): string | null {
 
 
 // Helper functions for block types
-function isResearchBlock(block: CompletionBlock): boolean {
-	return block.plan_decision?.plan_type === 'research' || (block.title?.includes('research') ?? false)
-}
-
 function isBlockFinalized(block: CompletionBlock): boolean {
 	return !!(block.plan_decision?.analysis_complete || block.completed_at || block.status === 'stopped')
 }
 
 function hasCompletedContent(block: CompletionBlock): boolean {
-	return !!(block.content || block.status === 'completed' || block.status === 'stopped')
+	return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped')
 }
 
 function getToolComponent(toolName: string) {
@@ -605,6 +536,8 @@ function getToolComponent(toolName: string) {
 			return AnswerQuestionTool
 		case 'read_resources':
 			return ReadResourcesTool
+		case 'inspect_data':
+			return InspectDataTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
 		case 'execute_code':
@@ -743,12 +676,14 @@ watch(
 	// Watch only block IDs and their completion status, not deep content
 	() => lastSystemMessage.value?.completion_blocks?.map(b => ({
 		id: b.id,
-		hasContent: hasCompletedContent(b)
+		hasContent: hasCompletedContent(b),
+		hasTool: !!b.tool_execution
 	})),
 	(blocks) => {
 		if (!blocks) return
 		for (const b of blocks) {
-			if (b.hasContent && !collapsedReasoning.value.has(b.id) && !manuallyToggledReasoning.value.has(b.id)) {
+			// Auto-collapse when content exists OR when tool execution exists
+			if ((b.hasContent || b.hasTool) && !collapsedReasoning.value.has(b.id) && !manuallyToggledReasoning.value.has(b.id)) {
 				collapsedReasoning.value.add(b.id)
 			}
 		}
@@ -955,6 +890,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						block.reasoning = payload.text
 						if (!block.plan_decision) block.plan_decision = {}
 						block.plan_decision.reasoning = payload.text
+						// Auto-scroll reasoning box
+						nextTick(() => scrollReasoningToBottom(payload.block_id))
 					}
 				}
 			}
@@ -977,6 +914,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						block.plan_decision.reasoning = (block.plan_decision.reasoning || '') + t
 						// Track chunk for fade-in animation
 						addBlockChunk(`${payload.block_id}:reasoning`, t)
+						// Auto-scroll reasoning box
+						nextTick(() => scrollReasoningToBottom(payload.block_id))
 					}
 				}
 			}
@@ -1565,13 +1504,10 @@ onUnmounted(() => {
 	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
-	// Clear debounce timers
-	for (const timer of debounceTimers.value.values()) {
-		clearTimeout(timer)
-	}
-	debounceTimers.value.clear()
 	// Clear streaming chunks
 	blockChunks.value.clear()
+	// Clear reasoning refs
+	reasoningRefs.value.clear()
 })
 
 function rerunReport() {
@@ -1983,6 +1919,60 @@ onMounted(async () => {
 	overflow-y: auto !important;
 }
 
+/* Thinking box - collapsible reasoning */
+.thinking-box {
+	margin-bottom: 4px;
+}
+
+.thinking-header {
+	display: flex;
+	align-items: center;
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 400;
+	color: #6b7280;
+	user-select: none;
+}
+
+.thinking-header:hover {
+	color: #374151;
+}
+
+.thinking-content {
+	padding: 4px 0 4px 10px;
+	margin-top: 2px;
+	margin-bottom: 4px;
+	border-left: 1px dashed #e5e7eb;
+	font-size: 12px !important;
+	line-height: 1.4;
+	color: #6b7280;
+}
+
+.thinking-content :deep(*) {
+	font-size: 12px !important;
+	line-height: 1.4 !important;
+}
+
+.thinking-content :deep(.markdown-content) {
+	font-size: 12px !important;
+	line-height: 1.4 !important;
+}
+
+.thinking-content :deep(p) {
+	font-size: 12px !important;
+	margin: 0;
+}
+
+/* Tool execution - clear visual separation */
+.tool-execution-container {
+	margin: 8px 0;
+}
+
+/* Block content - assistant messages */
+.block-content {
+	margin-bottom: 4px;
+}
+
 /* Minimal typography akin to CompletionMessageComponent */
 .markdown-wrapper :deep(.markdown-content) {
 	@apply leading-relaxed;
@@ -1990,6 +1980,14 @@ onMounted(async () => {
 	/* Prevent layout thrashing during streaming */
 	contain: content;
 	content-visibility: auto;
+
+	/* Paragraph spacing to match streaming text appearance */
+	p {
+		margin-bottom: 1em;
+	}
+	p:last-child {
+		margin-bottom: 0;
+	}
 
 	:where(h1, h2, h3, h4, h5, h6) {
 		@apply font-bold mb-4 mt-6;
@@ -2004,8 +2002,28 @@ onMounted(async () => {
 	ol { @apply list-decimal; }
 	li { @apply mb-1.5; }
 
-	pre { @apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto; }
-	code { @apply bg-gray-50 px-1 py-0.5 rounded text-sm font-mono; }
+	/* Code blocks (fenced with ```) */
+	pre {
+		@apply bg-gray-50 p-4 rounded-lg mb-4 overflow-x-auto;
+		white-space: pre-wrap;
+		word-wrap: break-word;
+	}
+	pre code {
+		/* Reset inline code styles for code blocks */
+		background: none;
+		padding: 0;
+		border-radius: 0;
+		font-size: 13px;
+		line-height: 1.5;
+		display: block;
+		white-space: pre-wrap;
+		word-wrap: break-word;
+	}
+	/* Inline code (single backticks) */
+	code {
+		@apply bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono;
+		color: #374151;
+	}
 	a { 
 		@apply text-gray-900 no-underline relative;
 		transition: color 0.15s ease;
@@ -2033,6 +2051,31 @@ onMounted(async () => {
 	blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; }
 	table { @apply w-full border-collapse mb-4; }
 	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
+}
+
+/* Hybrid streaming container - layers plain text over MDC preview */
+.hybrid-stream-container {
+    position: relative;
+    min-height: 1.625em;
+}
+
+.streaming-layer {
+    transition: opacity 0.3s ease-out;
+}
+
+.streaming-layer--active {
+    position: relative;
+    z-index: 1;
+}
+
+.streaming-layer--mdc-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 0;
 }
 
 /* Streaming text container */
@@ -2094,7 +2137,6 @@ onMounted(async () => {
 .dots::after {
 	content: 'Thinking...';
 	display: inline-block;
-	margin-top: 5px;
 	background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
 	background-size: 200% 100%;
 	-webkit-background-clip: text;
@@ -2102,7 +2144,7 @@ onMounted(async () => {
 	color: transparent;
 	animation: shimmer 2s linear infinite, ellipsis 1s infinite;
 	font-weight: 400;
-	font-size: 14px;
+	font-size: 12px;
 	opacity: 1;
 }
 
@@ -2130,15 +2172,6 @@ onMounted(async () => {
         opacity: 1;
         transform: translateY(0);
     }
-}
-
-.reasoning-content { 
-	opacity: 0.8; 
-	transition: opacity 0.2s ease; 
-}
-
-.reasoning-content:hover { 
-	opacity: 1; 
 }
 
 /* Minimal shimmer for reconnect banner */

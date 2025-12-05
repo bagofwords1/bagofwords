@@ -861,8 +861,15 @@ class AgentV2:
                                 "metrics": decision.metrics.model_dump() if decision.metrics else None,
                             }
                         ))
-                        if decision.analysis_complete:
-                            # Final answer path
+                        
+                        # IMPORTANT: Check for action FIRST before checking analysis_complete.
+                        # The LLM sometimes sets analysis_complete=true when it means "this is the 
+                        # final step" rather than "no action needed". If there's an action, execute it.
+                        action = decision.action
+                        
+                        # Only treat analysis_complete as terminal if there's NO action
+                        if decision.analysis_complete and not action:
+                            # Final answer path (no tool to execute)
                             invalid_retry_count = 0
                             
                             # === IMMEDIATE: Emit completion.finished so UI updates instantly ===
@@ -893,8 +900,6 @@ class AgentV2:
                                     conditions
                                 )
                             break
-
-                        action = decision.action
                         # Retry flow: action plan with missing action
                         if (getattr(decision, "plan_type", None) == "action") and not action:
                             if invalid_retry_count >= max_invalid_retries:
@@ -1034,6 +1039,11 @@ class AgentV2:
                             "ds_clients": self.clients,
                             "excel_files": self.files
                         }
+
+                        # Emit generic output event for tools that stream results (inspect_data, answer_question)
+                        if tool_name == "inspect_data":
+                            # Ensure streaming stdout is enabled by default for this tool
+                            pass
 
                         async def emit(ev: dict):
                             # Handle streaming side-effects
@@ -1492,17 +1502,18 @@ class AgentV2:
             return {"decision": False, "conditions": []}
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
-        """Validate that tool is available for the chosen plan type."""
+        """Validate that tool is available for the chosen plan type.
+        
+        NOTE: We no longer enforce strict plan_type matching. The plan_type is a
+        reasoning signal for the LLM, not a hard constraint. Strict validation
+        was causing loops where the LLM couldn't call action tools during research.
+        """
         metadata = self.registry.get_metadata(tool_name)
         if not metadata:
             return False
-            
-        if plan_type == "research":
-            return metadata.category in ["research", "both"]
-        elif plan_type == "action":
-            return metadata.category in ["action", "both"]
-            
-        return False
+        
+        # Always allow - plan_type is advisory, not enforced
+        return True
 
     async def _handle_streaming_event(self, tool_name: str, event: dict, tool_input: dict = None):
         """Handle real-time streaming events for widget/step management."""
@@ -1935,6 +1946,24 @@ class AgentV2:
 
                     # Ensure observation carries ids for auditing/tracking
                     observation["step_id"] = self.current_step_id
+
+            elif tool_name == "inspect_data":
+                # Track table usage for inspection
+                try:
+                    if isinstance(tool_input, dict):
+                        tbs = tool_input.get("tables_by_source")
+                        if tbs:
+                            await self.project_manager.emit_table_usage_from_tables_by_source(
+                                db=self.db,
+                                report=self.report,
+                                step=None,
+                                tables_by_source=tbs,
+                                user_id=str(getattr(self.head_completion, "user_id", None)) if hasattr(self.head_completion, "user_id") and self.head_completion.user_id else None,
+                                user_role=None,
+                                source_type="sql",
+                            )
+                except Exception:
+                    pass
             
             elif tool_name == "create_dashboard":
                 # Finalize: ensure observation has the latest active layout blocks

@@ -4,6 +4,7 @@ from .create_data_model import DataModel, DataModelColumn, SeriesBarLinePieArea,
 from .create_and_execute_code import CreateAndExecuteCodeInput, CreateAndExecuteCodeOutput
 from .create_widget import CreateWidgetInput, CreateWidgetOutput
 from .create_data import CreateDataInput, CreateDataOutput
+from .inspect_data import InspectDataInput, InspectDataOutput
 from .create_dashboard import CreateDashboardInput, CreateDashboardOutput
 from .clarify import ClarifyInput, ClarifyOutput
 from .describe_tables import DescribeTablesInput, DescribeTablesOutput
@@ -27,6 +28,8 @@ __all__ = [
     "CreateWidgetOutput",
     "CreateDataInput",
     "CreateDataOutput",
+    "InspectDataInput",
+    "InspectDataOutput",
     "CreateDashboardInput",
     "CreateDashboardOutput",
     "ClarifyInput",

@@ -34,7 +34,7 @@ class ReadResourcesTool(Tool):
                 "Describe metadata resources (dbt/LookML/markdown/etc.) by name or regex. "
                 "Returns information about the resources and their metadata. Use this when to research or get information about the resources."
             ),
-            category="action",
+            category="research",
             version="1.0.0",
             input_schema=ReadResourcesInput.model_json_schema(),
             output_schema=ReadResourcesOutput.model_json_schema(),

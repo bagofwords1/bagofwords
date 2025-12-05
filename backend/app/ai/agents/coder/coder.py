@@ -456,6 +456,12 @@ class Coder:
 
             **Guidelines and Requirements**:
 
+            0. **CRITICAL - ONE FOCUSED WIDGET**:
+               - Create ONE widget that answers ONE specific question or shows ONE metric/chart.
+               - Do NOT combine multiple unrelated KPIs, metrics, or analyses into a single DataFrame.
+               - If past_observations contain multi-table inspection queries, those were exploratory research — do NOT mimic that pattern here.
+               - Your output should be focused and purposeful, not a data dump.
+
             1. **Function Signature**: Implement exactly:
                `def generate_df(ds_clients, excel_files):`
                - The function should return the main dataframe that answers the user prompt.
@@ -709,6 +715,12 @@ class Coder:
 
         **Guidelines and Requirements**:
 
+        0. **CRITICAL - ONE FOCUSED WIDGET**:
+           - Create ONE widget that answers ONE specific question or shows ONE metric/chart.
+           - Do NOT combine multiple unrelated KPIs, metrics, or analyses into a single DataFrame.
+           - If past_observations contain multi-table inspection queries, those were exploratory research — do NOT mimic that pattern here.
+           - Your output should be focused and purposeful, not a data dump.
+
         1. **Function Signature**: Implement exactly:
            `def generate_df(ds_clients, excel_files):`
            - The function should return the main dataframe that answers the user prompt.
@@ -772,6 +784,113 @@ class Coder:
         result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
         # Remove any code after return df
         result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
+        return result
+
+    async def generate_inspection_code(
+        self,
+        prompt,
+        schemas,
+        ds_clients,
+        excel_files,
+        code_and_error_messages,
+        memories,
+        previous_messages,
+        retries,
+        prev_data_model_code_pair=None,
+        sigkill_event=None,
+        code_context_builder=None,
+        context: CodeGenContext | None = None,
+        **kwargs  # Absorb any extra args from the executor
+    ):
+        # Optional early exit
+        if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
+            return "def generate_df(ds_clients, excel_files):\n    return None"
+
+        # Resolve context (similar to generate_code)
+        if context is not None:
+            instructions_context = context.instructions_context or ""
+            resources_context = context.resources_context or ""
+            files_context = context.files_context or ""
+            schemas = context.schemas_excerpt or schemas
+            prompt = context.interpreted_prompt or context.user_prompt or prompt
+        else:
+            # Fallback (minimal)
+            instructions_context = ""
+            resources_context = ""
+            files_context = ""
+
+        # Prepare data source descriptions
+        data_source_descriptions = []
+        for data_source_name, client in ds_clients.items():
+            data_source_descriptions.append(
+                f"data_source_name: {data_source_name}\ndescription: {client.description}"
+            )
+        data_source_section = "\n".join(data_source_descriptions)
+
+        # Prepare excel files
+        excel_files_description = []
+        for index, file in enumerate(excel_files):
+            excel_files_description.append(f"{index}: {file.description}")
+        excel_files_section = "\n".join(excel_files_description)
+
+        text = f"""
+        You are a Data Investigator doing a QUICK hypothesis validation.
+
+        Your goal: Write a Python function `generate_df(ds_clients, excel_files)` that **validates assumptions** about data before creating tracked widgets.
+        This is NOT for generating insights — insights come from create_data. This is just a quick peek.
+
+        **Context and Inputs**:
+        - User Prompt (Validation Goal):
+        <user_prompt>
+        {prompt}
+        </user_prompt>
+
+        - Schemas (already available, DO NOT query information_schema):
+        <schemas>
+        {schemas}
+        </schemas>
+
+        - Files:
+        {files_context}
+
+        - Data Sources:
+        {data_source_section}
+        
+        - Excel Files (available via `excel_files` list):
+        {excel_files_section}
+
+        **CRITICAL CONSTRAINTS**:
+        1. **MAX 2-3 QUERIES TOTAL** - This is a quick validation, not a full analysis.
+        2. **LIMIT 3** - Always use `LIMIT 3` in SQL. Always use `.head(3)` on DataFrames.
+        3. **Complex joins are OK** - You can join tables to validate relationships.
+        4. **DO NOT query information_schema** - Schema is already provided above.
+
+        **What to validate**:
+        - Sample rows to see data structure
+        - Distinct values for a specific column (e.g., status codes, categories)
+        - Check for nulls in key columns
+        - Verify join keys match between tables
+        - Check date formats or value ranges
+
+        **PRINT EVERYTHING**: The user will ONLY see what you `print()`.
+        - `print(df.head(3))`
+        - `print(df['col'].unique()[:10])`
+        - `print(df['col'].isna().sum())`
+
+        **Function Signature**: `def generate_df(ds_clients, excel_files):`
+
+        **Return**: The inspected dataframe or `None`. The `print()` output is the primary deliverable.
+
+        Now produce ONLY the Python function code. No markdown. Keep it SHORT.
+        """
+
+        result = self.llm.inference(text)
+        
+        # Clean up code fences
+        result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
+        result = re.sub(r'(?m)^\s*```\s*$', '', result)
+        result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
+        
         return result
     
     async def validate_code(self, code, data_model):
