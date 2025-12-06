@@ -31,8 +31,9 @@ class ReadResourcesTool(Tool):
         return ToolMetadata(
             name="read_resources",
             description=(
-                "Describe metadata resources (dbt/LookML/markdown/etc.) by name or regex. "
-                "Returns information about the resources and their metadata. Use this when to research or get information about the resources."
+                "RESEARCH: Read metadata resources (dbt/LookML/docs). "
+                "CRITICAL: Metadata often contains business rules, definitions, and guidelines. "
+                "If metadata resources exist, read them FIRST - they can contain rules you need."
             ),
             category="research",
             version="1.0.0",

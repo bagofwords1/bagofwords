@@ -581,7 +581,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="create_data",
-            description="Generate code from prompt and execute to return tabular data.",
+            description="Generate code from prompt and execute to return data resultas table or chart. Use this when you want to generate a tracked insight, or you have enough information to generate a widget. Call create_data for 1 insight at a time. If you need to generate multiple insights, call create_data multiple times.",
             category="action",
             version="1.0.0",
             input_schema=CreateDataInput.model_json_schema(),

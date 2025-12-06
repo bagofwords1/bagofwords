@@ -18,7 +18,10 @@ class ClarifyTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="clarify",
-            description="Ask clarifying questions when user request is ambiguous or needs more specific information. Use also when user is using a metric/measure that is not well defined.",
+            description=(
+                "ACTION: Ask clarifying questions when request is ambiguous or metric/measure is undefined. "
+                "If you don't know something, say you don't know - use this tool to ask."
+            ),
             category="action",  # Research tool - gathers information
             version="1.0.0",
             input_schema=ClarifyInput.model_json_schema(),
