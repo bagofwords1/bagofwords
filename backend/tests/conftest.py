@@ -130,6 +130,7 @@ from tests.fixtures.console_metrics import get_console_metrics, get_console_metr
 from tests.fixtures.mention import get_available_mentions
 from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite
 from tests.fixtures.file import upload_file, upload_csv_file, upload_excel_file, get_files, get_files_by_report, remove_file_from_report
+from tests.fixtures.organization_settings import get_organization_settings, update_organization_settings, upload_organization_icon, delete_organization_icon, get_organization_icon
 
 from main import app
 
@@ -145,9 +146,18 @@ def alembic_config(db_backend):
     test_url = os.environ.get("TEST_DATABASE_URL", settings.TEST_DATABASE_URL)
     print(f"Using test database URL: {test_url} (backend: {db_backend})")
     
+    # Ensure required directories exist for tests
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    
+    for dir_name in ["uploads/files", "uploads/branding"]:
+        dir_path = os.path.join(backend_dir, dir_name)
+        if not os.path.exists(dir_path):
+            print(f"Creating {dir_name} directory: {dir_path}")
+            os.makedirs(dir_path, exist_ok=True)
+    
     if db_backend == "sqlite":
         # Ensure the database directory exists for SQLite
-        db_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db")
+        db_dir = os.path.join(backend_dir, "db")
         if not os.path.exists(db_dir):
             print(f"Creating database directory: {db_dir}")
             os.makedirs(db_dir, exist_ok=True)

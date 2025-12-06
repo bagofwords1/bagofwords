@@ -264,7 +264,7 @@ class OrganizationSettingsService:
         image = image.resize((256, 256))
 
         # storage path
-        base_dir = os.path.abspath(os.path.join(os.getcwd(), "branding_uploads"))
+        base_dir = os.path.abspath(os.path.join(os.getcwd(), "uploads", "branding"))
         os.makedirs(base_dir, exist_ok=True)
 
         digest = hashlib.sha256(raw).hexdigest()[:16]
@@ -303,7 +303,7 @@ class OrganizationSettingsService:
         general = dict(settings.config.get("general", {}))
         icon_key = general.get("icon_key")
         if icon_key:
-            base_dir = os.path.abspath(os.path.join(os.getcwd(), "branding_uploads"))
+            base_dir = os.path.abspath(os.path.join(os.getcwd(), "uploads", "branding"))
             file_path = os.path.join(base_dir, icon_key)
             if os.path.exists(file_path):
                 try:
