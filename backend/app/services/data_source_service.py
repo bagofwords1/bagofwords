@@ -1038,8 +1038,8 @@ class DataSourceService:
         page_size: int = 100,
         schema_filter: List[str] = None,
         search: str = None,
-        sort_by: str = "name",
-        sort_dir: str = "asc",
+        sort_by: str = "is_active",
+        sort_dir: str = "desc",
         include_inactive: bool = True,
         selected_state: str = None,  # 'selected', 'unselected', or None for all
         with_stats: bool = False,

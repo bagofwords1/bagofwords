@@ -36,6 +36,9 @@ from tests.fixtures.data_source import (
     refresh_schema,
     get_metadata_resources,
     update_metadata_resources,
+    bulk_update_tables,
+    update_tables_status_delta,
+    get_full_schema_paginated
 )
 from tests.fixtures.git_repository import (
     create_git_repository,

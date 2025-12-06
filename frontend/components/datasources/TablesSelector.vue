@@ -169,7 +169,7 @@
         </div>
       </div>
       
-      <!-- Stats row - single line with all info -->
+      <!-- Stats row -->
       <div class="mt-1 text-[10px] text-gray-500 flex items-center justify-between">
         <span v-if="isPaginated && hasActiveFilters">
           {{ totalMatching }} matching · Showing {{ paginationStart }}-{{ paginationEnd }}
@@ -178,31 +178,33 @@
           Showing {{ paginationStart }}-{{ paginationEnd }} of {{ totalTables }}
         </span>
         <span v-else></span>
-        <span>{{ selectedCount }}/{{ totalTables }} selected</span>
+        
+        <!-- Right side: bulk actions -->
+        <div v-if="canUpdate" class="flex items-center gap-2">
+          <button
+            @click="selectAllMatching"
+            :disabled="loading || refreshing || bulkUpdating"
+            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <span v-if="bulkUpdating">...</span>
+            <span v-else-if="hasActiveFilters">Select all ({{ totalMatching }})</span>
+            <span v-else>Select all</span>
+          </button>
+          <button
+            @click="deselectAllMatching"
+            :disabled="loading || refreshing || bulkUpdating"
+            class="px-2 py-0.5 text-[10px] rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            <span v-if="bulkUpdating">...</span>
+            <span v-else-if="hasActiveFilters">Deselect all ({{ totalMatching }})</span>
+            <span v-else>Deselect all</span>
+          </button>
+        </div>
       </div>
-    </div>
-
-    <!-- Bulk actions -->
-    <div v-if="canUpdate" class="mt-1.5 flex items-center justify-end">
-      <div class="flex items-center gap-2">
-        <button
-          @click="selectAllMatching"
-          :disabled="loading || refreshing || bulkUpdating"
-          class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          <span v-if="bulkUpdating">...</span>
-          <span v-else-if="hasActiveFilters">Select all ({{ totalMatching }})</span>
-          <span v-else>Select all</span>
-        </button>
-        <button
-          @click="deselectAllMatching"
-          :disabled="loading || refreshing || bulkUpdating"
-          class="px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-        >
-          <span v-if="bulkUpdating">...</span>
-          <span v-else-if="hasActiveFilters">Deselect all ({{ totalMatching }})</span>
-          <span v-else>Deselect all</span>
-        </button>
+      
+      <!-- Active count row -->
+      <div class="text-[10px] text-gray-500">
+        {{ selectedCount }}/{{ totalTables }} active
       </div>
     </div>
 
@@ -419,8 +421,8 @@ const filters = ref<{ selectedState: 'selected' | 'unselected' | null }>({
   selectedState: null,
 })
 const sort = reactive<{ key: 'name' | 'is_active' | 'usage' | null; direction: 'asc' | 'desc' }>({
-  key: 'name',
-  direction: 'asc'
+  key: 'is_active',
+  direction: 'desc'
 })
 
 // Dirty tracking - track changes from original state
