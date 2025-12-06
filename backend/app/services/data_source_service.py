@@ -988,7 +988,7 @@ class DataSourceService:
         # Debug logging
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"Extracted schema: {main_model_schema}")
+        logger.debug(f"Extracted schema: {main_model_schema}")
 
         return main_model_schema
 
@@ -1089,7 +1089,14 @@ class DataSourceService:
         # Helper for cross-database JSON schema extraction
         # SQLite uses json_extract, PostgreSQL uses ->> operator
         def get_schema_expr():
-            return func.json_extract(DataSourceTable.metadata_json, '$.schema')
+            bind = db.get_bind()
+            dialect_name = bind.dialect.name if bind else "sqlite"
+            if dialect_name == "postgresql":
+                # PostgreSQL: use ->> operator for JSON text extraction
+                return DataSourceTable.metadata_json.op('->>')('schema')
+            else:
+                # SQLite: use json_extract
+                return func.json_extract(DataSourceTable.metadata_json, '$.schema')
         
         # Apply schema filter (from metadata_json->>'schema')
         if schema_filter and len(schema_filter) > 0:
@@ -1257,7 +1264,13 @@ class DataSourceService:
                 schema_filter = [schema_filter]
             if len(schema_filter) > 0:
                 from sqlalchemy import or_
-                schema_expr = func.json_extract(DataSourceTable.metadata_json, '$.schema')
+                # Detect dialect for cross-database JSON extraction
+                bind = db.get_bind()
+                dialect_name = bind.dialect.name if bind else "sqlite"
+                if dialect_name == "postgresql":
+                    schema_expr = DataSourceTable.metadata_json.op('->>')('schema')
+                else:
+                    schema_expr = func.json_extract(DataSourceTable.metadata_json, '$.schema')
                 schema_conditions = [schema_expr == s for s in schema_filter]
                 update_query = update_query.where(or_(*schema_conditions))
         
@@ -1564,29 +1577,19 @@ class DataSourceService:
                         "no_rows": 0,
                     })
 
-            # Bulk insert new tables
+            # Bulk insert new tables using ORM (database-agnostic)
             if new_tables:
-                # Use raw SQL for bulk insert (more efficient)
                 for table_data in new_tables:
-                    await db.execute(
-                        text("""
-                            INSERT INTO datasource_tables 
-                            (id, name, columns, pks, fks, datasource_id, is_active, metadata_json, no_rows, created_at, updated_at)
-                            VALUES 
-                            (:id, :name, :columns, :pks, :fks, :datasource_id, :is_active, :metadata_json, :no_rows, datetime('now'), datetime('now'))
-                        """),
-                        {
-                            "id": str(uuid.uuid4()),
-                            "name": table_data["name"],
-                            "columns": table_data["columns"],
-                            "pks": table_data["pks"],
-                            "fks": table_data["fks"],
-                            "datasource_id": table_data["datasource_id"],
-                            "is_active": 1 if table_data["is_active"] else 0,
-                            "metadata_json": table_data["metadata_json"],
-                            "no_rows": table_data["no_rows"],
-                        }
-                    )
+                    db.add(DataSourceTable(
+                        name=table_data["name"],
+                        columns=json_module.loads(table_data["columns"]),
+                        pks=json_module.loads(table_data["pks"]),
+                        fks=json_module.loads(table_data["fks"]),
+                        datasource_id=table_data["datasource_id"],  # Already a string
+                        is_active=table_data["is_active"],
+                        metadata_json=json_module.loads(table_data["metadata_json"]) if table_data["metadata_json"] else None,
+                        no_rows=table_data["no_rows"],
+                    ))
                 await db.commit()
 
             # If smart selection needed, use SQL to select top tables
@@ -1603,32 +1606,46 @@ class DataSourceService:
 
     async def _select_active_tables_sql(self, db: AsyncSession, datasource_id: str, max_active: int):
         """
-        Use SQL to select top tables based on:
+        Select top tables based on:
         1. Schema distribution (spread across schemas proportionally)
         2. Column count (tables with more columns ranked higher)
         
-        Updates is_active in a single SQL operation.
+        Uses efficient SQL with dialect-specific functions for PostgreSQL/SQLite.
         """
         from sqlalchemy import text
         
+        # Detect database dialect
+        bind = db.get_bind()
+        dialect_name = bind.dialect.name if bind else "sqlite"
+        is_postgres = dialect_name == "postgresql"
+        
         # First, deactivate all tables for this datasource
         await db.execute(
-            text("UPDATE datasource_tables SET is_active = 0 WHERE datasource_id = :ds_id"),
-            {"ds_id": datasource_id}
+            text("UPDATE datasource_tables SET is_active = :false_val WHERE datasource_id = :ds_id"),
+            {"ds_id": datasource_id, "false_val": False}
         )
         
+        # Build dialect-specific SQL for table selection
+        if is_postgres:
+            # PostgreSQL syntax
+            json_schema_extract = "COALESCE(metadata_json->>'schema', CASE WHEN position('.' in name) > 0 THEN split_part(name, '.', 1) ELSE '__default__' END)"
+            json_array_len = "COALESCE(jsonb_array_length(columns::jsonb), 0)"
+            greatest_expr = "GREATEST(1, CAST(ROUND(1.0 * table_count / total_tables * :max_active) AS INTEGER))"
+        else:
+            # SQLite syntax (no GREATEST function, use MAX or CASE)
+            json_schema_extract = "COALESCE(json_extract(metadata_json, '$.schema'), CASE WHEN instr(name, '.') > 0 THEN substr(name, 1, instr(name, '.') - 1) ELSE '__default__' END)"
+            json_array_len = "COALESCE(json_array_length(columns), 0)"
+            greatest_expr = "MAX(1, CAST(ROUND(1.0 * table_count / total_tables * :max_active) AS INTEGER))"
+        
         # SQL to select top tables with proportional schema distribution
-        # This uses window functions to rank tables within each schema by column count
-        # Then selects top N from each schema proportionally
-        select_sql = text("""
+        # Uses window functions (standard SQL) to rank tables within each schema
+        select_sql = text(f"""
             WITH table_stats AS (
                 SELECT 
                     id,
                     name,
-                    COALESCE(json_extract(metadata_json, '$.schema'), 
-                             CASE WHEN instr(name, '.') > 0 THEN substr(name, 1, instr(name, '.') - 1) ELSE '__default__' END
-                    ) as schema_name,
-                    json_array_length(columns) as col_count
+                    {json_schema_extract} as schema_name,
+                    {json_array_len} as col_count
                 FROM datasource_tables
                 WHERE datasource_id = :ds_id
             ),
@@ -1644,7 +1661,7 @@ class DataSourceService:
                 SELECT 
                     schema_name,
                     -- Proportional allocation with minimum of 1
-                    MAX(1, CAST(ROUND(1.0 * table_count / total_tables * :max_active) AS INTEGER)) as allocation
+                    {greatest_expr} as allocation
                 FROM schema_counts
             ),
             ranked_tables AS (
@@ -1659,23 +1676,12 @@ class DataSourceService:
                 JOIN schema_allocations a ON t.schema_name = a.schema_name
             ),
             selected_by_schema AS (
-                SELECT id, name, schema_name, col_count, rank_in_schema
+                SELECT id, col_count, rank_in_schema
                 FROM ranked_tables
                 WHERE rank_in_schema <= allocation
-            ),
-            -- If we have remaining slots, fill with highest col_count tables not yet selected
-            final_selection AS (
-                SELECT id FROM selected_by_schema
-                UNION
-                SELECT id FROM (
-                    SELECT t.id, t.col_count
-                    FROM table_stats t
-                    WHERE t.id NOT IN (SELECT id FROM selected_by_schema)
-                    ORDER BY t.col_count DESC
-                    LIMIT MAX(0, :max_active - (SELECT COUNT(*) FROM selected_by_schema))
-                )
             )
-            SELECT id FROM final_selection
+            SELECT id FROM selected_by_schema
+            ORDER BY col_count DESC
             LIMIT :max_active
         """)
         
@@ -1688,9 +1694,10 @@ class DataSourceService:
             placeholders = ", ".join([f":id{i}" for i in range(len(selected_ids))])
             params = {f"id{i}": id_val for i, id_val in enumerate(selected_ids)}
             params["ds_id"] = datasource_id
+            params["true_val"] = True
             
             await db.execute(
-                text(f"UPDATE datasource_tables SET is_active = 1 WHERE datasource_id = :ds_id AND id IN ({placeholders})"),
+                text(f"UPDATE datasource_tables SET is_active = :true_val WHERE datasource_id = :ds_id AND id IN ({placeholders})"),
                 params
             )
         
