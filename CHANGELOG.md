@@ -2,6 +2,7 @@
 
 ## Version 0.0.264 (December 5, 2025)
 - Better file management and file analysis (xls, csv, pdf)
+- MariaDB improvements
 
 ## Version 0.0.263 (December 4, 2025)
 - System prompt improvements and a new section for analytical standards
