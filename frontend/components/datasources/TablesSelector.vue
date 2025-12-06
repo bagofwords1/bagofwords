@@ -394,6 +394,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void }>()
 
+const toast = useToast()
+
 // Loading states
 const loading = ref(false)
 const refreshing = ref(false)
@@ -743,7 +745,7 @@ async function onSave() {
   saving.value = true
   
   try {
-    // 1. Execute pending bulk actions first
+    // 1. Execute pending bulk actions first (fail fast if any error)
     for (const bulkAction of pendingBulkActions.value) {
       const res = await useMyFetch(`/data_sources/${props.dsId}/bulk_update_tables`, {
         method: 'POST',
@@ -753,7 +755,9 @@ async function onSave() {
         }
       })
       if ((res as any)?.status?.value !== 'success') {
-        console.error('Bulk action failed', bulkAction)
+        const errorMsg = `Bulk ${bulkAction.action} failed`
+        console.error(errorMsg, bulkAction)
+        throw new Error(errorMsg)
       }
     }
     
@@ -788,8 +792,19 @@ async function onSave() {
     currentActiveState.value.clear()
     await fetchTables()
     
+    toast.add({
+      title: 'Tables updated',
+      description: 'Table selection saved successfully',
+      color: 'green'
+    })
     emit('saved', tables.value)
-  } catch (e) {
+  } catch (e: any) {
+    const errorMsg = e?.message || 'Failed to save table selection'
+    toast.add({
+      title: 'Save failed',
+      description: errorMsg,
+      color: 'red'
+    })
     emit('error', e)
   } finally {
     saving.value = false
