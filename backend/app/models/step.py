@@ -81,7 +81,7 @@ async def broadcast_step_update(data):
         )
         #print(f"Broadcasted step update: {data}")
     except Exception as e:
-        #print(f"Error broadcasting step update: {e}")
+        print(f"Error broadcasting step update: {e}")
 
 async def broadcast_step_insert(data):
     try:
