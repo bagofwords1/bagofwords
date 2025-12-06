@@ -37,6 +37,12 @@ class DataSourceTableSchema(BaseModel):
     degree_out: Optional[int] = None
     entity_like: Optional[bool] = None
     metrics_computed_at: Optional[str] = None
+    # Usage stats (populated when with_stats=True)
+    usage_count: Optional[int] = None
+    success_count: Optional[int] = None
+    failure_count: Optional[int] = None
+    pos_feedback_count: Optional[int] = None
+    neg_feedback_count: Optional[int] = None
     
     class Config:
         from_attributes = True
@@ -105,6 +111,50 @@ class DataSourceTableUpdateSchema(BaseModel):
     degree_out: Optional[int] = None
     entity_like: Optional[bool] = None
     metrics_computed_at: Optional[str] = None
+    
+    class Config:
+        from_attributes = True
+
+
+class PaginatedTablesResponse(BaseModel):
+    """Paginated response for large table lists."""
+    tables: List[DataSourceTableSchema]
+    total: int  # Total tables matching current filter
+    page: int
+    page_size: int
+    total_pages: int
+    schemas: List[str]  # Distinct schema names for filter dropdown
+    selected_count: int  # Count of is_active=True across ALL tables
+    total_tables: int  # Total count of ALL tables for this datasource (no filters)
+    has_more: bool
+    
+    class Config:
+        from_attributes = True
+
+
+class BulkUpdateTablesRequest(BaseModel):
+    """Request schema for bulk activate/deactivate tables."""
+    action: str  # "activate" or "deactivate"
+    filter: Optional[Dict[str, Any]] = None  # {"schema": "...", "search": "..."}
+    
+    class Config:
+        from_attributes = True
+
+
+class DeltaUpdateTablesRequest(BaseModel):
+    """Request schema for delta-based table status updates."""
+    activate: List[str] = []  # Table names to set is_active=True
+    deactivate: List[str] = []  # Table names to set is_active=False
+    
+    class Config:
+        from_attributes = True
+
+
+class DeltaUpdateTablesResponse(BaseModel):
+    """Response schema for delta-based updates."""
+    activated_count: int
+    deactivated_count: int
+    total_selected: int  # New total of is_active=True tables
     
     class Config:
         from_attributes = True
