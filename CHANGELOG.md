@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.265 (December 7, 2025)
+- Bug fixes
+
 ## Version 0.0.264 (December 6, 2025)
 - Enhanced file management and analysis capabilities (supports xls, csv, and pdf files)
 - Improved MariaDB improvements

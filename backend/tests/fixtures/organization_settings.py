@@ -113,3 +113,4 @@ def get_organization_icon(test_client):
         return response
     
     return _get_organization_icon
+

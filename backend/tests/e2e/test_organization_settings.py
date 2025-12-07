@@ -205,3 +205,4 @@ def test_update_organization_settings_full_workflow(
     assert final_settings["config"]["general"]["ai_analyst_name"] == "Analytics Assistant"
     assert final_settings["config"]["general"]["bow_credit"] is False
     assert final_settings["config"]["general"]["icon_key"] is None
+

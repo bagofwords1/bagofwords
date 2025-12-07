@@ -500,7 +500,8 @@ const manuallyToggledReasoning = ref<Set<string>>(new Set())
 
 // Debounced content for MDC rendering during streaming (prevents flicker)
 const debouncedBlockContent = ref<Map<string, string>>(new Map())
-const debounceTimers = ref<Map<string, ReturnType<typeof setTimeout>>>(new Map())
+// Non-reactive Map for timers - modifying this during render is safe
+const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const CONTENT_DEBOUNCE_MS = 150
 const CONTENT_THRESHOLD = 80 // chars before switching to MDC
 
@@ -526,13 +527,13 @@ function clearBlockChunks(blockId: string) {
 
 function getDebouncedContent(blockId: string, content: string): string {
 	// Update debounced value with delay
-	const existing = debounceTimers.value.get(blockId)
+	const existing = debounceTimers.get(blockId)
 	if (existing) clearTimeout(existing)
 	
 	const timer = setTimeout(() => {
 		debouncedBlockContent.value.set(blockId, content)
 	}, CONTENT_DEBOUNCE_MS)
-	debounceTimers.value.set(blockId, timer)
+	debounceTimers.set(blockId, timer)
 	
 	// Return last debounced value or current if none exists
 	return debouncedBlockContent.value.get(blockId) || content
@@ -1566,10 +1567,10 @@ onUnmounted(() => {
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
 	// Clear debounce timers
-	for (const timer of debounceTimers.value.values()) {
+	for (const timer of debounceTimers.values()) {
 		clearTimeout(timer)
 	}
-	debounceTimers.value.clear()
+	debounceTimers.clear()
 	// Clear streaming chunks
 	blockChunks.value.clear()
 })
