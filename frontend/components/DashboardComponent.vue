@@ -1,7 +1,7 @@
 <template>
-    <div class="container mx-auto">
-        <!-- Header: Kept -->
-        <div class="flex items-center justify-between gap-4 mb-2">
+    <div class="flex flex-col h-full overflow-hidden">
+        <!-- Header: Fixed at top -->
+        <div class="flex-shrink-0 flex items-center justify-between gap-4">
             <Toolbar
                 v-if="props.edit"
                 :report="report"
@@ -30,8 +30,8 @@
             />
         </div>
     
-        <!-- Main container for grid and floating editor -->
-        <div class="relative w-full h-full dashboard-area bg-white" :style="wrapperStyle">
+        <!-- Main container for grid and floating editor - scrollable -->
+        <div class="relative flex-1 overflow-y-auto dashboard-area bg-white" :style="wrapperStyle">
             <!-- Loading overlay during initial fetch -->
             <div v-if="isLoading" class="absolute inset-0 z-10 flex items-center justify-center bg-white/60">
                 <Spinner class="mr-2 w-4 h-4" />
@@ -2020,9 +2020,10 @@ import { themes } from '@/components/dashboard/themes'
         overflow: hidden; /* Let editor handle internal scroll */
     }
     
-    /* Main dashboard area - allow scroll if grid overflows */
+    /* Main dashboard area - scrollable content below fixed header */
     .dashboard-area {
-        overflow: auto; /* Or overflow: hidden if grid should not scroll page */
+        overflow-y: auto;
+        overflow-x: hidden;
     }
     
     /* Main Grid - apply zoom */

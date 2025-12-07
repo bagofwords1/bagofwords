@@ -266,7 +266,7 @@
 	</div>
 		</template>
 		<template #right>
-			<div>
+			<div class="h-screen flex flex-col overflow-hidden">
 				<DashboardComponent 
 					ref="dashboardRef"
 					v-if="reportLoaded && (visualizations || []).length >= 0"
@@ -277,6 +277,7 @@
 					:isStreaming="isStreaming"
 					@toggleSplitScreen="toggleSplitScreen"
 					@editVisualization="handleEditQuery"
+					class="flex-1 min-h-0"
 				/>
 				<div v-else-if="reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500">
 					No dashboard items yet.
