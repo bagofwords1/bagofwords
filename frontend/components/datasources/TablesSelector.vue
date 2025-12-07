@@ -324,7 +324,7 @@
     <div v-if="showSave && canUpdate" class="mt-3 flex items-center justify-end">
       <button 
         @click="onSave" 
-        :disabled="saving || !hasPendingChanges" 
+        :disabled="saving" 
         class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
       >
         <span v-if="saving">Saving...</span>
@@ -741,7 +741,8 @@ function deselectAllMatching() {
 
 // Save - executes bulk actions first, then individual delta
 async function onSave() {
-  if (saving.value || !hasPendingChanges.value) return
+  if (saving.value) return
+  if (!hasPendingChanges.value) { emit('saved', tables.value); return }
   saving.value = true
   
   try {
