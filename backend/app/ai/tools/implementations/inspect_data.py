@@ -24,7 +24,7 @@ class InspectDataTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="inspect_data",
-            description="Run Python code to inspect data structures, column values, and samples. Use this to 'peek' at data before creating widgets. Returns execution logs (stdout).",
+            description="Run Python code to inspect data structures, column values, and samples. Use this when you want to undersstand data structures, or had previous errors with code execution and you want to 'peek' at data before creating widgets. Returns execution logs (stdout).",
             category="research",
             version="1.0.0",
             input_schema=InspectDataInput.model_json_schema(),
@@ -143,7 +143,12 @@ class InspectDataTool(Tool):
         ):
             if e["type"] == "stdout":
                 yield ToolStdoutEvent(type="tool.stdout", payload=e["payload"])
-                output_log += (e["payload"].get("message") or "") + "\n"
+                # Handle both string and dict payloads from code_execution
+                payload = e["payload"]
+                if isinstance(payload, str):
+                    output_log += payload + "\n"
+                else:
+                    output_log += (payload.get("message") or "") + "\n"
             elif e["type"] == "progress":
                 yield ToolProgressEvent(type="tool.progress", payload=e["payload"])
             elif e["type"] == "done":

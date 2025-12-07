@@ -988,7 +988,7 @@ class DataSourceService:
         # Debug logging
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"Extracted schema: {main_model_schema}")
+        logger.debug(f"Extracted schema: {main_model_schema}")
 
         return main_model_schema
 
@@ -1028,6 +1028,353 @@ class DataSourceService:
         schemas = await data_source.get_schemas(db=db, include_inactive=include_inactive, with_stats=with_stats)
 
         return schemas
+
+    async def get_data_source_schema_paginated(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        organization: Organization,
+        page: int = 1,
+        page_size: int = 100,
+        schema_filter: List[str] = None,
+        search: str = None,
+        sort_by: str = "is_active",
+        sort_dir: str = "desc",
+        include_inactive: bool = True,
+        selected_state: str = None,  # 'selected', 'unselected', or None for all
+        with_stats: bool = False,
+        current_user: User = None,
+    ):
+        """
+        Get paginated tables for a data source with filtering and sorting.
+        Returns PaginatedTablesResponse with tables, counts, and metadata.
+        """
+        from app.schemas.datasource_table_schema import PaginatedTablesResponse, DataSourceTableSchema
+        from sqlalchemy import func, case
+        import math
+        
+        # Verify data source exists
+        result = await db.execute(
+            select(DataSource).filter(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id
+            )
+        )
+        data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+        
+        # Get total_tables count first (no filters - for display purposes)
+        total_tables_result = await db.execute(
+            select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)
+        )
+        total_tables = total_tables_result.scalar() or 0
+        
+        # Build base query
+        base_query = select(DataSourceTable).where(DataSourceTable.datasource_id == data_source_id)
+        count_query = select(func.count(DataSourceTable.id)).where(DataSourceTable.datasource_id == data_source_id)
+        
+        # Apply selected_state filter (takes precedence over include_inactive)
+        if selected_state == 'selected':
+            base_query = base_query.where(DataSourceTable.is_active == True)
+            count_query = count_query.where(DataSourceTable.is_active == True)
+        elif selected_state == 'unselected':
+            base_query = base_query.where(DataSourceTable.is_active == False)
+            count_query = count_query.where(DataSourceTable.is_active == False)
+        elif not include_inactive:
+            # Only apply include_inactive if selected_state is not set
+            base_query = base_query.where(DataSourceTable.is_active == True)
+            count_query = count_query.where(DataSourceTable.is_active == True)
+        
+        # Helper for cross-database JSON schema extraction
+        # SQLite uses json_extract, PostgreSQL uses ->> operator
+        def get_schema_expr():
+            bind = db.get_bind()
+            dialect_name = bind.dialect.name if bind else "sqlite"
+            if dialect_name == "postgresql":
+                # PostgreSQL: use ->> operator for JSON text extraction
+                return DataSourceTable.metadata_json.op('->>')('schema')
+            else:
+                # SQLite: use json_extract
+                return func.json_extract(DataSourceTable.metadata_json, '$.schema')
+        
+        # Apply schema filter (from metadata_json->>'schema')
+        if schema_filter and len(schema_filter) > 0:
+            # Filter by schema names in metadata_json
+            schema_expr = get_schema_expr()
+            schema_conditions = [schema_expr == schema_name for schema_name in schema_filter]
+            if schema_conditions:
+                from sqlalchemy import or_
+                base_query = base_query.where(or_(*schema_conditions))
+                count_query = count_query.where(or_(*schema_conditions))
+        
+        # Apply search filter
+        if search and search.strip():
+            search_pattern = f"%{search.strip().lower()}%"
+            base_query = base_query.where(func.lower(DataSourceTable.name).like(search_pattern))
+            count_query = count_query.where(func.lower(DataSourceTable.name).like(search_pattern))
+        
+        # Get total count matching filter
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
+        
+        # Get total selected count (across ALL tables, not just filtered)
+        selected_count_result = await db.execute(
+            select(func.count(DataSourceTable.id)).where(
+                DataSourceTable.datasource_id == data_source_id,
+                DataSourceTable.is_active == True
+            )
+        )
+        selected_count = selected_count_result.scalar() or 0
+        
+        # Get distinct schemas for filter dropdown (database-agnostic)
+        schema_expr = get_schema_expr()
+        schemas_result = await db.execute(
+            select(func.distinct(schema_expr))
+            .where(DataSourceTable.datasource_id == data_source_id)
+            .where(schema_expr.isnot(None))
+        )
+        distinct_schemas = [row[0] for row in schemas_result.fetchall() if row[0]]
+        
+        # Apply sorting
+        sort_column = DataSourceTable.name  # default
+        if sort_by == "centrality_score":
+            sort_column = DataSourceTable.centrality_score
+        elif sort_by == "is_active":
+            sort_column = DataSourceTable.is_active
+        elif sort_by == "richness":
+            sort_column = DataSourceTable.richness
+        
+        if sort_dir.lower() == "desc":
+            base_query = base_query.order_by(sort_column.desc().nullslast())
+        else:
+            base_query = base_query.order_by(sort_column.asc().nullsfirst())
+        
+        # Apply pagination
+        offset = (page - 1) * page_size
+        base_query = base_query.offset(offset).limit(page_size)
+        
+        # Execute query
+        tables_result = await db.execute(base_query)
+        table_rows = tables_result.scalars().all()
+        
+        # Fetch stats if requested
+        stats_map = {}
+        if with_stats:
+            from app.models.table_stats import TableStats
+            stats_result = await db.execute(
+                select(TableStats).where(
+                    TableStats.report_id == None,
+                    TableStats.data_source_id == data_source_id,
+                )
+            )
+            for s in stats_result.scalars().all():
+                stats_map[(s.table_fqn or '').lower()] = s
+        
+        # Convert to schema objects
+        tables = []
+        for table in table_rows:
+            # Get stats for this table
+            stats = stats_map.get((table.name or '').lower()) if with_stats else None
+            
+            table_schema = DataSourceTableSchema(
+                id=str(table.id),
+                name=table.name,
+                columns=table.columns or [],
+                no_rows=table.no_rows or 0,
+                datasource_id=str(table.datasource_id),
+                pks=table.pks or [],
+                fks=table.fks or [],
+                is_active=table.is_active,
+                metadata_json=table.metadata_json,
+                centrality_score=table.centrality_score,
+                richness=table.richness,
+                degree_in=table.degree_in,
+                degree_out=table.degree_out,
+                entity_like=table.entity_like,
+                metrics_computed_at=table.metrics_computed_at.isoformat() if table.metrics_computed_at else None,
+                # Stats fields
+                usage_count=int(stats.usage_count or 0) if stats else None,
+                success_count=int(stats.success_count or 0) if stats else None,
+                failure_count=int(stats.failure_count or 0) if stats else None,
+                pos_feedback_count=int(stats.pos_feedback_count or 0) if stats else None,
+                neg_feedback_count=int(stats.neg_feedback_count or 0) if stats else None,
+            )
+            tables.append(table_schema)
+        
+        total_pages = math.ceil(total / page_size) if page_size > 0 else 0
+        
+        return PaginatedTablesResponse(
+            tables=tables,
+            total=total,
+            page=page,
+            page_size=page_size,
+            total_pages=total_pages,
+            schemas=sorted(distinct_schemas),
+            selected_count=selected_count,
+            total_tables=total_tables,
+            has_more=page < total_pages,
+        )
+
+    async def bulk_update_tables_status(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        organization: Organization,
+        action: str,
+        filter_params: dict = None,
+        current_user: User = None,
+    ):
+        """
+        Bulk update is_active status for tables matching filter.
+        action: "activate" or "deactivate"
+        filter_params: {"schema": ["schema1", "schema2"], "search": "..."}
+        """
+        from sqlalchemy import update, func
+        from app.schemas.datasource_table_schema import DeltaUpdateTablesResponse
+        
+        # Verify data source exists
+        result = await db.execute(
+            select(DataSource).filter(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id
+            )
+        )
+        data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+        
+        if action not in ("activate", "deactivate"):
+            raise HTTPException(status_code=400, detail="Action must be 'activate' or 'deactivate'")
+        
+        new_status = action == "activate"
+        
+        # Build update query with filters
+        update_query = (
+            update(DataSourceTable)
+            .where(DataSourceTable.datasource_id == data_source_id)
+        )
+        
+        filter_params = filter_params or {}
+        
+        # Apply schema filter (database-agnostic JSON extraction)
+        schema_filter = filter_params.get("schema") or filter_params.get("schemas")
+        if schema_filter:
+            if isinstance(schema_filter, str):
+                schema_filter = [schema_filter]
+            if len(schema_filter) > 0:
+                from sqlalchemy import or_
+                # Detect dialect for cross-database JSON extraction
+                bind = db.get_bind()
+                dialect_name = bind.dialect.name if bind else "sqlite"
+                if dialect_name == "postgresql":
+                    schema_expr = DataSourceTable.metadata_json.op('->>')('schema')
+                else:
+                    schema_expr = func.json_extract(DataSourceTable.metadata_json, '$.schema')
+                schema_conditions = [schema_expr == s for s in schema_filter]
+                update_query = update_query.where(or_(*schema_conditions))
+        
+        # Apply search filter
+        search = filter_params.get("search")
+        if search and search.strip():
+            search_pattern = f"%{search.strip().lower()}%"
+            update_query = update_query.where(func.lower(DataSourceTable.name).like(search_pattern))
+        
+        # Execute update
+        update_query = update_query.values(is_active=new_status)
+        result = await db.execute(update_query)
+        await db.commit()
+        
+        affected_count = result.rowcount
+        
+        # Get new total selected count
+        selected_count_result = await db.execute(
+            select(func.count(DataSourceTable.id)).where(
+                DataSourceTable.datasource_id == data_source_id,
+                DataSourceTable.is_active == True
+            )
+        )
+        total_selected = selected_count_result.scalar() or 0
+        
+        return DeltaUpdateTablesResponse(
+            activated_count=affected_count if new_status else 0,
+            deactivated_count=affected_count if not new_status else 0,
+            total_selected=total_selected,
+        )
+
+    async def update_tables_status_delta(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        organization: Organization,
+        activate: List[str] = None,
+        deactivate: List[str] = None,
+        current_user: User = None,
+    ):
+        """
+        Update table is_active status using delta (lists of table names to activate/deactivate).
+        More efficient than sending all tables.
+        """
+        from sqlalchemy import update, func
+        from app.schemas.datasource_table_schema import DeltaUpdateTablesResponse
+        
+        # Verify data source exists
+        result = await db.execute(
+            select(DataSource).filter(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id
+            )
+        )
+        data_source = result.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Data source not found")
+        
+        activate = activate or []
+        deactivate = deactivate or []
+        
+        activated_count = 0
+        deactivated_count = 0
+        
+        # Activate tables
+        if activate:
+            activate_result = await db.execute(
+                update(DataSourceTable)
+                .where(
+                    DataSourceTable.datasource_id == data_source_id,
+                    DataSourceTable.name.in_(activate)
+                )
+                .values(is_active=True)
+            )
+            activated_count = activate_result.rowcount
+        
+        # Deactivate tables
+        if deactivate:
+            deactivate_result = await db.execute(
+                update(DataSourceTable)
+                .where(
+                    DataSourceTable.datasource_id == data_source_id,
+                    DataSourceTable.name.in_(deactivate)
+                )
+                .values(is_active=False)
+            )
+            deactivated_count = deactivate_result.rowcount
+        
+        await db.commit()
+        
+        # Get new total selected count
+        selected_count_result = await db.execute(
+            select(func.count(DataSourceTable.id)).where(
+                DataSourceTable.datasource_id == data_source_id,
+                DataSourceTable.is_active == True
+            )
+        )
+        total_selected = selected_count_result.scalar() or 0
+        
+        return DeltaUpdateTablesResponse(
+            activated_count=activated_count,
+            deactivated_count=deactivated_count,
+            total_selected=total_selected,
+        )
 
     async def get_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
         """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list."""
@@ -1160,12 +1507,19 @@ class DataSourceService:
         
         return data_source
     
+    # Maximum tables to set as active when auto-selecting
+    MAX_ACTIVE_TABLES = 500
+
     async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None, should_set_active: bool = True, current_user: User | None = None):
         """Diff-based upsert of datasource tables.
         - Insert new tables
         - Update changed tables
         - Deactivate missing tables (keep history)
+        - If should_set_active and > MAX_ACTIVE_TABLES, auto-select top tables via SQL
         """
+        from sqlalchemy import text
+        import json as json_module
+        
         try:
             fresh_tables = await self.get_data_source_fresh_schema(db=db, data_source_id=data_source.id, organization=organization, current_user=current_user)
             if not fresh_tables:
@@ -1198,36 +1552,49 @@ class DataSourceService:
                         "metadata_json": getattr(t, "metadata_json", None)
                     }
 
-            # Load existing
-            existing_q = await db.execute(select(DataSourceTable).where(DataSourceTable.datasource_id == data_source.id))
-            existing_rows = {row.name: row for row in existing_q.scalars().all()}
+            total_tables = len(incoming)
+            needs_smart_selection = should_set_active and total_tables > self.MAX_ACTIVE_TABLES
 
-            # Upserts
-            changed = False
+            # Load existing table names only (not full objects for efficiency)
+            existing_q = await db.execute(
+                select(DataSourceTable.id, DataSourceTable.name)
+                .where(DataSourceTable.datasource_id == data_source.id)
+            )
+            existing_names = {row.name: row.id for row in existing_q.fetchall()}
+
+            # Prepare bulk insert for new tables
+            new_tables = []
             for name, payload in incoming.items():
-                if name in existing_rows:
-                    row = existing_rows[name]
-                    # Detect diffs (shallow compare)
-                    if row.columns != payload["columns"] or row.pks != payload["pks"] or row.fks != payload["fks"] or row.metadata_json != payload.get("metadata_json"):
-                        row.columns = payload["columns"]
-                        row.pks = payload["pks"]
-                        row.fks = payload["fks"]
-                        row.metadata_json = payload.get("metadata_json")
-                        changed = True
-                else:
-                    db.add(DataSourceTable(
-                        name=name,
-                        columns=payload["columns"],
-                        pks=payload["pks"],
-                        fks=payload["fks"],
-                        datasource_id=data_source.id,
-                        is_active=bool(should_set_active),
-                        metadata_json=payload.get("metadata_json"),
-                    ))
-                    changed = True
+                if name not in existing_names:
+                    new_tables.append({
+                        "name": name,
+                        "columns": json_module.dumps(payload["columns"]),
+                        "pks": json_module.dumps(payload["pks"]),
+                        "fks": json_module.dumps(payload["fks"]),
+                        "datasource_id": str(data_source.id),
+                        "is_active": False if needs_smart_selection else bool(should_set_active),
+                        "metadata_json": json_module.dumps(payload.get("metadata_json")) if payload.get("metadata_json") else None,
+                        "no_rows": 0,
+                    })
 
-            if changed:
+            # Bulk insert new tables using ORM (database-agnostic)
+            if new_tables:
+                for table_data in new_tables:
+                    db.add(DataSourceTable(
+                        name=table_data["name"],
+                        columns=json_module.loads(table_data["columns"]),
+                        pks=json_module.loads(table_data["pks"]),
+                        fks=json_module.loads(table_data["fks"]),
+                        datasource_id=table_data["datasource_id"],  # Already a string
+                        is_active=table_data["is_active"],
+                        metadata_json=json_module.loads(table_data["metadata_json"]) if table_data["metadata_json"] else None,
+                        no_rows=table_data["no_rows"],
+                    ))
                 await db.commit()
+
+            # If smart selection needed, use SQL to select top tables
+            if needs_smart_selection:
+                await self._select_active_tables_sql(db, str(data_source.id), self.MAX_ACTIVE_TABLES)
 
         except Exception as e:
             print(f"Error saving tables: {e}")
@@ -1236,6 +1603,105 @@ class DataSourceService:
         # Return full schema including inactive for downstream context
         schemas = await data_source.get_schemas(db=db, include_inactive=True)
         return schemas
+
+    async def _select_active_tables_sql(self, db: AsyncSession, datasource_id: str, max_active: int):
+        """
+        Select top tables based on:
+        1. Schema distribution (spread across schemas proportionally)
+        2. Column count (tables with more columns ranked higher)
+        
+        Uses efficient SQL with dialect-specific functions for PostgreSQL/SQLite.
+        """
+        from sqlalchemy import text
+        
+        # Detect database dialect
+        bind = db.get_bind()
+        dialect_name = bind.dialect.name if bind else "sqlite"
+        is_postgres = dialect_name == "postgresql"
+        
+        # First, deactivate all tables for this datasource
+        await db.execute(
+            text("UPDATE datasource_tables SET is_active = :false_val WHERE datasource_id = :ds_id"),
+            {"ds_id": datasource_id, "false_val": False}
+        )
+        
+        # Build dialect-specific SQL for table selection
+        if is_postgres:
+            # PostgreSQL syntax
+            json_schema_extract = "COALESCE(metadata_json->>'schema', CASE WHEN position('.' in name) > 0 THEN split_part(name, '.', 1) ELSE '__default__' END)"
+            json_array_len = "COALESCE(jsonb_array_length(columns::jsonb), 0)"
+            greatest_expr = "GREATEST(1, CAST(ROUND(1.0 * table_count / total_tables * :max_active) AS INTEGER))"
+        else:
+            # SQLite syntax (no GREATEST function, use MAX or CASE)
+            json_schema_extract = "COALESCE(json_extract(metadata_json, '$.schema'), CASE WHEN instr(name, '.') > 0 THEN substr(name, 1, instr(name, '.') - 1) ELSE '__default__' END)"
+            json_array_len = "COALESCE(json_array_length(columns), 0)"
+            greatest_expr = "MAX(1, CAST(ROUND(1.0 * table_count / total_tables * :max_active) AS INTEGER))"
+        
+        # SQL to select top tables with proportional schema distribution
+        # Uses window functions (standard SQL) to rank tables within each schema
+        select_sql = text(f"""
+            WITH table_stats AS (
+                SELECT 
+                    id,
+                    name,
+                    {json_schema_extract} as schema_name,
+                    {json_array_len} as col_count
+                FROM datasource_tables
+                WHERE datasource_id = :ds_id
+            ),
+            schema_counts AS (
+                SELECT 
+                    schema_name,
+                    COUNT(*) as table_count,
+                    SUM(COUNT(*)) OVER () as total_tables
+                FROM table_stats
+                GROUP BY schema_name
+            ),
+            schema_allocations AS (
+                SELECT 
+                    schema_name,
+                    -- Proportional allocation with minimum of 1
+                    {greatest_expr} as allocation
+                FROM schema_counts
+            ),
+            ranked_tables AS (
+                SELECT 
+                    t.id,
+                    t.name,
+                    t.schema_name,
+                    t.col_count,
+                    ROW_NUMBER() OVER (PARTITION BY t.schema_name ORDER BY t.col_count DESC, t.name) as rank_in_schema,
+                    a.allocation
+                FROM table_stats t
+                JOIN schema_allocations a ON t.schema_name = a.schema_name
+            ),
+            selected_by_schema AS (
+                SELECT id, col_count, rank_in_schema
+                FROM ranked_tables
+                WHERE rank_in_schema <= allocation
+            )
+            SELECT id FROM selected_by_schema
+            ORDER BY col_count DESC
+            LIMIT :max_active
+        """)
+        
+        result = await db.execute(select_sql, {"ds_id": datasource_id, "max_active": max_active})
+        selected_ids = [row[0] for row in result.fetchall()]
+        
+        # Activate selected tables
+        if selected_ids:
+            # Build placeholders for IN clause
+            placeholders = ", ".join([f":id{i}" for i in range(len(selected_ids))])
+            params = {f"id{i}": id_val for i, id_val in enumerate(selected_ids)}
+            params["ds_id"] = datasource_id
+            params["true_val"] = True
+            
+            await db.execute(
+                text(f"UPDATE datasource_tables SET is_active = :true_val WHERE datasource_id = :ds_id AND id IN ({placeholders})"),
+                params
+            )
+        
+        await db.commit()
         
     
     async def refresh_data_source_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):

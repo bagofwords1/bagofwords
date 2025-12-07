@@ -237,3 +237,119 @@ def update_metadata_resources(test_client):
         return response.json()
 
     return _update_metadata_resources
+
+
+@pytest.fixture
+def get_full_schema_paginated(test_client):
+    """Get paginated full schema with filtering and sorting."""
+    def _get_full_schema_paginated(
+        *,
+        data_source_id: str,
+        user_token: str = None,
+        org_id: str = None,
+        page: int = 1,
+        page_size: int = 100,
+        schema_filter: str = None,
+        search: str = None,
+        sort_by: str = None,
+        sort_dir: str = None,
+        selected_state: str = None,
+    ):
+        if user_token is None:
+            pytest.fail("User token is required")
+        if org_id is None:
+            pytest.fail("Organization ID is required")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        params = {"page": page, "page_size": page_size}
+        if schema_filter:
+            params["schema_filter"] = schema_filter
+        if search:
+            params["search"] = search
+        if sort_by:
+            params["sort_by"] = sort_by
+        if sort_dir:
+            params["sort_dir"] = sort_dir
+        if selected_state:
+            params["selected_state"] = selected_state
+
+        response = test_client.get(
+            f"/api/data_sources/{data_source_id}/full_schema",
+            params=params,
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _get_full_schema_paginated
+
+
+@pytest.fixture
+def bulk_update_tables(test_client):
+    """Bulk activate/deactivate tables."""
+    def _bulk_update_tables(
+        *,
+        data_source_id: str,
+        action: str,
+        filter: dict = None,
+        user_token: str = None,
+        org_id: str = None,
+    ):
+        if user_token is None:
+            pytest.fail("User token is required")
+        if org_id is None:
+            pytest.fail("Organization ID is required")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.post(
+            f"/api/data_sources/{data_source_id}/bulk_update_tables",
+            json={"action": action, "filter": filter},
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _bulk_update_tables
+
+
+@pytest.fixture
+def update_tables_status_delta(test_client):
+    """Update table status using delta (activate/deactivate lists)."""
+    def _update_tables_status_delta(
+        *,
+        data_source_id: str,
+        activate: list = None,
+        deactivate: list = None,
+        user_token: str = None,
+        org_id: str = None,
+    ):
+        if user_token is None:
+            pytest.fail("User token is required")
+        if org_id is None:
+            pytest.fail("Organization ID is required")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.put(
+            f"/api/data_sources/{data_source_id}/update_tables_status",
+            json={"activate": activate or [], "deactivate": deactivate or []},
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _update_tables_status_delta

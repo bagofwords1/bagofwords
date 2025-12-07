@@ -27,7 +27,7 @@ class FileService:
     async def upload_file(self, db: AsyncSession, file: UploadFile, current_user: User, organization: Organization, report_id: Optional[str] = None) -> FileSchema:
         # Generate a unique filename to prevent overwriting existing files
         unique_filename = f"{uuid.uuid4()}_{file.filename}"
-        file_location = f"uploads/{unique_filename}"
+        file_location = f"uploads/files/{unique_filename}"
 
         # Async file writing
         async with aiofiles.open(file_location, "wb") as buffer:

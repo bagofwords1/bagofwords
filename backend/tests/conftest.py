@@ -1,18 +1,94 @@
 import asyncio
 import pytest
 import os
+import sys
+import atexit
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Generator, AsyncGenerator
 from fastapi.testclient import TestClient
 from alembic.config import Config
 from alembic import command
 
+# ============================================================================
+# PostgreSQL Container Support - MUST run before app imports
+# ============================================================================
+_postgres_container = None
+
+
+def _get_db_backend_from_argv():
+    """Parse --db option from sys.argv before pytest processes it."""
+    for i, arg in enumerate(sys.argv):
+        if arg == "--db" and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+        if arg.startswith("--db="):
+            return arg.split("=", 1)[1]
+    return os.environ.get("TEST_DB", "sqlite")
+
+
+def _setup_test_database():
+    """Setup test database - called at module load time, before app imports."""
+    global _postgres_container
+    
+    db_backend = _get_db_backend_from_argv()
+    print(f"\n📊 Test database backend: {db_backend}")
+    
+    if db_backend == "postgres":
+        from testcontainers.postgres import PostgresContainer
+        
+        print("🐘 Starting PostgreSQL container...")
+        _postgres_container = PostgresContainer("postgres:15")
+        _postgres_container.start()
+        
+        # Get connection URL and set as environment variable BEFORE settings loads
+        sync_url = _postgres_container.get_connection_url()
+        # testcontainers returns postgresql+psycopg2:// URL
+        clean_url = sync_url.replace("postgresql+psycopg2://", "postgresql://")
+        
+        os.environ["TEST_DATABASE_URL"] = clean_url
+        print(f"✅ PostgreSQL container ready: {clean_url.split('@')[1] if '@' in clean_url else clean_url}")
+        
+        # Register cleanup on exit
+        atexit.register(_cleanup_container)
+    else:
+        # SQLite - set URL with process ID for isolation
+        os.environ["TEST_DATABASE_URL"] = f"sqlite:///db/test_{os.getpid()}.db"
+
+
+def _cleanup_container():
+    """Cleanup PostgreSQL container."""
+    global _postgres_container
+    if _postgres_container is not None:
+        print("\n🛑 Stopping PostgreSQL container...")
+        _postgres_container.stop()
+        _postgres_container = None
+
+
+# >>> CRITICAL: Setup database BEFORE importing app modules <<<
+_setup_test_database()
+
+# Now it's safe to import app modules (env var is set)
 from app.models.base import Base
 from app.settings.config import settings
 from app.settings.database import create_async_database_engine, create_async_session_factory
 
 # Ensure the application uses the test database/engine during tests
 settings.TESTING = True
+
+
+def pytest_addoption(parser):
+    """Add --db CLI option for selecting test database backend."""
+    parser.addoption(
+        "--db",
+        action="store",
+        default="sqlite",
+        choices=["sqlite", "postgres"],
+        help="Database backend for tests: sqlite (default, fast) or postgres (thorough)"
+    )
+
+
+def pytest_configure(config):
+    """Configure pytest markers."""
+    config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_telemetry_for_tests():
@@ -36,6 +112,9 @@ from tests.fixtures.data_source import (
     refresh_schema,
     get_metadata_resources,
     update_metadata_resources,
+    bulk_update_tables,
+    update_tables_status_delta,
+    get_full_schema_paginated
 )
 from tests.fixtures.git_repository import (
     create_git_repository,
@@ -51,43 +130,82 @@ from tests.fixtures.console_metrics import get_console_metrics, get_console_metr
 from tests.fixtures.mention import get_available_mentions
 from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite
 from tests.fixtures.file import upload_file, upload_csv_file, upload_excel_file, get_files, get_files_by_report, remove_file_from_report
+from tests.fixtures.organization_settings import get_organization_settings, update_organization_settings, upload_organization_icon, delete_organization_icon, get_organization_icon
 
 from main import app
 
 @pytest.fixture(scope="session")
-def alembic_config():
+def db_backend(request):
+    """Get the database backend from CLI option."""
+    return request.config.getoption("--db", default="sqlite")
+
+
+@pytest.fixture(scope="session")
+def alembic_config(db_backend):
     """Create Alembic configuration object."""
-    print(f"Using test database URL: {settings.TEST_DATABASE_URL}")
+    test_url = os.environ.get("TEST_DATABASE_URL", settings.TEST_DATABASE_URL)
+    print(f"Using test database URL: {test_url} (backend: {db_backend})")
     
-    # Ensure the database directory exists
-    db_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "db")
-    if not os.path.exists(db_dir):
-        print(f"Creating database directory: {db_dir}")
-        os.makedirs(db_dir, exist_ok=True)
+    # Ensure required directories exist for tests
+    backend_dir = os.path.dirname(os.path.dirname(__file__))
+    
+    for dir_name in ["uploads/files", "uploads/branding"]:
+        dir_path = os.path.join(backend_dir, dir_name)
+        if not os.path.exists(dir_path):
+            print(f"Creating {dir_name} directory: {dir_path}")
+            os.makedirs(dir_path, exist_ok=True)
+    
+    if db_backend == "sqlite":
+        # Ensure the database directory exists for SQLite
+        db_dir = os.path.join(backend_dir, "db")
+        if not os.path.exists(db_dir):
+            print(f"Creating database directory: {db_dir}")
+            os.makedirs(db_dir, exist_ok=True)
+        
+        # Convert async driver to sync for alembic
+        sync_url = test_url.replace('sqlite+aiosqlite:', 'sqlite:')
+    else:
+        # PostgreSQL - ensure we use sync driver for alembic
+        sync_url = test_url.replace('postgresql+asyncpg://', 'postgresql://')
     
     alembic_cfg = Config("alembic.ini")
-    # Convert aiosqlite to sqlite for alembic
-    sync_url = settings.TEST_DATABASE_URL.replace('sqlite+aiosqlite:', 'sqlite:')
-    # Add unique test database for each test file
-    sync_url = sync_url.replace('test.db', f'test_{os.getpid()}.db')
     alembic_cfg.set_main_option("sqlalchemy.url", sync_url)
     return alembic_cfg
 
+
+def _reset_postgres_schema(alembic_config):
+    """Drop and recreate public schema to clean up ENUMs, types, etc."""
+    from sqlalchemy import create_engine, text
+    engine = create_engine(alembic_config.get_main_option("sqlalchemy.url"))
+    with engine.connect() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+        conn.execute(text("GRANT ALL ON SCHEMA public TO public"))
+        conn.commit()
+    engine.dispose()
+
+
 @pytest.fixture(scope="function", autouse=True)
-def run_migrations(alembic_config):
-    """Run migrations once per test session to avoid SQLite locking issues."""
+def run_migrations(alembic_config, db_backend):
+    """Run migrations per test function for isolation."""
+    
+    if db_backend == "postgres":
+        # PostgreSQL: reset schema BEFORE test to avoid stale async connections
+        print("Resetting PostgreSQL schema...")
+        _reset_postgres_schema(alembic_config)
+    
     print("Starting migrations...")
     command.upgrade(alembic_config, "head")
     print("Migrations completed!")
+    
     yield
-    print("Downgrading migrations...")
-    command.downgrade(alembic_config, "base")
-    # Clean up test database file at the end of the session
-    db_file = alembic_config.get_main_option("sqlalchemy.url").replace('sqlite:///', '')
-    if os.path.exists(db_file):
-        os.remove(db_file)
-
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers", "e2e: marks tests as end-to-end tests"
-    )
+    
+    # Cleanup after test
+    if db_backend == "sqlite":
+        # SQLite: downgrade and remove file
+        print("Cleaning up SQLite...")
+        command.downgrade(alembic_config, "base")
+        db_file = alembic_config.get_main_option("sqlalchemy.url").replace('sqlite:///', '')
+        if os.path.exists(db_file):
+            os.remove(db_file)
+    # PostgreSQL cleanup happens at START of next test (or container shutdown)

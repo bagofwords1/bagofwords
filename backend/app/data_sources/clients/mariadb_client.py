@@ -8,6 +8,7 @@ from typing import List, Generator
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
+from urllib.parse import quote_plus
 
 
 class MariadbClient(DataSourceClient):
@@ -21,8 +22,15 @@ class MariadbClient(DataSourceClient):
     @cached_property
     def mariadb_uri(self):
         # Updated URI to use pymysql
+        auth_part = ""
+        if self.user:
+            auth_part = quote_plus(self.user)
+            if self.password:
+                auth_part += f":{quote_plus(self.password)}"
+            auth_part += "@"
+        
         uri = (
-            f"mysql+pymysql://{self.user}:{self.password}@"
+            f"mysql+pymysql://{auth_part}"
             f"{self.host}:{self.port}/{self.database}"
         )
         return uri
@@ -74,7 +82,7 @@ class MariadbClient(DataSourceClient):
 
                     if table_name not in tables:
                         tables[table_name] = Table(
-                            name=table_name, columns=[], pks=None, fks=None)
+                            name=table_name, columns=[], pks=[], fks=[])
                     tables[table_name].columns.append(
                         TableColumn(name=column_name, dtype=data_type))
                 return list(tables.values())
@@ -112,6 +120,5 @@ class MariadbClient(DataSourceClient):
 
     @property
     def description(self):
-        description = f"MariaDB client (using pymysql) for database '{
-            self.database}' at {self.host}:{self.port}"
+        description = f"MariaDB client (using pymysql) for database '{self.database}' at {self.host}:{self.port}"
         return description

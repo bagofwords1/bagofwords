@@ -6,7 +6,7 @@
           <div class="relative">
             <TablesSelector
               :dsId="dsId"
-              schema="user"
+              schema="full"
               :canUpdate="true"
               :showRefresh="false"
               :showSave="true"

@@ -73,8 +73,8 @@
 
       <div class="mt-3 block text-xs border-t border-gray-100 pt-3">
         By signing up, you agree to our 
-        <a href="https://bagofwords.com/terms.html" target="_blank" class="text-blue-400">Terms of Service</a> and 
-        <a href="https://bagofwords.com/privacy.html" target="_blank" class="text-blue-400">Privacy Policy</a>
+        <a href="https://bagofwords.com/terms" target="_blank" class="text-blue-400">Terms of Service</a> and 
+        <a href="https://bagofwords.com/privacy" target="_blank" class="text-blue-400">Privacy Policy</a>
       </div>
     </div>
   </div>

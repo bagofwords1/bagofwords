@@ -444,27 +444,27 @@ const expandedToolDetails = ref<Set<string>>(new Set())
 // Track blocks where user has manually toggled reasoning (so we don't auto-collapse them)
 const manuallyToggledReasoning = ref<Set<string>>(new Set())
 
-// Reasoning box refs for auto-scroll
-const reasoningRefs = ref<Map<string, HTMLElement>>(new Map())
+// Debounced content for MDC rendering during streaming (prevents flicker)
+const debouncedBlockContent = ref<Map<string, string>>(new Map())
+// Non-reactive Map for timers - modifying this during render is safe
+const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const CONTENT_DEBOUNCE_MS = 150
+const CONTENT_THRESHOLD = 80 // chars before switching to MDC
 
-function setReasoningRef(blockId: string, el: Element | ComponentPublicInstance | null) {
-	if (el && el instanceof HTMLElement) {
+// Chunk tracking for fade-in effect during streaming
+const blockChunks = ref<Map<string, { id: number; text: string }[]>>(new Map())
+let chunkIdCounter = 0
+
+// Refs for reasoning content elements (used for dynamic ref binding)
+const reasoningRefs = ref<Map<string, HTMLElement | null>>(new Map())
+
+function setReasoningRef(blockId: string, el: HTMLElement | null) {
+	if (el) {
 		reasoningRefs.value.set(blockId, el)
 	} else {
 		reasoningRefs.value.delete(blockId)
 	}
 }
-
-function scrollReasoningToBottom(blockId: string) {
-	const el = reasoningRefs.value.get(blockId)
-	if (el) {
-		el.scrollTop = el.scrollHeight
-	}
-}
-
-// Chunk tracking for fade-in effect during streaming
-const blockChunks = ref<Map<string, { id: number; text: string }[]>>(new Map())
-let chunkIdCounter = 0
 
 function getBlockChunks(blockId: string): { id: number; text: string }[] {
 	return blockChunks.value.get(blockId) || []
@@ -482,6 +482,29 @@ function clearBlockChunks(blockId: string) {
 	blockChunks.value.delete(blockId)
 }
 
+function getDebouncedContent(blockId: string, content: string): string {
+	// Update debounced value with delay
+	const existing = debounceTimers.get(blockId)
+	if (existing) clearTimeout(existing)
+	
+	const timer = setTimeout(() => {
+		debouncedBlockContent.value.set(blockId, content)
+	}, CONTENT_DEBOUNCE_MS)
+	debounceTimers.set(blockId, timer)
+	
+	// Return last debounced value or current if none exists
+	return debouncedBlockContent.value.get(blockId) || content
+}
+
+function shouldUseMdcDuringStream(block: CompletionBlock): boolean {
+	const content = block.content || ''
+	// Use MDC for longer content or content with markdown indicators
+	return content.length > CONTENT_THRESHOLD || 
+		content.includes('\n') || 
+		content.includes('```') ||
+		content.includes('**') ||
+		content.includes('- ')
+}
 function isRealCompletion(m: ChatMessage): boolean {
     // During streaming we use a temporary client id like "system-<ts>".
     // Only allow feedback UI when we have a real backend id (UUID) either in
@@ -1240,33 +1263,42 @@ async function loadCompletions() {
 				status = 'stopped'
 			}
 			
+			const blocks = c.completion_blocks?.map((b: any) => ({
+				id: b.id,
+				seq: b.seq,
+				block_index: b.block_index,
+				status: b.status,
+				content: b.content,
+				reasoning: b.reasoning,
+				plan_decision: b.plan_decision,
+				tool_execution: b.tool_execution ? {
+					id: b.tool_execution.id,
+					tool_name: b.tool_execution.tool_name,
+					tool_action: b.tool_execution.tool_action,
+					status: b.tool_execution.status,
+					result_summary: b.tool_execution.result_summary,
+					result_json: b.tool_execution.result_json,
+					duration_ms: b.tool_execution.duration_ms,
+					created_widget_id: b.tool_execution.created_widget_id,
+					created_step_id: b.tool_execution.created_step_id,
+					created_widget: b.tool_execution.created_widget,
+					created_step: b.tool_execution.created_step
+				} : undefined
+			})) || []
+			
+			// Auto-collapse reasoning for blocks that have content or tool execution
+			for (const b of blocks) {
+				if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
+					collapsedReasoning.value.add(b.id)
+				}
+			}
+			
 			return {
 				id: c.id,
 				role: c.role as ChatRole,
 				status: status,
 				prompt: c.prompt,
-				completion_blocks: c.completion_blocks?.map((b: any) => ({
-					id: b.id,
-					seq: b.seq,
-					block_index: b.block_index,
-					status: b.status,
-					content: b.content,
-					reasoning: b.reasoning,
-					plan_decision: b.plan_decision,
-					tool_execution: b.tool_execution ? {
-						id: b.tool_execution.id,
-						tool_name: b.tool_execution.tool_name,
-						tool_action: b.tool_execution.tool_action,
-						status: b.tool_execution.status,
-						result_summary: b.tool_execution.result_summary,
-						result_json: b.tool_execution.result_json,
-						duration_ms: b.tool_execution.duration_ms,
-						created_widget_id: b.tool_execution.created_widget_id,
-						created_step_id: b.tool_execution.created_step_id,
-						created_widget: b.tool_execution.created_widget,
-						created_step: b.tool_execution.created_step
-					} : undefined
-				})) || [],
+				completion_blocks: blocks,
 				created_at: c.created_at,
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
@@ -1299,33 +1331,43 @@ async function loadPreviousCompletions() {
         const newItems: ChatMessage[] = list.map((c: any) => {
             let status = c.status as ChatStatus
             if (c.sigkill && status === 'in_progress') status = 'stopped'
+            
+            const blocks = c.completion_blocks?.map((b: any) => ({
+                id: b.id,
+                seq: b.seq,
+                block_index: b.block_index,
+                status: b.status,
+                content: b.content,
+                reasoning: b.reasoning,
+                plan_decision: b.plan_decision,
+                tool_execution: b.tool_execution ? {
+                    id: b.tool_execution.id,
+                    tool_name: b.tool_execution.tool_name,
+                    tool_action: b.tool_execution.tool_action,
+                    status: b.tool_execution.status,
+                    result_summary: b.tool_execution.result_summary,
+                    result_json: b.tool_execution.result_json,
+                    duration_ms: b.tool_execution.duration_ms,
+                    created_widget_id: b.tool_execution.created_widget_id,
+                    created_step_id: b.tool_execution.created_step_id,
+                    created_widget: b.tool_execution.created_widget,
+                    created_step: b.tool_execution.created_step
+                } : undefined
+            })) || []
+            
+            // Auto-collapse reasoning for blocks that have content or tool execution
+            for (const b of blocks) {
+                if ((b.content || b.tool_execution) && !manuallyToggledReasoning.value.has(b.id)) {
+                    collapsedReasoning.value.add(b.id)
+                }
+            }
+            
             return {
                 id: c.id,
                 role: c.role as ChatRole,
                 status,
                 prompt: c.prompt,
-                completion_blocks: c.completion_blocks?.map((b: any) => ({
-                    id: b.id,
-                    seq: b.seq,
-                    block_index: b.block_index,
-                    status: b.status,
-                    content: b.content,
-                    reasoning: b.reasoning,
-                    plan_decision: b.plan_decision,
-                    tool_execution: b.tool_execution ? {
-                        id: b.tool_execution.id,
-                        tool_name: b.tool_execution.tool_name,
-                        tool_action: b.tool_execution.tool_action,
-                        status: b.tool_execution.status,
-                        result_summary: b.tool_execution.result_summary,
-                        result_json: b.tool_execution.result_json,
-                        duration_ms: b.tool_execution.duration_ms,
-                        created_widget_id: b.tool_execution.created_widget_id,
-                        created_step_id: b.tool_execution.created_step_id,
-                        created_widget: b.tool_execution.created_widget,
-                        created_step: b.tool_execution.created_step
-                    } : undefined
-                })) || [],
+                completion_blocks: blocks,
                 created_at: c.created_at,
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
@@ -1504,6 +1546,11 @@ onUnmounted(() => {
 	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
+	// Clear debounce timers
+	for (const timer of debounceTimers.values()) {
+		clearTimeout(timer)
+	}
+	debounceTimers.clear()
 	// Clear streaming chunks
 	blockChunks.value.clear()
 	// Clear reasoning refs
@@ -1971,12 +2018,13 @@ onMounted(async () => {
 /* Block content - assistant messages */
 .block-content {
 	margin-bottom: 4px;
+	font-size: 13px;
 }
 
 /* Minimal typography akin to CompletionMessageComponent */
 .markdown-wrapper :deep(.markdown-content) {
 	@apply leading-relaxed;
-	font-size: 14px;
+	font-size: 13px;
 	/* Prevent layout thrashing during streaming */
 	contain: content;
 	content-visibility: auto;
@@ -2021,7 +2069,8 @@ onMounted(async () => {
 	}
 	/* Inline code (single backticks) */
 	code {
-		@apply bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono;
+		@apply bg-gray-100 px-1.5 py-0.5 rounded font-mono;
+		font-size: 12px;
 		color: #374151;
 	}
 	a { 
@@ -2082,7 +2131,7 @@ onMounted(async () => {
 .streaming-text {
     white-space: pre-wrap;
     word-break: break-word;
-    font-size: 14px;
+    font-size: 13px;
     line-height: 1.625;
     position: relative;
 }

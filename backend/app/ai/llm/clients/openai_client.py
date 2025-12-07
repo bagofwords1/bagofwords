@@ -12,18 +12,40 @@ class OpenAi(LLMClient):
         self.client = OpenAI(api_key=api_key, base_url=base_url)
         self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
-    def inference(self, model_id: str, prompt: str) -> LLMResponse:
+    @staticmethod
+    def _build_chat_params(model_id: str, prompt: str, *, stream: bool = False) -> dict[str, Any]:
+        """
+        Build parameters for OpenAI chat completions, including optional reasoning settings.
+
+        We only pass `reasoning_effort` for models that support OpenAI's reasoning API
+        to avoid API errors for non-reasoning models.
+        """
         temperature = 1 if model_id == "gpt-5" else 0.3
 
-        chat_completion = self.client.chat.completions.create(
-            messages=[
+        params: dict[str, Any] = {
+            "messages": [
                 {
                     "role": "user",
                     "content": prompt.strip(),
                 }
             ],
-            model=model_id,
-            temperature=temperature,
+            "model": model_id,
+            "temperature": temperature,
+        }
+
+        if stream:
+            params["stream"] = True
+
+        # Enable medium reasoning effort for reasoning-capable models.
+        # Adjust this predicate as you add/change reasoning models.
+        if model_id.startswith(("o1", "o3")) or model_id in {"o1", "o3"}:
+            params["reasoning_effort"] = "medium"
+
+        return params
+
+    def inference(self, model_id: str, prompt: str) -> LLMResponse:
+        chat_completion = self.client.chat.completions.create(
+            **self._build_chat_params(model_id=model_id, prompt=prompt)
         )
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
@@ -31,18 +53,8 @@ class OpenAi(LLMClient):
         return LLMResponse(text=content, usage=usage)
 
     async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
-        temperature = 1 if model_id == "gpt-5" else 0.3
-
         stream = await self.async_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt.strip(),
-                }
-            ],
-            model=model_id,
-            temperature=temperature,
-            stream=True,
+            **self._build_chat_params(model_id=model_id, prompt=prompt, stream=True)
         )
 
         prompt_tokens = 0

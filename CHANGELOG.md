@@ -1,7 +1,13 @@
 # Release Notes
 
-## Version 0.0.264 (December 5, 2025)
-- Better file management and file analysis (xls, csv, pdf)
+## Version 0.0.265 (December 7, 2025)
+- Bug fixes
+
+## Version 0.0.264 (December 6, 2025)
+- Enhanced file management and analysis capabilities (supports xls, csv, and pdf files)
+- Improved MariaDB improvements
+- Add support for loading up to 60K tables when connecting data sources
+- Added automated tests for postgres database
 
 ## Version 0.0.263 (December 4, 2025)
 - System prompt improvements and a new section for analytical standards

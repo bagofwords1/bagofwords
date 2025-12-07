@@ -858,6 +858,10 @@ class Coder:
         
         - Excel Files (available via `excel_files` list):
         {excel_files_section}
+        
+        **Excel File Access**: Use `pd.read_excel(excel_files[INDEX].path, sheet_name=0)` to read Excel files.
+        - `excel_files` is a list of File objects with `.path` attribute (NOT a dict, use `.path` not `['path']`)
+        - Example: `df = pd.read_excel(excel_files[0].path, sheet_name=0)`
 
         **CRITICAL CONSTRAINTS**:
         1. **MAX 2-3 QUERIES TOTAL** - This is a quick validation, not a full analysis.

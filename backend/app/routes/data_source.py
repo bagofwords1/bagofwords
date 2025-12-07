@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
-from typing import Optional
+from typing import Optional, List, Union
 
 from app.models.user import User
 from app.core.auth import current_user
@@ -11,7 +11,13 @@ from app.services.data_source_service import DataSourceService
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate, DataSourceMembershipCreate, DataSourceListItemSchema
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
 from app.schemas.data_source_schema import DataSourceMembershipSchema
-from app.schemas.datasource_table_schema import DataSourceTableSchema
+from app.schemas.datasource_table_schema import (
+    DataSourceTableSchema,
+    PaginatedTablesResponse,
+    BulkUpdateTablesRequest,
+    DeltaUpdateTablesRequest,
+    DeltaUpdateTablesResponse,
+)
 from app.core.permissions_decorator import requires_permission
 from app.models.data_source import DataSource
 
@@ -128,15 +134,51 @@ async def get_data_source_schema(
 ):
     return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=False, organization=organization, current_user=current_user, with_stats=with_stats)
 
-@router.get("/data_sources/{data_source_id}/full_schema", response_model=list)
+@router.get("/data_sources/{data_source_id}/full_schema", response_model=Union[PaginatedTablesResponse, list])
 @requires_permission('view_data_source_full_schema', model=DataSource)
 async def get_data_source_full_schema(
     data_source_id: str,
     with_stats: bool = Query(False),
+    # Pagination params (optional - if not provided, returns legacy list response)
+    page: Optional[int] = Query(None, ge=1, description="Page number (1-indexed)"),
+    page_size: Optional[int] = Query(None, ge=1, le=500, description="Items per page (max 500)"),
+    schema_filter: Optional[str] = Query(None, description="Comma-separated schema names to filter"),
+    search: Optional[str] = Query(None, description="Search tables by name"),
+    sort_by: str = Query("name", description="Sort by: name, centrality_score, is_active, richness"),
+    sort_dir: str = Query("asc", description="Sort direction: asc or desc"),
+    selected_state: Optional[str] = Query(None, description="Filter by selection state: 'selected' or 'unselected'"),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
+    # If pagination params provided, use paginated response
+    if page is not None or page_size is not None:
+        # Default pagination values
+        page = page or 1
+        page_size = page_size or 100
+        
+        # Parse schema filter (comma-separated string to list)
+        schema_filter_list = None
+        if schema_filter:
+            schema_filter_list = [s.strip() for s in schema_filter.split(",") if s.strip()]
+        
+        return await data_source_service.get_data_source_schema_paginated(
+            db=db,
+            data_source_id=data_source_id,
+            organization=organization,
+            page=page,
+            page_size=page_size,
+            schema_filter=schema_filter_list,
+            search=search,
+            sort_by=sort_by,
+            sort_dir=sort_dir,
+            include_inactive=True,
+            selected_state=selected_state,
+            with_stats=with_stats,
+            current_user=current_user,
+        )
+    
+    # Legacy behavior: return full list
     return await data_source_service.get_data_source_schema(db, data_source_id, include_inactive=True, organization=organization, current_user=current_user, with_stats=with_stats)
 
 @router.put("/data_sources/{data_source_id}/update_schema", response_model=DataSourceSchema)
@@ -149,6 +191,57 @@ async def update_table_status_in_schema(
     current_user: User = Depends(current_user)
 ):
     return await data_source_service.update_table_status_in_schema(db, data_source_id, tables, organization)
+
+
+@router.post("/data_sources/{data_source_id}/bulk_update_tables", response_model=DeltaUpdateTablesResponse)
+@requires_permission('view_data_source_full_schema', model=DataSource)
+async def bulk_update_tables(
+    data_source_id: str,
+    request: BulkUpdateTablesRequest,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """
+    Bulk activate/deactivate tables matching filter criteria.
+    
+    - action: "activate" or "deactivate"
+    - filter: {"schema": ["schema1", "schema2"], "search": "pattern"}
+    """
+    return await data_source_service.bulk_update_tables_status(
+        db=db,
+        data_source_id=data_source_id,
+        organization=organization,
+        action=request.action,
+        filter_params=request.filter,
+        current_user=current_user,
+    )
+
+
+@router.put("/data_sources/{data_source_id}/update_tables_status", response_model=DeltaUpdateTablesResponse)
+@requires_permission('view_data_source_full_schema', model=DataSource)
+async def update_tables_status_delta(
+    data_source_id: str,
+    request: DeltaUpdateTablesRequest,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """
+    Update table is_active status using delta (efficient for large table counts).
+    
+    - activate: list of table names to set is_active=True
+    - deactivate: list of table names to set is_active=False
+    """
+    return await data_source_service.update_tables_status_delta(
+        db=db,
+        data_source_id=data_source_id,
+        organization=organization,
+        activate=request.activate,
+        deactivate=request.deactivate,
+        current_user=current_user,
+    )
+
 
 @router.get("/data_sources/{data_source_id}/generate_items", response_model=dict)
 @requires_permission('update_data_source', model=DataSource)

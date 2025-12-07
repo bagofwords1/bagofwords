@@ -62,7 +62,7 @@ def after_update_step(mapper, connection, target):
             "type": target.type,
             "data_model": target.data_model
         }
-        print(f"Broadcasting step update: {data}")
+        #print(f"Broadcasting step update: {data}")
         asyncio.create_task(broadcast_step_update(data))
 
         if target.status == "success":
@@ -79,7 +79,7 @@ async def broadcast_step_update(data):
             str(data["report_id"]),
             json.dumps(data)
         )
-        print(f"Broadcasted step update: {data}")
+        #print(f"Broadcasted step update: {data}")
     except Exception as e:
         print(f"Error broadcasting step update: {e}")
 

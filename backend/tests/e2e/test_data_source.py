@@ -3,8 +3,7 @@ from pathlib import Path
 
 
 DATA_SOURCE_TEST_DB_PATH = (Path(__file__).resolve().parent.parent / "config" / "chinook.sqlite").resolve()
-if not DATA_SOURCE_TEST_DB_PATH.exists():
-    pytest.skip(f"SQLite test database missing at {DATA_SOURCE_TEST_DB_PATH}")
+
 
 @pytest.mark.e2e
 def test_data_source_creation(
@@ -116,3 +115,307 @@ def test_data_source_creation(
         org_id=org_id
     )
     assert all(ds["id"] != data_source["id"] for ds in remaining_sources)
+
+
+@pytest.mark.e2e
+def test_paginated_full_schema(
+    create_data_source,
+    delete_data_source,
+    refresh_schema,
+    get_full_schema_paginated,
+    create_user,
+    login_user,
+    whoami
+):
+    """Test paginated full schema endpoint with filtering and sorting."""
+    if not DATA_SOURCE_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {DATA_SOURCE_TEST_DB_PATH}")
+
+    # Setup
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    data_source = create_data_source(
+        name="Pagination Test DB",
+        type="sqlite",
+        config={"database": str(DATA_SOURCE_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id
+    )
+    
+    # Refresh to load tables
+    refresh_schema(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    # Test basic pagination
+    result = get_full_schema_paginated(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id,
+        page=1,
+        page_size=5
+    )
+
+    assert "tables" in result
+    assert "total" in result
+    assert "page" in result
+    assert "page_size" in result
+    assert "total_pages" in result
+    assert "schemas" in result
+    assert "selected_count" in result
+    assert "total_tables" in result
+    assert "has_more" in result
+
+    assert result["page"] == 1
+    assert result["page_size"] == 5
+    assert len(result["tables"]) <= 5
+    assert result["total"] > 0
+    assert result["total_tables"] > 0
+
+    # Test search filter
+    search_result = get_full_schema_paginated(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id,
+        page=1,
+        page_size=100,
+        search="Album"
+    )
+
+    assert search_result["total"] >= 1
+    table_names = [t["name"] for t in search_result["tables"]]
+    assert any("Album" in name for name in table_names)
+
+    # Test sort by name ascending
+    sorted_result = get_full_schema_paginated(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id,
+        page=1,
+        page_size=100,
+        sort_by="name",
+        sort_dir="asc"
+    )
+
+    names = [t["name"] for t in sorted_result["tables"]]
+    assert names == sorted(names)
+
+    # Cleanup
+    delete_data_source(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id
+    )
+
+
+@pytest.mark.e2e
+def test_bulk_update_and_delta_update(
+    create_data_source,
+    delete_data_source,
+    refresh_schema,
+    get_full_schema_paginated,
+    bulk_update_tables,
+    update_tables_status_delta,
+    create_user,
+    login_user,
+    whoami
+):
+    """Test bulk update and delta update endpoints."""
+    if not DATA_SOURCE_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {DATA_SOURCE_TEST_DB_PATH}")
+
+    # Setup
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    data_source = create_data_source(
+        name="Bulk Update Test DB",
+        type="sqlite",
+        config={"database": str(DATA_SOURCE_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id
+    )
+    
+    # Refresh to load tables
+    refresh_schema(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    # Get initial state
+    initial = get_full_schema_paginated(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id,
+        page=1,
+        page_size=100
+    )
+    initial_selected = initial["selected_count"]
+
+    # Test bulk deactivate all
+    deactivate_result = bulk_update_tables(
+        data_source_id=data_source["id"],
+        action="deactivate",
+        filter=None,
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    assert "deactivated_count" in deactivate_result
+    assert "total_selected" in deactivate_result
+    assert deactivate_result["total_selected"] == 0
+
+    # Test bulk activate with search filter
+    activate_result = bulk_update_tables(
+        data_source_id=data_source["id"],
+        action="activate",
+        filter={"search": "Album"},
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    assert "activated_count" in activate_result
+    assert activate_result["activated_count"] >= 1
+
+    # Verify only Album tables are active
+    filtered = get_full_schema_paginated(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id,
+        page=1,
+        page_size=100,
+        selected_state="selected"
+    )
+
+    for table in filtered["tables"]:
+        assert "Album" in table["name"]
+
+    # Test delta update - activate specific table
+    delta_result = update_tables_status_delta(
+        data_source_id=data_source["id"],
+        activate=["Artist"],
+        deactivate=[],
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    assert "activated_count" in delta_result
+    assert delta_result["activated_count"] == 1
+
+    # Verify Artist is now active
+    after_delta = get_full_schema_paginated(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id,
+        page=1,
+        page_size=100,
+        search="Artist"
+    )
+
+    artist_tables = [t for t in after_delta["tables"] if t["name"] == "Artist"]
+    assert len(artist_tables) == 1
+    assert artist_tables[0]["is_active"] is True
+
+    # Cleanup
+    delete_data_source(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id
+    )
+
+
+@pytest.mark.e2e
+def test_selected_state_filter(
+    create_data_source,
+    delete_data_source,
+    refresh_schema,
+    get_full_schema_paginated,
+    bulk_update_tables,
+    create_user,
+    login_user,
+    whoami
+):
+    """Test filtering by selected/unselected state."""
+    if not DATA_SOURCE_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {DATA_SOURCE_TEST_DB_PATH}")
+
+    # Setup
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    data_source = create_data_source(
+        name="Filter State Test DB",
+        type="sqlite",
+        config={"database": str(DATA_SOURCE_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id
+    )
+    
+    refresh_schema(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    # Deactivate all first
+    bulk_update_tables(
+        data_source_id=data_source["id"],
+        action="deactivate",
+        filter=None,
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    # Activate only Album
+    bulk_update_tables(
+        data_source_id=data_source["id"],
+        action="activate",
+        filter={"search": "Album"},
+        user_token=user_token,
+        org_id=org_id
+    )
+
+    # Test selected_state=selected filter
+    selected = get_full_schema_paginated(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id,
+        page=1,
+        page_size=100,
+        selected_state="selected"
+    )
+
+    assert selected["total"] >= 1
+    for table in selected["tables"]:
+        assert table["is_active"] is True
+
+    # Test selected_state=unselected filter
+    unselected = get_full_schema_paginated(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id,
+        page=1,
+        page_size=100,
+        selected_state="unselected"
+    )
+
+    assert unselected["total"] >= 1
+    for table in unselected["tables"]:
+        assert table["is_active"] is False
+
+    # Cleanup
+    delete_data_source(
+        data_source_id=data_source["id"],
+        user_token=user_token,
+        org_id=org_id
+    )

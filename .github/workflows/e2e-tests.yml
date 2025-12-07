@@ -13,26 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        db: [sqlite]
-        include:
-          - db: sqlite
-          - db: postgres
-            db_url: postgresql://postgres:postgres@localhost:5432/postgres
-    
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+        db: [sqlite, postgres]
     
     steps:
     - uses: actions/checkout@v4
@@ -56,55 +37,24 @@ jobs:
           ai_files:
             - 'backend/app/ai/**'
 
-    - name: Run Alembic migrations (Postgres only)
-      if: matrix.db == 'postgres'
-      working-directory: ./backend
-      env:
-        BOW_DATABASE_URL: ${{ matrix.db_url }}
-      run: |
-        alembic upgrade head
-
-    - name: Run AI tests (SQLite)
-      if: steps.changes.outputs.ai_files == 'true' && matrix.db == 'sqlite'
+    - name: Run AI tests
+      if: steps.changes.outputs.ai_files == 'true'
       working-directory: ./backend
       env:
         TESTING: "true"
         ENVIRONMENT: "production"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
       run: |
-        pytest -s -m ai --disable-warnings
+        pytest -s -m ai --db=${{ matrix.db }} --disable-warnings
 
-    - name: Run AI tests (Postgres)
-      if: steps.changes.outputs.ai_files == 'true' && matrix.db == 'postgres'
-      working-directory: ./backend
-      env:
-        TESTING: "true"
-        ENVIRONMENT: "production"
-        OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
-        BOW_DATABASE_URL: ${{ matrix.db_url }}
-      run: |
-        pytest -s -m ai --disable-warnings
-
-    - name: Run E2E tests (SQLite)
-      if: matrix.db == 'sqlite'
+    - name: Run E2E tests
       working-directory: ./backend
       env:
         TESTING: "true"
         ENVIRONMENT: "production"
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
       run: |
-        pytest -s -m e2e --disable-warnings
-
-    - name: Run E2E tests (Postgres)
-      if: matrix.db == 'postgres'
-      working-directory: ./backend
-      env:
-        TESTING: "true"
-        ENVIRONMENT: "production"
-        OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
-        BOW_DATABASE_URL: ${{ matrix.db_url }}
-      run: |
-        pytest -s -m e2e --disable-warnings
+        pytest -s -m e2e --db=${{ matrix.db }} --disable-warnings
 
   # Integration tests - only run on push to main (before release)
   integration-data-sources:

@@ -6,7 +6,7 @@ router = APIRouter(tags=["settings"])
 
 @router.get("/general/icon/{icon_key}")
 async def get_general_icon(icon_key: str):
-    base_dir = os.path.abspath(os.path.join(os.getcwd(), "branding_uploads"))
+    base_dir = os.path.abspath(os.path.join(os.getcwd(), "uploads", "branding"))
     path = os.path.join(base_dir, icon_key)
     if not os.path.exists(path):
         # Let FastAPI raise 404 automatically by not returning a file
