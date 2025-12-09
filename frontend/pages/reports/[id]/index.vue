@@ -100,32 +100,36 @@
 												</Transition>
 											</div>
 
-											<!-- 2. Block content - assistant message (hybrid streaming) -->
-											<div v-if="block.content && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper">
-												<!-- Finalized: show only MDC -->
-												<template v-if="isBlockFinalized(block)">
-													<MDC :value="block.content || ''" class="markdown-content" />
-												</template>
-												<!-- Streaming: hybrid layer approach -->
+							<!-- 2. Block content - assistant message (hybrid streaming) -->
+							<!-- Fallback to plan_decision.assistant if block.content is empty (e.g., streaming tokens missed) -->
+							<div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper">
+								<!-- Finalized: show only MDC -->
+								<template v-if="isBlockFinalized(block)">
+									<MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
+								</template>
+												<!-- Streaming: hybrid layer approach with rolling window -->
 												<template v-else>
 													<div class="hybrid-stream-container">
 														<!-- Layer 1: Plain text streaming (visible, smooth) -->
 														<div class="streaming-layer streaming-layer--active">
 															<div class="streaming-text">
-																<template v-if="getBlockChunks(`${block.id}:content`).length > 0">
-																	<span 
-																		v-for="chunk in getBlockChunks(`${block.id}:content`)" 
-																		:key="chunk.id" 
-																		class="chunk-fade"
-																	>{{ chunk.text }}</span>
-																</template>
-																<template v-else>{{ block.content }}</template>
+										<template v-if="getBlockChunks(`${block.id}:content`).length > 0 || getCommittedText(`${block.id}:content`)">
+											<!-- Committed text (no animation, already shown) -->
+											<span class="committed-text">{{ getCommittedText(`${block.id}:content`) }}</span>
+											<!-- Active chunks with fade-in animation -->
+											<span 
+												v-for="chunk in getBlockChunks(`${block.id}:content`)" 
+												:key="chunk.id" 
+												class="chunk-fade"
+											>{{ chunk.text }}</span>
+										</template>
+										<template v-else>{{ block.content || block.plan_decision?.assistant }}</template>
 															</div>
 														</div>
-														<!-- Layer 2: MDC preview (hidden, pre-rendering for instant switch) -->
-														<div class="streaming-layer streaming-layer--mdc-preview" aria-hidden="true">
-															<MDC :value="block.content || ''" class="markdown-content" />
-														</div>
+									<!-- Layer 2: MDC preview (hidden, pre-rendering for instant switch) -->
+									<div class="streaming-layer streaming-layer--mdc-preview" aria-hidden="true">
+										<MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
+									</div>
 													</div>
 												</template>
 											</div>
@@ -163,9 +167,9 @@
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
 
-											<!-- 4. Final answer -->
-											<div v-if="block.plan_decision?.final_answer && block.plan_decision?.analysis_complete" class="mt-2 markdown-wrapper">
-												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
+											<!-- 4. Final answer (or fallback to assistant when analysis complete but no explicit final_answer) -->
+											<div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper">
+												<MDC :value="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
 											</div>
 										</div>
 
@@ -455,9 +459,12 @@ const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const CONTENT_DEBOUNCE_MS = 150
 const CONTENT_THRESHOLD = 80 // chars before switching to MDC
 
-// Chunk tracking for fade-in effect during streaming
+// Chunk tracking for fade-in effect during streaming (rolling window)
 const blockChunks = ref<Map<string, { id: number; text: string }[]>>(new Map())
+// Committed text that has been moved out of active chunks (for memory efficiency)
+const committedBlockText = ref<Map<string, string>>(new Map())
 let chunkIdCounter = 0
+const MAX_ACTIVE_CHUNKS = 15 // Keep only last N chunks animated, commit older ones
 
 // Refs for reasoning content elements (used for dynamic ref binding)
 const reasoningRefs = ref<Map<string, HTMLElement | null>>(new Map())
@@ -481,16 +488,30 @@ function getBlockChunks(blockId: string): { id: number; text: string }[] {
 	return blockChunks.value.get(blockId) || []
 }
 
+function getCommittedText(blockId: string): string {
+	return committedBlockText.value.get(blockId) || ''
+}
+
 function addBlockChunk(blockId: string, text: string) {
 	if (!blockChunks.value.has(blockId)) {
 		blockChunks.value.set(blockId, [])
 	}
 	const chunks = blockChunks.value.get(blockId)!
 	chunks.push({ id: chunkIdCounter++, text })
+	
+	// Rolling window: commit oldest chunks when we exceed the limit
+	while (chunks.length > MAX_ACTIVE_CHUNKS) {
+		const oldest = chunks.shift()
+		if (oldest) {
+			const committed = committedBlockText.value.get(blockId) || ''
+			committedBlockText.value.set(blockId, committed + oldest.text)
+		}
+	}
 }
 
 function clearBlockChunks(blockId: string) {
 	blockChunks.value.delete(blockId)
+	committedBlockText.value.delete(blockId)
 }
 
 function getDebouncedContent(blockId: string, content: string): string {
@@ -550,7 +571,7 @@ function isBlockFinalized(block: CompletionBlock): boolean {
 }
 
 function hasCompletedContent(block: CompletionBlock): boolean {
-	return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped')
+	return !!(block.content || block.tool_execution || block.status === 'completed' || block.status === 'stopped' || block.plan_decision?.analysis_complete || block.plan_decision?.final_answer)
 }
 
 function getToolComponent(toolName: string) {
@@ -1195,7 +1216,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		case 'decision.partial':
 		case 'decision.final':
 			// Update plan decision information
-			if (payload.reasoning || payload.assistant) {
+			// Note: decision.final events may only contain analysis_complete/final_answer without reasoning/assistant
+			if (payload.reasoning || payload.assistant || payload.final_answer !== undefined || payload.analysis_complete !== undefined) {
 				const lastBlock = sysMessage.completion_blocks?.[sysMessage.completion_blocks.length - 1]
 				if (lastBlock) {
 					if (!lastBlock.plan_decision) {
@@ -1236,11 +1258,10 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					isStreaming.value = false
 					// Clear streaming chunks to free memory (content is preserved in block.content)
 					blockChunks.value.clear()
+					committedBlockText.value.clear()
 				}
 			}
-			// Fire-and-forget: don't block stream processing with network calls
-			loadReport()
-			promptBoxRef.value?.refreshContextEstimate?.()
+			// Note: loadReport and refreshContextEstimate are called after [DONE] to avoid blocking
 			break
 
 		case 'completion.error':
@@ -1566,8 +1587,9 @@ onUnmounted(() => {
 		clearTimeout(timer)
 	}
 	debounceTimers.clear()
-	// Clear streaming chunks
+	// Clear streaming chunks and committed text
 	blockChunks.value.clear()
+	committedBlockText.value.clear()
 	// Clear reasoning refs
 	reasoningRefs.value.clear()
 })
@@ -1802,6 +1824,9 @@ async function startStreaming(requestBody: any, sysId: string) {
 					if (dataStr === '[DONE]') {
 						isStreaming.value = false
 						currentController = null
+						// Refresh report data and context estimate after stream fully ends
+						loadReport()
+						promptBoxRef.value?.refreshContextEstimate?.()
 						return
 					}
 					try {
@@ -2161,20 +2186,27 @@ onMounted(async () => {
     position: relative;
 }
 
-/* Each chunk fades in smoothly */
+/* Committed text - already shown, no animation needed */
+.committed-text {
+    display: inline;
+}
+
+/* Each chunk fades in smoothly with blur-to-sharp effect */
 .chunk-fade {
     display: inline;
-    animation: chunkFadeIn 0.2s ease-out forwards;
+    animation: chunkFadeIn 0.25s ease-out forwards;
 }
 
 @keyframes chunkFadeIn {
     0% {
         opacity: 0;
-        filter: blur(2px);
+        filter: blur(3px);
+        transform: translateY(1px);
     }
     100% {
         opacity: 1;
         filter: blur(0);
+        transform: translateY(0);
     }
 }
 
@@ -2182,11 +2214,12 @@ onMounted(async () => {
 .typing-cursor {
     display: inline-block;
     width: 2px;
-    height: 1em;
-    background: #9ca3af;
+    height: 1.1em;
+    background: #3b82f6;
     margin-left: 1px;
     vertical-align: text-bottom;
-    animation: cursorBlink 0.7s ease-in-out infinite;
+    border-radius: 1px;
+    animation: cursorBlink 0.6s ease-in-out infinite;
 }
 
 @keyframes cursorBlink {

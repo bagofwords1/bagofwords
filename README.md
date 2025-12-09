@@ -27,14 +27,11 @@ Let users run analysis, build beautiful dashboards, or schedule reports — all 
 - Deploy anywhere: Docker, Compose, Kubernetes, VMs, private VPC  
 - SSO (OIDC), SMTP, RBAC, and permission inheritance from your warehouse  
 
----
+
 
 [![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
 
-
-Bag of words is an open-source AI data layer — connect any LLM to any data source with centralized context management, trust, observability, and control.
-
-
+---
 
 ## Quick Start 🚀
 
