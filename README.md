@@ -3,15 +3,30 @@
 </div>
 
 # Bag of words — deploy an AI Analyst in minutes
-Connect any LLM to any data source with centralized context management (instructions, dbt, code, docs, BI metadata) and full observability and governance.
 
-Let users run analysis, build beautiful dashboards, or schedule reports — all executed through an agentic analytics-oriented loop.
-
-### [Docs: Deploy in less than 2 minutes](https://docs.bagofwords.com)
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/bagofwords/bagofwords)
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
+
+
+Connect any LLM to any data source with centralized context management (instructions, dbt, code, docs, BI metadata) and full observability and governance.
+
+Let users run analysis, build beautiful dashboards, or schedule reports — all executed through an agentic analytics-oriented loop.
+
+**Bag of words Features:**
+
+- Natural-language chat, visualization, and analysis powered by an agentic loop (tools, reasoning, reflection)  
+- Plug any LLM into any warehouse: OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift, SQL Server  
+- Index your repo for real context: dbt models, LookML, Dataform, Tableau sources, AGENTS.md, and your code  
+- Centralized instruction management with approval workflows  
+- Self-learning semantic layer that adapts to users usage and model behavior  
+- Full observability for reliable AI analytics: traces, query plans, judgments, evals, feedback loops  
+- Collaboration, dashboard sharing, scheduling, themes, and more
+- Slack native integration, and a fully documented OpenAPI endpoint  
+- Deploy anywhere: Docker, Compose, Kubernetes, VMs, private VPC  
+- SSO (OIDC), SMTP, RBAC, and permission inheritance from your warehouse  
+
 ---
 
 [![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
@@ -20,21 +35,6 @@ Let users run analysis, build beautiful dashboards, or schedule reports — all 
 Bag of words is an open-source AI data layer — connect any LLM to any data source with centralized context management, trust, observability, and control.
 
 
-* **Chat with any data source** 
-
-  Ask questions in web, Slack, or else. Create charts, tables, and full beautiful reports/dashboards by chatting with your data—powered by an agentic loop for tool use, reflection, and reasoning.
-
-*  **Context-aware & customizable** 
-  
-   Define terms, tables, KPIs, rules and instructions. Ingest from dbt, Tableau, code, AGENTS.md, and have AI continiously maintain and monitor.
-
-* **Any LLM, any data**
-
-   Connect multiple data sources: Snowflake, BigQuery, Redshift, Postgres, dbt, Tableau, and more — then pair with the LLM of your choice (OpenAI, Anthropic, or local models). Swap models/data sources without breaking workflows.
-
-*  **Transparency, trust & deployment**
-
-   Track every AI decision, trace, and feedback. Analyze quality and usage in the console. Deploy fully in your VPC with Docker/Compose, VMs, or Kubernetes. Enterprise-ready with RBAC, SSO (OIDC), audit logs, SMTP.
 
 ## Quick Start 🚀
 

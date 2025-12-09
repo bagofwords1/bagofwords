@@ -1019,11 +1019,12 @@ class ProjectManager:
         return agent_execution
 
     async def next_seq(self, db, agent_execution):
-        """Get next sequence number for streaming events."""
+        """Get next sequence number for streaming events.
+        
+        This is in-memory only - no DB commit per call for streaming performance.
+        The latest_seq will be persisted when the agent execution completes.
+        """
         agent_execution.latest_seq = (agent_execution.latest_seq or 0) + 1
-        db.add(agent_execution)
-        await db.commit()
-        await db.refresh(agent_execution)
         return agent_execution.latest_seq
 
     # ==============================

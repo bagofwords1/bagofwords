@@ -13,6 +13,7 @@ from app.serializers.completion_v2 import serialize_block_v2
 from app.schemas.completion_v2_schema import ArtifactChangeSchema
 from app.streaming.text_streamer import PlanningTextStreamer
 from app.streaming.completion_stream import CompletionEventQueue
+from app.streaming.decision_buffer import DecisionBuffer
 from app.websocket_manager import websocket_manager
 from app.ai.runner.tool_runner import ToolRunner
 from app.ai.runner.policies import RetryPolicy, TimeoutPolicy
@@ -626,6 +627,9 @@ class AgentV2:
                 plan_streamer = None
                 # Stable sequence for the entire planner decision lifespan
                 decision_seq = None
+                
+                # Decision buffer for debounced DB writes (SSE streams immediately, DB batches)
+                decision_buffer = DecisionBuffer(flush_interval_ms=500)
 
                 # Pre-create a placeholder PlanDecision and corresponding block for this loop
                 try:
@@ -681,6 +685,11 @@ class AgentV2:
                 
                 async for evt in self.planner.execute(planner_input, self.sigkill_event):
                     if self.sigkill_event.is_set():
+                        # Flush buffered decision on stop to preserve partial content
+                        try:
+                            await decision_buffer.flush_now()
+                        except Exception:
+                            pass
                         break
 
                     # Handle typed events
@@ -691,71 +700,28 @@ class AgentV2:
                     elif evt.type == "planner.decision.partial":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
                         
-                        # Get next sequence number for SSE event ordering (not used for DB upsert)
+                        # Get next sequence number for SSE event ordering (in-memory, no DB)
                         event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                         
-                        # Save partial decision (Pydantic model) using stable decision_seq
+                        # Pin decision_seq on first partial
                         if decision_seq is None:
                             decision_seq = event_seq
-                        current_plan_decision = await self.project_manager.save_plan_decision_from_model(
-                            self.db,
-                            agent_execution=self.current_execution,
-                            seq=decision_seq,
-                            loop_index=loop_index,
-                            planner_decision_model=decision,
-                        )
-                        # Persist partial content/reasoning to the decision block so a stop retains text
-                        try:
-                            await self.project_manager.upsert_block_for_decision(
-                                self.db, self.system_completion, self.current_execution, current_plan_decision
-                            )
-                        except Exception:
-                            pass
-                        # Ensure a block exists if pre-creation failed; emit one snapshot once
-                        if current_block_id is None:
+                        
+                        # ===== SSE FIRST (immediate, no DB wait) =====
+                        # Extract text from the Pydantic model for streaming
+                        new_reasoning = getattr(decision, "reasoning_message", None) or ""
+                        new_content = getattr(decision, "assistant_message", None) or ""
+                        
+                        # Emit incremental token deltas IMMEDIATELY
+                        if plan_streamer:
                             try:
-                                block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
-                                await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
-                                current_block_id = str(block.id)
-                                try:
-                                    block_schema = await serialize_block_v2(self.db, block)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.upsert",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=event_seq,
-                                        data={"block": block_schema.model_dump()}
-                                    ))
-                                except Exception:
-                                    pass
-                                # Initialize or update streamer with block id
-                                if plan_streamer is None:
-                                    async def _next_seq():
-                                        return await self.project_manager.next_seq(self.db, self.current_execution)
-                                    plan_streamer = PlanningTextStreamer(
-                                        emit=self._emit_sse_event,
-                                        seq_fn=_next_seq,
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        block_id=current_block_id,
-                                    )
-                                else:
-                                    plan_streamer.set_block(current_block_id)
+                                await plan_streamer.update(new_reasoning, new_content)
                             except Exception:
                                 pass
-
-                        # Emit incremental, throttled token deltas for reasoning/content
-                        try:
-                            new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
-                            new_content = getattr(current_plan_decision, "assistant", None) or ""
-                            if plan_streamer:
-                                await plan_streamer.update(new_reasoning, new_content)
-                        except Exception:
-                            pass
                         
-                        # Emit SSE event only if there is content in reasoning or assistant
-                        reasoning_text = (getattr(decision, "reasoning_message", None) or "").strip()
-                        assistant_text = (getattr(decision, "assistant_message", None) or "").strip()
+                        # Emit decision.partial SSE event
+                        reasoning_text = new_reasoning.strip()
+                        assistant_text = new_content.strip()
                         if reasoning_text or assistant_text:
                             await self._emit_sse_event(SSEEvent(
                                 event="decision.partial",
@@ -769,11 +735,61 @@ class AgentV2:
                                     "action": decision.action.model_dump() if decision.action else None,
                                 }
                             ))
+                        
+                        # ===== DB WRITE (debounced, background) =====
+                        # Store pending decision for batched persistence
+                        decision_buffer.set_pending(decision)
+                        
+                        # Configure flush callbacks if not already set
+                        if decision_buffer._save_decision_fn is None:
+                            _decision_seq = decision_seq
+                            _loop_index = loop_index
+                            
+                            async def _save_decision():
+                                return await self.project_manager.save_plan_decision_from_model(
+                                    self.db,
+                                    agent_execution=self.current_execution,
+                                    seq=_decision_seq,
+                                    loop_index=_loop_index,
+                                    planner_decision_model=decision_buffer._pending_decision_model,
+                                )
+                            
+                            async def _upsert_block(plan_decision):
+                                return await self.project_manager.upsert_block_for_decision(
+                                    self.db, self.system_completion, self.current_execution, plan_decision
+                                )
+                            
+                            async def _rebuild():
+                                await self.project_manager.rebuild_completion_from_blocks(
+                                    self.db, self.system_completion, self.current_execution
+                                )
+                            
+                            decision_buffer.set_callbacks(_save_decision, _upsert_block, _rebuild)
+                        
+                        # Mark buffer dirty (starts background flush timer if not running)
+                        decision_buffer.mark_dirty()
+                        
+                        # Track current_plan_decision from buffer for downstream use
+                        current_plan_decision = decision_buffer.get_pending_decision()
+                        
+                        # If we don't have a block yet and buffer has flushed one, grab it
+                        if current_block_id is None:
+                            flushed_block = decision_buffer.get_pending_block()
+                            if flushed_block:
+                                current_block_id = str(flushed_block.id)
+                                if plan_streamer:
+                                    plan_streamer.set_block(current_block_id)
                     
                     elif evt.type == "planner.decision.final":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
                         # Track whether analysis is complete
                         analysis_done = bool(getattr(decision, "analysis_complete", False))
+                        
+                        # Flush any pending buffered writes before final processing
+                        try:
+                            await decision_buffer.flush_now()
+                        except Exception:
+                            pass
                         
                         # Retry flow: invalid planner output
                         if getattr(decision, "error", None):
@@ -804,13 +820,35 @@ class AgentV2:
                                 ))
                             except Exception:
                                 pass
-                            # Stop streaming loop; outer loop will attempt again
+                            # Reset buffer for retry and stop streaming loop
+                            decision_buffer.reset()
                             break
                         
-                        # Get next sequence number for SSE event ordering (not used for DB upsert)
+                        # Get next sequence number for SSE event ordering (in-memory, no DB)
                         event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                         
-                        # Save final decision (Pydantic model) using stable decision_seq
+                        # ===== SSE FIRST (immediate) =====
+                        # Emit decision.final SSE event before DB write
+                        await self._emit_sse_event(SSEEvent(
+                            event="decision.final",
+                            completion_id=str(self.system_completion.id),
+                            agent_execution_id=str(self.current_execution.id),
+                            seq=event_seq,
+                            data={
+                                "analysis_complete": decision.analysis_complete,
+                                "final_answer": decision.final_answer,
+                                "metrics": decision.metrics.model_dump() if decision.metrics else None,
+                            }
+                        ))
+                        
+                        # Finalize field streaming (snapshots + completion markers)
+                        try:
+                            if plan_streamer:
+                                await plan_streamer.complete()
+                        except Exception:
+                            pass
+                        
+                        # ===== DB WRITE (final decision - synchronous is OK, only once) =====
                         if decision_seq is None:
                             decision_seq = event_seq
                         current_plan_decision = await self.project_manager.save_plan_decision_from_model(
@@ -828,7 +866,7 @@ class AgentV2:
                             # Store block ID for token streaming
                             current_block_id = str(block.id)
                             
-                            # Emit a v2-shaped block snapshot
+                            # Emit block snapshot after DB write
                             try:
                                 block_schema = await serialize_block_v2(self.db, block)
                                 await self._emit_sse_event(SSEEvent(
@@ -838,29 +876,10 @@ class AgentV2:
                                     seq=event_seq,
                                     data={"block": block_schema.model_dump()}
                                 ))
-                                # Finalize field streaming (snapshots + completion markers)
-                                try:
-                                    if plan_streamer:
-                                        await plan_streamer.complete()
-                                except Exception:
-                                    pass
                             except Exception:
                                 pass
                         except Exception:
                             pass
-                        
-                        # Emit SSE event
-                        await self._emit_sse_event(SSEEvent(
-                            event="decision.final",
-                            completion_id=str(self.system_completion.id),
-                            agent_execution_id=str(self.current_execution.id),
-                            seq=event_seq,
-                            data={
-                                "analysis_complete": decision.analysis_complete,
-                                "final_answer": decision.final_answer,
-                                "metrics": decision.metrics.model_dump() if decision.metrics else None,
-                            }
-                        ))
                         
                         # IMPORTANT: Check for action FIRST before checking analysis_complete.
                         # The LLM sometimes sets analysis_complete=true when it means "this is the 

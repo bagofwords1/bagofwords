@@ -420,6 +420,9 @@ const lastScrollTop = ref<number>(0)
 // Hysteresis thresholds
 const NEAR_BOTTOM_PX = 96
 const RETURN_TO_BOTTOM_PX = 12
+// Debounced scroll scheduling during streaming
+const pendingScroll = ref<boolean>(false)
+let scrollRAF: number | null = null
 
 // Trace modal state
 const showTraceModal = ref(false)
@@ -1552,6 +1555,10 @@ onUnmounted(() => {
 	document.body.style.userSelect = 'auto'
     window.removeEventListener('resize', safeScrollToBottom)
 	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
+	// Cancel any pending animation frame for scroll
+	if (scrollRAF !== null && typeof window !== 'undefined') {
+		window.cancelAnimationFrame(scrollRAF)
+	}
 	// Stop any polling timers
 	stopPollingInProgressCompletion()
 	// Clear debounce timers
@@ -1803,9 +1810,19 @@ async function startStreaming(requestBody: any, sysId: string) {
 						const idx = ensureSys()
 						if (idx !== -1) {
 							await handleStreamingEvent(currentEvent, payload, idx)
-							await nextTick()
-							// Autoscroll only if user is near bottom (guarded inside scrollToBottom)
-							autoScrollIfNearBottom()
+							// Debounced scroll: batch multiple token events into a single frame
+							if (!pendingScroll.value) {
+								pendingScroll.value = true
+								if (typeof window !== 'undefined') {
+									scrollRAF = window.requestAnimationFrame(() => {
+										autoScrollIfNearBottom()
+										pendingScroll.value = false
+									})
+								} else {
+									autoScrollIfNearBottom()
+									pendingScroll.value = false
+								}
+							}
 						}
 					} catch (e) {
 						// ignore non-JSON data lines
