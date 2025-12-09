@@ -599,7 +599,14 @@ function initFromView(view: any, step: any) {
   
   // Build encoding from view.encoding, or construct from data_model.series/view fields
   let enc = deepClone(v.encoding || {})
-  if (!enc.category && !enc.series?.length && !enc.x && !enc.y) {
+  
+  // Check if encoding is missing common fields for various chart types
+  const needsCartesianEnc = !enc.category && !enc.series?.length && !enc.x && !enc.y
+  const needsCandlestickEnc = !enc.key && !enc.open && !enc.close && !enc.low && !enc.high
+  const needsTreemapEnc = !enc.name && !enc.value
+  const needsRadarEnc = !Array.isArray(enc.dimensions) || !enc.dimensions.length
+  
+  if (needsCartesianEnc) {
     // Try to build encoding from v2 fields or data_model
     if (v.x) enc.category = v.x
     if (v.y) {
@@ -618,6 +625,34 @@ function initFromView(view: any, step: any) {
       enc.value = enc.value || s0.value
       enc.x = enc.x || s0.x
       enc.y = enc.y || s0.y
+    }
+  }
+  
+  // Fallback for candlestick from data_model.series
+  if (needsCandlestickEnc && dm.series?.length) {
+    const s0 = dm.series[0]
+    enc.key = enc.key || s0.key
+    enc.open = enc.open || s0.open
+    enc.close = enc.close || s0.close
+    enc.low = enc.low || s0.low
+    enc.high = enc.high || s0.high
+  }
+  
+  // Fallback for treemap from data_model.series
+  if (needsTreemapEnc && dm.series?.length) {
+    const s0 = dm.series[0]
+    enc.name = enc.name || s0.name || s0.key
+    enc.value = enc.value || s0.value
+    enc.id = enc.id || s0.id
+    enc.parentId = enc.parentId || s0.parentId
+  }
+  
+  // Fallback for radar from data_model.series
+  if (needsRadarEnc && dm.series?.length) {
+    const s0 = dm.series[0]
+    enc.key = enc.key || s0.key
+    if (Array.isArray(s0.dimensions)) {
+      enc.dimensions = s0.dimensions
     }
   }
   
@@ -884,8 +919,35 @@ function toViewPayload() {
     view.encoding = enc
   } else if (t === 'table') {
     // Table doesn't need much
+  } else if (t === 'candlestick') {
+    // Candlestick encoding - explicitly set OHLC fields
+    const enc = deepClone(encoding)
+    view.encoding = {
+      key: enc.key || '',
+      open: enc.open || '',
+      close: enc.close || '',
+      low: enc.low || '',
+      high: enc.high || '',
+      name: enc.name || 'OHLC'
+    }
+  } else if (t === 'treemap') {
+    // Treemap encoding
+    const enc = deepClone(encoding)
+    view.encoding = {
+      name: enc.name || '',
+      value: enc.value || '',
+      id: enc.id || undefined,
+      parentId: enc.parentId || undefined
+    }
+  } else if (t === 'radar_chart') {
+    // Radar encoding
+    const enc = deepClone(encoding)
+    view.encoding = {
+      key: enc.key || '',
+      dimensions: Array.isArray(enc.dimensions) ? enc.dimensions : []
+    }
   } else {
-    // Fallback for other types (candlestick, treemap, radar, etc.)
+    // Fallback for other types
     if (showEncoding.value) {
       view.encoding = deepClone(encoding)
     }
@@ -1046,11 +1108,14 @@ function detectEncoding() {
     encoding.y = encoding.y || str[1] || cols[1]
     encoding.value = encoding.value || num[0] || cols[2]
   } else if (t === 'candlestick') {
-    encoding.key = encoding.key || str[0] || cols[0]
-    encoding.open = encoding.open || num[0] || cols[1]
-    encoding.close = encoding.close || num[1] || cols[2]
-    encoding.low = encoding.low || num[2] || cols[3]
-    encoding.high = encoding.high || num[3] || cols[4]
+    // Try to detect OHLC columns by name first, then fall back to position
+    const findCol = (names: string[]) => cols.find((c: string) => names.includes(c.toLowerCase()))
+    
+    encoding.key = encoding.key || findCol(['time', 'date', 'datetime', 'timestamp', 'period']) || str[0] || cols[0]
+    encoding.open = encoding.open || findCol(['open']) || num[0] || cols[1]
+    encoding.high = encoding.high || findCol(['high']) || num[1] || cols[2]
+    encoding.low = encoding.low || findCol(['low']) || num[2] || cols[3]
+    encoding.close = encoding.close || findCol(['close']) || num[3] || cols[4]
   } else if (t === 'treemap') {
     encoding.name = encoding.name || str[0] || cols[0]
     encoding.value = encoding.value || num[0] || cols[1]

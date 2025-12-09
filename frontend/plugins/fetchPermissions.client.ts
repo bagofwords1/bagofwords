@@ -45,7 +45,7 @@ export default defineNuxtPlugin(async (nuxtApp) => {
       // Only reload permissions if we're navigating to a different route
       // and permissions were previously loaded
       if (to.path !== from.path && permissionsLoaded.value) {
-        console.log('Navigation detected, reloading permissions...')
+        //console.log('Navigation detected, reloading permissions...')
         permissionsLoaded.value = false // Reset loaded state
         await loadPermissions()
       }

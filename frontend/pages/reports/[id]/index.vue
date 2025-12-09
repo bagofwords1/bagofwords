@@ -467,6 +467,13 @@ function setReasoningRef(blockId: string, el: HTMLElement | null) {
 	}
 }
 
+function scrollReasoningToBottom(blockId: string) {
+	const el = reasoningRefs.value.get(blockId)
+	if (el) {
+		el.scrollTop = el.scrollHeight
+	}
+}
+
 function getBlockChunks(blockId: string): { id: number; text: string }[] {
 	return blockChunks.value.get(blockId) || []
 }

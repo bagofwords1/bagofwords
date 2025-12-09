@@ -40,6 +40,9 @@ class UserDataSourceCredentialsService:
         return UserDataSourceCredentialsSchema.from_orm(row) if row else None
 
     async def build_user_status(self, db: AsyncSession, data_source: DataSource, user: User, live_test: bool = False) -> DataSourceUserStatus:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # For system-only data sources, report system connection status
         if getattr(data_source, "auth_policy", "system_only") != "user_required":
             conn = "unknown"
@@ -51,7 +54,9 @@ class UserDataSourceCredentialsService:
                     ok = client.test_connection()
                     success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
                     conn = "success" if success else "not_connected"
-                except Exception:
+                    logger.info(f"Connection test for {data_source.name}: {conn} (result={ok})")
+                except Exception as e:
+                    logger.error(f"Connection test failed for {data_source.name}: {e}")
                     conn = "not_connected"
             return DataSourceUserStatus(has_user_credentials=False, connection=conn, effective_auth="system")
 

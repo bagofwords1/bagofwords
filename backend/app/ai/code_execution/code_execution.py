@@ -74,13 +74,24 @@ class StreamingCodeExecutor:
                 return float(obj)
             if isinstance(obj, np.bool_):
                 return bool(obj)
-            if isinstance(obj, (np.datetime64, datetime.date)):
+            if isinstance(obj, (np.datetime64, datetime.datetime, datetime.date)):
                 return pd.Timestamp(obj).isoformat()
             if isinstance(obj, pd.Timestamp):
                 return obj.isoformat()
+            if isinstance(obj, datetime.time):
+                return obj.isoformat()
+            if isinstance(obj, (datetime.timedelta, pd.Timedelta)):
+                return str(obj)
             if isinstance(obj, np.ndarray):
                 return obj.tolist()
-            return obj
+            if isinstance(obj, uuid.UUID):
+                return str(obj)
+            # Fallback for any other non-JSON-serializable types
+            try:
+                json.dumps(obj)
+                return obj
+            except (TypeError, ValueError):
+                return str(obj)
         def make_hashable(value: Any) -> Any:
             """
             Convert potentially unhashable values (dict, list, set, ndarray, Timestamp)
@@ -162,23 +173,12 @@ class StreamingCodeExecutor:
             info_dict["column_info"][column] = column_info
         return info_dict
 
-    def postprocess_df(self, widget: Dict) -> Dict:
-        """Clean and format DataFrame data for widget display."""
-        def clean_value(value):
-            if isinstance(value, (pd.Timestamp, datetime.date)):
-                return value.isoformat()
-            elif isinstance(value, uuid.UUID):
-                return str(value)
-            elif pd.isna(value):
-                return None
-            return value
-
-        if 'rows' in widget:
-            widget['rows'] = [{k: clean_value(v) for k, v in row.items()} for row in widget['rows']]
-        return widget
-
     def format_df_for_widget(self, df: pd.DataFrame, max_rows: int = 1000) -> Dict:
-        """Format a DataFrame into a widget-compatible structure."""
+        """Format a DataFrame into a widget-compatible structure.
+        
+        Uses pandas' native JSON serialization which handles datetime, time,
+        timedelta, numpy types, NaN/NaT, and other edge cases robustly.
+        """
         columns = [{"headerName": str(col), "field": str(col)} for col in df.columns]
         if df.empty:
             rows = []
@@ -196,15 +196,19 @@ class StreamingCodeExecutor:
                 "dtypes_count": {str(k): int(v) for k, v in df.dtypes.value_counts().items()},
             }
         else:
-            rows = df.to_dict(orient='records')[:max_rows]
+            # Use pandas' native JSON serialization for robust type handling:
+            # - date_format='iso' handles datetime, date, time, Timestamp
+            # - default_handler=str catches anything else (UUID, Decimal, etc.)
+            rows = json.loads(
+                df.head(max_rows).to_json(orient='records', date_format='iso', default_handler=str)
+            )
             df_info = self.get_df_info(df)
-        widget = {
+        return {
             "rows": rows,
             "columns": columns,
             "loadingColumn": False,
             "info": df_info,
         }
-        return self.postprocess_df(widget)
 
     async def generate_and_execute_stream(
         self,

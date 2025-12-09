@@ -24,7 +24,15 @@ class InspectDataTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="inspect_data",
-            description="Run Python code to inspect data structures, column values, and samples. Use this when you want to undersstand data structures, or had previous errors with code execution and you want to 'peek' at data before creating widgets. Returns execution logs (stdout).",
+            description="""
+            Purpose:
+Quickly examine the structure and sample content of a dataset to validate assumptions and avoid errors before generating insights.
+
+Use when:
+	•	You need to confirm column names, formats, data types, or sample values.
+	•	You want to check a small amount of data to decide the correct next step.
+	•	A previous create_data attempt failed and you need to diagnose the issue.
+            """,
             category="research",
             version="1.0.0",
             input_schema=InspectDataInput.model_json_schema(),
@@ -42,10 +50,35 @@ class InspectDataTool(Tool):
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = InspectDataInput(**tool_input)
+        organization_settings = runtime_ctx.get("settings")
+        
+        # Check if LLM is allowed to see data
+        allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
+        if not allow_llm_see_data:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "code": "",
+                        "execution_log": "",
+                        "error_message": "Data inspection is disabled. The 'Allow LLM to see data' setting is turned off for this organization.",
+                        "execution_duration_ms": 0
+                    },
+                    "observation": {
+                        "summary": "inspect_data blocked: allow_llm_see_data is disabled",
+                        "details": "The organization setting 'Allow LLM to see data' is turned off.",
+                        "code": "",
+                        "success": False,
+                        "execution_duration_ms": 0
+                    }
+                }
+            )
+            return
+        
         yield ToolStartEvent(type="tool.start", payload={"title": "Inspecting Data"})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init_inspection"})
 
-        organization_settings = runtime_ctx.get("settings")
         context_hub = runtime_ctx.get("context_hub")
 
         # 1. Resolve Tables (simplified resolution compared to create_data)

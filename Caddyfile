@@ -1,0 +1,47 @@
+# =============================================================================
+# Caddyfile - Reverse Proxy with Automatic HTTPS
+# =============================================================================
+#
+# Usage:
+#   1. Replace {$DOMAIN} with your actual domain, or set DOMAIN in .env
+#   2. Ensure DNS points to your EC2 instance
+#   3. Caddy will automatically obtain and renew SSL certificates
+#
+# For local testing without SSL, use: localhost instead of {$DOMAIN}
+#
+# =============================================================================
+
+{$DOMAIN:localhost} {
+    # Reverse proxy to the app
+    reverse_proxy app:3000
+
+    # Enable compression
+    encode gzip zstd
+
+    # Security headers
+    header {
+        # Enable HSTS
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        # Prevent clickjacking
+        X-Frame-Options "SAMEORIGIN"
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # XSS protection
+        X-XSS-Protection "1; mode=block"
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Remove server header
+        -Server
+    }
+
+    # Logging
+    log {
+        output stdout
+        format console
+    }
+}
+
+# Redirect www to non-www (optional - uncomment if needed)
+# www.{$DOMAIN} {
+#     redir https://{$DOMAIN}{uri} permanent
+# }

@@ -10,7 +10,8 @@ import urllib.parse
 
 class DuckDBClient(DataSourceClient):
     def __init__(self,
-                 uris: str,
+                 uris: str | None = None,
+                 database: str | None = None,
                  # none auth
                  # aws
                  access_key: str | None = None,
@@ -23,6 +24,7 @@ class DuckDBClient(DataSourceClient):
                  connection_string: str | None = None,
                  ):
         self.uris_raw = uris or ""
+        self.database = database  # Path to local .duckdb file
         self.access_key = access_key
         self.secret_key = secret_key
         self.region = region
@@ -127,9 +129,14 @@ class DuckDBClient(DataSourceClient):
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con: duckdb.DuckDBPyConnection | None = None
         try:
-            con = duckdb.connect(database=":memory:")
-            self._configure_httpfs(con)
-            self._create_views(con)
+            if self.database:
+                # Open local .duckdb file directly (read-only for safety)
+                con = duckdb.connect(database=self.database, read_only=True)
+            else:
+                # In-memory database with views from URI patterns
+                con = duckdb.connect(database=":memory:")
+                self._configure_httpfs(con)
+                self._create_views(con)
             yield con
         except Exception as e:
             raise RuntimeError(f"Error while connecting to DuckDB: {e}")
@@ -151,13 +158,22 @@ class DuckDBClient(DataSourceClient):
     def get_tables(self) -> List[Table]:
         tables: List[Table] = []
         with self.connect() as con:
-            # list views in main schema
-            rows = con.execute("""
-                SELECT table_name
-                FROM information_schema.tables
-                WHERE table_schema = 'main' AND table_type = 'VIEW'
-                ORDER BY table_name
-            """).fetchall()
+            # For database files, list actual tables; for URI mode, list views
+            if self.database:
+                rows = con.execute("""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'main' AND table_type IN ('BASE TABLE', 'VIEW')
+                    ORDER BY table_name
+                """).fetchall()
+            else:
+                # list views in main schema (URI mode)
+                rows = con.execute("""
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'main' AND table_type = 'VIEW'
+                    ORDER BY table_name
+                """).fetchall()
             for (name,) in rows:
                 cols = []
                 try:
@@ -207,8 +223,12 @@ class DuckDBClient(DataSourceClient):
         try:
             with self.connect() as con:
                 con.execute("SELECT 1")
-                # Try reading first pattern minimally if present
-                if self.uri_patterns:
+                if self.database:
+                    # For database files, try to list tables
+                    tables = con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' LIMIT 1").fetchall()
+                    return {"success": True, "message": f"DuckDB database connected: {self.database}"}
+                elif self.uri_patterns:
+                    # Try reading first pattern minimally if present
                     view_names = con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW' ORDER BY table_name LIMIT 1").fetchall()
                     if view_names:
                         vn = view_names[0][0]
@@ -219,6 +239,8 @@ class DuckDBClient(DataSourceClient):
 
     @property
     def description(self):
+        if self.database:
+            return f"DuckDB database: {self.database}"
         sample = ", ".join(self.uri_patterns[:2])
         if len(self.uri_patterns) > 2:
             sample += ", ..."

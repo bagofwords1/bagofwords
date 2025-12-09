@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.266 (December 8, 2025)
+- Added a new **Inspect Data** tool for quickly examining the structure and sample content of a dataset and preview data before generating insights or diagnosing issues
+- Docker Compose now bundled for both development and production environments
+- Added sample databases to assist onboarding and demos
+- Enhanced overall system reliability and robustness
+
 ## Version 0.0.265 (December 7, 2025)
 - Bug fixes
 

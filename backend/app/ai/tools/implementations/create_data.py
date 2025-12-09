@@ -75,6 +75,7 @@ def build_view_from_data_model(
     data_model: Dict[str, Any],
     title: Optional[str] = None,
     palette_theme: Optional[str] = None,
+    available_columns: Optional[List[str]] = None,
 ) -> Optional[ViewSchema]:
     try:
         chart_type = str((data_model or {}).get("type") or "").lower()
@@ -87,6 +88,13 @@ def build_view_from_data_model(
     if chart_type in {"bar_chart", "line_chart", "area_chart"}:
         x_key = next((s.get("key") for s in series if s.get("key")), None)
         value_cols = [s.get("value") for s in series if s.get("value")]
+        
+        # Fallback: infer x_key from available columns when missing
+        # Pick the first column that's not used as a value
+        if not x_key and value_cols and available_columns:
+            value_cols_set = set(value_cols)
+            x_key = next((col for col in available_columns if col not in value_cols_set), None)
+        
         if not x_key or not value_cols:
             return None
         # Use list when multiple measures exist
@@ -344,10 +352,24 @@ OTHER CHART TYPES
 Allowed types: {", ".join(allowed_types)}
 
 Series contracts:
-- bar/line/area/pie/map: [{{"name", "key", "value"}}]
+- bar/line/area: [{{"name", "key", "value"}}] - BOTH key AND value are REQUIRED!
+- pie/map: [{{"name", "key", "value"}}]
 - scatter: [{{"name", "x", "y"}}] (+ size optional)
 - heatmap: [{{"name", "x", "y", "value"}}]
 - table: series: []
+
+CRITICAL FOR BAR/LINE/AREA CHARTS:
+- "key" = the CATEGORY column (x-axis) - REQUIRED, usually a date, name, or category column
+- "value" = the NUMERIC column (y-axis) - REQUIRED, the metric to display
+- You MUST include BOTH "key" and "value" in every series entry!
+
+EXAMPLE - Bar chart with date and price:
+Columns: ["date", "max_bitcoin_price"]
+CORRECT:
+{{"type": "bar_chart", "series": [{{"name": "Max Bitcoin Price", "key": "date", "value": "max_bitcoin_price"}}]}}
+
+WRONG (missing key - will break the chart):
+{{"type": "bar_chart", "series": [{{"name": "Max Bitcoin Price", "value": "max_bitcoin_price"}}]}}
 
 DECISION LOGIC:
 1. Single numeric value → metric_card
@@ -933,7 +955,9 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                 if inferred_dm.get(key) is not None:
                     final_dm[key] = inferred_dm.get(key)
         palette_theme = _infer_palette_theme(runtime_ctx) or "default"
-        view_schema = build_view_from_data_model(final_dm, title=data.title, palette_theme=palette_theme)
+        # Extract available column names from formatted data for fallback inference
+        available_columns = [c.get("field") for c in formatted.get("columns", []) if c.get("field")]
+        view_schema = build_view_from_data_model(final_dm, title=data.title, palette_theme=palette_theme, available_columns=available_columns)
         view_payload = view_schema.model_dump(exclude_none=True) if view_schema else None
         if not view_payload and final_dm.get("type"):
             view_payload = {"version": "v2", "view": {"type": final_dm.get("type")}}

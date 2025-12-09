@@ -353,3 +353,57 @@ def update_tables_status_delta(test_client):
         return response.json()
 
     return _update_tables_status_delta
+
+
+# ============================================================================
+# Demo Data Source Fixtures
+# ============================================================================
+
+@pytest.fixture
+def list_demo_data_sources(test_client):
+    """List all available demo data sources."""
+    def _list_demo_data_sources(*, user_token: str = None, org_id: str = None):
+        if user_token is None:
+            pytest.fail("User token is required for list_demo_data_sources")
+        if org_id is None:
+            pytest.fail("Organization ID is required for list_demo_data_sources")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.get(
+            "/api/data_sources/demos",
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _list_demo_data_sources
+
+
+@pytest.fixture
+def install_demo_data_source(test_client):
+    """Install a demo data source."""
+    def _install_demo_data_source(*, demo_id: str, user_token: str = None, org_id: str = None):
+        if user_token is None:
+            pytest.fail("User token is required for install_demo_data_source")
+        if org_id is None:
+            pytest.fail("Organization ID is required for install_demo_data_source")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.post(
+            f"/api/data_sources/demos/{demo_id}",
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _install_demo_data_source

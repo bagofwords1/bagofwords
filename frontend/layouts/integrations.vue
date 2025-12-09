@@ -98,10 +98,26 @@ const connectionClass = computed(() => {
 async function fetchIntegration() {
     if (!id.value) return
     isLoading.value = true
-    const response = await useMyFetch(`/data_sources/${id.value}`, { method: 'GET' })
-    if ((response.status as any)?.value === 'success') {
-        integration.value = (response.data as any)?.value
+    
+    try {
+        const config = useRuntimeConfig()
+        const { token } = useAuth()
+        const { organization } = useOrganization()
+        
+        const data = await $fetch(`/data_sources/${id.value}`, {
+            baseURL: config.public.baseURL,
+            method: 'GET',
+            headers: {
+                Authorization: `${token.value}`,
+                'X-Organization-Id': organization.value?.id || '',
+            }
+        })
+        
+        integration.value = data as any
+    } catch (e) {
+        console.error('Failed to fetch integration:', e)
     }
+    
     isLoading.value = false
 }
 

@@ -70,10 +70,28 @@
                             class="w-full px-3 py-1.5 text-sm border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
                         />
                     </div>
-                <NuxtLink
-                    :to="`/integrations/new?type=${ds.type}`"
-                    class="border-b border-gray-100 w-full pt-2.5 pb-2.5 rounded-lg flex hover:bg-gray-50"
-                    v-for="ds in filteredAvailableDs" :key="ds.type">
+
+                    <!-- Sample databases chips -->
+                    <div v-if="uninstalledDemos.length > 0" class="flex flex-wrap gap-2 mb-4">
+                        <button 
+                            v-for="demo in uninstalledDemos" 
+                            :key="`chip-${demo.id}`"
+                            @click="installDemo(demo.id)"
+                            :disabled="installingDemo === demo.id"
+                            class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Spinner v-if="installingDemo === demo.id" class="h-3" />
+                            <DataSourceIcon v-else class="h-4" :type="demo.type" />
+                            {{ demo.name }}
+                            <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
+                        </button>
+                    </div>
+
+                    <!-- Regular data sources -->
+                    <NuxtLink
+                        :to="`/integrations/new?type=${ds.type}`"
+                        class="border-b border-gray-100 w-full pt-2.5 pb-2.5 rounded-lg flex hover:bg-gray-50"
+                        v-for="ds in filteredAvailableDs" :key="ds.type">
                         <div class="p-2 w-18">
                             <DataSourceIcon class="w-8" :type="ds.type" />
                         </div>
@@ -105,12 +123,25 @@ const { isExcel } = useExcel()
 definePageMeta({ auth: true })
 const available_ds = ref([]);
 const connected_ds = ref([]);
+const demo_ds = ref<any[]>([]);
 const loadingConnected = ref(true);
 const loadingAvailable = ref(true);
+const loadingDemos = ref(true);
+const installingDemo = ref<string | null>(null);
 const searchQuery = ref('');
-const loading = computed(() => loadingConnected.value || loadingAvailable.value);
+const loading = computed(() => loadingConnected.value || loadingAvailable.value || loadingDemos.value);
 const connectedIntegrations = computed(() => (connected_ds.value || []).filter((ds: any) => ds.user_status?.has_user_credentials || ds.auth_policy === 'system_only' || ds.user_status?.effective_auth === 'system'))
 const availableConnections = computed(() => (connected_ds.value || []).filter((ds: any) => ds.auth_policy === 'user_required' && !ds.user_status?.has_user_credentials && ds.user_status?.effective_auth !== 'system'))
+const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
+const filteredDemos = computed(() => {
+    if (!searchQuery.value.trim()) return uninstalledDemos.value;
+    const query = searchQuery.value.toLowerCase();
+    return uninstalledDemos.value.filter((demo: any) => 
+        demo.name?.toLowerCase().includes(query) || 
+        demo.description?.toLowerCase().includes(query) ||
+        demo.type?.toLowerCase().includes(query)
+    );
+})
 const filteredAvailableDs = computed(() => {
     if (!searchQuery.value.trim()) return available_ds.value;
     const query = searchQuery.value.toLowerCase();
@@ -154,6 +185,46 @@ async function getAvailableDataSources() {
     }
 }
 
+async function getDemoDataSources() {
+    loadingDemos.value = true;
+    try {
+        const response = await useMyFetch('/data_sources/demos', {
+            method: 'GET',
+        });
+
+        if (response.data.value) {
+            demo_ds.value = response.data.value;
+        }
+    } finally {
+        loadingDemos.value = false;
+    }
+}
+
+async function installDemo(demoId: string) {
+    installingDemo.value = demoId;
+    try {
+        const response = await useMyFetch(`/data_sources/demos/${demoId}`, {
+            method: 'POST',
+        });
+
+        const result = response.data.value as any;
+        if (result?.success) {
+            // Refresh both lists
+            await Promise.all([
+                getConnectedDataSources(),
+                getDemoDataSources(),
+            ]);
+            
+            // Navigate to the new data source
+            if (result.data_source_id) {
+                navigateTo(`/integrations/${result.data_source_id}`);
+            }
+        }
+    } finally {
+        installingDemo.value = null;
+    }
+}
+
 const showCredsModal = ref(false)
 const selectedDs = ref<any>(null)
 function openCreds(ds: any) {
@@ -179,6 +250,7 @@ onMounted(async () => {
     nextTick(async () => {
          getConnectedDataSources()
          getAvailableDataSources()
+         getDemoDataSources()
     })
 });
 

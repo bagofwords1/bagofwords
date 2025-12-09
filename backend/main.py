@@ -47,6 +47,7 @@ from app.routes import (
     file,
     organization,
     data_source,
+    demo_data_source,
     memory,
     text_widget,
     user_profile,
@@ -159,6 +160,7 @@ app.include_router(
 # Google OAuth is handled by custom OIDC router for uniform behavior
 
 
+app.include_router(demo_data_source.router, prefix="/api")  # Must be before data_source for /data_sources/demos to match
 app.include_router(data_source.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(test.router, prefix="/api")

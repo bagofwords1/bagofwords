@@ -1,37 +1,37 @@
 # =============================================================================
-# Bag of Words - Production Docker Compose with Caddy (SSL/HTTPS)
+# Bag of Words - Development Docker Compose (no SSL)
 # =============================================================================
 #
 # Quick Start:
 #   1. Create a .env file with your configuration (see below)
-#   2. Update Caddyfile with your domain
-#   3. Run: docker compose up -d
+#   2. Run: docker compose -f docker-compose.dev.yaml up -d
 #
 # Environment Variables (create .env file):
-#   DOMAIN=yourdomain.com                 # Your domain name (required for SSL)
-#   POSTGRES_USER=bow                     # PostgreSQL username
-#   POSTGRES_PASSWORD=your_secure_pw      # PostgreSQL password (CHANGE THIS!)
-#   POSTGRES_DB=bagofwords                # Database name
-#   BOW_ENCRYPTION_KEY=                   # Fernet encryption key (44 chars, ends with =)
+#   POSTGRES_USER=bow                    # PostgreSQL username
+#   POSTGRES_PASSWORD=your_secure_pw     # PostgreSQL password (CHANGE THIS!)
+#   POSTGRES_DB=bagofwords               # Database name
+#   POSTGRES_PORT=5432                   # PostgreSQL port (optional)
+#   APP_PORT=3000                        # Application port (optional)
+#   BOW_ENCRYPTION_KEY=                  # Fernet encryption key (44 chars, ends with =)
 #
 # Generate encryption key:
 #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-#
-# For development without SSL, use: docker compose -f docker-compose.dev.yaml up -d
 #
 # =============================================================================
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: bow-postgres
+    container_name: bow-postgres-dev
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bowpassword}
       POSTGRES_DB: ${POSTGRES_DB:-bagofwords}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_dev:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bow} -d ${POSTGRES_DB:-bagofwords}"]
       interval: 10s
@@ -39,15 +39,15 @@ services:
       retries: 5
       start_period: 10s
     networks:
-      - bow-network
+      - bow-network-dev
 
   app:
     image: bagofwords/bagofwords:latest
     pull_policy: always
-    container_name: bow-app
+    container_name: bow-app-dev
     restart: unless-stopped
-    expose:
-      - "3000"
+    ports:
+      - "${APP_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
       - ENVIRONMENT=production
@@ -59,9 +59,9 @@ services:
       - BOW_CONFIG_PATH=/app/bow-config.yaml
     volumes:
       - ./bow-config.yaml:/app/bow-config.yaml:ro
-      - uploads_data:/app/backend/uploads
-      - branding_data:/app/backend/branding_uploads
-      - logs_data:/app/backend/logs
+      - uploads_data_dev:/app/backend/uploads
+      - branding_data_dev:/app/backend/branding_uploads
+      - logs_data_dev:/app/backend/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -72,41 +72,18 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      - bow-network
-
-  caddy:
-    image: caddy:2.10-alpine
-    container_name: bow-caddy
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"  # HTTP/3
-    environment:
-      - DOMAIN=${DOMAIN:-localhost}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - app
-    networks:
-      - bow-network
+      - bow-network-dev
 
 volumes:
-  postgres_data:
+  postgres_data_dev:
     driver: local
-  uploads_data:
+  uploads_data_dev:
     driver: local
-  branding_data:
+  branding_data_dev:
     driver: local
-  logs_data:
-    driver: local
-  caddy_data:
-    driver: local
-  caddy_config:
+  logs_data_dev:
     driver: local
 
 networks:
-  bow-network:
+  bow-network-dev:
     driver: bridge

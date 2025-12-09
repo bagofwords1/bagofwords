@@ -23,6 +23,25 @@
                   </div>
                 </button>
               </div>
+
+              <!-- Sample databases -->
+              <div v-if="uninstalledDemos.length > 0" class="mt-6">
+                <div class="text-xs text-gray-400 mb-2">Or try a sample database:</div>
+                <div class="flex flex-wrap gap-2">
+                  <button 
+                    v-for="demo in uninstalledDemos" 
+                    :key="`demo-${demo.id}`"
+                    @click="installDemo(demo.id)"
+                    :disabled="installingDemo === demo.id"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Spinner v-if="installingDemo === demo.id" class="h-3" />
+                    <DataSourceIcon v-else class="h-4" :type="demo.type" />
+                    {{ demo.name }}
+                    <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div v-else class="bg-white rounded-lg border border-gray-200 p-4">
@@ -60,12 +79,18 @@
 definePageMeta({ auth: true, layout: 'onboarding' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
 import ConnectForm from '@/components/datasources/ConnectForm.vue'
+import Spinner from '~/components/Spinner.vue'
+
 const { updateOnboarding } = useOnboarding()
 const router = useRouter()
 async function skipForNow() { await updateOnboarding({ dismissed: true }); router.push('/') }
 
 const available_ds = ref<any[]>([])
+const demo_ds = ref<any[]>([])
 const selectedDataSource = ref<any | null>(null)
+const installingDemo = ref<string | null>(null)
+
+const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
 
 async function getAvailableDataSources() {
   const { data, error } = await useMyFetch('/available_data_sources', { method: 'GET' })
@@ -75,9 +100,31 @@ async function getAvailableDataSources() {
   available_ds.value = (data.value as any[]) || []
 }
 
+async function getDemoDataSources() {
+  const { data } = await useMyFetch('/data_sources/demos', { method: 'GET' })
+  if (data.value) {
+    demo_ds.value = data.value as any[]
+  }
+}
+
+async function installDemo(demoId: string) {
+  installingDemo.value = demoId
+  try {
+    const { data } = await useMyFetch(`/data_sources/demos/${demoId}`, { method: 'POST' })
+    const result = data.value as any
+    if (result?.success && result.data_source_id) {
+      updateOnboarding({ current_step: 'schema_selected' as any })
+      navigateTo(`/onboarding/data/${result.data_source_id}/schema`)
+    }
+  } finally {
+    installingDemo.value = null
+  }
+}
+
 onMounted(async () => {
   nextTick(async () => {
     getAvailableDataSources()
+    getDemoDataSources()
   })
 })
 

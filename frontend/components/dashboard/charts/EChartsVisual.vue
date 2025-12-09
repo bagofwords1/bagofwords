@@ -457,11 +457,36 @@ function buildHeatmapOptions(rows: any[], dm: any): EChartsOption {
 
 function buildCandlestickOptions(rows: any[], dm: any): EChartsOption {
   const s = dm?.series?.[0] || {}
-  const keyField = (s?.key || '').toLowerCase()
-  const openF = (s?.open || 'open').toLowerCase()
-  const closeF = (s?.close || 'close').toLowerCase()
-  const lowF = (s?.low || 'low').toLowerCase()
-  const highF = (s?.high || 'high').toLowerCase()
+  
+  // Try to get field mappings from series config, or auto-detect from data columns
+  let keyField = (s?.key || '').toLowerCase()
+  let openF = (s?.open || '').toLowerCase()
+  let closeF = (s?.close || '').toLowerCase()
+  let lowF = (s?.low || '').toLowerCase()
+  let highF = (s?.high || '').toLowerCase()
+  
+  // Auto-detect from data columns if not configured
+  if ((!keyField || !openF || !closeF || !lowF || !highF) && rows.length > 0) {
+    const sampleRow = rows[0]
+    const cols = Object.keys(sampleRow).map(k => k.toLowerCase())
+    
+    // Try to find time/date column for key
+    if (!keyField) {
+      keyField = cols.find(c => ['time', 'date', 'datetime', 'timestamp', 'period'].includes(c)) || ''
+    }
+    // Try to find OHLC columns by name
+    if (!openF) openF = cols.find(c => c === 'open') || ''
+    if (!closeF) closeF = cols.find(c => c === 'close') || ''
+    if (!lowF) lowF = cols.find(c => c === 'low') || ''
+    if (!highF) highF = cols.find(c => c === 'high') || ''
+  }
+  
+  // Use defaults if still not found
+  openF = openF || 'open'
+  closeF = closeF || 'close'
+  lowF = lowF || 'low'
+  highF = highF || 'high'
+  
   if (!keyField) return {}
   
   const sorted = [...rows].sort((a: any, b: any) => new Date(String(a[keyField] || '')).getTime() - new Date(String(b[keyField] || '')).getTime())
@@ -590,6 +615,36 @@ function buildOptions() {
         } else if (viewV2.x && Array.isArray(out.series)) {
           out.series = out.series.map((s: any) => ({ ...s, key: viewV2.x }))
         }
+      }
+      // Handle candlestick encoding from v2 schema
+      const v2Enc = viewV2.encoding
+      if (v2Enc?.open && v2Enc?.close && v2Enc?.low && v2Enc?.high) {
+        out.series = [{
+          name: v2Enc.name || 'OHLC',
+          key: v2Enc.key || v2Enc.category,
+          open: v2Enc.open,
+          close: v2Enc.close,
+          low: v2Enc.low,
+          high: v2Enc.high
+        }]
+      }
+      // Handle treemap encoding from v2 schema
+      if (v2Enc?.name && v2Enc?.value && !out.series?.length) {
+        out.series = [{
+          name: v2Enc.name,
+          key: v2Enc.name,
+          value: v2Enc.value,
+          id: v2Enc.id,
+          parentId: v2Enc.parentId
+        }]
+      }
+      // Handle radar encoding from v2 schema
+      if (Array.isArray(v2Enc?.dimensions) && v2Enc.dimensions.length) {
+        out.series = [{
+          name: v2Enc.name || 'Series',
+          key: v2Enc.key || 'name',
+          dimensions: v2Enc.dimensions
+        }]
       }
       if (viewV2.groupBy) out.group_by = viewV2.groupBy
       if (typeof viewV2.horizontal === 'boolean') out.horizontal = viewV2.horizontal

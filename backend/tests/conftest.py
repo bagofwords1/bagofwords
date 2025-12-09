@@ -114,7 +114,9 @@ from tests.fixtures.data_source import (
     update_metadata_resources,
     bulk_update_tables,
     update_tables_status_delta,
-    get_full_schema_paginated
+    get_full_schema_paginated,
+    list_demo_data_sources,
+    install_demo_data_source,
 )
 from tests.fixtures.git_repository import (
     create_git_repository,
