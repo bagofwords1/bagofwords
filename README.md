@@ -19,7 +19,7 @@ Let users run analysis, build beautiful dashboards, or schedule reports — all 
 - Natural-language chat, visualization, and analysis powered by an agentic loop (tools, reasoning, reflection)  
 - Connect any LLM to any warehouse (OpenAI/Anthropic/Gemini/Ollama ↔ Snowflake/BigQuery/Postgres/Redshift/SQL Server)  
 - Index your repo for valuable context: dbt, LookML, Dataform, Tableau sources, AGENTS.md, and code  
-- Self-learning semantic layer + centralized instruction/prompt management  
+- Self-learning semantic layer + centralized instruction management with approval workflows  
 - Full observability for reliable AI analytics: agent traces, LLM judges, evals, feedback loops  
 - Slack integration and a clean OpenAPI for custom workflows  
 - Deploy with Docker/Compose/Kubernetes, inside your VPC  
