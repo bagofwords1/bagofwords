@@ -17,16 +17,13 @@ Let users run analysis, build beautiful dashboards, or schedule reports — all 
 **Bag of words Features:**
 
 - Natural-language chat, visualization, and analysis powered by an agentic loop (tools, reasoning, reflection)  
-- Plug any LLM into any warehouse: OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift, SQL Server  
-- Index your repo for real context: dbt models, LookML, Dataform, Tableau sources, AGENTS.md, and your code  
-- Centralized instruction management with approval workflows  
-- Self-learning semantic layer that adapts to users usage and model behavior  
-- Full observability for reliable AI analytics: traces, query plans, judgments, evals, feedback loops  
-- Collaboration, dashboard sharing, scheduling, themes, and more
-- Slack native integration, and a fully documented OpenAPI endpoint  
-- Deploy anywhere: Docker, Compose, Kubernetes, VMs, private VPC  
-- SSO (OIDC), SMTP, RBAC, and permission inheritance from your warehouse  
-
+- Connect any LLM to any warehouse (OpenAI/Anthropic/Gemini/Ollama ↔ Snowflake/BigQuery/Postgres/Redshift/SQL Server)  
+- Index your repo for valuable context: dbt, LookML, Dataform, Tableau sources, AGENTS.md, and code  
+- Self-learning semantic layer + centralized instruction/prompt management  
+- Full observability for reliable AI analytics: agent traces, LLM judges, evals, feedback loops  
+- Slack integration and a clean OpenAPI for custom workflows  
+- Deploy with Docker/Compose/Kubernetes, inside your VPC  
+- Enterprise features: SSO (OIDC), SMTP, RBAC, warehouse-native permissions  
 
 
 [![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
