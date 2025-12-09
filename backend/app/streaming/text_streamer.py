@@ -25,11 +25,11 @@ class PlanningTextStreamer:
         completion_id: str,
         agent_execution_id: str,
         block_id: Optional[str],
-        throttle_ms: int = 5,  # ~60fps for smooth streaming
+        throttle_ms: int = 16,  # ~60fps for smooth streaming
         snapshot_every_ms: int = 1200,
-        char_threshold: int = 5,  # Emit after N chars even if time threshold not met
-        split_large_chunks: bool = True,  # Split large chunks for typing effect
-        max_chunk_size: int = 12,  # Max chars per emission when splitting
+        char_threshold: int = 30,  # Emit after N chars - batched for performance
+        split_large_chunks: bool = False,  # Disabled - reduces event count significantly
+        max_chunk_size: int = 100,  # Larger chunks when splitting is enabled
         split_delay_ms: int = 8,  # Delay between split emissions
     ):
         self.emit = emit
