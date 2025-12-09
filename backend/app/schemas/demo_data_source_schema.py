@@ -49,7 +49,7 @@ DEMO_DATA_SOURCES: Dict[str, DemoDataSourceDefinition] = {
         description="Sample music store database with artists, albums, tracks, customers, and invoices. Powered by SQLite.",
         type="sqlite",
         config={
-            "database": "db/chinook.sqlite",
+            "database": "demo-datasources/chinook.sqlite",
         },
         credentials={},
         conversation_starters=[
@@ -70,7 +70,7 @@ DEMO_DATA_SOURCES: Dict[str, DemoDataSourceDefinition] = {
         description="Sample financial database with candlestick data, gold vs bitcoin prices, quotes, bank failures, and country statistics. Powered by DuckDB.",
         type="duckdb",
         config={
-            "database": "db/stocks.duckdb",
+            "database": "demo-datasources/stocks.duckdb",
         },
         credentials={},
         conversation_starters=[
