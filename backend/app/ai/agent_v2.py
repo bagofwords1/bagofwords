@@ -1145,7 +1145,7 @@ class AgentV2:
 
                         # Build created_visualization_ids with fallback to orchestrator state
                         created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
-                        if not created_visualization_ids and self.current_visualization:
+                        if not created_visualization_ids and getattr(self, 'current_visualization', None):
                             created_visualization_ids = [str(self.current_visualization.id)]
 
                         # Finish tool execution tracking
