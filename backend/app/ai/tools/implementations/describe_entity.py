@@ -80,12 +80,12 @@ class DescribeEntityTool(Tool):
         if entity:
             return entity
 
-        # Try slug exact match
+        # Try slug exact match (case insensitive)
         result = await db.execute(
             select(Entity)
             .options(selectinload(Entity.data_sources))
             .where(
-                Entity.slug == name_or_id,
+                Entity.slug.ilike(name_or_id),
                 Entity.organization_id == organization_id,
                 Entity.deleted_at == None,
             )
@@ -108,7 +108,7 @@ class DescribeEntityTool(Tool):
         if entity:
             return entity
 
-        # Try fuzzy match on title/slug
+        # Try fuzzy match on title/slug/description
         like_pattern = f"%{name_or_id}%"
         result = await db.execute(
             select(Entity)
@@ -117,6 +117,7 @@ class DescribeEntityTool(Tool):
                 or_(
                     Entity.title.ilike(like_pattern),
                     Entity.slug.ilike(like_pattern),
+                    Entity.description.ilike(like_pattern),
                 ),
                 Entity.organization_id == organization_id,
                 Entity.deleted_at == None,

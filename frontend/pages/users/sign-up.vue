@@ -110,6 +110,8 @@ const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
 const loadingProvider = ref<string | null>(null)
 const pageLoaded = ref(false)
 const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
+const smtpEnabled = ref(false)
+const verifyEmails = ref(false)
 
 const { signIn, getSession } = useAuth();
 const { ensureOrganization, fetchOrganization } = useOrganization()
@@ -124,6 +126,8 @@ onMounted(async () => {
     if (settings?.auth?.mode) {
       authMode.value = settings.auth.mode
     }
+    smtpEnabled.value = settings?.smtp_enabled ?? false
+    verifyEmails.value = settings?.features?.verify_emails ?? false
   } catch (_) {}
   const inviteError = route.query.error as string
   if (inviteError) {
@@ -158,7 +162,7 @@ async function signInWithCredentials(email: string, password: string) {
     }
     rawToken.value = response.access_token
     const session = await getSession()
-    if (!session?.is_verified) {
+    if (!session?.is_verified && verifyEmails.value && smtpEnabled.value) {
       await verifyEmail(email)
       navigateTo('/users/verify');
     }

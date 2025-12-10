@@ -1,7 +1,21 @@
 <template>
-  <div class="flex h-screen justify-center py-20 px-5 sm:px-0">
+  <div class="flex h-screen justify-center py-20 px-5 sm:px-0" v-if="pageLoaded">
     <div class="w-full sm:w-1/4">
-      <template v-if="!emailSent" class="bg-white">
+      <template v-if="!smtpEnabled">
+        <div class="text-center">
+          <Icon name="heroicons:exclamation-triangle" class="w-10 h-10 text-yellow-500 mx-auto mb-3" />
+          <h1 class="font-bold text-lg">Password Reset Unavailable</h1>
+          <p class="mt-3 text-sm text-gray-700">
+            Email is not configured on this instance. Please contact your administrator to reset your password.
+          </p>
+          <div class="mt-5">
+            <NuxtLink to="/users/sign-in" class="text-blue-400 hover:text-blue-600">
+              Back to Sign in
+            </NuxtLink>
+          </div>
+        </div>
+      </template>
+      <template v-else-if="!emailSent" class="bg-white">
         <h1 class="font-bold text-lg">Forgot Password</h1>
         <p class="mt-3 text-sm text-gray-700">
           Enter your email address and we'll send you a link to reset your password.
@@ -48,11 +62,13 @@
       </template>
     </div>
   </div>
+  <div v-else class="flex h-screen items-center justify-center"><Spinner class="h-6 w-6" /></div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { definePageMeta } from '#imports'
+import Spinner from '~/components/Spinner.vue'
 
 definePageMeta({
   auth: {
@@ -67,6 +83,16 @@ const error_message = ref('')
 const success_message = ref('')
 const isLoading = ref(false)
 const emailSent = ref(false)
+const smtpEnabled = ref(false)
+const pageLoaded = ref(false)
+
+onMounted(async () => {
+  try {
+    const settings = await $fetch('/api/settings')
+    smtpEnabled.value = settings?.smtp_enabled ?? false
+  } catch (_) {}
+  pageLoaded.value = true
+})
 
 async function submit() {
   if (!email.value) {

@@ -26,7 +26,7 @@
           <p v-if="error_message" class="mt-1 text-red-500 text-sm">{{ error_message }}</p>
         </div>
         
-        <div class="field mt-2 text-left">
+        <div class="field mt-2 text-left" v-if="smtpEnabled">
           <NuxtLink to="/users/forgot-password" class="text-xs text-blue-400 hover:text-blue-600">
             Forgot Password?
           </NuxtLink>
@@ -112,6 +112,7 @@
   const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
   const loadingProvider = ref<string | null>(null)
   const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
+  const smtpEnabled = ref(false)
 
   definePageMeta({
   auth: {
@@ -139,6 +140,7 @@
       if (settings?.auth?.mode) {
         authMode.value = settings.auth.mode
       }
+      smtpEnabled.value = settings?.smtp_enabled ?? false
     } catch (_) {}
     const inviteError = route.query.error as string
     if (inviteError) {

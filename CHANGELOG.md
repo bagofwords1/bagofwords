@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.271 (December 10, 2025)
+- Describe entity from catalog - new tool!
+- Remove forgot password/etc when SMTP is not available
+
 ## Version 0.0.270 (December 10, 2025)
 - bug fixes, performance and reliability
 

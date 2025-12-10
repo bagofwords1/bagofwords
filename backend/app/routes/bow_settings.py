@@ -32,6 +32,7 @@ async def get_frontend_settings():
         "intercom": {
             "enabled": settings.bow_config.intercom.enabled,
         },
+        "smtp_enabled": settings.bow_config.smtp_settings is not None,
         "version": settings.PROJECT_VERSION,
         "environment": settings.ENVIRONMENT,
     })
