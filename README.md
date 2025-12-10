@@ -19,7 +19,7 @@ Built for reliable quick answers and deeper investigations like root-cause analy
 - **Any LLM ↔ Any warehouse** - OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift  
 - **Git repo indexing** - use `AGENTS.md`, dbt, LookML, Dataform, Tableau, and code as live context  
 - **Centralized instructions** - one place for definitions, business terms, and rules with approval workflows  
-- **Self-learning** - semantic layer that auto-improves from feedback, corrections, and usage  
+- **Self-learning** - learns from usage and surfaces instruction and semantic-layer updates, review-gated  
 - **Reliability** - full observability: agent traces, plans, guardrails, LLM judges, evals  
 - **Auth & deploy** - run via Docker/Compose/k8s with SSO, RBAC, warehouse inherited permissions, and audit trail  
 
