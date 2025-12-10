@@ -66,14 +66,25 @@ def create_async_database_engine():
             ).replace(
                 "postgresql://", "postgresql+asyncpg://"
             )
-        elif "sqlite" in settings.bow_config.database.url:
-            database_url = settings.bow_config.database.url.replace(
-                "sqlite://", "sqlite+aiosqlite://"
+            # PostgreSQL: use connection pooling for production
+            engine = create_async_engine(
+                database_url,
+                echo=False,
+                pool_size=5,           # connections per worker
+                max_overflow=10,       # extra connections under load
+                pool_timeout=30,       # wait time for connection
+                pool_recycle=1800,     # recycle connections every 30min (avoids stale connections)
+                pool_pre_ping=True,    # check connection health before use
             )
         else:
-            database_url = "sqlite+aiosqlite:///./app.db"
-        
-        engine = create_async_engine(database_url, echo=False)
+            # SQLite: no connection pooling supported
+            if "sqlite" in settings.bow_config.database.url:
+                database_url = settings.bow_config.database.url.replace(
+                    "sqlite://", "sqlite+aiosqlite://"
+                )
+            else:
+                database_url = "sqlite+aiosqlite:///./app.db"
+            engine = create_async_engine(database_url, echo=False)
 
     return engine
 
