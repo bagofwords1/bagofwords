@@ -955,6 +955,7 @@ class AgentV2:
                                 "create_widget",
                                 "create_data",
                                 "create_and_execute_code",
+                                "describe_entity",
                             ]:
                                 self.current_query = None
                                 self.current_step = None
@@ -1115,13 +1116,16 @@ class AgentV2:
                                     ))
                                 completion_finished_emitted = True
 
-                        # Extract created objects from observation
+                        # Extract created objects from observation, with fallback to orchestrator state
                         created_widget_id = None
                         created_step_id = None
                         if observation and "widget_id" in observation:
                             created_widget_id = observation["widget_id"]
                         if observation and "step_id" in observation:
                             created_step_id = observation["step_id"]
+                        # Fallback to orchestrator's current_step_id for tools that trigger step creation via progress events
+                        if not created_step_id and self.current_step_id:
+                            created_step_id = self.current_step_id
 
                         # Capture post-tool context snapshot
                         await self.context_hub.refresh_warm()
@@ -1139,6 +1143,11 @@ class AgentV2:
                             context_view_json=post_view.model_dump(),
                         )
 
+                        # Build created_visualization_ids with fallback to orchestrator state
+                        created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
+                        if not created_visualization_ids and self.current_visualization:
+                            created_visualization_ids = [str(self.current_visualization.id)]
+
                         # Finish tool execution tracking
                         await self.project_manager.finish_tool_execution_from_models(
                             self.db,
@@ -1147,7 +1156,7 @@ class AgentV2:
                             summary=observation.get("summary", "") if observation else "",
                             created_widget_id=created_widget_id,
                             created_step_id=created_step_id,
-                            created_visualization_ids=(observation.get("created_visualization_ids") if observation else None),
+                            created_visualization_ids=created_visualization_ids,
                             error_message=observation.get("error", {}).get("message") if observation and observation.get("error") else None,
                             context_snapshot_id=post_snap.id,
                             success=bool(observation and not observation.get("error")),
@@ -1211,7 +1220,7 @@ class AgentV2:
                                 "duration_ms": tool_execution.duration_ms,
                                 "created_widget_id": created_widget_id,
                                 "created_step_id": created_step_id,
-                                "created_visualization_ids": (observation.get("created_visualization_ids") if observation else None),
+                                "created_visualization_ids": created_visualization_ids,
                             }
                         ))
 
@@ -1526,7 +1535,7 @@ class AgentV2:
         stage = payload.get("stage")
         
         try:
-            if tool_name in ["create_widget", "create_data"]:
+            if tool_name in ["create_widget", "create_data", "describe_entity"]:
                 if stage == "data_model_type_determined":
                     # Create Query, Step and Visualization early when we know the type
                     data_model_type = payload.get("data_model_type")
@@ -1816,7 +1825,7 @@ class AgentV2:
             return  # Don't process failed tool executions
             
         try:
-            if tool_name in ["create_and_execute_code", "create_widget", "create_data"]:
+            if tool_name in ["create_and_execute_code", "create_widget", "create_data", "describe_entity"]:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return

@@ -318,6 +318,7 @@ import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
+import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
@@ -344,6 +345,7 @@ interface ToolCall {
 	status: string
 	result_summary?: string
 	result_json?: any
+	arguments_json?: any
 	duration_ms?: number
 	created_widget_id?: string
 	created_step_id?: string
@@ -583,6 +585,8 @@ function getToolComponent(toolName: string) {
       return CreateDataTool
 			case 'describe_tables':
 				return DescribeTablesTool
+		case 'describe_entity':
+			return DescribeEntityTool
 		case 'create_and_execute_code':
 			return ExecuteCodeTool
 		case 'create_dashboard':
@@ -1037,6 +1041,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							;(lastBlock.tool_execution.result_json as any).search_query = q
 							lastBlock.tool_execution.result_summary = `Searching ${qStr}…`
 						}
+						if (payload.tool_name === 'describe_entity' && payload.arguments) {
+							const nameOrId = payload.arguments.name_or_id || 'entity'
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+							lastBlock.tool_execution.result_summary = `Loading from catalog: "${nameOrId}"…`
+						}
 					} catch {}
 					lastBlock.status = 'in_progress'
 				}
@@ -1310,6 +1319,7 @@ async function loadCompletions() {
 					status: b.tool_execution.status,
 					result_summary: b.tool_execution.result_summary,
 					result_json: b.tool_execution.result_json,
+					arguments_json: b.tool_execution.arguments_json,
 					duration_ms: b.tool_execution.duration_ms,
 					created_widget_id: b.tool_execution.created_widget_id,
 					created_step_id: b.tool_execution.created_step_id,

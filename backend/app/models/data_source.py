@@ -131,6 +131,8 @@ class DataSource(BaseSchema):
                 client_params.update(decrypted_credentials)
             if "auth_type" in client_params.keys():
                 del client_params["auth_type"]
+            if "demo_id" in client_params.keys():
+                del client_params["demo_id"]
             # Debug logging
             import logging
             logger = logging.getLogger(__name__)
@@ -199,6 +201,7 @@ class DataSource(BaseSchema):
             ]
             
             tbl = Table(
+                id=str(table.id),  # Include table ID for mention service
                 name=table.name,
                 columns=columns,
                 pks=table.pks,

@@ -8,6 +8,7 @@ from .inspect_data import InspectDataInput, InspectDataOutput
 from .create_dashboard import CreateDashboardInput, CreateDashboardOutput
 from .clarify import ClarifyInput, ClarifyOutput
 from .describe_tables import DescribeTablesInput, DescribeTablesOutput
+from .describe_entity import DescribeEntityInput, DescribeEntityOutput
 from .read_resources import ReadResourcesInput, ReadResourcesOutput
 from .events import (
     ToolEvent,
@@ -36,6 +37,8 @@ __all__ = [
     "ClarifyOutput", 
     "DescribeTablesInput",
     "DescribeTablesOutput",
+    "DescribeEntityInput",
+    "DescribeEntityOutput",
     "ReadResourcesInput",
     "ReadResourcesOutput",
     "ToolEvent",

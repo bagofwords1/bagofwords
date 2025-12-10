@@ -1,6 +1,7 @@
 from typing import List, Optional
 from sqlalchemy import select, or_  # type: ignore
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.entity import Entity, entity_data_source_association
 from app.models.organization import Organization
@@ -52,9 +53,13 @@ class EntityContextBuilder:
         require_source_assoc: bool = True,
         data_source_ids: Optional[List[str]] = None,
     ) -> List[Entity]:
-        stmt = select(Entity).where(
-            Entity.organization_id == self.organization.id,
-            Entity.status == "published",
+        stmt = (
+            select(Entity)
+            .options(selectinload(Entity.data_sources))
+            .where(
+                Entity.organization_id == self.organization.id,
+                Entity.status == "published",
+            )
         )
 
         if types:
@@ -83,6 +88,9 @@ class EntityContextBuilder:
                     )
                     .where(entity_data_source_association.c.data_source_id.in_(ids))
                 )
+            else:
+                # No data sources on report - return empty to avoid showing unrelated entities
+                return []
 
         res = await self.db.execute(stmt)
         rows = res.scalars().all()
@@ -107,6 +115,7 @@ class EntityContextBuilder:
         top_k: int = 10,
         require_source_assoc: bool = True,
         data_source_ids: Optional[List[str]] = None,
+        allow_llm_see_data: bool = True,
     ) -> EntitiesSection:
         ents = await self.load_entities(
             keywords=keywords,
@@ -134,7 +143,7 @@ class EntityContextBuilder:
                     ds_names=ds_names,
                 )
             )
-        return EntitiesSection(items=items)
+        return EntitiesSection(items=items, allow_llm_see_data=allow_llm_see_data)
 
     async def build_for_turn(
         self,
@@ -144,6 +153,7 @@ class EntityContextBuilder:
         require_source_assoc: bool = True,
         keywords: Optional[List[str]] = None,
         user_text: Optional[str] = None,
+        allow_llm_see_data: bool = True,
     ) -> Optional[EntitiesSection]:
         # Prefer explicit keywords; else derive from current context inputs
         kw = [k for k in (keywords or []) if isinstance(k, str) and len(k.strip()) >= 2]
@@ -156,6 +166,7 @@ class EntityContextBuilder:
             types=types,
             top_k=top_k,
             require_source_assoc=require_source_assoc,
+            allow_llm_see_data=allow_llm_see_data,
         )
 
 

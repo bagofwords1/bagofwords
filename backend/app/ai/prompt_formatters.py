@@ -159,6 +159,7 @@ class ForeignKey(BaseModel):
 
 
 class Table(BaseModel):
+    id: Optional[str] = None  # Database table ID (from DataSourceTable)
     name: str
     columns: list[TableColumn] | None
     pks: list[TableColumn] | None

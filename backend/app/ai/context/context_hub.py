@@ -272,6 +272,15 @@ class ContextHub:
         # Entities section (delegated to builder; no inline heuristics)
         try:
             if getattr(spec, 'include_entities', False):
+                # Get allow_llm_see_data setting
+                allow_llm_see_data = True
+                try:
+                    org_settings = await self.organization.get_settings(self.db)
+                    cfg = org_settings.get_config("allow_llm_see_data") if org_settings else None
+                    allow_llm_see_data = bool(cfg.value) if cfg is not None else True
+                except Exception:
+                    pass
+                
                 ent_cfg = getattr(spec, 'entities_config', None)
                 ent_section = await self.entity_builder.build_for_turn(
                     types=(getattr(ent_cfg, 'types', None) if ent_cfg else None),
@@ -279,6 +288,7 @@ class ContextHub:
                     require_source_assoc=(getattr(ent_cfg, 'require_data_source_association', True) if ent_cfg else True),
                     keywords=(getattr(ent_cfg, 'keywords', None) if ent_cfg else None),
                     user_text=(self.prompt_content.get("content") if isinstance(self.prompt_content, dict) else str(self.prompt_content or "")),
+                    allow_llm_see_data=allow_llm_see_data,
                 )
                 if ent_section:
                     context.entities_context = ent_section.render()
@@ -413,29 +423,45 @@ class ContextHub:
         self._static_cache["files"] = files if not isinstance(files, Exception) else None
 
     async def refresh_warm(self) -> None:
-        """Rebuild warm sections each loop (messages, queries, observations).
+        """Rebuild warm sections each loop (messages, queries, observations, entities).
         
         Runs builders in parallel where possible for faster refresh.
         """
         import asyncio
         
-        # Get org settings first (needed for queries)
-        include_data_preview = True
+        # Get org settings first (needed for queries and entities)
+        allow_llm_see_data = True
         try:
             org_settings = await self.organization.get_settings(self.db)
             cfg = org_settings.get_config("allow_llm_see_data") if org_settings else None
-            include_data_preview = bool(cfg.value) if cfg is not None else True
+            allow_llm_see_data = bool(cfg.value) if cfg is not None else True
         except Exception:
-            include_data_preview = True
+            allow_llm_see_data = True
+        
+        # Extract user text for entity keyword matching
+        user_text = ""
+        try:
+            if isinstance(self.prompt_content, dict):
+                user_text = self.prompt_content.get("content", "")
+            else:
+                user_text = str(self.prompt_content or "")
+        except Exception:
+            user_text = ""
         
         # Run all warm builders in parallel
         messages_task = asyncio.create_task(self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))
-        queries_task = asyncio.create_task(self.query_builder.build(max_queries=5, include_data_preview=include_data_preview))
+        queries_task = asyncio.create_task(self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data))
         mentions_task = asyncio.create_task(self.mention_builder.build())
+        entities_task = asyncio.create_task(self.entity_builder.build_for_turn(
+            top_k=5,
+            require_source_assoc=True,
+            user_text=user_text,
+            allow_llm_see_data=allow_llm_see_data,
+        ))
         
         # Wait for all to complete
-        messages, queries, mentions = await asyncio.gather(
-            messages_task, queries_task, mentions_task,
+        messages, queries, mentions, entities = await asyncio.gather(
+            messages_task, queries_task, mentions_task, entities_task,
             return_exceptions=True
         )
         
@@ -449,6 +475,7 @@ class ContextHub:
             "queries": queries if not isinstance(queries, Exception) else None,
             "observations": observations,
             "mentions": mentions if not isinstance(mentions, Exception) else None,
+            "entities": entities if not isinstance(entities, Exception) else None,
         })
 
     def get_view(self) -> ContextView:
