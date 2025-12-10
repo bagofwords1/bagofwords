@@ -9,22 +9,21 @@
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/bagofwords/bagofwords)
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
 
+Connect any LLM to any data source through a unified context layer (instructions, docs, dbt, code) with full observability.
 
-Connect any LLM to any data source with centralized context management (instructions, dbt, code, docs, BI metadata) and full observability and governance.
+Built for reliable quick answers and deeper investigations like root-cause analysis.
 
-Let users run analysis, build beautiful dashboards, or schedule reports — all executed through an agentic analytics-oriented loop.
+**Features:**
 
-**Bag of words Features:**
+- **Agentic loop** - chat with data, ask complex questions, run multi-step analysis with tools, reasoning, and reflection  
+- **Any LLM ↔ Any warehouse** - OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift  
+- **Git repo indexing** - use `AGENTS.md`, dbt, LookML, Dataform, Tableau, and code as live context  
+- **Centralized instructions** - one place for definitions, business terms, and rules with approval workflows  
+- **Self-learning** - semantic layer that auto-improves from feedback, corrections, and usage  
+- **Reliability** - full observability: agent traces, plans, guardrails, LLM judges, evals  
+- **Auth & deploy** - run via Docker/Compose/k8s with SSO, RBAC, warehouse inherited permissions, and audit trail  
 
-- Natural-language chat, visualization, and analysis powered by an agentic loop (tools, reasoning, reflection)  
-- Connect any LLM to any warehouse (OpenAI/Anthropic/Gemini/Ollama ↔ Snowflake/BigQuery/Postgres/Redshift/SQL Server)  
-- Index your repo for valuable context: dbt, LookML, Dataform, Tableau sources, AGENTS.md, and code  
-- Self-learning semantic layer + centralized instruction management with approval workflows  
-- Full observability for reliable AI analytics: agent traces, LLM judges, evals, feedback loops  
-- Slack integration and a clean OpenAPI for custom workflows  
-- Deploy with Docker/Compose/Kubernetes, inside your VPC  
-- Enterprise features: SSO (OIDC), SMTP, RBAC, warehouse-native permissions  
-
+[Deploy anywhere](https://docs.bagofwords.com/install)
 
 [![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
 
@@ -44,8 +43,8 @@ docker run -p 3000:3000 \
   bagofwords/bagofwords
 ```
 
-#### Custom deployments
-For more advanced deployments, see the [docs](https://docs.bagofwords.com).
+#### Other deployment options
+docker compose and Kubernete deployments are also available (and recommended for servers). See the [docs](https://docs.bagofwords.com/install).
 
 ## Product Overview
 

@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.270 (December 10, 2025)
+- bug fixes, performance and reliability
+
 ## Version 0.0.269 (December 10, 2025)
 - Performance and speed
 

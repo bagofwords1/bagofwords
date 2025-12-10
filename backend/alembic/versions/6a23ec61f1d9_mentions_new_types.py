@@ -20,7 +20,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # Add TABLE and ENTITY values to the mentiontype enum for PostgreSQL
-    # SQLite doesn't support enum types, so skip this migration for SQLite
+    # SQLite doesn't support enum types, so skip this for SQLite
     dialect = op.get_bind().dialect.name
     if dialect == 'postgresql':
         op.execute("ALTER TYPE mentiontype ADD VALUE IF NOT EXISTS 'TABLE'")

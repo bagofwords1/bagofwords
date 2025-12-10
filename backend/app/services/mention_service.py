@@ -222,7 +222,7 @@ class MentionService:
                                 'dtype': getattr(col, 'dtype', None)
                             })
                     tables.append({
-                        'id': f"{ds.id}_{table.name}",
+                        'id': str(table.id),
                         'type': 'datasource_table',
                         'name': table.name,
                         'datasource_id': str(ds.id),
