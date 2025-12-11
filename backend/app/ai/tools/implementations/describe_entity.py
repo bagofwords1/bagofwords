@@ -73,6 +73,7 @@ class DescribeEntityTool(Tool):
             .where(
                 Entity.id == name_or_id,
                 Entity.organization_id == organization_id,
+                Entity.status == "published",
                 Entity.deleted_at == None,
             )
         )
@@ -87,6 +88,7 @@ class DescribeEntityTool(Tool):
             .where(
                 Entity.slug.ilike(name_or_id),
                 Entity.organization_id == organization_id,
+                Entity.status == "published",
                 Entity.deleted_at == None,
             )
         )
@@ -101,6 +103,7 @@ class DescribeEntityTool(Tool):
             .where(
                 Entity.title.ilike(name_or_id),
                 Entity.organization_id == organization_id,
+                Entity.status == "published",
                 Entity.deleted_at == None,
             )
         )
@@ -120,6 +123,7 @@ class DescribeEntityTool(Tool):
                     Entity.description.ilike(like_pattern),
                 ),
                 Entity.organization_id == organization_id,
+                Entity.status == "published",
                 Entity.deleted_at == None,
             )
             .limit(1)
