@@ -23,7 +23,7 @@ google_oauth:
 
 oidc_providers:
 - name: okta
-  enabled: true
+  enabled: false
   issuer: https://trial-9381896.okta.com/oauth2/default
   client_id: ${OKTA_CLIENT_ID}
   client_secret: ${OKTA_CLIENT_SECRET}
@@ -36,13 +36,6 @@ oidc_providers:
  # redirect_path: /api/auth/okta/callback
  # extra_authorize_params: { prompt: login }
  # extra_token_params: {}
-
-smtp_settings:
-  host: "smtp.resend.com"
-  port: 587
-  username: "resend"
-  password: ${BOW_SMTP_PASSWORD}
-
 encryption_key: ${BOW_ENCRYPTION_KEY}
 
 intercom:

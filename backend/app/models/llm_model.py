@@ -3,13 +3,24 @@ from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
 LLM_MODEL_DETAILS = [
+        {
+        "name": "GPT-5.2",
+        "model_id": "gpt-5.2",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": True,
+        "context_window_tokens": 400000,
+        "input_cost_per_million_tokens_usd": 1.75,
+        "output_cost_per_million_tokens_usd": 14.00
+    },
     {
         "name": "GPT-5.1",
         "model_id": "gpt-5.1",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "context_window_tokens": 400000,
         "input_cost_per_million_tokens_usd": 1.25,
         "output_cost_per_million_tokens_usd": 10.00

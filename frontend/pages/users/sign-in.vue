@@ -150,7 +150,15 @@
     const userEmail = route.query.email as string
     if (access_token) {
       rawToken.value = access_token
-      await getSession()
+      await getSession({ force: true })
+      
+      // Check if the user has an organization
+      const org = await fetchOrganization()
+      if (!org || !org.id) {
+        navigateTo('/organizations/new')
+        return
+      }
+      
       navigateTo('/')
       return
     }
@@ -179,7 +187,7 @@
   
       if (response) {
         rawToken.value = response.access_token
-        await getSession()
+        await getSession({ force: true })
         
         // Check if the user has an organization
         const org = await fetchOrganization();

@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.272 (December 12, 2025)
+- Added support for GPT-5.2 model
+- Enhanced the describe entity tool for better usability and accuracy
+- Fixed a user authentication bug affecting specific environments
+
 ## Version 0.0.271 (December 10, 2025)
 - Describe entity from catalog - new tool!
 - Remove forgot password/etc when SMTP is not available
