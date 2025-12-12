@@ -38,6 +38,12 @@ oidc_providers:
  # extra_token_params: {}
 encryption_key: ${BOW_ENCRYPTION_KEY}
 
+smtp_settings:
+  host: "smtp.resend.com"
+  port: 587
+  username: "resend"
+  password: ${BOW_SMTP_PASSWORD}
+
 intercom:
   enabled: true
 

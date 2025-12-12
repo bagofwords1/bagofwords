@@ -157,12 +157,13 @@ async function signInWithCredentials(email: string, password: string) {
       throw new Error('Authentication failed');
     }
     rawToken.value = response.access_token
-    const session = await getSession()
-    if (!session?.is_verified) {
-      await verifyEmail(email)
-      navigateTo('/users/verify');
-    }
-    else {
+    await getSession({ force: true })
+    
+    // Check if the user has an organization (same as sign-in flow)
+    const org = await fetchOrganization();
+    if (!org || !org.id) {
+      navigateTo('/organizations/new');
+    } else {
       navigateTo('/');
     }
     

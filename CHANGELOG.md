@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.273 (December 12, 2025)
+## Version 0.0.274 (December 12, 2025)
 - Added support for GPT-5.2 model
 - Enhanced the describe entity tool for better usability and accuracy
 - Fixed a user authentication bug affecting specific environments
@@ -10,6 +10,7 @@
 - Remove forgot password/etc when SMTP is not available
 
 ## Version 0.0.270 (December 10, 2025)
+
 - bug fixes, performance and reliability
 
 ## Version 0.0.269 (December 10, 2025)

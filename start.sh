@@ -4,6 +4,14 @@
 export ENVIRONMENT=production
 export NODE_ENV=production
 
+# Generate BOW_ENCRYPTION_KEY if not provided (must happen BEFORE workers fork)
+if [ -z "$BOW_ENCRYPTION_KEY" ]; then
+    export BOW_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+    echo "⚠️  WARNING: No BOW_ENCRYPTION_KEY provided. Generated a temporary key."
+    echo "⚠️  Users will be logged out if the container restarts!"
+    echo "⚠️  For production, set: -e BOW_ENCRYPTION_KEY=<your-persistent-key>"
+fi
+
 # Auto-detect workers: use env var or half the CPUs (min 1, leave room for Node.js + Postgres)
 CPUS=$(nproc)
 DEFAULT_WORKERS=$(( CPUS > 1 ? CPUS / 2 : 1 ))

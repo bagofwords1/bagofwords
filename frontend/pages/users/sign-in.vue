@@ -26,7 +26,7 @@
           <p v-if="error_message" class="mt-1 text-red-500 text-sm">{{ error_message }}</p>
         </div>
         
-        <div class="field mt-2 text-left">
+        <div class="field mt-2 text-left" v-if="smtpEnabled">
           <NuxtLink to="/users/forgot-password" class="text-xs text-blue-400 hover:text-blue-600">
             Forgot Password?
           </NuxtLink>
@@ -112,6 +112,7 @@
   const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
   const loadingProvider = ref<string | null>(null)
   const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
+  const smtpEnabled = ref(false)
 
   definePageMeta({
   auth: {
@@ -139,6 +140,7 @@
       if (settings?.auth?.mode) {
         authMode.value = settings.auth.mode
       }
+      smtpEnabled.value = settings?.smtp_enabled ?? false
     } catch (_) {}
     const inviteError = route.query.error as string
     if (inviteError) {
@@ -148,8 +150,14 @@
     const userEmail = route.query.email as string
     if (access_token) {
       rawToken.value = access_token
-      await getSession()
-      navigateTo('/')
+      await getSession({ force: true })
+      // Check if the user has an organization (same as credentials login)
+      const org = await fetchOrganization()
+      if (!org || !org.id) {
+        navigateTo('/organizations/new')
+      } else {
+        navigateTo('/')
+      }
       return
     }
     pageLoaded.value = true
@@ -177,7 +185,7 @@
   
       if (response) {
         rawToken.value = response.access_token
-        await getSession()
+        await getSession({ force: true })
         
         // Check if the user has an organization
         const org = await fetchOrganization();
