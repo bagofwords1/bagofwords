@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.272 (December 12, 2025)
+## Version 0.0.273 (December 12, 2025)
 - Added support for GPT-5.2 model
 - Enhanced the describe entity tool for better usability and accuracy
 - Fixed a user authentication bug affecting specific environments

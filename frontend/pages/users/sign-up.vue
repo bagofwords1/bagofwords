@@ -110,8 +110,6 @@ const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
 const loadingProvider = ref<string | null>(null)
 const pageLoaded = ref(false)
 const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
-const smtpEnabled = ref(false)
-const verifyEmails = ref(false)
 
 const { signIn, getSession } = useAuth();
 const { ensureOrganization, fetchOrganization } = useOrganization()
@@ -126,8 +124,6 @@ onMounted(async () => {
     if (settings?.auth?.mode) {
       authMode.value = settings.auth.mode
     }
-    smtpEnabled.value = settings?.smtp_enabled ?? false
-    verifyEmails.value = settings?.features?.verify_emails ?? false
   } catch (_) {}
   const inviteError = route.query.error as string
   if (inviteError) {
@@ -161,16 +157,8 @@ async function signInWithCredentials(email: string, password: string) {
       throw new Error('Authentication failed');
     }
     rawToken.value = response.access_token
-    const session = await getSession({ force: true })
-
-    // Check if the user has an organization (like sign-in does)
-    const org = await fetchOrganization()
-    if (!org || !org.id) {
-      navigateTo('/organizations/new')
-      return
-    }
-
-    if (!session?.is_verified && verifyEmails.value && smtpEnabled.value) {
+    const session = await getSession()
+    if (!session?.is_verified) {
       await verifyEmail(email)
       navigateTo('/users/verify');
     }
@@ -255,6 +243,3 @@ if (response) {
 }
 }
 </script>
-
-
-
