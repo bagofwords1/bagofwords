@@ -21,7 +21,6 @@ import { useCan, usePermissionsLoaded } from '~/composables/usePermissions'
 
 definePageMeta({
     auth: true,
-    permissions: ['view_console'],
     layout: 'default'
 })
 

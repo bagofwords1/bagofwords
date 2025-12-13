@@ -63,4 +63,4 @@ const isTabActive = (tabName: string) => {
     }
     return path === `/monitoring/${tabName}`
 }
-</script> 
+</script>

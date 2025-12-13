@@ -14,8 +14,8 @@ export default (defineNuxtRouteMiddleware(async (to) => {
     return
   }
 
-  // Allow auth and organization creation routes
-  const allowPrefixes = ['/users/', '/organizations/new']
+  // Allow auth, organization creation, and public routes
+  const allowPrefixes = ['/users/', '/organizations/new', '/r/']
   if (allowPrefixes.some(p => to.path.startsWith(p))) return
 
   // Ensure org

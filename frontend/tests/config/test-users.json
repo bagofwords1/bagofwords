@@ -1,0 +1,12 @@
+{
+  "admin": {
+    "name": "E2E Admin User",
+    "email": "e2e-admin-1765653731550@example.com",
+    "password": "TestPass123!"
+  },
+  "member": {
+    "name": "E2E Member User",
+    "email": "e2e-member-1765653731550@example.com",
+    "password": "TestPass123!"
+  }
+}

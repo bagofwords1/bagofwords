@@ -251,7 +251,9 @@ import TraceModal from '~/components/console/TraceModal.vue'
 const { isJudgeEnabled } = useOrgSettings()
 
 definePageMeta({
-    layout: 'monitoring'
+    auth: true,
+    layout: 'monitoring',
+    permissions: ['view_console']
 })
 
 // Types for compact issues

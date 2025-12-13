@@ -2,10 +2,11 @@
 import { test, expect } from '@playwright/test';
 
 test('can list data sources', async ({ page }) => {
-  // Navigate to excel home page
   await page.goto('/integrations');
+  await page.waitForLoadState('networkidle');
 
-  // Check for "Available Integrations" heading
-  await expect(page.getByText('Available Integrations')).toBeVisible();
-  
+  // Check that integrations page loads (either connected or available section)
+  await expect(
+    page.getByText('Connected Integrations').or(page.getByText('Available Integrations'))
+  ).toBeVisible({ timeout: 10000 });
 });

@@ -23,7 +23,7 @@
           v-model='password'
           class="border border-gray-300 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"
           />
-          <p v-if="error_message" class="mt-1 text-red-500 text-sm">{{ error_message }}</p>
+          <p v-if="error_message" v-html="error_message" class="mt-1 text-red-500 text-sm whitespace-pre-line"></p>
         </div>
         
         <div class="field mt-2 text-left" v-if="smtpEnabled">
@@ -33,7 +33,13 @@
         </div>
         
         <div class="field mt-3">
-          <button type='submit' class="px-3 py-2.5 mb-4 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 rounded-lg text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800 w-full">Login</button>
+          <button type='submit' :disabled="isSubmitting" class="px-3 py-2.5 mb-4 text-sm font-medium text-white rounded-lg text-center w-full flex items-center justify-center disabled:bg-gray-400 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
+            <template v-if="isSubmitting">
+              <Spinner class="h-5 w-5 mr-2" />
+              Logging in...
+            </template>
+            <template v-else>Login</template>
+          </button>
         </div>
       </form>
 
@@ -113,6 +119,7 @@
   const loadingProvider = ref<string | null>(null)
   const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
   const smtpEnabled = ref(false)
+  const isSubmitting = ref(false)
 
   definePageMeta({
   auth: {
@@ -128,6 +135,26 @@
   const error_message = ref('')
   // Extract the signIn function from useAuth
   const { signIn, getSession } = useAuth();
+
+  // Helper to extract error message from server response
+  function extractErrorMessage(error: any, fallback: string): string {
+    const data = error?.data
+    if (!data) return fallback
+    
+    // Handle FastAPI validation errors (detail array)
+    if (Array.isArray(data.detail)) {
+      return data.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join('\n')
+    }
+    // Handle simple detail string
+    if (typeof data.detail === 'string') {
+      return data.detail
+    }
+    // Handle message field
+    if (data.message) {
+      return data.message
+    }
+    return fallback
+  }
   const pageLoaded = ref(false)
 
   // Add this code to handle URL parameters
@@ -165,6 +192,8 @@
 
   
   async function signInWithCredentials() {
+    isSubmitting.value = true
+    error_message.value = ''
     const route = useRoute();
     const redirectedFrom = route.query.redirect
     
@@ -201,9 +230,11 @@
       }
       else {
         error_message.value = 'Invalid credentials'
+        isSubmitting.value = false
       }
-    } catch (error) {
-      error_message.value = 'Invalid credentials'
+    } catch (error: any) {
+      error_message.value = extractErrorMessage(error, 'Invalid credentials')
+      isSubmitting.value = false
     }
   }
 

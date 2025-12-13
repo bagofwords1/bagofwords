@@ -18,7 +18,13 @@
           </div>
           <p v-if="error_message" v-html="error_message" class="mt-1 text-red-500 text-sm whitespace-pre-line"></p>
           <div class="field mt-3">
-            <button type='submit' class="px-3 py-2.5 mb-4 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 rounded-lg text-center dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800 w-full">Sign up</button>
+            <button type='submit' :disabled="isSubmitting" class="px-3 py-2.5 mb-4 text-sm font-medium text-white rounded-lg text-center w-full flex items-center justify-center disabled:bg-gray-400 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
+              <template v-if="isSubmitting">
+                <Spinner class="h-5 w-5 mr-2" />
+                Signing up...
+              </template>
+              <template v-else>Sign up</template>
+            </button>
           </div>
         </form>
 
@@ -109,10 +115,31 @@ const googleSignIn = ref(config.public.googleSignIn);
 const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
 const loadingProvider = ref<string | null>(null)
 const pageLoaded = ref(false)
+const isSubmitting = ref(false)
 const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
 
 const { signIn, getSession } = useAuth();
 const { ensureOrganization, fetchOrganization } = useOrganization()
+
+// Helper to extract error message from server response
+function extractErrorMessage(error: any, fallback: string): string {
+  const data = error?.data
+  if (!data) return fallback
+  
+  // Handle FastAPI validation errors (detail array)
+  if (Array.isArray(data.detail)) {
+    return data.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join('\n')
+  }
+  // Handle simple detail string
+  if (typeof data.detail === 'string') {
+    return data.detail
+  }
+  // Handle message field
+  if (data.message) {
+    return data.message
+  }
+  return fallback
+}
 
 // Pre-fill email from URL query parameter
 onMounted(async () => {
@@ -173,6 +200,8 @@ async function signInWithCredentials(email: string, password: string) {
 }
 
 async function submit() {
+isSubmitting.value = true
+error_message.value = ''
 const payload = {
   name: name.value,
   email: email.value,
@@ -190,15 +219,17 @@ try {
 
   if (!response) { 
     error_message.value = 'An error occurred during registration.'
+    isSubmitting.value = false
     return
   }
 
   // Add automatic login after successful registration
   await signInWithCredentials(email.value, password.value)
 
-} catch (error) {
+} catch (error: any) {
   console.error('Error fetching data:', error);
-  error_message.value = 'An error occurred during registration.'
+  error_message.value = extractErrorMessage(error, 'An error occurred during registration.')
+  isSubmitting.value = false
 }
 }
 

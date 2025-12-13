@@ -237,7 +237,9 @@
 
 <script setup lang="ts">
 definePageMeta({
-    layout: 'default'
+    auth: true,
+    layout: 'default',
+    permissions: ['manage_tests']
 })
 
 interface TestMetrics {

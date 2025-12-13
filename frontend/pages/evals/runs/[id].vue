@@ -202,7 +202,9 @@
 
 <script setup lang="ts">
 definePageMeta({
-  layout: 'default'
+  auth: true,
+  layout: 'default',
+  permissions: ['manage_tests']
 })
 
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
