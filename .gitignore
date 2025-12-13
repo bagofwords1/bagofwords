@@ -18,6 +18,7 @@ frontend/dist
 frontend/node_modules/
 frontend/.output/
 frontend/test-results/
+frontend/tests/config/*.json
 # Logs
 backend/logs
 *.log
