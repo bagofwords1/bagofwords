@@ -125,7 +125,7 @@ jobs:
       working-directory: ./frontend
       env:
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
-      run: npx playwright test
+      run: npx playwright test --workers=1
 
     - name: Upload Playwright report
       if: failure()
