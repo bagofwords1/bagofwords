@@ -115,6 +115,8 @@ jobs:
 
     - name: Run Playwright tests
       working-directory: ./frontend
+      env:
+        OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
       run: npx playwright test
 
     - name: Upload Playwright report
