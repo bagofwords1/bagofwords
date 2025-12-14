@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.276 (December 14, 2025)
+## Version 0.0.277 (December 14, 2025)
 - Frontend tests (playwright) and CI/CD improvements
 
 ## Version 0.0.274 (December 12, 2025)

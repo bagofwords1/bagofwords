@@ -76,6 +76,9 @@ class Telemetry:
     @staticmethod
     def _enabled() -> bool:
         try:
+            # Disable telemetry in test mode
+            if settings.TESTING:
+                return False
             return bool(getattr(settings.bow_config, "telemetry", None) and settings.bow_config.telemetry.enabled)
         except Exception:
             return False
