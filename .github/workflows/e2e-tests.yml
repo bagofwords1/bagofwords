@@ -96,7 +96,10 @@ jobs:
         ENVIRONMENT: "production"
         BOW_DATABASE_URL: "sqlite:///db/app.db"
       run: |
-        mkdir -p db
+        mkdir -p db uploads/files uploads/branding
+        echo "Running database migrations..."
+        alembic upgrade head
+        echo "Migrations complete, starting server..."
         python main.py &
         echo "Waiting for backend to start..."
         timeout 60 bash -c 'until curl -s http://localhost:8000/health > /dev/null 2>&1; do sleep 1; done'
