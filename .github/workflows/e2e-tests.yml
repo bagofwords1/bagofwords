@@ -121,20 +121,11 @@ jobs:
         sleep 3
         echo "Warmup complete"
 
-    - name: Debug - List Playwright tests
-      working-directory: ./frontend
-      run: |
-        echo "Playwright version:"
-        npx playwright --version
-        echo ""
-        echo "Test list:"
-        npx playwright test --list
-
     - name: Run Playwright tests
       working-directory: ./frontend
       env:
         OPENAI_API_KEY_TEST: ${{ secrets.OPENAI_API_KEY_TEST }}
-      run: npx playwright test --workers=1
+      run: npx playwright test --workers=2
 
     - name: Upload Playwright report
       if: failure()
