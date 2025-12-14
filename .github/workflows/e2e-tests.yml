@@ -113,6 +113,14 @@ jobs:
         timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null 2>&1; do sleep 1; done'
         echo "Frontend is ready"
 
+    - name: Warm up application
+      run: |
+        echo "Warming up frontend and backend..."
+        curl -s http://localhost:3000/users/sign-up > /dev/null || true
+        curl -s http://localhost:8000/api/settings > /dev/null || true
+        sleep 3
+        echo "Warmup complete"
+
     - name: Run Playwright tests
       working-directory: ./frontend
       env:
