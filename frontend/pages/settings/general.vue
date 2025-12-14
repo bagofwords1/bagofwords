@@ -73,7 +73,7 @@ interface SettingsResponse {
     config?: { general?: GeneralConfig }
 }
 
-definePageMeta({ auth: true, permissions: ['manage_organization_settings','view_organization_settings'], layout: 'settings' })
+definePageMeta({ auth: true, permissions: ['manage_organization_settings'], layout: 'settings' })
 
 const loading = ref(true)
 const error = ref('')

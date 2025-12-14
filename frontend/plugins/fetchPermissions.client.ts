@@ -102,6 +102,7 @@ function getPermissionsForRole(role: string): string[] {
       'view_hidden_instructions',
       'manage_data_source_memberships',
       'modify_settings',
+      'manage_organization_settings',
       'create_entities',
       'update_entities',
       'delete_entities',
