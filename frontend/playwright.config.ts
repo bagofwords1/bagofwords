@@ -46,6 +46,13 @@ export default defineConfig({
         '**/data_sources/**/*.spec.ts',
         '**/auth/**/*.spec.ts',
       ],
+      // Explicitly exclude other project directories
+      testIgnore: [
+        '**/onboarding/**',
+        '**/members/**',
+        '**/visibility/**',
+        '**/config/**',
+      ],
       dependencies: ['onboarding'],
       use: {
         storageState: 'tests/config/admin.json',
