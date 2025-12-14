@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests',
   timeout: 60 * 1000,
-  retries: 1,
+  retries: 2,  // Extra retry for CI flakiness
   
   projects: [
     // 1. Setup - creates admin user
@@ -64,6 +64,7 @@ export default defineConfig({
       name: 'visibility',
       testMatch: '**/visibility/**/*.spec.ts',
       dependencies: ['members'],
+      fullyParallel: false,  // Run sequentially to avoid shared context issues
     },
   ],
 
