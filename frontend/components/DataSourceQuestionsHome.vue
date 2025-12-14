@@ -33,10 +33,11 @@ const pool = computed<Suggestion[]>(() => {
     for (const ds of props.data_sources) {
         const starters = Array.isArray(ds?.conversation_starters) ? ds.conversation_starters : []
         for (const raw of starters) {
-            const label = String(raw ?? '').split('\n')[0].trim()
+            const normalized = String(raw ?? '').replace(/\\n/g, '\n')
+            const label = normalized.split('\n')[0].trim()
             if (!label) continue
             if (!uniqueByLabel.has(label)) {
-                uniqueByLabel.set(label, { key: `${label}-${uniqueByLabel.size}`, label, value: String(raw) })
+                uniqueByLabel.set(label, { key: `${label}-${uniqueByLabel.size}`, label, value: normalized })
             }
         }
     }
