@@ -6,12 +6,12 @@ test.describe('Admin-only page visibility', () => {
     await adminPage.goto('/monitoring');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // Admin should see the monitoring page
+    // Admin should see the monitoring page (longer timeout for CI)
     await expect(adminPage.getByRole('heading', { name: 'Monitoring', exact: true }))
-      .toBeVisible({ timeout: 10000 });
+      .toBeVisible({ timeout: 30000 });
     
     // Verify tabs are visible
-    await expect(adminPage.getByText('Explore')).toBeVisible();
+    await expect(adminPage.getByText('Explore')).toBeVisible({ timeout: 10000 });
   });
 
   test('member cannot access monitoring page', async ({ memberPage }) => {
@@ -19,8 +19,12 @@ test.describe('Admin-only page visibility', () => {
     await memberPage.waitForLoadState('domcontentloaded');
 
     // Member should be redirected away from /monitoring (middleware redirect)
-    // Wait a moment for redirect to complete
-    await memberPage.waitForTimeout(1000);
+    // Wait for redirect to actually happen (not just a fixed timeout)
+    try {
+      await memberPage.waitForURL((url) => !url.pathname.includes('/monitoring'), { timeout: 15000 });
+    } catch {
+      // If no redirect happened, the test will fail on the assertion below
+    }
     
     const url = memberPage.url();
     
@@ -99,7 +103,12 @@ test.describe('Admin-only page visibility', () => {
     await memberPage.waitForLoadState('domcontentloaded');
 
     // Member should be redirected away from /evals (middleware redirect)
-    await memberPage.waitForTimeout(1000);
+    // Wait for redirect to actually happen
+    try {
+      await memberPage.waitForURL((url) => !url.pathname.includes('/evals'), { timeout: 15000 });
+    } catch {
+      // If no redirect happened, the test will fail on the assertion below
+    }
     
     const url = memberPage.url();
     
