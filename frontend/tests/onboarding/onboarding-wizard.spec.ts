@@ -7,16 +7,16 @@ test.describe('Onboarding Wizard', () => {
   
   test('step 1: welcome page - proceed to LLM setup', async ({ page }) => {
     await page.goto('/onboarding');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     
-    // Verify welcome message is displayed
-    await expect(page.getByText('Getting started is quick')).toBeVisible({ timeout: 10000 });
+    // Verify welcome message is displayed (increase timeout for CI)
+    await expect(page.getByText('Getting started is quick')).toBeVisible({ timeout: 30000 });
     
     // Click Next to proceed to LLM configuration
     await page.getByRole('button', { name: 'Next' }).click();
     
     // Verify navigation to LLM page
-    await page.waitForURL('**/onboarding/llm', { timeout: 10000 });
+    await page.waitForURL('**/onboarding/llm', { timeout: 15000 });
   });
 
   test('step 2: configure OpenAI LLM provider', async ({ page }) => {
@@ -24,14 +24,14 @@ test.describe('Onboarding Wizard', () => {
     test.skip(!OPENAI_API_KEY, 'OPENAI_API_KEY environment variable not set');
     
     await page.goto('/onboarding/llm');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     
     // Wait for provider options to load
-    await expect(page.getByText('OpenAI', { exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('OpenAI', { exact: true })).toBeVisible({ timeout: 30000 });
     
     // Click on OpenAI provider option (exact match to avoid Azure OpenAI)
     await page.getByText('OpenAI', { exact: true }).click();
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     
     // Wait for the configuration form to appear
     await page.waitForTimeout(1000);
@@ -67,7 +67,7 @@ test.describe('Onboarding Wizard', () => {
 
   test('step 3: connect sample database', async ({ page }) => {
     await page.goto('/onboarding/data');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     
     // Wait for data source options to load
     await page.waitForTimeout(2000);
@@ -75,40 +75,40 @@ test.describe('Onboarding Wizard', () => {
     // Look for and click a sample database (Chinook)
     const sampleButton = page.getByRole('button', { name: /chinook/i });
     
-    if (await sampleButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (await sampleButton.isVisible({ timeout: 10000 }).catch(() => false)) {
       await sampleButton.click();
       
       // Wait for installation and navigation to schema page
       await page.waitForURL('**/schema', { timeout: 30000 });
       
       // On schema page, wait for it to load
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
       
       // Look for continue/save button
       const continueButton = page.getByRole('button', { name: /continue|save|next/i }).first();
-      if (await continueButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (await continueButton.isVisible({ timeout: 10000 }).catch(() => false)) {
         await continueButton.click();
-        await page.waitForLoadState('networkidle');
+        await page.waitForLoadState('domcontentloaded');
       }
     } else {
       // If no sample DB, look for any data source type to verify page works
       const dsTypes = page.locator('button').filter({ hasText: /sqlite|postgres|duckdb|mysql/i }).first();
-      await expect(dsTypes).toBeVisible({ timeout: 5000 });
+      await expect(dsTypes).toBeVisible({ timeout: 10000 });
     }
   });
 
   test('step 4: complete onboarding and verify access to app', async ({ page }) => {
     // Navigate to home
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     
     // Give it a moment in case of redirects
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
     
     // If still on onboarding, skip it to complete the flow
     if (page.url().includes('/onboarding')) {
       await page.getByRole('button', { name: 'Skip onboarding' }).click();
-      await page.waitForURL('/', { timeout: 10000 });
+      await page.waitForURL('/', { timeout: 15000 });
     }
     
     // Verify we're on home (not on onboarding)
