@@ -56,6 +56,70 @@ jobs:
       run: |
         pytest -s -m e2e --db=${{ matrix.db }} --disable-warnings
 
+  playwright-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements_versioned.txt
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+        cache: 'yarn'
+        cache-dependency-path: frontend/yarn.lock
+
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: yarn install --frozen-lockfile
+
+    - name: Install Playwright browsers
+      working-directory: ./frontend
+      run: npx playwright install --with-deps chromium
+
+    - name: Start backend server
+      working-directory: ./backend
+      env:
+        TESTING: "true"
+        ENVIRONMENT: "production"
+      run: |
+        python main.py &
+        echo "Waiting for backend to start..."
+        timeout 60 bash -c 'until curl -s http://localhost:8000/health > /dev/null 2>&1; do sleep 1; done'
+        echo "Backend is ready"
+
+    - name: Start frontend dev server
+      working-directory: ./frontend
+      run: |
+        yarn dev &
+        echo "Waiting for frontend to start..."
+        timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null 2>&1; do sleep 1; done'
+        echo "Frontend is ready"
+
+    - name: Run Playwright tests
+      working-directory: ./frontend
+      run: npx playwright test
+
+    - name: Upload Playwright report
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-report
+        path: frontend/test-results/
+        retention-days: 7
+
   # Integration tests - only run on push to main (before release)
   integration-data-sources:
     if: github.ref == 'refs/heads/main'
@@ -98,24 +162,37 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Check for LLM-related file changes
+      id: changes
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          llm_files:
+            - 'backend/app/ai/**'
+            - 'backend/app/models/llm*'
+
     - name: Set up Python
+      if: steps.changes.outputs.llm_files == 'true'
       uses: actions/setup-python@v4
       with:
         python-version: '3.12'
 
     - name: Install dependencies
+      if: steps.changes.outputs.llm_files == 'true'
       working-directory: ./backend
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements_versioned.txt
 
     - name: Restore integrations credentials
+      if: steps.changes.outputs.llm_files == 'true'
       run: |
         echo "$INTEGRATIONS_JSON_B64" | base64 -d > backend/tests/integrations/integrations.json
       env:
         INTEGRATIONS_JSON_B64: ${{ secrets.INTEGRATIONS_JSON_B64 }}
 
     - name: Run LLM integration tests
+      if: steps.changes.outputs.llm_files == 'true'
       working-directory: ./backend
       env:
         TESTING: "true"
@@ -125,7 +202,7 @@ jobs:
 
   dispatch-build:
     if: github.ref == 'refs/heads/main'
-    needs: [e2e-tests, integration-data-sources, integration-llms]
+    needs: [e2e-tests, playwright-tests, integration-data-sources, integration-llms]
     runs-on: ubuntu-latest
     steps:
     - name: Trigger Docker build workflow

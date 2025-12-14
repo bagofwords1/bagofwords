@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from app.settings.config import settings
@@ -7,6 +9,8 @@ router = APIRouter()
 @router.get("/settings", tags=["settings"])
 async def get_frontend_settings():
     """Get frontend configuration settings"""
+    is_testing = os.getenv("TESTING", "").lower() == "true"
+    
     return JSONResponse({
         "google_oauth": {
             "enabled": settings.bow_config.google_oauth.enabled,
@@ -30,7 +34,10 @@ async def get_frontend_settings():
         },
         "base_url": settings.bow_config.base_url,
         "intercom": {
-            "enabled": settings.bow_config.intercom.enabled,
+            "enabled": settings.bow_config.intercom.enabled and not is_testing,
+        },
+        "telemetry": {
+            "enabled": settings.bow_config.telemetry.enabled and not is_testing,
         },
         "smtp_enabled": settings.bow_config.smtp_settings is not None,
         "version": settings.PROJECT_VERSION,
