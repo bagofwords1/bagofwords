@@ -94,7 +94,7 @@ jobs:
       env:
         TESTING: "true"
         ENVIRONMENT: "production"
-        BOW_DATABASE_URL: "sqlite:///db/app.db"
+        TEST_DATABASE_URL: "sqlite:///db/playwright.db"
       run: |
         mkdir -p db uploads/files uploads/branding
         echo "Running database migrations..."
