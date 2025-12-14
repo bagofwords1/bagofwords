@@ -10,13 +10,13 @@ export default defineConfig({
     // 1. Setup - creates admin user
     {
       name: 'setup',
-      testMatch: /global\.setup\.ts/,
+      testMatch: '**/global.setup.ts',
     },
 
     // 2. Onboarding - admin completes onboarding
     {
       name: 'onboarding',
-      testMatch: /onboarding\/.*\.spec\.ts/,
+      testMatch: '**/onboarding/**/*.spec.ts',
       dependencies: ['setup'],
       use: {
         storageState: 'tests/config/admin.json',
@@ -27,7 +27,7 @@ export default defineConfig({
     // MUST run sequentially: invite first, then signup
     {
       name: 'members',
-      testMatch: /members\/.*\.spec\.ts/,
+      testMatch: '**/members/**/*.spec.ts',
       dependencies: ['onboarding'],
       fullyParallel: false,  // Sequential within this project
     },
@@ -35,7 +35,17 @@ export default defineConfig({
     // 3b. Features - reports, instructions, etc. (PARALLEL with members)
     {
       name: 'features',
-      testMatch: /(reports|instructions|catalog|monitoring|evals|settings|home|data_sources|auth)\/.*\.spec\.ts/,
+      testMatch: [
+        '**/reports/**/*.spec.ts',
+        '**/instructions/**/*.spec.ts',
+        '**/catalog/**/*.spec.ts',
+        '**/monitoring/**/*.spec.ts',
+        '**/evals/**/*.spec.ts',
+        '**/settings/**/*.spec.ts',
+        '**/home/**/*.spec.ts',
+        '**/data_sources/**/*.spec.ts',
+        '**/auth/**/*.spec.ts',
+      ],
       dependencies: ['onboarding'],
       use: {
         storageState: 'tests/config/admin.json',
@@ -45,7 +55,7 @@ export default defineConfig({
     // 4. Visibility - tests that need BOTH users to exist
     {
       name: 'visibility',
-      testMatch: /visibility\/.*\.spec\.ts/,
+      testMatch: '**/visibility/**/*.spec.ts',
       dependencies: ['members'],
     },
   ],
