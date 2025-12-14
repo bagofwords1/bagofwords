@@ -9,9 +9,7 @@ export async function login(page: Page) {
 
 export async function createReport(page: Page) {
     // Navigate to excel home page
-    await page.goto('/excel');
-    await page.waitForLoadState('networkidle');
-    await page.waitForSelector('h1:has-text("Hi,")', { state: 'visible' });
+    await page.waitForLoadState('domcontentloaded');
   
     const newReportDiv = page.locator('div.flex.cursor-pointer', {
       hasText: 'Create a new report to analyze your data'

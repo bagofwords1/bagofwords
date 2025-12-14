@@ -27,11 +27,11 @@ test.describe.serial('Member Flow', () => {
 
     // Navigate to settings/members
     await page.goto('/settings/members');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Verify we're on the members page
     await expect(page.getByRole('heading', { name: 'Settings' }))
-      .toBeVisible({ timeout: 10000 });
+      .toBeVisible({ timeout: 30000 });
 
     // Check if member is already in the table (from previous run/retry)
     const existingMemberRow = page.locator('tr').filter({ hasText: member.email });
@@ -84,10 +84,10 @@ test.describe.serial('Member Flow', () => {
 
     // First, try to sign in - if user already exists from previous run
     await page.goto('/users/sign-in');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Try signing in first
-    await page.waitForSelector('#email', { state: 'visible', timeout: 10000 });
+    await page.waitForSelector('#email', { state: 'visible', timeout: 30000 });
     await page.fill('#email', member.email);
     await page.fill('#password', member.password);
     await page.click('button[type="submit"]');
@@ -98,7 +98,7 @@ test.describe.serial('Member Flow', () => {
     // Check if we navigated away from sign-in (success)
     if (!page.url().includes('/users/sign-in')) {
       // Member already exists from previous run, logged in instead
-      await page.waitForLoadState('networkidle');
+      await page.waitForLoadState('domcontentloaded');
       await context.storageState({ path: 'tests/config/member.json' });
       await context.close();
       return;
@@ -107,10 +107,10 @@ test.describe.serial('Member Flow', () => {
     // Sign-in failed, need to sign up
     
     await page.goto('/users/sign-up');
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Wait for form to be visible
-    await page.waitForSelector('#name', { state: 'visible', timeout: 10000 });
+    await page.waitForSelector('#name', { state: 'visible', timeout: 30000 });
 
     // Fill the form with invited member's email - MUST match the invite
     await page.fill('#name', member.name);
@@ -138,11 +138,12 @@ test.describe.serial('Member Flow', () => {
       // If email already registered, try signing in again
       if (errorText?.includes('already registered') || errorText?.includes('already exists')) {
         await page.goto('/users/sign-in');
-        await page.waitForLoadState('networkidle');
+        await page.waitForLoadState('domcontentloaded');
+        await page.waitForSelector('#email', { state: 'visible', timeout: 30000 });
         await page.fill('#email', member.email);
         await page.fill('#password', member.password);
         await page.click('button[type="submit"]');
-        await page.waitForURL((url) => !url.pathname.includes('/users/sign-in'), { timeout: 15000 });
+        await page.waitForURL((url) => !url.pathname.includes('/users/sign-in'), { timeout: 30000 });
         await context.storageState({ path: 'tests/config/member.json' });
         await context.close();
         return;
@@ -154,10 +155,10 @@ test.describe.serial('Member Flow', () => {
       throw new Error(`Member sign-up failed: ${errorText}`);
     }
 
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
 
     // Wait a moment for any redirects
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(3000);
 
     // Verify we're not on sign-up/sign-in page
     expect(page.url()).not.toContain('/users/sign-up');

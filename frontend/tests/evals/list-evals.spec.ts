@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('can view evals page', async ({ page }) => {
   await page.goto('/evals');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   // Verify metrics cards are present
   await expect(page.getByText('Total Test Cases'))

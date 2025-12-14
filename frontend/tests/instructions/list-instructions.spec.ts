@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test('can view instructions page', async ({ page }) => {
   await page.goto('/instructions');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   // Verify page heading
   await expect(page.getByRole('heading', { name: 'Instructions', exact: true }))

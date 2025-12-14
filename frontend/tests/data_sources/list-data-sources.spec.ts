@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 
 test('can list data sources', async ({ page }) => {
   await page.goto('/integrations');
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   // Check that integrations page loads (either connected or available section)
   await expect(

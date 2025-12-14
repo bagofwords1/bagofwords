@@ -4,7 +4,7 @@ test.describe('Admin-only page visibility', () => {
 
   test('admin can access monitoring page', async ({ adminPage }) => {
     await adminPage.goto('/monitoring');
-    await adminPage.waitForLoadState('networkidle');
+    await adminPage.waitForLoadState('domcontentloaded');
 
     // Admin should see the monitoring page
     await expect(adminPage.getByRole('heading', { name: 'Monitoring', exact: true }))
@@ -16,7 +16,7 @@ test.describe('Admin-only page visibility', () => {
 
   test('member cannot access monitoring page', async ({ memberPage }) => {
     await memberPage.goto('/monitoring');
-    await memberPage.waitForLoadState('networkidle');
+    await memberPage.waitForLoadState('domcontentloaded');
 
     // Member should be redirected away from /monitoring (middleware redirect)
     // Wait a moment for redirect to complete
@@ -34,7 +34,7 @@ test.describe('Admin-only page visibility', () => {
 
   test('admin can see LLM settings tab', async ({ adminPage }) => {
     await adminPage.goto('/settings');
-    await adminPage.waitForLoadState('networkidle');
+    await adminPage.waitForLoadState('domcontentloaded');
 
     // Admin should see Settings page
     await expect(adminPage.getByRole('heading', { name: 'Settings', exact: true }))
@@ -48,7 +48,7 @@ test.describe('Admin-only page visibility', () => {
   // Note: Members CAN see LLM tab but it's read-only (they cannot edit)
   test('member can see LLM tab (read-only)', async ({ memberPage }) => {
     await memberPage.goto('/settings');
-    await memberPage.waitForLoadState('networkidle');
+    await memberPage.waitForLoadState('domcontentloaded');
 
     // Member CAN see LLM tab (but it's read-only)
     const llmTab = memberPage.getByRole('link', { name: 'LLM' });
@@ -56,7 +56,7 @@ test.describe('Admin-only page visibility', () => {
 
     // Navigate to LLM settings
     await llmTab.click();
-    await memberPage.waitForLoadState('networkidle');
+    await memberPage.waitForLoadState('domcontentloaded');
 
     // Member should NOT see "Add Provider" button (admin-only action)
     const addProviderButton = memberPage.getByRole('button', { name: 'Add Provider' });
@@ -69,7 +69,7 @@ test.describe('Admin-only page visibility', () => {
 
   test('admin can see Add Member button', async ({ adminPage }) => {
     await adminPage.goto('/settings/members');
-    await adminPage.waitForLoadState('networkidle');
+    await adminPage.waitForLoadState('domcontentloaded');
 
     // Admin should see Add Member button
     await expect(adminPage.getByRole('button', { name: 'Add Member' }))
@@ -78,7 +78,7 @@ test.describe('Admin-only page visibility', () => {
 
   test('member cannot see Add Member button', async ({ memberPage }) => {
     await memberPage.goto('/settings/members');
-    await memberPage.waitForLoadState('networkidle');
+    await memberPage.waitForLoadState('domcontentloaded');
 
     // Member should NOT see Add Member button
     const addButton = memberPage.getByRole('button', { name: 'Add Member' });
@@ -87,7 +87,7 @@ test.describe('Admin-only page visibility', () => {
 
   test('admin can access evals page', async ({ adminPage }) => {
     await adminPage.goto('/evals');
-    await adminPage.waitForLoadState('networkidle');
+    await adminPage.waitForLoadState('domcontentloaded');
 
     // Admin should see the evals page content
     // Check for the "Total Test Cases" metric card (unique element)
@@ -96,7 +96,7 @@ test.describe('Admin-only page visibility', () => {
 
   test('member cannot access evals page', async ({ memberPage }) => {
     await memberPage.goto('/evals');
-    await memberPage.waitForLoadState('networkidle');
+    await memberPage.waitForLoadState('domcontentloaded');
 
     // Member should be redirected away from /evals (middleware redirect)
     await memberPage.waitForTimeout(1000);

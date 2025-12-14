@@ -63,7 +63,7 @@ async function globalSetup(config: FullConfig) {
     throw new Error(`Sign-up failed: ${errorText}`);
   }
   
-  await page.waitForLoadState('networkidle');
+  await page.waitForLoadState('domcontentloaded');
 
   // If redirected to onboarding, wait for it to load
   if (page.url().includes('/onboarding')) {
