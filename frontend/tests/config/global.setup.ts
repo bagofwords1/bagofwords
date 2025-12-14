@@ -26,12 +26,20 @@ async function globalSetup(config: FullConfig) {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
   
-  // Navigate and wait for page to be ready
-  await page.goto(`${baseURL}/users/sign-up`);
-  await page.waitForLoadState('networkidle');
-  
-  // Wait for form to be visible (page shows spinner until loaded)
-  await page.waitForSelector('#name', { state: 'visible', timeout: 10000 });
+  try {
+    // Navigate and wait for page to be ready
+    // Use 'load' instead of 'networkidle' to avoid hanging on websockets/polling
+    await page.goto(`${baseURL}/users/sign-up`, { waitUntil: 'load' });
+    
+    // Wait for form to be visible (page shows spinner until /api/settings loads)
+    // Increase timeout for CI environments where backend may be slower
+    await page.waitForSelector('#name', { state: 'visible', timeout: 30000 });
+  } catch (error) {
+    // Take screenshot for debugging CI failures
+    await page.screenshot({ path: 'tests/config/setup-failure.png', fullPage: true });
+    console.error('Page content:', await page.content());
+    throw error;
+  }
   
   // Fill the form
   await page.fill('#name', TEST_ADMIN.name);
