@@ -62,6 +62,7 @@ class InstructionTriggerEvaluator:
     - C) user_explicit_correction: User message has correction language, then create_data succeeded
     - D) failed_then_fixed: Previous create_data failed, user message, current create_data succeeded (same tables)
     - E) user_provided_code: User provided code after a create_data
+    - F) inspect_then_create_data: successful inspect_data in same execution, then create_data succeeded (with table overlap)
     
     Returns a structured result with decision and list of met conditions.
     """
@@ -114,9 +115,10 @@ class InstructionTriggerEvaluator:
             condition_c = await self._check_user_explicit_correction()
             condition_d = await self._check_failed_then_fixed()
             condition_e = await self._check_user_provided_code(prev_tool_name_before_last_user)
+            condition_f = await self._check_inspect_then_create_data()
 
             # Collect met conditions
-            for condition in [condition_a, condition_b, condition_c, condition_d, condition_e]:
+            for condition in [condition_a, condition_b, condition_c, condition_d, condition_e, condition_f]:
                 if condition.met:
                     met_conditions.append(condition.to_dict())
 
@@ -316,7 +318,7 @@ class InstructionTriggerEvaluator:
 
             # Check if current execution has successful create_data
             stmt_current = (
-                select(ToolExecution.tool_input)
+                select(ToolExecution.arguments_json)
                 .where(ToolExecution.agent_execution_id == self.current_execution_id)
                 .where(ToolExecution.tool_name == "create_data")
                 .where(
@@ -334,7 +336,7 @@ class InstructionTriggerEvaluator:
 
             # Check for a PREVIOUS failed create_data in this report (different execution)
             stmt_prev_failed = (
-                select(ToolExecution.tool_input)
+                select(ToolExecution.arguments_json)
                 .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
                 .where(AgentExecution.report_id == self.report_id)
                 .where(AgentExecution.id != self.current_execution_id)
@@ -377,9 +379,22 @@ class InstructionTriggerEvaluator:
             if not tool_input or not isinstance(tool_input, dict):
                 return tables
             
-            # Check tables_by_source (common format)
-            tables_by_source = tool_input.get("tables_by_source", {})
-            if isinstance(tables_by_source, dict):
+            # Check tables_by_source - can be List[Dict] or Dict
+            tables_by_source = tool_input.get("tables_by_source")
+            
+            if isinstance(tables_by_source, list):
+                # List format: [{data_source_id, tables: [...]}, ...]
+                for source_entry in tables_by_source:
+                    if isinstance(source_entry, dict):
+                        table_list = source_entry.get("tables", [])
+                        if isinstance(table_list, list):
+                            for t in table_list:
+                                if isinstance(t, str):
+                                    tables.add(t.lower())
+                                elif isinstance(t, dict) and "name" in t:
+                                    tables.add(t["name"].lower())
+            elif isinstance(tables_by_source, dict):
+                # Dict format: {source_id: [...], ...} (legacy)
                 for source, table_list in tables_by_source.items():
                     if isinstance(table_list, list):
                         for t in table_list:
@@ -493,3 +508,83 @@ class InstructionTriggerEvaluator:
             summaries.append("code block")
         
         return " ".join(summaries) if summaries else ""
+
+    async def _check_inspect_then_create_data(self) -> TriggerCondition:
+        """Condition F: successful inspect_data in the same execution, then create_data succeeded.
+        
+        Signal: Agent examined data structure before successfully creating data.
+        Requires successful inspect_data and at least some table overlap with create_data.
+        """
+        condition = TriggerCondition(
+            name="inspect_then_create_data",
+            hint=(
+                "Inspection-guided flow: An inspect_data tool was used to examine "
+                "data structure before create_data succeeded. The inspection likely "
+                "revealed important details about column names, data types, formats, "
+                "relationships, or sample values not apparent from schema alone. "
+                "Extract the key insight(s) as a reusable instruction."
+            ),
+        )
+        
+        try:
+            if not self.current_execution_id:
+                return condition
+
+            # Get all successful inspect_data executions in the current execution
+            stmt_inspect = (
+                select(ToolExecution.arguments_json)
+                .where(ToolExecution.agent_execution_id == self.current_execution_id)
+                .where(ToolExecution.tool_name == "inspect_data")
+                .where(
+                    (ToolExecution.success == True) | (ToolExecution.status == "success")
+                )
+            )
+            result_inspect = await self.db.execute(stmt_inspect)
+            inspect_rows = result_inspect.all()
+            
+            if not inspect_rows:
+                return condition
+
+            # Get successful create_data executions in the current execution
+            stmt_create = (
+                select(ToolExecution.arguments_json)
+                .where(ToolExecution.agent_execution_id == self.current_execution_id)
+                .where(ToolExecution.tool_name == "create_data")
+                .where(
+                    (ToolExecution.success == True) | (ToolExecution.status == "success")
+                )
+            )
+            result_create = await self.db.execute(stmt_create)
+            create_rows = result_create.all()
+            
+            if not create_rows:
+                return condition
+
+            # Check for table overlap between any inspect_data and any successful create_data
+            for (inspect_input,) in inspect_rows:
+                inspect_tables = self._extract_tables_from_input(inspect_input)
+                if not inspect_tables:
+                    continue
+                
+                for (create_input,) in create_rows:
+                    create_tables = self._extract_tables_from_input(create_input)
+                    if not create_tables:
+                        continue
+                    
+                    # Check for overlap
+                    overlap = inspect_tables & create_tables
+                    if overlap:
+                        condition.met = True
+                        condition.hint = (
+                            f"Inspection-guided flow: inspect_data examined tables "
+                            f"{list(overlap)} before create_data succeeded on the same tables. "
+                            f"The inspection revealed details about column names, data types, "
+                            f"formats, relationships, or join keys. Extract the key insight "
+                            f"learned from the inspection as a reusable instruction."
+                        )
+                        return condition
+
+            return condition
+
+        except Exception:
+            return condition

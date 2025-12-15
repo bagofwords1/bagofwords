@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.278 (December 15, 2025)
+- Enhancing MongoDB integration to support Atlas/SRV connections
+- Add more triggers for autogenerate suggestions 
+- UI improvements/fixes
+
 ## Version 0.0.277 (December 14, 2025)
 - Frontend tests (playwright) and CI/CD improvements
 

@@ -79,9 +79,9 @@ class MongodbClient(DataSourceClient):
             uri = self._build_uri()
             # Connection timeout settings (in milliseconds)
             timeout_opts = {
-                "serverSelectionTimeoutMS": 10000,  # 10 seconds to find a server
-                "connectTimeoutMS": 10000,          # 10 seconds to connect
-                "socketTimeoutMS": 20000,           # 20 seconds for socket ops
+                "serverSelectionTimeoutMS": 5000,   # 5 seconds to find a server
+                "connectTimeoutMS": 5000,           # 5 seconds to connect
+                "socketTimeoutMS": 30000,           # 30 seconds for socket ops
             }
             if self.use_srv:
                 # For SRV/Atlas connections, TLS is automatic (always enabled)
@@ -116,13 +116,16 @@ class MongodbClient(DataSourceClient):
         if not collection_name:
             raise ValueError("Query must specify 'collection'")
         
+        # Query execution time limit (in milliseconds) - prevents runaway queries
+        max_time_ms = query_dict.get("maxTimeMS", 60000)  # Default 60 seconds per query
+        
         with self.connect() as db:
             collection = db[collection_name]
             
             if "aggregate" in query_dict:
                 # Aggregation pipeline
                 pipeline = query_dict["aggregate"]
-                cursor = collection.aggregate(pipeline)
+                cursor = collection.aggregate(pipeline, maxTimeMS=max_time_ms)
                 results = list(cursor)
             else:
                 # Find query
@@ -131,7 +134,7 @@ class MongodbClient(DataSourceClient):
                 limit = query_dict.get("limit", 100)
                 sort = query_dict.get("sort")
                 
-                cursor = collection.find(filter_query, projection)
+                cursor = collection.find(filter_query, projection).max_time_ms(max_time_ms)
                 if sort:
                     cursor = cursor.sort(list(sort.items()))
                 if limit:
