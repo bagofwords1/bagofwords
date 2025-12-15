@@ -151,3 +151,5 @@ class ApiKeyService:
             select(User).where(User.id == api_key_obj.user_id)
         )
         return user_result.scalar_one_or_none()
+
+

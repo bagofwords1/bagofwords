@@ -44,3 +44,5 @@ async def delete_api_key(
     """Revoke an API key."""
     await api_key_service.delete_api_key(db, key_id, user)
     return {"message": "API key revoked"}
+
+

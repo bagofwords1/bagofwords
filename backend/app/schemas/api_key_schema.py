@@ -23,3 +23,5 @@ class ApiKeyResponse(BaseModel):
 class ApiKeyCreated(ApiKeyResponse):
     """Response when creating a new API key - includes the full key (shown only once)"""
     key: str
+
+
