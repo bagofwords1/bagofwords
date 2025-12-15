@@ -1,10 +1,11 @@
 <template>
-  <div class="mb-2">
+  <!-- Hide entirely when not loading and no drafts -->
+  <div v-if="isLoading || drafts.length > 0" class="mb-2">
     <!-- Title section -->
     <div class="flex items-center text-xs text-gray-500 mb-3">
       <!-- Status icon -->
       <Spinner v-if="isLoading" class="w-3 h-3 mr-1.5 text-gray-400" />
-      <Icon v-else-if="drafts.length > 0" name="heroicons-light-bulb" class="w-3 h-3 mr-1.5 text-green-500" />
+      <Icon v-else name="heroicons-light-bulb" class="w-3 h-3 mr-1.5 text-green-500" />
       
       <!-- Title with shimmer for loading -->
       <span v-if="isLoading" class="tool-shimmer">

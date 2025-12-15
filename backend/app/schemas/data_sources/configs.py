@@ -412,7 +412,7 @@ class MongoDBConfig(BaseModel):
     host: str = Field(
         ...,
         title="Host",
-        description="MongoDB host (e.g., localhost or cluster URL)",
+        description="MongoDB host (e.g., localhost) or Atlas cluster (e.g., cls.abc.mongodb.net)",
         json_schema_extra={"ui:type": "string"}
     )
     port: int = Field(
@@ -420,7 +420,7 @@ class MongoDBConfig(BaseModel):
         ge=1,
         le=65535,
         title="Port",
-        description="MongoDB port (default: 27017)",
+        description="MongoDB port (default: 27017). Ignored for Atlas/SRV connections.",
         json_schema_extra={"ui:type": "number"}
     )
     database: str = Field(
@@ -432,13 +432,17 @@ class MongoDBConfig(BaseModel):
     auth_source: Optional[str] = Field(
         "admin",
         title="Auth Database",
-        description="Database to authenticate against (default: admin)",
+        description="Database to authenticate against (default: admin). Ignored for Atlas.",
         json_schema_extra={"ui:type": "string"}
     )
     tls: bool = Field(
         False,
         title="Enable TLS/SSL",
-        description="Enable TLS/SSL for the connection",
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    use_srv: bool = Field(
+        False,
+        title="Use Atlas/SRV",
         json_schema_extra={"ui:type": "boolean"}
     )
 
@@ -508,5 +512,3 @@ __all__ = [
     "AzureDataExplorerConfig",
     "MongoDBCredentials",
 ]
-
-

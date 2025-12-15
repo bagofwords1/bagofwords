@@ -10,7 +10,16 @@ from datetime import datetime
 
 
 class MongodbClient(DataSourceClient):
-    """MongoDB client for document-based data access."""
+    """MongoDB client for document-based data access.
+    
+    Supports both standard MongoDB and MongoDB Atlas (SRV) connections.
+    
+    For standard MongoDB:
+        MongodbClient(host="localhost", port=27017, database="mydb", user="admin", password="secret")
+    
+    For MongoDB Atlas:
+        MongodbClient(host="cluster0.abc123.mongodb.net", database="mydb", user="admin", password="secret", use_srv=True)
+    """
     
     def __init__(
         self,
@@ -21,6 +30,7 @@ class MongodbClient(DataSourceClient):
         password: Optional[str] = None,
         auth_source: str = "admin",
         tls: bool = False,
+        use_srv: bool = False,
     ):
         self.host = host
         self.port = port
@@ -29,6 +39,7 @@ class MongodbClient(DataSourceClient):
         self.password = password
         self.auth_source = auth_source
         self.tls = tls
+        self.use_srv = use_srv
         self._client = None
     
     @property
@@ -37,12 +48,25 @@ class MongodbClient(DataSourceClient):
         return True
     
     def _build_uri(self) -> str:
-        """Build MongoDB connection URI."""
+        """Build MongoDB connection URI.
+        
+        For standard MongoDB: mongodb://user:pass@host:port/database?authSource=admin
+        For Atlas (SRV): mongodb+srv://user:pass@host/database?retryWrites=true&w=majority
+        """
+        from urllib.parse import quote_plus
+        
+        if self.use_srv:
+            # MongoDB Atlas / SRV format (no port, TLS is automatic)
+            if self.user and self.password:
+                user = quote_plus(self.user)
+                password = quote_plus(self.password)
+                return f"mongodb+srv://{user}:{password}@{self.host}/{self.database_name}?retryWrites=true&w=majority"
+            return f"mongodb+srv://{self.host}/{self.database_name}?retryWrites=true&w=majority"
+        
+        # Standard MongoDB format
         if self.user and self.password:
-            from urllib.parse import quote_plus
             user = quote_plus(self.user)
             password = quote_plus(self.password)
-            # Only include authSource if it's not empty
             auth_source = self.auth_source if self.auth_source else "admin"
             return f"mongodb://{user}:{password}@{self.host}:{self.port}/{self.database_name}?authSource={auth_source}"
         return f"mongodb://{self.host}:{self.port}/{self.database_name}"
@@ -52,7 +76,19 @@ class MongodbClient(DataSourceClient):
         """Context manager for MongoDB connection."""
         client = None
         try:
-            client = MongoClient(self._build_uri(), tls=self.tls)
+            uri = self._build_uri()
+            # Connection timeout settings (in milliseconds)
+            timeout_opts = {
+                "serverSelectionTimeoutMS": 10000,  # 10 seconds to find a server
+                "connectTimeoutMS": 10000,          # 10 seconds to connect
+                "socketTimeoutMS": 20000,           # 20 seconds for socket ops
+            }
+            if self.use_srv:
+                # For SRV/Atlas connections, TLS is automatic (always enabled)
+                client = MongoClient(uri, **timeout_opts)
+            else:
+                # For standard connections, use the tls setting
+                client = MongoClient(uri, tls=self.tls, **timeout_opts)
             yield client[self.database_name]
         finally:
             if client:
@@ -256,20 +292,26 @@ class MongodbClient(DataSourceClient):
         try:
             with self.connect() as db:
                 db.list_collection_names()
-                return {"success": True, "message": "Connected to MongoDB"}
+                conn_type = "MongoDB Atlas" if self.use_srv else "MongoDB"
+                return {"success": True, "message": f"Connected to {conn_type}"}
         except Exception as e:
             return {"success": False, "message": str(e)}
     
     @property
     def description(self) -> str:
         """Return description for LLM code generation."""
+        if self.use_srv:
+            location = f"{self.host}/{self.database_name} (Atlas/SRV)"
+        else:
+            location = f"{self.host}:{self.port}/{self.database_name}"
         return f"""
-MongoDB document database at {self.host}:{self.port}/{self.database_name}
+MongoDB document database at {location}
 
 CRITICAL RULES:
 1. Only use fields that EXIST in the schema - never assume fields like "email" exist
 2. Use valid JSON: true/false/null (NOT Python True/False/None)
 3. In $project, ALWAYS rename nested fields to simple aliases (no dots), then use those aliases in later stages
+4. If the tool inspect_data is available, and you are not sure about the structure and columns, use it to get a sample of the data before creating data/widget.
 
 Use execute_query() with a JSON query string.
 
@@ -320,4 +362,3 @@ WRONG - Do NOT do this:
 {{"$group": {{"_id": "$profile.name.first"}}}}  // Tries nested path - FAILS!
 ```
 """
-
