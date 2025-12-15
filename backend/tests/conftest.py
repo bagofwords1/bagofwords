@@ -133,6 +133,7 @@ from tests.fixtures.mention import get_available_mentions
 from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite
 from tests.fixtures.file import upload_file, upload_csv_file, upload_excel_file, get_files, get_files_by_report, remove_file_from_report
 from tests.fixtures.organization_settings import get_organization_settings, update_organization_settings, upload_organization_icon, delete_organization_icon, get_organization_icon
+from tests.fixtures.api_key import create_api_key, list_api_keys, delete_api_key, api_key_request
 
 from main import app
 
