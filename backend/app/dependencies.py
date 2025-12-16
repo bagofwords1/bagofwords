@@ -70,3 +70,17 @@ async def get_current_organization(request: Request, db: AsyncSession = Depends(
             return org
     
     raise HTTPException(status_code=400, detail="Organization ID header missing")
+
+
+async def require_mcp_enabled(
+    organization: Organization = Depends(get_current_organization)
+) -> Organization:
+    """Dependency to ensure MCP is enabled for the organization."""
+    if not organization.settings:
+        raise HTTPException(status_code=403, detail="MCP integration is not enabled for this organization")
+    
+    mcp_config = organization.settings.get_config("mcp_enabled")
+    if not mcp_config or not getattr(mcp_config, "value", False):
+        raise HTTPException(status_code=403, detail="MCP integration is not enabled for this organization")
+    
+    return organization

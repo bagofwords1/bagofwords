@@ -15,14 +15,17 @@ from pydantic import BaseModel
 from typing import Any, Optional, Union
 
 from app.core.auth import current_user
-from app.dependencies import get_async_db, get_current_organization
+from app.dependencies import get_async_db, require_mcp_enabled
 from app.models.user import User
 from app.models.organization import Organization
 from app.ai.tools.mcp import get_mcp_tool, list_mcp_tools
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["mcp"])
+router = APIRouter(
+    tags=["mcp"],
+    dependencies=[Depends(require_mcp_enabled)]
+)
 
 
 class JsonRpcRequest(BaseModel):
@@ -64,7 +67,7 @@ async def mcp_get_endpoint(
 async def mcp_endpoint(
     raw_request: Request,
     user: User = Depends(current_user),
-    organization: Organization = Depends(get_current_organization),
+    organization: Organization = Depends(require_mcp_enabled),
     db: AsyncSession = Depends(get_async_db),
 ):
     """MCP JSON-RPC endpoint.

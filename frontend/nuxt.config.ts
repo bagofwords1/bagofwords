@@ -92,6 +92,12 @@ export default defineNuxtConfig({
                 'Connection': 'Upgrade'
             }
         },
+        '/mcp': {
+            target: 'http://127.0.0.1:8000',
+            changeOrigin: true,
+            secure: false,
+            rewrite: (path) => `/api${path}`
+        },
         '/api': {
             target: 'http://127.0.0.1:8000',
             changeOrigin: true,

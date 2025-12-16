@@ -48,15 +48,9 @@
         <div>
           <div class="font-medium">MCP</div>
           <div class="text-sm text-gray-500">
-            <span v-if="mcpEnabled">
-              <span class="text-green-600">Enabled</span>
+            <span>
+              Enable MCP endpoint for integration with AI assistants like Cursor, Claude, or others
             </span>
-            <span v-else>
-              <span class="text-gray-400">Disabled</span>
-            </span>
-          </div>
-          <div class="text-xs text-gray-400 mt-1">
-            Model Context Protocol integration for enhanced AI capabilities
           </div>
         </div>
       </div>
