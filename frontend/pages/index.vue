@@ -116,10 +116,20 @@
 
 
 
+    <!-- MCP Link -->
+    <div v-if="!isLoading && isMcpEnabled" class="fixed bottom-4 right-4 z-20">
+        <button 
+            @click="showMcpModal = true"
+            class="flex items-center gap-2 px-3 py-2 text-sm text-gray-500 hover:text-gray-700 bg-white/80 backdrop-blur border border-gray-200 rounded-lg shadow-sm hover:shadow transition-all"
+        >
+            <McpIcon class="w-4 h-4" />
+            <span>Use as MCP</span>
+        </button>
+    </div>
+
     <div class="gradient-glow"></div>
 
-
-    
+    <McpModal v-model="showMcpModal" />
   </div>
 </template>
 
@@ -129,10 +139,14 @@ import { useExcel } from '~/composables/useExcel';
 import { onMounted, nextTick } from 'vue';
 import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
+import McpIcon from '~/components/icons/McpIcon.vue'
+import McpModal from '~/components/McpModal.vue'
 
 import { useCan } from '~/composables/usePermissions'
 import { KeyCode } from 'monaco-editor';
 const router = useRouter()
+const { isMcpEnabled } = useOrgSettings()
+const showMcpModal = ref(false)
 const { onboarding, fetchOnboarding } = useOnboarding()
 const previous_reports = ref<any[]>([])
 const selectedDataSources = ref<any[]>([])

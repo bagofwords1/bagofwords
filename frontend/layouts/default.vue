@@ -183,24 +183,6 @@
             </template>
           </a>
         </li>
-        <li class="" v-if="isMcpEnabled">
-           <a href="/mcp" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="MCP" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <McpIcon class="w-5 h-5" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <McpIcon class="w-5 h-5" />
-              </span>
-              <span v-if="showText" class="text-sm">MCP</span>
-            </template>
-          </a>
-        </li>
       </ul>
       <ul class="font-normal text-sm">
         <li>
@@ -298,7 +280,6 @@
 
 <script setup lang="ts">
   import Spinner from '~/components/Spinner.vue'
-  import McpIcon from '~/components/icons/McpIcon.vue'
   
   const workspaceIconUrl = computed<string | null>(() => {
     const orgId = organization.value?.id
@@ -308,7 +289,6 @@
   })
   const { signIn, signOut, token, data: currentUser, status, lastRefreshedAt, getSession } = useAuth()
   const { organization } = useOrganization()
-  const { isMcpEnabled } = useOrgSettings()
   const { onboarding, fetchOnboarding } = useOnboarding()
   const { useCan } = await import('~/composables/usePermissions')
   const canModifySettings = computed(() => useCan('modify_settings'))
