@@ -392,16 +392,27 @@ async def current_user(
     Get the current user from either JWT token or API key.
     
     Tries JWT first, then falls back to API key authentication.
+    API keys can be passed via X-API-Key header or Authorization: Bearer <key> (for bow_ prefixed keys).
     """
     # Try JWT first
     if jwt_user is not None:
         return jwt_user
     
-    # Try API key
+    # Try API key from X-API-Key header
     if api_key:
         from app.services.api_key_service import ApiKeyService
         api_key_service = ApiKeyService()
         user = await api_key_service.get_user_by_api_key(db, api_key)
+        if user is not None:
+            return user
+    
+    # Try API key from Authorization header (for MCP clients that use Bearer format)
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer bow_"):
+        from app.services.api_key_service import ApiKeyService
+        api_key_service = ApiKeyService()
+        bearer_api_key = auth_header[7:]  # Remove "Bearer " prefix
+        user = await api_key_service.get_user_by_api_key(db, bearer_api_key)
         if user is not None:
             return user
     

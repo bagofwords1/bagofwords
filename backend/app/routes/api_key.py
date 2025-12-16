@@ -3,9 +3,10 @@ from typing import List
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import get_async_db
+from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user
 from app.models.user import User
+from app.models.organization import Organization
 from app.schemas.api_key_schema import ApiKeyCreate, ApiKeyResponse, ApiKeyCreated
 from app.services.api_key_service import ApiKeyService
 
@@ -18,12 +19,13 @@ async def create_api_key(
     data: ApiKeyCreate,
     db: AsyncSession = Depends(get_async_db),
     user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
 ):
-    """Create a new API key for the current user.
+    """Create a new API key for the current user within the current organization.
     
     The full key is only returned once upon creation. Store it securely.
     """
-    return await api_key_service.create_api_key(db, data, user)
+    return await api_key_service.create_api_key(db, data, user, organization)
 
 
 @router.get("", response_model=List[ApiKeyResponse])

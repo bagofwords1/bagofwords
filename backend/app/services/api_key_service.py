@@ -9,6 +9,7 @@ from fastapi import HTTPException
 
 from app.models.api_key import ApiKey
 from app.models.user import User
+from app.models.organization import Organization
 from app.schemas.api_key_schema import ApiKeyCreate, ApiKeyResponse, ApiKeyCreated
 
 
@@ -41,8 +42,9 @@ class ApiKeyService:
         db: AsyncSession,
         data: ApiKeyCreate,
         user: User,
+        organization: Organization,
     ) -> ApiKeyCreated:
-        """Create a new API key for a user.
+        """Create a new API key for a user within an organization.
         
         The full key is only returned once upon creation. Store it securely.
         """
@@ -50,6 +52,7 @@ class ApiKeyService:
         
         api_key = ApiKey(
             user_id=user.id,
+            organization_id=organization.id,
             name=data.name,
             key_hash=key_hash,
             key_prefix=key_prefix,
@@ -151,5 +154,41 @@ class ApiKeyService:
             select(User).where(User.id == api_key_obj.user_id)
         )
         return user_result.scalar_one_or_none()
+
+    async def get_organization_by_api_key(
+        self,
+        db: AsyncSession,
+        api_key: str,
+    ) -> Optional[Organization]:
+        """Get the organization associated with an API key.
+        
+        Returns None if the key is invalid, expired, or deleted.
+        """
+        if not api_key or not api_key.startswith("bow_"):
+            return None
+        
+        # Hash the provided key
+        key_hash = self._hash_api_key(api_key)
+        
+        # Look up the API key
+        result = await db.execute(
+            select(ApiKey)
+            .where(ApiKey.key_hash == key_hash)
+            .where(ApiKey.deleted_at.is_(None))
+        )
+        api_key_obj = result.scalar_one_or_none()
+        
+        if not api_key_obj:
+            return None
+        
+        # Check expiration
+        if api_key_obj.expires_at and api_key_obj.expires_at < datetime.utcnow():
+            return None
+        
+        # Get the organization
+        org_result = await db.execute(
+            select(Organization).where(Organization.id == api_key_obj.organization_id)
+        )
+        return org_result.scalar_one_or_none()
 
 

@@ -18,30 +18,37 @@
                             <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
                         </button>
                     </div>
-                    <div class="bg-gray-50 rounded-lg px-3 py-2 font-mono text-sm text-gray-600">
+                    <div class="bg-gray-50 rounded-lg px-3 py-2 font-mono text-sm text-gray-600 break-all">
                         {{ mcpServerUrl }}
                     </div>
                 </div>
 
-                <!-- API Key -->
+                <!-- API Keys -->
                 <div>
                     <div class="flex items-center justify-between mb-2">
-                        <label class="text-sm font-medium text-gray-700">API Key</label>
-                        <UButton v-if="apiKeys.length === 0" size="xs" color="blue" @click="createApiKey" :loading="creating">
+                        <label class="text-sm font-medium text-gray-700">API Keys</label>
+                        <UButton size="xs" color="blue" @click="createApiKey" :loading="creating">
                             Generate
                         </UButton>
-                        <button v-else-if="apiKeys[0]?.key" @click="copy(apiKeys[0].key)" class="text-gray-400 hover:text-gray-600">
-                            <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
-                        </button>
                     </div>
                     <div v-if="apiKeys.length === 0" class="text-sm text-gray-400">
                         Generate an API key to authenticate requests
                     </div>
-                    <div v-else class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
-                        <code class="font-mono text-sm text-gray-600">{{ apiKeys[0].key_prefix }}•••••••••</code>
-                        <button @click="deleteApiKey(apiKeys[0])" class="text-gray-400 hover:text-red-500">
-                            <UIcon name="heroicons-trash" class="w-4 h-4" />
-                        </button>
+                    <div v-else class="space-y-2">
+                        <div v-for="key in apiKeys" :key="key.id" class="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                            <div class="flex items-center gap-2">
+                                <code class="font-mono text-sm text-gray-600">{{ key.key_prefix }}•••••••••</code>
+                                <span class="text-xs text-gray-400">{{ key.name }}</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button v-if="key.key" @click="copy(key.key)" class="text-gray-400 hover:text-gray-600 p-1">
+                                    <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
+                                </button>
+                                <button @click="deleteApiKey(key)" class="text-gray-400 hover:text-red-500 p-1">
+                                    <UIcon name="heroicons-trash" class="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -81,7 +88,6 @@ const isOpen = computed({
 })
 
 const toast = useToast()
-const config = useRuntimeConfig()
 
 interface ApiKey {
     id: string
@@ -93,18 +99,22 @@ interface ApiKey {
 
 const apiKeys = ref<ApiKey[]>([])
 const creating = ref(false)
+const baseUrl = ref('')
 
 const mcpServerUrl = computed(() => {
-    const baseUrl = config.public.baseURL || window.location.origin
-    return `${baseUrl}/api/mcp`
+    const base = baseUrl.value || window.location.origin
+    return `${base}/api/mcp`
 })
 
 const mcpConfig = computed(() => {
+    const apiKey = apiKeys.value[0]?.key || "<YOUR_API_KEY>"
     return JSON.stringify({
         "mcpServers": {
             "bagofwords": {
                 "url": mcpServerUrl.value,
-                "apiKey": apiKeys.value[0]?.key || "<YOUR_API_KEY>"
+                "headers": {
+                    "Authorization": `Bearer ${apiKey}`
+                }
             }
         }
     }, null, 2)
@@ -114,6 +124,17 @@ async function copy(text: string | undefined) {
     if (!text) return
     await navigator.clipboard.writeText(text)
     toast.add({ title: 'Copied', icon: 'i-heroicons-check-circle', color: 'green' })
+}
+
+async function loadSettings() {
+    try {
+        const res = await useMyFetch('/settings')
+        if (res.data.value) {
+            baseUrl.value = (res.data.value as any).base_url || ''
+        }
+    } catch (e) {
+        // Use window.location.origin as fallback
+    }
 }
 
 async function loadApiKeys() {
@@ -152,7 +173,7 @@ async function createApiKey() {
 async function deleteApiKey(key: ApiKey) {
     if (!confirm('Delete this API key?')) return
     try {
-        await useMyFetch(`/api/api_keys/${key.id}`, { method: 'DELETE' })
+        await useMyFetch(`/api_keys/${key.id}`, { method: 'DELETE' })
         apiKeys.value = apiKeys.value.filter(k => k.id !== key.id)
         toast.add({ title: 'API key deleted', icon: 'i-heroicons-check-circle', color: 'green' })
     } catch (e) {
@@ -161,6 +182,9 @@ async function deleteApiKey(key: ApiKey) {
 }
 
 watch(isOpen, (open) => {
-    if (open) loadApiKeys()
+    if (open) {
+        loadSettings()
+        loadApiKeys()
+    }
 })
 </script>
