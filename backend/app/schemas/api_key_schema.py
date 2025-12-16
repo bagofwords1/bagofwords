@@ -25,3 +25,4 @@ class ApiKeyCreated(ApiKeyResponse):
     key: str
 
 
+

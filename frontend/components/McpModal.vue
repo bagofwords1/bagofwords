@@ -16,7 +16,7 @@
                     />
                 </div>
                 <p class="text-sm text-gray-500 mt-2">
-                    Connect AI assistants like Cursor, Claude, or Windsurf to your data via the Model Context Protocol.
+                    Connect AI assistants like Claude, Cursor, or others to your data via the Model Context Protocol.
                 </p>
             </template>
 
@@ -28,25 +28,48 @@
                 </div>
             </div>
 
-            <div v-else class="space-y-6">
-                <!-- Server URL -->
+            <div v-else class="space-y-5">
+                <!-- Top bar: Server status left, Generate/Regenerate right -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2 text-xs text-gray-500">
+                        <div class="w-1.5 h-1.5 rounded-full bg-green-500"></div>
+                        <code class="font-mono text-gray-700">{{ mcpServerUrl }}</code>
+                    </div>
+                    <UButton 
+                        size="xs" 
+                        color="blue"
+                        @click="regenerateToken"
+                        :loading="creating"
+                    >
+                        <UIcon :name="apiKeys.length === 0 ? 'heroicons-plus' : 'heroicons-arrow-path'" class="w-3.5 h-3.5 mr-1" />
+                        {{ apiKeys.length === 0 ? 'Generate Token' : 'Regenerate Token' }}
+                    </UButton>
+                </div>
+
+                <!-- Token display -->
                 <div>
-                    <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-3">MCP Server</div>
-                    <div class="flex items-center justify-between bg-white rounded-lg px-4 py-3 border border-gray-200">
-                        <div class="flex items-center gap-3 min-w-0">
-                            <div class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"></div>
-                            <div class="min-w-0">
-                                <div class="text-sm font-medium text-gray-900 mb-0.5">Server Active</div>
-                                <div class="text-xs text-gray-500 font-mono truncate">{{ mcpServerUrl }}</div>
-                            </div>
-                        </div>
-                        <button 
-                            @click="copy(mcpServerUrl)" 
-                            class="text-gray-400 hover:text-gray-600 p-1.5 rounded hover:bg-gray-50 flex-shrink-0"
-                            title="Copy URL"
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="text-[11px] uppercase tracking-wide text-gray-500">Access Token</div>
+                        <UTooltip 
+                            :text="currentToken ? '' : (apiKeys.length === 0 ? 'Generate token to copy' : 'Regenerate token to copy')" 
+                            :popper="{ placement: 'top' }"
                         >
-                            <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
-                        </button>
+                            <button 
+                                @click="currentToken && copy(currentToken)" 
+                                :class="[
+                                    'p-1 rounded',
+                                    currentToken 
+                                        ? 'text-gray-400 hover:text-gray-600' 
+                                        : 'text-gray-300 cursor-not-allowed'
+                                ]"
+                                :disabled="!currentToken"
+                            >
+                                <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
+                            </button>
+                        </UTooltip>
+                    </div>
+                    <div class="px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                        <code class="font-mono text-xs text-gray-700">{{ currentToken || '••••••••••••••••••••••••••••••••' }}</code>
                     </div>
                 </div>
 
@@ -54,65 +77,57 @@
                 <div>
                     <div class="flex items-center justify-between mb-2">
                         <div class="text-[11px] uppercase tracking-wide text-gray-500">Configuration</div>
-                        <button 
-                            @click="copy(mcpConfig)" 
-                            class="text-gray-400 hover:text-gray-600 p-1"
+                        <UTooltip 
+                            :text="currentToken ? '' : (apiKeys.length === 0 ? 'Generate token to copy' : 'Regenerate token to copy')" 
+                            :popper="{ placement: 'top' }"
                         >
-                            <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
-                        </button>
+                            <button 
+                                @click="currentToken && copy(mcpConfig)" 
+                                :class="[
+                                    'p-1 rounded',
+                                    currentToken 
+                                        ? 'text-gray-400 hover:text-gray-600' 
+                                        : 'text-gray-300 cursor-not-allowed'
+                                ]"
+                                :disabled="!currentToken"
+                            >
+                                <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
+                            </button>
+                        </UTooltip>
                     </div>
                     <pre class="bg-gray-50 rounded-lg px-3 py-2.5 font-mono text-xs text-gray-700 overflow-x-auto border border-gray-200">{{ mcpConfig }}</pre>
                 </div>
 
-                <!-- MCP Access Token -->
-                <div>
-                    <div class="flex items-center justify-between mb-3">
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500">MCP Access Token</div>
-                        <UButton 
-                            size="xs" 
-                            color="blue"
-                            @click="createApiKey"
-                        >
-                            <Spinner v-if="creating" class="w-3 h-3 mr-1" />
-                            <UIcon v-else name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            Generate
-                        </UButton>
-                    </div>
+                <!-- Manage tokens (collapsed) -->
+                <div v-if="apiKeys.length > 0" class="pt-2 border-t border-gray-100">
+                    <button 
+                        @click="showTokens = !showTokens"
+                        class="flex items-center gap-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                        <UIcon 
+                            :name="showTokens ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" 
+                            class="w-3 h-3"
+                        />
+                        Manage tokens ({{ apiKeys.length }})
+                    </button>
                     
-                    <div v-if="apiKeys.length === 0" class="text-xs text-gray-400">
-                        No access tokens available.
-                        <button 
-                            @click="createApiKey" 
-                            class="text-blue-500 hover:text-blue-600 underline ml-1"
-                        >
-                            Generate one
-                        </button>
-                    </div>
-                    
-                    <div v-else class="border border-gray-200 rounded-lg divide-y divide-gray-200">
+                    <div v-if="showTokens" class="mt-3 border border-gray-200 rounded-lg divide-y divide-gray-200">
                         <div 
                             v-for="key in apiKeys" 
                             :key="key.id" 
                             class="flex items-center justify-between px-3 py-2 hover:bg-gray-50 transition-colors group"
                         >
-                            <code class="font-mono text-xs text-gray-700">{{ key.key_prefix }}•••••••••</code>
-                            <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                <button 
-                                    v-if="key.key" 
-                                    @click="copy(key.key)" 
-                                    class="text-gray-400 hover:text-gray-600 p-1"
-                                    title="Copy token"
-                                >
-                                    <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
-                                </button>
-                                <button 
-                                    @click="deleteApiKey(key)" 
-                                    class="text-gray-400 hover:text-red-500 p-1"
-                                    title="Delete token"
-                                >
-                                    <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
-                                </button>
+                            <div class="flex items-center gap-3 min-w-0">
+                                <code class="font-mono text-xs text-gray-700">{{ key.key_prefix }}•••••••••</code>
+                                <span class="text-[10px] text-gray-400">{{ formatDate(key.created_at) }}</span>
                             </div>
+                            <button 
+                                @click="deleteApiKey(key)" 
+                                class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                title="Delete token"
+                            >
+                                <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -152,6 +167,8 @@ const apiKeys = ref<ApiKey[]>([])
 const creating = ref(false)
 const loading = ref(false)
 const baseUrl = ref('')
+const currentToken = ref<string | null>(null)
+const showTokens = ref(false)
 
 const mcpServerUrl = computed(() => {
     const base = baseUrl.value || window.location.origin
@@ -159,13 +176,13 @@ const mcpServerUrl = computed(() => {
 })
 
 const mcpConfig = computed(() => {
-    const apiKey = apiKeys.value[0]?.key || "<YOUR_API_KEY>"
+    const token = currentToken.value || "<YOUR_API_KEY>"
     return JSON.stringify({
         "mcpServers": {
             "bagofwords": {
                 "url": mcpServerUrl.value,
                 "headers": {
-                    "Authorization": `Bearer ${apiKey}`
+                    "Authorization": `Bearer ${token}`
                 }
             }
         }
@@ -176,6 +193,19 @@ async function copy(text: string | undefined) {
     if (!text) return
     await navigator.clipboard.writeText(text)
     toast.add({ title: 'Copied', icon: 'i-heroicons-check-circle', color: 'green' })
+}
+
+function formatDate(dateStr: string) {
+    return new Date(dateStr).toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    })
+}
+
+async function regenerateToken() {
+    await createApiKey()
 }
 
 async function loadSettings() {
@@ -211,12 +241,12 @@ async function createApiKey() {
             const newKey = res.data.value as ApiKey
             apiKeys.value = [newKey, ...apiKeys.value]
             if (newKey.key) {
-                await navigator.clipboard.writeText(newKey.key)
-                toast.add({ title: 'API key created and copied', icon: 'i-heroicons-check-circle', color: 'green' })
+                currentToken.value = newKey.key
+                toast.add({ title: 'Token generated', icon: 'i-heroicons-check-circle', color: 'green' })
             }
         }
     } catch (e) {
-        toast.add({ title: 'Failed to create API key', icon: 'i-heroicons-x-circle', color: 'red' })
+        toast.add({ title: 'Failed to create token', icon: 'i-heroicons-x-circle', color: 'red' })
     } finally {
         creating.value = false
     }
@@ -236,6 +266,8 @@ async function deleteApiKey(key: ApiKey) {
 watch(isOpen, async (open) => {
     if (open) {
         loading.value = true
+        currentToken.value = null
+        showTokens.value = false
         await Promise.all([
             loadSettings(),
             loadApiKeys()

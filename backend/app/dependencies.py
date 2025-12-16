@@ -68,6 +68,8 @@ async def get_current_organization(request: Request, db: AsyncSession = Depends(
         org = await api_key_service.get_organization_by_api_key(db, key)
         if org:
             return org
+        # API key was provided but is invalid/expired
+        raise HTTPException(status_code=401, detail="Invalid or expired API key")
     
     raise HTTPException(status_code=400, detail="Organization ID header missing")
 
