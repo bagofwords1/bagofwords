@@ -6,7 +6,7 @@
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-3">
                         <McpIcon class="w-6 h-6" />
-                        <h3 class="text-lg font-semibold text-gray-900">MCP Integration</h3>
+                        <h3 class="text-lg font-semibold text-gray-900">Bag of words MCP Server</h3>
                     </div>
                     <UButton
                         color="gray"
@@ -16,7 +16,7 @@
                     />
                 </div>
                 <p class="text-sm text-gray-500 mt-2">
-                    Connect AI assistants like Claude, Cursor, or others to your data via the Model Context Protocol.
+                    Connect Claude, Cursor, or any MCP client to query your data via the Bag of words MCP Server.
                 </p>
             </template>
 
@@ -46,56 +46,62 @@
                     </UButton>
                 </div>
 
-                <!-- Token display -->
+                <!-- Configuration -->
                 <div>
-                    <div class="flex items-center justify-between mb-2">
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500">Access Token</div>
-                        <UTooltip 
-                            :text="currentToken ? '' : (apiKeys.length === 0 ? 'Generate token to copy' : 'Regenerate token to copy')" 
-                            :popper="{ placement: 'top' }"
-                        >
-                            <button 
-                                @click="currentToken && copy(currentToken)" 
-                                :class="[
-                                    'p-1 rounded',
-                                    currentToken 
-                                        ? 'text-gray-400 hover:text-gray-600' 
-                                        : 'text-gray-300 cursor-not-allowed'
-                                ]"
-                                :disabled="!currentToken"
+                    <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Configuration</div>
+                    <div class="relative bg-gray-50 rounded-lg border border-gray-200">
+                        <pre class="px-3 py-2.5 pr-20 font-mono text-xs text-gray-700 overflow-x-auto">{{ mcpConfig }}</pre>
+                        <div class="absolute top-2 right-2">
+                            <UTooltip 
+                                :text="currentToken ? '' : (apiKeys.length === 0 ? 'Generate token to copy' : 'Regenerate token to copy')" 
+                                :popper="{ placement: 'top' }"
                             >
-                                <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
-                            </button>
-                        </UTooltip>
-                    </div>
-                    <div class="px-3 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                        <code class="font-mono text-xs text-gray-700">{{ currentToken || '••••••••••••••••••••••••••••••••' }}</code>
+                                <button 
+                                    @click="currentToken && copy(mcpConfig)" 
+                                    :class="[
+                                        'flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors',
+                                        currentToken 
+                                            ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200' 
+                                            : 'text-gray-300 cursor-not-allowed'
+                                    ]"
+                                    :disabled="!currentToken"
+                                >
+                                    <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
+                                    Copy
+                                </button>
+                            </UTooltip>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Configuration -->
+                <!-- Token display -->
                 <div>
-                    <div class="flex items-center justify-between mb-2">
-                        <div class="text-[11px] uppercase tracking-wide text-gray-500">Configuration</div>
-                        <UTooltip 
-                            :text="currentToken ? '' : (apiKeys.length === 0 ? 'Generate token to copy' : 'Regenerate token to copy')" 
-                            :popper="{ placement: 'top' }"
-                        >
-                            <button 
-                                @click="currentToken && copy(mcpConfig)" 
-                                :class="[
-                                    'p-1 rounded',
-                                    currentToken 
-                                        ? 'text-gray-400 hover:text-gray-600' 
-                                        : 'text-gray-300 cursor-not-allowed'
-                                ]"
-                                :disabled="!currentToken"
+                    <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Access Token</div>
+                    <div class="relative bg-gray-50 rounded-lg border border-gray-200">
+                        <div class="px-3 py-2 pr-20">
+                            <code class="font-mono text-xs text-gray-700">{{ currentToken || '••••••••••••••••••••••••••••••••' }}</code>
+                        </div>
+                        <div class="absolute top-1/2 -translate-y-1/2 right-2">
+                            <UTooltip 
+                                :text="currentToken ? '' : (apiKeys.length === 0 ? 'Generate token to copy' : 'Regenerate token to copy')" 
+                                :popper="{ placement: 'top' }"
                             >
-                                <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
-                            </button>
-                        </UTooltip>
+                                <button 
+                                    @click="currentToken && copy(currentToken)" 
+                                    :class="[
+                                        'flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors',
+                                        currentToken 
+                                            ? 'text-gray-500 hover:text-gray-700 hover:bg-gray-200' 
+                                            : 'text-gray-300 cursor-not-allowed'
+                                    ]"
+                                    :disabled="!currentToken"
+                                >
+                                    <UIcon name="heroicons-clipboard-document" class="w-3.5 h-3.5" />
+                                    Copy
+                                </button>
+                            </UTooltip>
+                        </div>
                     </div>
-                    <pre class="bg-gray-50 rounded-lg px-3 py-2.5 font-mono text-xs text-gray-700 overflow-x-auto border border-gray-200">{{ mcpConfig }}</pre>
                 </div>
 
                 <!-- Manage tokens (collapsed) -->

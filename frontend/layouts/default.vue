@@ -203,6 +203,27 @@
             </template>
           </a>
         </li>
+        <li v-if="isMcpEnabled">
+          <button 
+            @click="showMcpModal = true"
+            :class="[
+              'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
+              isCollapsed ? 'justify-center' : 'gap-3'
+            ]"
+          >
+            <UTooltip v-if="isCollapsed" text="MCP" :popper="{ placement: 'right' }">
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <McpIcon class="w-5 h-5" />
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <McpIcon class="w-5 h-5" />
+              </span>
+              <span v-if="showText" class="text-sm">MCP</span>
+            </template>
+          </button>
+        </li>
         <li>
            <a href="/settings" :class="[
              'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
@@ -276,10 +297,17 @@
 
     <slot />
   </div>
+
+  <McpModal v-model="showMcpModal" />
 </template>
 
 <script setup lang="ts">
   import Spinner from '~/components/Spinner.vue'
+  import McpIcon from '~/components/icons/McpIcon.vue'
+  import McpModal from '~/components/McpModal.vue'
+
+  const { isMcpEnabled } = useOrgSettings()
+  const showMcpModal = ref(false)
   
   const workspaceIconUrl = computed<string | null>(() => {
     const orgId = organization.value?.id
