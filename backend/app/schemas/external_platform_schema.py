@@ -7,6 +7,7 @@ class PlatformType(str, Enum):
     SLACK = "slack"
     TEAMS = "teams"
     EMAIL = "email"
+    MCP = "mcp"
 
 class ExternalPlatformBase(BaseModel):
     platform_type: PlatformType

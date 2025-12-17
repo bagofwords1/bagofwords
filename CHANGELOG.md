@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.279 (December 17, 2025)
+- Added **MCP Server** for integration with Claude, Cursor, and other MCP clients
+- Available tools: `create_report`, `get_context`, `inspect_data`, `create_data`
+- MCP sessions are fully tracked in reports with tool executions and visualizations
+- Added per-user API keys for MCP and external integrations
+
 ## Version 0.0.278 (December 15, 2025)
 - Enhancing MongoDB integration to support Atlas/SRV connections
 - Add more triggers for autogenerate suggestions 

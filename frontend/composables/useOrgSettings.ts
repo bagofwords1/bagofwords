@@ -83,6 +83,7 @@ export const useOrgSettings = () => {
   const isJudgeEnabled = computed(() => featureEnabled(getFeature('enable_llm_judgement')))
   const canUploadFiles = computed(() => featureEnabled(getFeature('enable_file_upload')))
   const canEditCode = computed(() => featureEnabled(getFeature('enable_code_editing')))
+  const isMcpEnabled = computed(() => featureEnabled(getFeature('mcp_enabled')))
 
   return {
     settings,
@@ -93,6 +94,7 @@ export const useOrgSettings = () => {
     isJudgeEnabled,
     canUploadFiles,
     canEditCode,
+    isMcpEnabled,
     // raw accessor
     getFeature,
   }

@@ -253,6 +253,8 @@ import ContextBrowser from './ContextBrowser.vue'
 import GenericTool from '../tools/GenericTool.vue'
 import ExecuteCodeTool from '../tools/ExecuteCodeTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
+import CreateDataTool from '../tools/CreateDataTool.vue'
+import InspectDataTool from '../tools/InspectDataTool.vue'
 import Spinner from '../Spinner.vue'
 const { isJudgeEnabled } = useOrgSettings()
 
@@ -563,6 +565,10 @@ function getToolComponent(toolName: string) {
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
+        case 'create_data':
+            return CreateDataTool
+        case 'inspect_data':
+            return InspectDataTool
         case 'create_and_execute_code':
         case 'execute_code':
         case 'execute_sql':

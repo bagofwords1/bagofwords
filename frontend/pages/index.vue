@@ -117,9 +117,6 @@
 
 
     <div class="gradient-glow"></div>
-
-
-    
   </div>
 </template>
 

@@ -67,7 +67,9 @@ from app.routes import (
     agent_execution,
     auth as auth_routes,
     user_data_source_credentials,
-    mentions
+    mentions,
+    api_key,
+    mcp,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 
@@ -189,6 +191,8 @@ app.include_router(agent_execution.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")
 app.include_router(user_data_source_credentials.router, prefix="/api")
 app.include_router(mentions.router, prefix="/api")
+app.include_router(api_key.router, prefix="/api")
+app.include_router(mcp.router, prefix="/api")
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():

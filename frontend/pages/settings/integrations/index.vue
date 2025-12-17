@@ -7,7 +7,7 @@
       </p>
     </h2>
   </div>
-  <div class="mt-6">
+  <div class="mt-6 space-y-4">
     <!-- Slack Integration Row -->
     <div
       class="flex items-center justify-between p-4 border rounded-lg cursor-pointer hover:bg-gray-50"
@@ -39,6 +39,28 @@
       </button>
     </div>
 
+    <!-- MCP Integration Row -->
+    <div
+      class="flex items-center justify-between p-4 border rounded-lg"
+    >
+      <div class="flex items-center">
+        <McpIcon class="w-8 h-8 mr-4 text-gray-700" />
+        <div>
+          <div class="font-medium">BOW MCP Server</div>
+          <div class="text-sm text-gray-500">
+            <span>
+              Enable MCP endpoint for integration with AI assistants like Cursor, Claude, or others
+            </span>
+          </div>
+        </div>
+      </div>
+      <UToggle
+        v-model="mcpEnabled"
+        :loading="mcpUpdating"
+        @update:model-value="toggleMcp"
+      />
+    </div>
+
     <!-- Slack Integration Modal -->
     <UModal v-model="showSlackModal" :ui="{ width: 'max-w-lg' }">
       <SlackIntegrationModal
@@ -54,6 +76,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import SlackIntegrationModal from '~/components/SlackIntegrationModal.vue'
+import McpIcon from '~/components/icons/McpIcon.vue'
 
 definePageMeta({ auth: true, permissions: ['manage_organization_external_platforms'], layout: 'settings' })
 
@@ -61,6 +84,12 @@ const showSlackModal = ref(false)
 const slackIntegrated = ref(false)
 const slackConfig = ref<{ team_id?: string; team_name?: string } | null>(null)
 const slackIntegrationData = ref<any>(null)
+
+// MCP state
+const mcpEnabled = ref(false)
+const mcpUpdating = ref(false)
+
+const { settings, fetchSettings } = useOrgSettings()
 
 async function fetchIntegrations() {
   // Replace with your actual API call
@@ -71,5 +100,39 @@ async function fetchIntegrations() {
   slackIntegrationData.value = slack || null
 }
 
-onMounted(fetchIntegrations)
+async function loadMcpState() {
+  await fetchSettings()
+  const mcpFeature = settings.value?.config?.mcp_enabled
+  if (mcpFeature) {
+    mcpEnabled.value = mcpFeature.state === 'enabled' || mcpFeature.value === true
+  }
+}
+
+async function toggleMcp(value: boolean) {
+  mcpUpdating.value = true
+  try {
+    await useMyFetch('/api/organization/settings', {
+      method: 'PUT',
+      body: JSON.stringify({
+        config: {
+          mcp_enabled: {
+            value: value,
+            state: value ? 'enabled' : 'disabled'
+          }
+        }
+      })
+    })
+    await fetchSettings()
+  } catch (e) {
+    // Revert on error
+    mcpEnabled.value = !value
+  } finally {
+    mcpUpdating.value = false
+  }
+}
+
+onMounted(() => {
+  fetchIntegrations()
+  loadMcpState()
+})
 </script>

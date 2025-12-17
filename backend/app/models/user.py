@@ -31,6 +31,7 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     
     external_user_mappings = relationship("ExternalUserMapping", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
     user_data_source_credentials = relationship("UserDataSourceCredentials", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
+    api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan", lazy="selectin")
 
 
 

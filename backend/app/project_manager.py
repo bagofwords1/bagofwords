@@ -251,12 +251,14 @@ class ProjectManager:
     # Query / Visualization helpers (new)
     # ==============================
 
-    async def create_query_v2(self, db, report, title: str):
+    async def create_query_v2(self, db, report, title: str, organization_id: str | None = None, user_id: str | None = None):
         try:
             from app.schemas.query_schema import QueryCreate
             payload = QueryCreate(title=title, report_id=str(report.id))
-            # Note: current QueryService will create a widget under the hood (transitional)
-            q = await self.query_service.create_query(db, payload, organization_id=str(report.organization_id), user_id=str(getattr(report, 'user_id', None)) if hasattr(report, 'user_id') else None)
+            # Use provided IDs or fall back to report attributes (for ORM models)
+            org_id = organization_id or str(getattr(report, 'organization_id', None))
+            usr_id = user_id or str(getattr(report, 'user_id', None)) if hasattr(report, 'user_id') else None
+            q = await self.query_service.create_query(db, payload, organization_id=org_id, user_id=usr_id)
             return q
         except Exception as e:
             self.logger.warning(f"create_query_v2 failed: {e}")
