@@ -3,8 +3,8 @@ from pathlib import Path
 
 
 # Paths to demo database files
-CHINOOK_DB_PATH = (Path(__file__).resolve().parent.parent.parent / "db" / "chinook.sqlite").resolve()
-STOCKS_DB_PATH = (Path(__file__).resolve().parent.parent.parent / "db" / "stocks.duckdb").resolve()
+CHINOOK_DB_PATH = (Path(__file__).resolve().parent.parent.parent / "demo-datasources" / "chinook.sqlite").resolve()
+STOCKS_DB_PATH = (Path(__file__).resolve().parent.parent.parent / "demo-datasources" / "stocks.duckdb").resolve()
 
 
 @pytest.mark.e2e

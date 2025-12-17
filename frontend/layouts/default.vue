@@ -211,7 +211,7 @@
               isCollapsed ? 'justify-center' : 'gap-3'
             ]"
           >
-            <UTooltip v-if="isCollapsed" text="MCP" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" text="MCP - Connect Claude/Cursor to your data" :popper="{ placement: 'right' }">
               <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <McpIcon class="w-5 h-5" />
               </span>

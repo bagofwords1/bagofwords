@@ -5,9 +5,15 @@ They can wrap internal services/tools as needed.
 """
 
 from .create_report import CreateReportTool
+from .get_context import GetContextTool
+from .inspect_data import InspectDataMCPTool
+from .create_data import CreateDataMCPTool
 
 MCP_TOOLS = {
     "create_report": CreateReportTool,
+    "get_context": GetContextTool,
+    "inspect_data": InspectDataMCPTool,
+    "create_data": CreateDataMCPTool,
 }
 
 

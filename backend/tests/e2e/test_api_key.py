@@ -14,9 +14,10 @@ def test_api_key_crud(
     # Setup user
     user = create_user()
     user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     # Create an API key
-    api_key = create_api_key(user_token=user_token, name="Test Key")
+    api_key = create_api_key(user_token=user_token, org_id=org_id, name="Test Key")
     
     # Verify key structure
     assert api_key is not None
@@ -70,7 +71,7 @@ def test_api_key_authentication(
     user_id = user_info['id']
     
     # Create an API key
-    api_key = create_api_key(user_token=user_token, name="Auth Test Key")
+    api_key = create_api_key(user_token=user_token, org_id=org_id, name="Auth Test Key")
     full_key = api_key["key"]
     
     # Use the API key to make an authenticated request
@@ -113,15 +114,17 @@ def test_deleted_api_key_rejected(
     delete_api_key,
     api_key_request,
     create_user,
-    login_user
+    login_user,
+    whoami
 ):
     """Test that deleted API keys are rejected."""
     # Setup user
     user = create_user()
     user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     # Create and then delete an API key
-    api_key = create_api_key(user_token=user_token, name="To Be Deleted")
+    api_key = create_api_key(user_token=user_token, org_id=org_id, name="To Be Deleted")
     full_key = api_key["key"]
     key_id = api_key["id"]
     
@@ -151,17 +154,19 @@ def test_multiple_api_keys(
     list_api_keys,
     delete_api_key,
     create_user,
-    login_user
+    login_user,
+    whoami
 ):
     """Test that users can have multiple API keys."""
     # Setup user
     user = create_user()
     user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
     
     # Create multiple API keys
-    key1 = create_api_key(user_token=user_token, name="Key 1")
-    key2 = create_api_key(user_token=user_token, name="Key 2")
-    key3 = create_api_key(user_token=user_token, name="Key 3")
+    key1 = create_api_key(user_token=user_token, org_id=org_id, name="Key 1")
+    key2 = create_api_key(user_token=user_token, org_id=org_id, name="Key 2")
+    key3 = create_api_key(user_token=user_token, org_id=org_id, name="Key 3")
     
     # List should show all three
     keys = list_api_keys(user_token=user_token)

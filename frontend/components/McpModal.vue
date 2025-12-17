@@ -78,8 +78,9 @@
                 <div>
                     <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Access Token</div>
                     <div class="relative bg-gray-50 rounded-lg border border-gray-200">
-                        <div class="px-3 py-2 pr-20">
+                        <div class="px-3 py-2 pr-20 flex items-center gap-3">
                             <code class="font-mono text-xs text-gray-700">{{ currentToken || '••••••••••••••••••••••••••••••••' }}</code>
+                            <span v-if="!currentToken && apiKeys.length > 0" class="text-[10px] text-gray-400">{{ formatDate(apiKeys[0].created_at) }}</span>
                         </div>
                         <div class="absolute top-1/2 -translate-y-1/2 right-2">
                             <UTooltip 

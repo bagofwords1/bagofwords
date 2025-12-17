@@ -21,7 +21,11 @@ class CreateReportTool(MCPTool):
     """
     
     name = "create_report"
-    description = "Create a new analysis session (report). Returns a report_id to use in subsequent tool calls for conversation continuity."
+    description = (
+        "Create a new analysis session (report). "
+        "Call this once at the start of a conversation to get a report_id. "
+        "Use that report_id in all subsequent create_data, inspect_data, and get_context calls."
+    )
     
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -30,10 +34,14 @@ class CreateReportTool(MCPTool):
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "Report title (optional, defaults to 'MCP Session')"
+                    "description": (
+                        "A short, descriptive title summarizing what the user wants to analyze. "
+                        "Examples: 'Customer Revenue Analysis', 'Q4 Sales Trends', 'Top Products by Region'. "
+                        "Derive from the user's request - avoid generic titles like 'Data Analysis'."
+                    )
                 },
             },
-            "required": [],
+            "required": ["title"],
         }
     
     async def execute(
@@ -48,15 +56,22 @@ class CreateReportTool(MCPTool):
         report_service = ReportService()
         ds_service = DataSourceService()
         
+        # Get or create MCP platform
+        platform = await self._get_or_create_mcp_platform(db, organization)
+        
+        # Ensure user mapping exists for Members page visibility
+        await self._ensure_mcp_user_mapping(db, user, organization, platform)
+        
         # Get all active data sources for the organization
         data_sources = await ds_service.get_active_data_sources(db, organization)
         
-        # Create the report
+        # Create the report with MCP platform
         report = await report_service.create_report(
             db=db,
             report_data=ReportCreate(
                 title=args.get("title") or "MCP Session",
                 data_sources=[ds.id for ds in data_sources],
+                external_platform_id=str(platform.id),
             ),
             current_user=user,
             organization=organization,

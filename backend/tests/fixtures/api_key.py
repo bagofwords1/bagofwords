@@ -3,15 +3,20 @@ import pytest
 
 @pytest.fixture
 def create_api_key(test_client):
-    def _create_api_key(user_token, name="Test API Key", expires_at=None):
+    def _create_api_key(user_token, org_id, name="Test API Key", expires_at=None):
         payload = {"name": name}
         if expires_at:
             payload["expires_at"] = expires_at
         
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
         response = test_client.post(
             "/api/api_keys",
             json=payload,
-            headers={"Authorization": f"Bearer {user_token}"}
+            headers=headers
         )
         assert response.status_code == 200, response.json()
         return response.json()
