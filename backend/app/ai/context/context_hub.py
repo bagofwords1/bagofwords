@@ -247,7 +247,6 @@ class ContextHub:
             # Build object, then render for legacy ContextSnapshot
             instruction_config = spec.instruction_config or InstructionContextConfig()
             inst_section = await self.instruction_builder.build(
-                status=instruction_config.status,
                 category=instruction_config.category,
             )
             context.instructions_context = inst_section.render()
@@ -397,15 +396,22 @@ class ContextHub:
     # --------------------------------------------------------------
     # Simple lifecycle helpers to prime static and refresh warm
     # --------------------------------------------------------------
-    async def prime_static(self) -> None:
+    async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
         
         Runs all builders in parallel for faster startup.
+        
+        Parameters
+        ----------
+        query : str | None, optional
+            The user's query/prompt. If provided, enables intelligent instruction
+            search to find relevant instructions beyond just 'always' load mode.
         """
         import asyncio
         # Run all static builders in parallel
         schemas_task = asyncio.create_task(self.schema_builder.build())
-        instructions_task = asyncio.create_task(self.instruction_builder.build())
+        # Pass query to enable intelligent instruction search
+        instructions_task = asyncio.create_task(self.instruction_builder.build(query))
         resources_task = asyncio.create_task(self.resource_builder.build())
         files_task = asyncio.create_task(self.files_builder.build())
         

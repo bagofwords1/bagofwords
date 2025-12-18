@@ -1,7 +1,33 @@
 from typing import ClassVar, List, Optional, Literal
+from pydantic import BaseModel
 from app.ai.context.sections.base import ContextSection, xml_tag, xml_escape
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable
+
+
+# Schema usage tracking models for context snapshots
+class TableUsageItem(BaseModel):
+    """Lightweight tracking of a single table's usage in context."""
+    name: str
+    score: Optional[float] = None
+    usage_count: Optional[int] = None
+    columns_count: int = 0
+    selection_reason: str = "top_k_score"  # 'top_k_score' | 'mentioned' | 'all'
+
+
+class DataSourceUsage(BaseModel):
+    """Tracking of tables used from a single data source."""
+    ds_id: str
+    ds_name: str
+    ds_type: str
+    tables_used: List[TableUsageItem] = []
+    tables_total: int = 0
+    top_k_applied: int = 0
+
+
+class SchemaUsageSnapshot(BaseModel):
+    """Lightweight snapshot of which schemas/tables were used in context."""
+    data_sources: List[DataSourceUsage] = []
 
 
 class TablesSchemaContext(ContextSection):
@@ -231,5 +257,68 @@ class TablesSchemaContext(ContextSection):
             # Ensure separation between <sample> and <index>
             ds_chunks.append(xml_tag("data_source", "\n".join(inner_parts), attrs))
         return xml_tag(self.tag_name, "".join(ds_chunks))
+
+    def get_usage_snapshot(self, top_k_per_ds: int = 10) -> SchemaUsageSnapshot:
+        """
+        Return a lightweight snapshot of which tables were used in context.
+        
+        This mirrors the selection logic from render_combined() to accurately
+        track what the LLM actually received.
+        
+        Parameters
+        ----------
+        top_k_per_ds : int
+            Number of top tables per data source (same as render_combined).
+            
+        Returns
+        -------
+        SchemaUsageSnapshot
+            Compact tracking of used tables with scores and selection reasons.
+        """
+        ds_usages: List[DataSourceUsage] = []
+        
+        for ds in (self.data_sources or []):
+            tables = list(ds.tables or [])
+            tables_total = len(tables)
+            
+            # Get top K tables (same logic as _render_topk_tables_full)
+            top_tables = tables[:max(0, top_k_per_ds)]
+            
+            tables_used: List[TableUsageItem] = []
+            for t in top_tables:
+                score_val = None
+                try:
+                    if getattr(t, 'score', None) is not None:
+                        score_val = float(t.score)
+                except Exception:
+                    pass
+                
+                usage_val = None
+                try:
+                    if getattr(t, 'usage_count', None) is not None:
+                        usage_val = int(t.usage_count)
+                except Exception:
+                    pass
+                
+                cols_count = len(getattr(t, 'columns', []) or [])
+                
+                tables_used.append(TableUsageItem(
+                    name=t.name,
+                    score=score_val,
+                    usage_count=usage_val,
+                    columns_count=cols_count,
+                    selection_reason="top_k_score",
+                ))
+            
+            ds_usages.append(DataSourceUsage(
+                ds_id=ds.info.id,
+                ds_name=ds.info.name,
+                ds_type=ds.info.type,
+                tables_used=tables_used,
+                tables_total=tables_total,
+                top_k_applied=top_k_per_ds,
+            ))
+        
+        return SchemaUsageSnapshot(data_sources=ds_usages)
 
 

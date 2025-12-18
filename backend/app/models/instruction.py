@@ -94,6 +94,11 @@ class Instruction(BaseSchema):
     agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="selectin")
     source_metadata_resource = relationship("MetadataResource", foreign_keys=[source_metadata_resource_id], lazy="selectin")
     
+    # Usage tracking relationships
+    usage_events = relationship("InstructionUsageEvent", back_populates="instruction", lazy="dynamic")
+    feedback_events = relationship("InstructionFeedbackEvent", back_populates="instruction", lazy="dynamic")
+    stats = relationship("InstructionStats", back_populates="instruction", lazy="dynamic")
+    
     def __repr__(self):
         return f"<Instruction {self.category}:{self.text[:50]}...>"
     
@@ -195,3 +200,10 @@ class Instruction(BaseSchema):
         if self.title:
             return self.title
         return self.text[:100] + "..." if len(self.text) > 100 else self.text
+
+
+# Deferred imports to resolve circular dependencies for relationships
+# These models reference Instruction, and Instruction references them back
+from app.models.instruction_usage_event import InstructionUsageEvent  # noqa: E402, F401
+from app.models.instruction_feedback_event import InstructionFeedbackEvent  # noqa: E402, F401
+from app.models.instruction_stats import InstructionStats  # noqa: E402, F401

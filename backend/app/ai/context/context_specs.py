@@ -77,6 +77,10 @@ class ContextSnapshot(BaseModel):
     
     # Summary for history
     history_summary: str = ""
+    
+    # Lightweight usage tracking (what was actually sent to LLM)
+    schemas_usage: Optional[Dict[str, Any]] = None  # SchemaUsageSnapshot.model_dump()
+    instructions_usage: Optional[List[Dict[str, Any]]] = None  # List of InstructionItem summaries
 
 
 class ContextObjectsSnapshot(BaseModel):

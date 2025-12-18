@@ -11,7 +11,7 @@ Example migration:
     
     # New way (recommended)
     builder = InstructionContextBuilder(db, org)
-    context = await builder.build_full_context(query, data_source_ids=ds_ids)
+    context = await builder.build(query, data_source_ids=ds_ids)
 """
 
 import re
@@ -38,7 +38,7 @@ class ResourceContextBuilder:
     
     def __init__(self, db, data_sources, organization, prompt_content):
         warnings.warn(
-            "ResourceContextBuilder is deprecated. Use InstructionContextBuilder.build_full_context() instead.",
+            "ResourceContextBuilder is deprecated. Use InstructionContextBuilder.build() instead.",
             DeprecationWarning,
             stacklevel=2
         )

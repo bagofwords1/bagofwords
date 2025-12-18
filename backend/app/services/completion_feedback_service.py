@@ -15,10 +15,14 @@ from app.schemas.completion_feedback_schema import (
 )
 from app.services.table_usage_service import TableUsageService
 from app.schemas.table_usage_schema import TableFeedbackEventCreate
+from app.services.instruction_usage_service import InstructionUsageService
+from app.schemas.instruction_usage_schema import InstructionFeedbackEventCreate
 from app.models.completion_block import CompletionBlock
 from app.models.tool_execution import ToolExecution
 from app.models.step import Step
 from app.models.table_usage_event import TableUsageEvent
+from app.models.agent_execution import AgentExecution
+from app.models.context_snapshot import ContextSnapshot
 from app.core.telemetry import telemetry
 
 
@@ -26,6 +30,7 @@ class CompletionFeedbackService:
     
     def __init__(self):
         self.table_usage_service = TableUsageService()
+        self.instruction_usage_service = InstructionUsageService()
 
     async def _emit_table_feedback(
         self,
@@ -136,6 +141,86 @@ class CompletionFeedbackService:
             # Never block on attribution failures
             return
 
+    async def _emit_instruction_feedback(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        completion: Completion,
+        feedback: CompletionFeedback,
+        user: Optional[User]
+    ) -> None:
+        """Attribute feedback to instructions that were used in the completion's context."""
+        try:
+            # Find AgentExecution for this completion
+            ae_stmt = select(AgentExecution).where(
+                AgentExecution.completion_id == str(completion.id)
+            )
+            ae_result = await db.execute(ae_stmt)
+            agent_execution = ae_result.scalar_one_or_none()
+            
+            if not agent_execution:
+                return
+            
+            # Get the initial context snapshot (contains the instructions used)
+            cs_stmt = select(ContextSnapshot).where(
+                ContextSnapshot.agent_execution_id == str(agent_execution.id),
+                ContextSnapshot.kind == 'initial'
+            )
+            cs_result = await db.execute(cs_stmt)
+            context_snapshot = cs_result.scalar_one_or_none()
+            
+            if not context_snapshot or not context_snapshot.context_view_json:
+                return
+            
+            # Extract instructions from context_view_json
+            context_json = context_snapshot.context_view_json
+            instructions_data = []
+            
+            # Try different possible paths in the context structure
+            if isinstance(context_json, dict):
+                # Check static.instructions.items path
+                static = context_json.get('static', {})
+                if static:
+                    instructions_section = static.get('instructions', {})
+                    if instructions_section:
+                        instructions_data = instructions_section.get('items', [])
+                
+                # Fallback: check instructions_usage if present
+                if not instructions_data:
+                    instructions_data = context_json.get('instructions_usage', [])
+            
+            if not instructions_data:
+                return
+            
+            direction = 'positive' if feedback.direction == 1 else 'negative'
+            
+            # Deduplicate by instruction_id
+            seen_ids: set[str] = set()
+            for inst in instructions_data:
+                if not isinstance(inst, dict):
+                    continue
+                    
+                inst_id = inst.get('id')
+                if not inst_id or inst_id in seen_ids:
+                    continue
+                seen_ids.add(inst_id)
+                
+                payload = InstructionFeedbackEventCreate(
+                    org_id=str(organization.id),
+                    report_id=str(completion.report_id) if completion.report_id else None,
+                    instruction_id=inst_id,
+                    completion_feedback_id=str(feedback.id),
+                    feedback_type=direction,
+                )
+                await self.instruction_usage_service.record_feedback_event(
+                    db=db,
+                    payload=payload,
+                    user_role=getattr(user, 'role', None) if user else None
+                )
+        except Exception:
+            # Never block on attribution failures
+            return
+
     async def create_or_update_feedback(
         self, 
         db: AsyncSession, 
@@ -187,9 +272,13 @@ class CompletionFeedbackService:
                 )
             except Exception:
                 pass
-            # Emit table feedback events reflecting the updated direction
+            # Emit table and instruction feedback events reflecting the updated direction
             try:
                 await self._emit_table_feedback(db, organization, completion, existing_feedback, user)
+            except Exception:
+                pass
+            try:
+                await self._emit_instruction_feedback(db, organization, completion, existing_feedback, user)
             except Exception:
                 pass
             return CompletionFeedbackSchema.from_orm(existing_feedback)
@@ -222,8 +311,12 @@ class CompletionFeedbackService:
             except Exception:
                 pass
 
-            # Emit table feedback events attributed to the completion's step lineage if available
+            # Emit table and instruction feedback events attributed to the completion's context
             await self._emit_table_feedback(db, organization, completion, feedback, user)
+            try:
+                await self._emit_instruction_feedback(db, organization, completion, feedback, user)
+            except Exception:
+                pass
 
             return CompletionFeedbackSchema.from_orm(feedback)
     

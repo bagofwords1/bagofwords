@@ -17,12 +17,20 @@
               <div class="flex items-center justify-between px-3 py-2 bg-gray-50 cursor-pointer" @click="toggleSection('ds:'+ds.info.id)">
                 <div class="text-xs font-medium text-gray-900">
                   {{ ds.info.name }} <span class="text-gray-500">({{ ds.info.type }})</span>
+                  <!-- Usage tracking indicator -->
+                  <span v-if="ds._usage_meta" class="ml-2 text-[9px] px-1 py-0.5 rounded bg-blue-100 text-blue-700">
+                    {{ (ds.tables || []).length }} of {{ ds._usage_meta.tables_total }} tables
+                  </span>
                 </div>
                 <Icon :name="expandedSections.has('ds:'+ds.info.id) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 text-gray-500" />
               </div>
               <Transition name="fade">
                 <div v-if="expandedSections.has('ds:'+ds.info.id)" class="px-3 py-2 space-y-1">
                   <div v-if="ds.info.context" class="text-[11px] text-gray-600">{{ ds.info.context }}</div>
+                  <!-- Usage metadata note -->
+                  <div v-if="ds._usage_meta" class="text-[10px] text-gray-400 mt-1">
+                    Top {{ ds._usage_meta.top_k_applied }} tables shown ({{ ds._usage_meta.tables_total }} total)
+                  </div>
                   <div class="text-[11px] uppercase tracking-wide text-gray-500 mt-2">Schemas</div>
                   <div class="divide-y">
                     <div v-for="tbl in (ds.tables || [])" :key="ds.info.id + ':' + tbl.name" class="py-1">
@@ -60,13 +68,19 @@
                       </div>
                       <Transition name="fade">
                         <div v-if="expandedSections.has('tbl:'+ds.info.id+':'+tbl.name)" class="mt-1 pl-2 space-y-2">
-                          <div>
+                          <!-- Full columns display (when available) -->
+                          <div v-if="tbl.columns?.length">
                             <div class="text-[11px] text-gray-700">Columns:</div>
                             <ul class="ml-3 list-disc">
                               <li v-for="col in (tbl.columns || [])" :key="tbl.name + ':' + col.name" class="text-[11px] text-gray-800">
                                 {{ col.name }}<span v-if="col.dtype" class="text-gray-500"> ({{ col.dtype }})</span>
                               </li>
                             </ul>
+                          </div>
+                          <!-- Usage tracking mode: only show column count -->
+                          <div v-else-if="tbl._usage_meta?.columns_count !== undefined" class="text-[11px] text-gray-600">
+                            {{ tbl._usage_meta.columns_count }} columns
+                            <span v-if="tbl._usage_meta.selection_reason" class="ml-2 text-gray-400">({{ tbl._usage_meta.selection_reason }})</span>
                           </div>
                           <div v-if="tableMetrics(tbl).length">
                             <div class="text-[11px] text-gray-700">Metrics:</div>
@@ -144,7 +158,7 @@
       </Transition>
     </div>
 
-    <!-- Instructions Section (object-first; fallback to legacy XML) -->
+    <!-- Instructions Section (table format) -->
     <div v-if="instructionsItems.length || instructionsText">
       <div 
         class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
@@ -152,60 +166,130 @@
       >
         <Icon :name="expandedSections.has('instructions') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
         Instructions
+        <span v-if="instructionsItems.length" class="ml-2 text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">
+          {{ instructionsItems.length }}
+        </span>
       </div>
       <Transition name="fade">
-        <div v-if="expandedSections.has('instructions')" class="ml-4 space-y-2">
+        <div v-if="expandedSections.has('instructions')" class="ml-4">
           <div v-if="instructionsItems.length === 0 && !instructionsText" class="text-xs text-gray-500">No instructions</div>
-          <!-- Object items -->
-          <div v-for="ins in instructionsItems" :key="ins.id || ins.key">
-            <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-1" @click="toggleSection('instruction:'+(ins.id || ins.key))">
-              <Icon :name="expandedSections.has('instruction:'+(ins.id || ins.key)) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
-              Instruction
-              <span v-if="ins.category" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600 normal-case">{{ ins.category }}</span>
-              <span v-if="ins.id" class="ml-1 text-[10px] text-gray-400 normal-case">#{{ String(ins.id).slice(0,8) }}</span>
-            </div>
-            <Transition name="fade">
-              <div v-if="expandedSections.has('instruction:'+(ins.id || ins.key))" class="ml-3">
-                <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ ins.text || ins.content }}</pre>
-              </div>
-            </Transition>
+          
+          <!-- Instructions Table -->
+          <div v-if="instructionsItems.length" class="border rounded-md overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
+                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Category</th>
+                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-24">Labels</th>
+                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Load</th>
+                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-16">Type</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                <tr v-for="ins in instructionsItems" :key="ins.id || ins.key" class="hover:bg-gray-50">
+                  <!-- Instruction text with expand -->
+                  <td class="px-3 py-2">
+                    <div class="flex flex-col">
+                      <!-- Title or truncated text -->
+                      <div class="text-xs text-gray-900">
+                        <span v-if="ins.title" class="font-medium">{{ truncateText(ins.title, 60) }}</span>
+                        <span v-else>{{ truncateText(ins.text || ins.content || '', 80) }}</span>
+                      </div>
+                      <!-- Expand button for full content -->
+                      <button 
+                        v-if="(ins.text || ins.content || '').length > 80"
+                        class="text-[10px] text-blue-600 hover:text-blue-800 mt-0.5 text-left"
+                        @click="toggleSection('instruction:'+(ins.id || ins.key))"
+                      >
+                        {{ expandedSections.has('instruction:'+(ins.id || ins.key)) ? 'show less' : 'show more' }}
+                      </button>
+                      <!-- Expanded content -->
+                      <Transition name="fade">
+                        <div v-if="expandedSections.has('instruction:'+(ins.id || ins.key))" class="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-700 whitespace-pre-wrap">
+                          {{ ins.text || ins.content }}
+                        </div>
+                      </Transition>
+                    </div>
+                  </td>
+                  <!-- Category -->
+                  <td class="px-3 py-2">
+                    <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                      {{ ins.category }}
+                    </span>
+                    <span v-else class="text-[9px] text-gray-400">—</span>
+                  </td>
+                  <!-- Labels -->
+                  <td class="px-3 py-2">
+                    <div v-if="ins.labels?.length" class="flex flex-wrap gap-1">
+                      <span 
+                        v-for="label in ins.labels.slice(0, 2)" 
+                        :key="label.id || label.name" 
+                        class="text-[9px] px-1.5 py-0.5 rounded"
+                        :style="{ backgroundColor: (label.color || '#e5e7eb') + '20', color: label.color || '#6b7280' }"
+                      >
+                        {{ label.name }}
+                      </span>
+                      <span v-if="ins.labels.length > 2" class="text-[9px] text-gray-400">
+                        +{{ ins.labels.length - 2 }}
+                      </span>
+                    </div>
+                    <span v-else class="text-[9px] text-gray-400">—</span>
+                  </td>
+                  <!-- Load mode -->
+                  <td class="px-3 py-2">
+                    <span 
+                      class="text-[9px] px-1.5 py-0.5 rounded"
+                      :class="ins.load_mode === 'always' ? 'bg-blue-100 text-blue-700' : ins.load_mode === 'intelligent' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'"
+                    >
+                      {{ ins.load_mode || 'always' }}
+                    </span>
+                  </td>
+                  <!-- Source type -->
+                  <td class="px-3 py-2">
+                    <span class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                      {{ ins.source_type || 'user' }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <!-- Fallback legacy parsed list -->
-          <div v-for="ins in instructionsList" :key="'legacy-'+ins.key">
-            <div class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-1" @click="toggleSection('instruction:'+ins.key)">
-              <Icon :name="expandedSections.has('instruction:'+ins.key) ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
-              Instruction
-              <span v-if="ins.category" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-600 normal-case">{{ ins.category }}</span>
-              <span v-if="ins.id" class="ml-1 text-[10px] text-gray-400 normal-case">#{{ ins.id.slice(0, 8) }}</span>
-            </div>
-            <Transition name="fade">
-              <div v-if="expandedSections.has('instruction:'+ins.key)" class="ml-3">
-                <pre class="text-xs text-gray-700 whitespace-pre-wrap">{{ ins.content }}</pre>
-              </div>
-            </Transition>
-          </div>
-        </div>
-      </Transition>
-    </div>
-
-    <!-- Metadata Resources Section (object-first; fallback simple) -->
-    <div v-if="resourcesContent || metadataResources.length > 0">
-      <div 
-        class="flex items-center cursor-pointer text-[11px] uppercase tracking-wide text-gray-500 mb-2"
-        @click="toggleSection('metadata_resources')"
-      >
-        <Icon :name="expandedSections.has('metadata_resources') ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 mr-1" />
-        Metadata Resources
-      </div>
-      <Transition name="fade">
-        <div v-if="expandedSections.has('metadata_resources')" class="ml-4">
-          <pre v-if="resourcesContent" class="text-xs text-gray-700 whitespace-pre-wrap">{{ resourcesContent }}</pre>
-          <div v-else class="space-y-1">
-            <div v-for="resource in metadataResources" :key="resource.name" class="text-xs">
-              <div class="font-mono text-gray-800">{{ resource.name }}</div>
-              <div class="text-gray-500 text-[11px] ml-2">{{ resource.type }}</div>
-              <div v-if="resource.description" class="text-gray-500 text-[11px] ml-2">{{ resource.description }}</div>
-            </div>
+          
+          <!-- Fallback legacy parsed list (if no object items) -->
+          <div v-else-if="instructionsList.length" class="border rounded-md overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
+                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Category</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                <tr v-for="ins in instructionsList" :key="'legacy-'+ins.key" class="hover:bg-gray-50">
+                  <td class="px-3 py-2">
+                    <div class="text-xs text-gray-900">{{ truncateText(ins.content || '', 80) }}</div>
+                    <button 
+                      v-if="(ins.content || '').length > 80"
+                      class="text-[10px] text-blue-600 hover:text-blue-800 mt-0.5"
+                      @click="toggleSection('instruction:'+ins.key)"
+                    >
+                      {{ expandedSections.has('instruction:'+ins.key) ? 'show less' : 'show more' }}
+                    </button>
+                    <Transition name="fade">
+                      <div v-if="expandedSections.has('instruction:'+ins.key)" class="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-700 whitespace-pre-wrap">
+                        {{ ins.content }}
+                      </div>
+                    </Transition>
+                  </td>
+                  <td class="px-3 py-2">
+                    <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
+                      {{ ins.category }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </Transition>
@@ -558,9 +642,41 @@ interface Props {
 const props = defineProps<Props>()
 
 const expandedSections = ref<Set<string>>(new Set())
-// Object-based schemas (preferred), with fallback to legacy text
+// Schema usage tracking (preferred) - shows only tables actually sent to LLM
+const schemasUsage = computed(() => props.contextData?.schemas_usage || null)
+
+// Object-based schemas (fallback to full schemas if no usage tracking)
 const objectSchemas = computed(() => props.contextData?.static?.schemas || null)
+
+// Data sources: prefer usage tracking, fallback to full schemas
 const dataSources = computed(() => {
+  // If we have usage tracking, use that (only shows tables actually used)
+  if (schemasUsage.value?.data_sources?.length) {
+    return schemasUsage.value.data_sources.map((dsUsage: any) => ({
+      info: {
+        id: dsUsage.ds_id,
+        name: dsUsage.ds_name,
+        type: dsUsage.ds_type,
+        context: null,
+      },
+      tables: (dsUsage.tables_used || []).map((t: any) => ({
+        name: t.name,
+        score: t.score,
+        usage_count: t.usage_count,
+        columns: [], // Usage tracking doesn't include full column details
+        _usage_meta: {
+          columns_count: t.columns_count,
+          selection_reason: t.selection_reason,
+        },
+      })),
+      _usage_meta: {
+        tables_total: dsUsage.tables_total,
+        top_k_applied: dsUsage.top_k_applied,
+      },
+    }))
+  }
+  
+  // Fallback to full schemas
   const ds = objectSchemas.value?.data_sources || []
   return Array.isArray(ds) ? ds : []
 })
@@ -603,8 +719,18 @@ const tables = computed(() => {
   return results
 })
 
-// Instructions (object-first)
-const instructionsItems = computed(() => props.contextData?.static?.instructions?.items || [])
+// Instructions usage tracking (preferred) - shows only instructions actually sent to LLM
+const instructionsUsage = computed(() => props.contextData?.instructions_usage || null)
+
+// Instructions (object-first) - prefer usage tracking, fallback to full items
+const instructionsItems = computed(() => {
+  // If we have usage tracking, use that (only shows instructions actually used)
+  if (instructionsUsage.value?.length) {
+    return instructionsUsage.value
+  }
+  // Fallback to full instructions
+  return props.contextData?.static?.instructions?.items || []
+})
 const instructionsText = computed(() => props.contextData?.static?.instructions || props.contextData?.instructions_context || '')
 
 const instructionsList = computed(() => {

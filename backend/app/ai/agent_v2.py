@@ -31,6 +31,7 @@ from app.settings.database import create_async_session_factory
 from app.dependencies import async_session_maker
 from app.core.telemetry import telemetry
 from app.ai.utils.token_counter import count_tokens
+from app.services.instruction_usage_service import InstructionUsageService
 
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 
@@ -344,6 +345,38 @@ class AgentV2:
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
 
+    def _build_slim_context_snapshot(self, view, top_k_schema: int = 10) -> dict:
+        """
+        Build a slim context snapshot that only includes usage tracking data.
+        
+        Excludes full schemas and instructions to avoid redundant storage.
+        Only saves what was actually sent to the LLM.
+        """
+        # Start with full view but we'll replace large sections
+        data = view.model_dump()
+        
+        try:
+            # Replace full schemas with usage tracking only
+            if view.static.schemas:
+                schemas_usage = view.static.schemas.get_usage_snapshot(top_k_per_ds=top_k_schema)
+                data["schemas_usage"] = schemas_usage.model_dump()
+                # Remove full schemas to save space
+                if "static" in data and "schemas" in data["static"]:
+                    data["static"]["schemas"] = None
+            
+            # Replace full instructions with usage tracking only
+            if view.static.instructions and view.static.instructions.items:
+                data["instructions_usage"] = [
+                    item.model_dump() for item in view.static.instructions.items
+                ]
+                # Remove full instructions to save space
+                if "static" in data and "instructions" in data["static"]:
+                    data["static"]["instructions"] = None
+        except Exception:
+            pass  # Usage tracking is optional, don't fail if it errors
+        
+        return data
+
     async def _save_context_snapshot_background(self, kind: str, context_view_json: dict, prompt_text: str = ""):
         """Save context snapshot in background to avoid blocking main execution flow."""
         try:
@@ -359,6 +392,43 @@ class AgentV2:
                             kind=kind,
                             context_view_json=context_view_json,
                             prompt_text=prompt_text,
+                        )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    async def _record_instruction_usage_background(self, instruction_items: list):
+        """Record instruction usage events in background to avoid blocking main execution flow."""
+        if not instruction_items:
+            return
+        try:
+            SessionLocal = create_async_session_factory()
+            async with SessionLocal() as session:
+                try:
+                    service = InstructionUsageService()
+                    items_data = []
+                    for item in instruction_items:
+                        # Handle both Pydantic models and dicts
+                        if hasattr(item, 'model_dump'):
+                            item_dict = item.model_dump()
+                        elif hasattr(item, 'dict'):
+                            item_dict = item.dict()
+                        elif isinstance(item, dict):
+                            item_dict = item
+                        else:
+                            continue
+                        items_data.append(item_dict)
+                    
+                    if items_data:
+                        user_id = str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+                        await service.record_batch_usage(
+                            db=session,
+                            org_id=str(self.organization.id),
+                            report_id=str(self.report.id) if self.report else None,
+                            user_id=user_id,
+                            items=items_data,
+                            user_role=None,  # Role not easily accessible here
                         )
                 except Exception:
                     pass
@@ -447,20 +517,29 @@ class AgentV2:
                 },
             ))
 
+            # Extract user prompt early for intelligent instruction search
+            prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
+            
             # Prime static and refresh warm in parallel for faster startup
+            # Pass prompt_text to enable intelligent instruction search
             await asyncio.gather(
-                self.context_hub.prime_static(),
+                self.context_hub.prime_static(query=prompt_text),
                 self.context_hub.refresh_warm(),
             )
             view = self.context_hub.get_view()
             # Token metadata update in background (non-blocking)
             asyncio.create_task(self._update_context_token_metadata_background(view))
             
-            # Save initial context snapshot in background (non-blocking)
-            prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
+            # Record instruction usage in background (non-blocking)
+            if view.static.instructions and view.static.instructions.items:
+                asyncio.create_task(self._record_instruction_usage_background(view.static.instructions.items))
+            
+            # Build slim context snapshot with only usage tracking (excludes full schemas/instructions)
+            context_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
+            
             asyncio.create_task(self._save_context_snapshot_background(
                 kind="initial",
-                context_view_json=view.model_dump(),
+                context_view_json=context_view_data,
                 prompt_text=prompt_text,
             ))
             
@@ -541,9 +620,10 @@ class AgentV2:
                 
                 # Save pre-tool context snapshot in background (skip first loop - initial snapshot already saved)
                 if loop_index > 0:
+                    pre_tool_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
                     asyncio.create_task(self._save_context_snapshot_background(
                         kind="pre_tool",
-                        context_view_json=view.model_dump(),
+                        context_view_json=pre_tool_view_data,
                     ))
 
                 # Build enhanced planner input with validation and retry on failure
@@ -1136,11 +1216,15 @@ class AgentV2:
                             pass
                         post_view = self.context_hub.get_view()
                         await self._update_context_token_metadata(post_view)
+
+                        # Build slim context snapshot with only usage tracking
+                        post_tool_view_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
+
                         post_snap = await self.project_manager.save_context_snapshot(
                             self.db,
                             agent_execution=self.current_execution,
                             kind="post_tool",
-                            context_view_json=post_view.model_dump(),
+                            context_view_json=post_tool_view_data,
                         )
 
                         # Build created_visualization_ids with fallback to orchestrator state
@@ -1255,11 +1339,15 @@ class AgentV2:
                 pass
             view = self.context_hub.get_view()
             await self._update_context_token_metadata(view)
+
+            # Build slim context snapshot with only usage tracking
+            final_view_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
+
             await self.project_manager.save_context_snapshot(
                 self.db,
                 agent_execution=self.current_execution,
                 kind="final",
-                context_view_json=view.model_dump(),
+                context_view_json=final_view_data,
             )
             
             # Generate report title if this is the first completion (non-blocking)

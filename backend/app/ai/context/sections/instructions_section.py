@@ -1,12 +1,26 @@
-from typing import ClassVar, List, Optional
+from typing import ClassVar, List, Optional, Any
 from pydantic import BaseModel
 from app.ai.context.sections.base import ContextSection, xml_tag, xml_escape
+
+
+class InstructionLabelItem(BaseModel):
+    """Label attached to an instruction (for tracking/display)."""
+    id: Optional[str] = None
+    name: str
+    color: Optional[str] = None
 
 
 class InstructionItem(BaseModel):
     id: str
     category: Optional[str] = None
     text: str
+    
+    # Load tracking fields
+    load_mode: Optional[str] = None       # 'always' | 'intelligent'
+    load_reason: Optional[str] = None     # 'always' | 'search_match:0.85'
+    source_type: Optional[str] = None     # 'user' | 'git' | 'ai' | 'dbt' | 'markdown'
+    title: Optional[str] = None           # For display/debugging
+    labels: Optional[List[InstructionLabelItem]] = None  # Associated labels
 
 
 class InstructionsSection(ContextSection):

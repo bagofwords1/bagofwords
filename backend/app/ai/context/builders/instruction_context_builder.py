@@ -13,7 +13,7 @@ from app.models.organization import Organization
 from app.models.user import User
 
 
-from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem
+from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem
 
 logger = logging.getLogger(__name__)
 
@@ -25,24 +25,25 @@ class InstructionContextBuilder:
     Supports two loading strategies:
     - `load_always_instructions()`: Load instructions with load_mode='always'
     - `search_instructions()`: Search instructions with load_mode='intelligent' by keyword
-    - `build_full_context()`: Combined always + intelligent instructions
+    - `build()`: Combined always + intelligent instructions (with proper tracking)
 
     Usage example
     -------------
     ```python
     builder = InstructionContextBuilder(db_session, organization)
     
-    # All published instructions, regardless of category
-    all_instructions = await builder.load_instructions()
-
     # Load instructions with load_mode='always'
     always_instructions = await builder.load_always_instructions()
     
     # Search intelligently loaded instructions
     relevant_instructions = await builder.search_instructions("revenue metrics")
     
-    # Build full context combining both strategies
-    full_context = await builder.build_full_context("user query about revenue")
+    # Build context with proper load tracking
+    # Without query: only loads 'always' instructions
+    context = await builder.build()
+    
+    # With query: loads 'always' + searches 'intelligent' instructions
+    context = await builder.build(query="user query about revenue")
     ```
     """
     
@@ -207,32 +208,34 @@ class InstructionContextBuilder:
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[:limit]
     
-    async def build_full_context(
+    async def build(
         self,
-        query: str,
+        query: Optional[str] = None,
         *,
         data_source_ids: Optional[List[str]] = None,
         category: Optional[str] = None,
         intelligent_limit: int = 10,
     ) -> InstructionsSection:
         """
-        Build combined context with 'always' and 'intelligent' instructions.
+        Build instructions context with proper load tracking.
         
         Parameters
         ----------
-        query : str
-            The user query for intelligent search.
+        query : str | None, optional
+            The user query for intelligent search. If None, only 'always'
+            instructions are loaded. If provided, also searches for 
+            'intelligent' instructions that match.
         data_source_ids : List[str] | None, optional
             Filter by data sources.
         category : str | None, optional
             Filter by category.
         intelligent_limit : int
-            Max intelligent instructions to include.
+            Max intelligent instructions to include (only used when query provided).
             
         Returns
         -------
         InstructionsSection
-            Combined context section.
+            Instructions section with proper load_mode and load_reason tracking.
         """
         # Load always instructions
         always_instructions = await self.load_always_instructions(
@@ -240,59 +243,75 @@ class InstructionContextBuilder:
             category=category,
         )
         
-        # Search intelligent instructions
-        intelligent_results = await self.search_instructions(
-            query,
-            limit=intelligent_limit,
-            data_source_ids=data_source_ids,
-            category=category,
-        )
-        intelligent_instructions = [inst for inst, _ in intelligent_results]
-        
-        # Deduplicate (in case an instruction appears in both)
-        seen_ids: Set[str] = set()
-        combined: List[Instruction] = []
-        
-        for inst in always_instructions:
-            if inst.id not in seen_ids:
-                seen_ids.add(inst.id)
-                combined.append(inst)
-        
-        for inst in intelligent_instructions:
-            if inst.id not in seen_ids:
-                seen_ids.add(inst.id)
-                combined.append(inst)
-        
-        # Build section
-        items = [
-            InstructionItem(
-                id=str(i.id),
-                category=i.category,
-                text=i.text or ""
+        # Search intelligent instructions only if query is provided
+        intelligent_results: List[Tuple[Instruction, float]] = []
+        if query:
+            intelligent_results = await self.search_instructions(
+                query,
+                limit=intelligent_limit,
+                data_source_ids=data_source_ids,
+                category=category,
             )
-            for i in combined
-        ]
-        return InstructionsSection(items=items)
-
-    async def build(
-        self,
-        *,
-        status: str = "published",
-        category: Optional[str] = None,
-    ) -> InstructionsSection:
-        """Build object-based instructions section (legacy method)."""
-        instructions = await self.load_instructions(status=status, category=category)
-        items = [InstructionItem(id=str(i.id), category=i.category, text=i.text or "") for i in instructions]
+        
+        # Deduplicate and build items with tracking
+        seen_ids: Set[str] = set()
+        items: List[InstructionItem] = []
+        
+        # Add always instructions first
+        for inst in always_instructions:
+            inst_id = str(inst.id)
+            if inst_id not in seen_ids:
+                seen_ids.add(inst_id)
+                items.append(InstructionItem(
+                    id=inst_id,
+                    category=inst.category,
+                    text=inst.text or "",
+                    load_mode=inst.load_mode or "always",
+                    load_reason="always",
+                    source_type=inst.source_type,
+                    title=inst.title,
+                    labels=self._extract_labels(inst),
+                ))
+        
+        # Add intelligent (search-matched) instructions
+        for inst, score in intelligent_results:
+            inst_id = str(inst.id)
+            if inst_id not in seen_ids:
+                seen_ids.add(inst_id)
+                items.append(InstructionItem(
+                    id=inst_id,
+                    category=inst.category,
+                    text=inst.text or "",
+                    load_mode="intelligent",
+                    load_reason=f"search_match:{score:.2f}",
+                    source_type=inst.source_type,
+                    title=inst.title,
+                    labels=self._extract_labels(inst),
+                ))
+        
         return InstructionsSection(items=items)
 
     # --------------------------------------------------------------------- #
     # Private helpers                                                       #
     # --------------------------------------------------------------------- #
     
+    def _extract_labels(self, instruction: Instruction) -> Optional[List[InstructionLabelItem]]:
+        """Extract labels from instruction for tracking."""
+        if not hasattr(instruction, 'labels') or not instruction.labels:
+            return None
+        return [
+            InstructionLabelItem(
+                id=str(label.id) if hasattr(label, 'id') else None,
+                name=label.name if hasattr(label, 'name') else str(label),
+                color=label.color if hasattr(label, 'color') else None,
+            )
+            for label in instruction.labels
+        ]
+    
     def _extract_keywords(self, text: str) -> Set[str]:
         """Extract meaningful keywords from text."""
-        # Lowercase and split on non-alphanumeric
-        words = re.split(r'[^a-z0-9_]+', text.lower())
+        # Lowercase and split on non-alphanumeric (including underscores for better matching)
+        words = re.split(r'[^a-z0-9]+', text.lower())
         # Filter out stopwords and short words
         keywords = {
             w for w in words 
@@ -304,23 +323,31 @@ class InstructionContextBuilder:
         """
         Score an instruction based on keyword matching.
         
+        Uses both exact matching and substring matching for better recall.
         Returns a score between 0 and 1.
         """
         # Build searchable text from instruction
         searchable = self._build_searchable_text(instruction)
+        searchable_lower = searchable.lower()
         searchable_keywords = self._extract_keywords(searchable)
         
-        if not searchable_keywords:
+        if not searchable_keywords and not searchable_lower:
             return 0.0
         
-        # Calculate Jaccard similarity
-        intersection = len(keywords & searchable_keywords)
-        union = len(keywords | searchable_keywords)
+        # Score 1: Exact keyword match (Jaccard similarity)
+        exact_intersection = len(keywords & searchable_keywords)
+        exact_union = len(keywords | searchable_keywords) if searchable_keywords else 1
+        jaccard_score = exact_intersection / exact_union if exact_union > 0 else 0.0
         
-        if union == 0:
-            return 0.0
+        # Score 2: Substring match (check if query keywords appear in searchable text)
+        substring_matches = 0
+        for kw in keywords:
+            if len(kw) >= 3 and kw in searchable_lower:  # Only match keywords 3+ chars
+                substring_matches += 1
+        substring_score = substring_matches / len(keywords) if keywords else 0.0
         
-        return intersection / union
+        # Combined score: max of exact and substring (substring helps when words are joined)
+        return max(jaccard_score, substring_score * 0.8)  # Slight penalty for substring-only
     
     def _build_searchable_text(self, instruction: Instruction) -> str:
         """Build searchable text from instruction fields."""
