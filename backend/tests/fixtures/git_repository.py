@@ -134,3 +134,24 @@ def index_git_repository(test_client):
 
     return _index_git_repository
 
+
+@pytest.fixture
+def get_linked_instructions_count(test_client):
+    """Get count of instructions linked to a git repository"""
+    def _get_linked_instructions_count(
+        *,
+        data_source_id: str,
+        repository_id: str,
+        user_token: str = None,
+        org_id: str = None,
+    ):
+        headers = _build_headers(user_token, org_id)
+        response = test_client.get(
+            f"/api/data_sources/{data_source_id}/git_repository/{repository_id}/linked_instructions_count",
+            headers=headers,
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _get_linked_instructions_count
+

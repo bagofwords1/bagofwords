@@ -9,6 +9,8 @@ class GitRepositoryBase(BaseModel):
     repo_url: str
     branch: str = "main"
     is_active: bool = True
+    auto_publish: bool = False  # Auto-publish synced instructions
+    default_load_mode: str = "intelligent"  # always, intelligent, disabled
 
 
 class GitRepositorySchema(GitRepositoryBase):
@@ -28,10 +30,14 @@ class GitRepositoryCreate(GitRepositoryBase):
     ssh_key: Optional[str] = None  # Will be encrypted before storage
 
 
-class GitRepositoryUpdate(GitRepositoryBase):
+class GitRepositoryUpdate(BaseModel):
     provider: Optional[str] = None
     repo_url: Optional[str] = None
+    branch: Optional[str] = None
     ssh_key: Optional[str] = None
+    is_active: Optional[bool] = None
+    auto_publish: Optional[bool] = None
+    default_load_mode: Optional[str] = None
 
     class Config:
         from_attributes = True

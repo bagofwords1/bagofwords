@@ -163,7 +163,7 @@ const save = async () => {
         const sensitivity = modeToSensitivity[form.value.mode]
 
         // Send settings to backend
-        const { error } = await useMyFetch('/api/organization/settings', {
+        const { error } = await useMyFetch('/organization/settings', {
             method: 'PUT',
             body: {
                 config: {

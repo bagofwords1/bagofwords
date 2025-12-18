@@ -23,6 +23,7 @@ from app.core.tableau_parser import TableauTDSResourceExtractor
 from app.core.sqlx_parser import SQLXResourceExtractor
 from app.dependencies import async_session_maker # Import the session maker
 from app.settings.config import settings
+from app.services.instruction_sync_service import InstructionSyncService
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class MetadataIndexingJobService:
             'tableau': TableauTDSResourceExtractor,
             'dataform': SQLXResourceExtractor,
         }
+        self.instruction_sync_service = InstructionSyncService()
 
     async def _verify_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
         """Verify data source exists and belongs to organization"""
@@ -678,10 +680,22 @@ class MetadataIndexingJobService:
         job_status = "failed"  # Default status
         job_error_message = None
         all_created_resources = []
+        
+        # Store organization_id since the organization object may be from a different session
+        organization_id = organization.id if hasattr(organization, 'id') else organization
 
         # Create a new, independent session for this background task, just like in the slack service
         async with async_session_maker() as db:
             try:
+                # Re-fetch organization in this session to avoid detached instance issues
+                org_result = await db.execute(
+                    select(Organization).where(Organization.id == organization_id)
+                )
+                current_org = org_result.scalar_one_or_none()
+                if not current_org:
+                    logger.error(f"Job {job_id}: Organization {organization_id} not found")
+                    return
+                
                 logger.info(f"Background job {job_id}: Starting parsing for types {detected_project_types}")
 
                 existing_count_result = await db.execute(
@@ -760,6 +774,27 @@ class MetadataIndexingJobService:
                     job_status = "completed"
 
                 if job_status == "completed":
+                    # Get stale resources before deleting them (for instruction archival)
+                    stale_stmt = select(MetadataResource.id).where(
+                        MetadataResource.data_source_id == data_source_id,
+                        or_(
+                            MetadataResource.metadata_indexing_job_id != job_id,
+                            MetadataResource.metadata_indexing_job_id.is_(None),
+                        ),
+                    )
+                    stale_result = await db.execute(stale_stmt)
+                    stale_resource_ids = [row[0] for row in stale_result.fetchall()]
+                    
+                    # Archive instructions for deleted resources
+                    for resource_id in stale_resource_ids:
+                        try:
+                            await self.instruction_sync_service.archive_instruction_for_deleted_resource(
+                                db, resource_id
+                            )
+                        except Exception as archive_error:
+                            logger.warning(f"Job {job_id}: Failed to archive instruction for resource {resource_id}: {archive_error}")
+                    
+                    # Delete stale resources
                     delete_stmt = delete(MetadataResource).where(
                         MetadataResource.data_source_id == data_source_id,
                         or_(
@@ -771,6 +806,25 @@ class MetadataIndexingJobService:
                     logger.info(
                         f"Job {job_id}: Deleted {result.rowcount or 0} stale metadata resources for data source {data_source_id}"
                     )
+                    
+                    # Sync all created/updated resources to instructions
+                    logger.info(f"Job {job_id}: Syncing {len(all_created_resources)} resources to instructions")
+                    synced_count = 0
+                    sync_errors = 0
+                    for resource in all_created_resources:
+                        try:
+                            result = await self.instruction_sync_service.sync_resource_to_instruction(
+                                db, resource, current_org
+                            )
+                            if result:
+                                synced_count += 1
+                                logger.debug(f"Job {job_id}: Synced resource {resource.id} ({resource.name}) -> instruction {result.id}")
+                            else:
+                                logger.warning(f"Job {job_id}: Resource {resource.id} ({resource.name}) was not synced (returned None)")
+                        except Exception as sync_error:
+                            sync_errors += 1
+                            logger.error(f"Job {job_id}: Failed to sync resource {resource.id} ({getattr(resource, 'name', 'unknown')}) to instruction: {sync_error}", exc_info=True)
+                    logger.info(f"Job {job_id}: Synced {synced_count}/{len(all_created_resources)} resources to instructions ({sync_errors} errors)")
 
                 # All database operations below will use the new session
                 await db.execute(

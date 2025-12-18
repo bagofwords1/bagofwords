@@ -16,6 +16,11 @@ class GitRepository(BaseSchema):
     branch = Column(String, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     status = Column(String, nullable=True) # pending, indexing, completed, failed
+    
+    # Instruction sync settings
+    auto_publish = Column(Boolean, nullable=False, default=False)  # Auto-publish synced instructions
+    default_load_mode = Column(String(20), nullable=False, default='intelligent')  # always, intelligent, disabled
+    
     # Foreign Keys
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
     data_source_id = Column(String(36), ForeignKey('data_sources.id'), nullable=True)

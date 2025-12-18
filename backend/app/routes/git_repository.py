@@ -79,6 +79,22 @@ async def update_git_repository(
         organization
     )
 
+@router.get("/data_sources/{data_source_id}/git_repository/{repository_id}/linked_instructions_count")
+@requires_permission('update_data_source')
+async def get_linked_instructions_count(
+    data_source_id: str,
+    repository_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    return await git_repository_service.get_linked_instructions_count(
+        db,
+        repository_id,
+        data_source_id,
+        organization
+    )
+
 @router.delete("/data_sources/{data_source_id}/git_repository/{repository_id}")
 @requires_permission('update_data_source')
 async def delete_git_repository(

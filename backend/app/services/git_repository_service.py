@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, and_
 from datetime import datetime
 
 from app.models.git_repository import GitRepository
@@ -20,6 +20,7 @@ from app.models.organization import Organization
 from app.services.metadata_indexing_job_service import MetadataIndexingJobService
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
+from app.models.instruction import Instruction
 from app.core.telemetry import telemetry
 from urllib.parse import urlparse
 
@@ -158,7 +159,9 @@ class GitRepositoryService:
             user_id=current_user.id,
             organization_id=organization.id,
             data_source_id=data_source_id,
-            status="pending"
+            status="pending",
+            auto_publish=git_repo.auto_publish,
+            default_load_mode=git_repo.default_load_mode,
         )
     
         if git_repo.ssh_key:
@@ -221,6 +224,47 @@ class GitRepositoryService:
 
         return GitRepositorySchema.from_orm(repository)
 
+    async def get_linked_instructions_count(
+        self,
+        db: AsyncSession,
+        repository_id: str,
+        data_source_id: str,
+        organization: Organization
+    ) -> dict:
+        """Get the count of instructions linked to a git repository's resources.
+        Only counts instructions that are still synced (source_sync_enabled=True)."""
+        await self._verify_repository(db, repository_id, data_source_id, organization)
+
+        # Find related indexing jobs
+        indexing_jobs_result = await self.metadata_indexing_job_service.get_indexing_jobs(db, data_source_id, organization)
+        metadata_indexing_jobs = indexing_jobs_result.get("items", []) if isinstance(indexing_jobs_result, dict) else []
+
+        # Find resources linked to these jobs or the data source
+        job_ids = [job.id for job in metadata_indexing_jobs]
+        resources_stmt = select(MetadataResource).where(
+            (MetadataResource.metadata_indexing_job_id.in_(job_ids)) |
+            (MetadataResource.data_source_id == data_source_id)
+        )
+        resources_result = await db.execute(resources_stmt)
+        resources = resources_result.scalars().all()
+
+        resource_ids = [r.id for r in resources]
+        instruction_count = 0
+
+        if resource_ids:
+            from sqlalchemy import func
+            # Only count instructions that are still synced with git
+            count_stmt = select(func.count(Instruction.id)).where(
+                and_(
+                    Instruction.source_metadata_resource_id.in_(resource_ids),
+                    Instruction.source_sync_enabled == True
+                )
+            )
+            count_result = await db.execute(count_stmt)
+            instruction_count = count_result.scalar() or 0
+        
+        return {"instruction_count": instruction_count}
+
     async def delete_git_repository(
         self,
         db: AsyncSession,
@@ -247,19 +291,73 @@ class GitRepositoryService:
         resources_result = await db.execute(resources_to_delete_stmt)
         resources_to_delete = resources_result.scalars().all()
 
-        # 3. Delete resources
-        for resource in resources_to_delete:
-            await db.delete(resource)
-            self.logger.info(f"Deleting MetadataResource {resource.id} ({resource.name}) linked to data source {data_source_id}")
+        # Store IDs for later deletion (objects may detach after commits)
+        resource_ids = [r.id for r in resources_to_delete]
+        job_ids_to_delete = [job.id for job in metadata_indexing_jobs]
+        
+        # 3. Delete synced instructions linked to these resources (before deleting resources)
+        # Only delete instructions that are still synced (source_sync_enabled=True)
+        # Unlinked instructions are kept as user-owned
+        if resource_ids:
+            # Find instructions that reference these resources AND are still synced
+            instructions_stmt = select(Instruction).where(
+                and_(
+                    Instruction.source_metadata_resource_id.in_(resource_ids),
+                    Instruction.source_sync_enabled == True
+                )
+            )
+            instructions_result = await db.execute(instructions_stmt)
+            instructions_to_delete = instructions_result.scalars().all()
+            
+            deleted_count = len(instructions_to_delete)
 
-        # 4. Delete indexing jobs
-        for job in metadata_indexing_jobs:
-             await db.delete(job)
-             self.logger.info(f"Deleting MetadataIndexingJob {job.id} linked to data source {data_source_id}")
+            # First pass: clear FK references and relationships
+            for instruction in instructions_to_delete:
+                instruction.data_sources = []
+                instruction.labels = []
+                instruction.source_metadata_resource_id = None
+            
+            await db.flush()
+            
+            # Second pass: delete instructions
+            for instruction in instructions_to_delete:
+                await db.delete(instruction)
+                self.logger.info(f"Deleted instruction {instruction.id} (was linked to resource in data source {data_source_id})")
 
-        # 5. Delete the repository itself
-        await db.delete(repository)
-        await db.commit() # Commit all deletions
+            if deleted_count > 0:
+                self.logger.info(f"Deleted {deleted_count} instructions linked to git repository {repository_id}")
+            
+            # Commit instruction deletions before deleting resources to avoid circular dependency
+            await db.commit()
+
+        # 4. Delete resources (re-fetch to avoid detached instance issues)
+        if resource_ids:
+            resources_stmt = select(MetadataResource).where(MetadataResource.id.in_(resource_ids))
+            resources_result = await db.execute(resources_stmt)
+            resources = resources_result.scalars().all()
+            for resource in resources:
+                await db.delete(resource)
+                self.logger.info(f"Deleting MetadataResource {resource.id} ({resource.name}) linked to data source {data_source_id}")
+            await db.commit()
+
+        # 5. Delete indexing jobs (re-fetch to avoid detached instance issues)
+        if job_ids_to_delete:
+            from app.models.metadata_indexing_job import MetadataIndexingJob
+            jobs_stmt = select(MetadataIndexingJob).where(MetadataIndexingJob.id.in_(job_ids_to_delete))
+            jobs_result = await db.execute(jobs_stmt)
+            jobs = jobs_result.scalars().all()
+            for job in jobs:
+                await db.delete(job)
+                self.logger.info(f"Deleting MetadataIndexingJob {job.id} linked to data source {data_source_id}")
+            await db.commit()
+
+        # 6. Delete the repository itself (re-fetch to avoid detached instance issues)
+        repo_stmt = select(GitRepository).where(GitRepository.id == repository_id)
+        repo_result = await db.execute(repo_stmt)
+        repository = repo_result.scalar_one_or_none()
+        if repository:
+            await db.delete(repository)
+            await db.commit()
 
         self.logger.info(f"Deleted GitRepository {repository_id} and associated data for data source {data_source_id}")
         return {"message": "Repository and associated data deleted successfully"}

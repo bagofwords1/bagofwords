@@ -1,6 +1,53 @@
 <template>
-    <div>
-        <form @submit.prevent="submitForm" class="space-y-4">
+    <div class="h-full flex flex-col overflow-hidden">
+        <form @submit.prevent="submitForm" class="flex-1 flex flex-col overflow-hidden">
+            <div class="p-4 flex-1 overflow-y-auto space-y-4">
+            <!-- Git Source Info (above form) -->
+            <div v-if="props.isGitSourced" class="mb-3">
+                <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-200">
+                    <div class="flex items-center gap-2 text-sm min-w-0">
+                        <Icon name="heroicons:code-bracket" class="w-4 h-4 text-gray-500 shrink-0" />
+                        <span class="text-gray-600 truncate font-mono text-xs">
+                            {{ instruction?.structured_data?.path || instruction?.title || 'Git Repository' }}
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0 ml-2">
+                        <UTooltip 
+                            v-if="props.isGitSynced"
+                            text="Stop syncing from git. You'll be able to edit manually, but changes from the repository won't update this instruction."
+                            :popper="{ placement: 'bottom' }"
+                        >
+                            <UButton 
+                                size="xs" 
+                                variant="ghost" 
+                                color="orange"
+                                @click="$emit('unlink-from-git')"
+                            >
+                                <Icon name="heroicons:link-slash" class="w-3 h-3 mr-1" />
+                                Unlink
+                            </UButton>
+                        </UTooltip>
+                        <template v-else>
+                            <span class="text-xs text-gray-500">Unlinked</span>
+                            <UTooltip 
+                                text="Resume syncing from git. Your manual edits will be overwritten on next repository sync."
+                                :popper="{ placement: 'bottom' }"
+                            >
+                                <UButton 
+                                    size="xs" 
+                                    variant="ghost" 
+                                    color="blue"
+                                    @click="$emit('relink-to-git')"
+                                >
+                                    <Icon name="heroicons:link" class="w-3 h-3 mr-1" />
+                                    Relink
+                                </UButton>
+                            </UTooltip>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
             <!-- Show suggestion notice -->
             <div v-if="isSuggestionEffective" class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
                 <div class="flex items-center">
@@ -148,6 +195,44 @@
                 </USelectMenu>
             </div>
 
+            <!-- Load Mode -->
+            <div class="flex flex-col">
+                <label class="text-sm font-medium text-gray-700 mb-2">
+                    AI Context Loading
+                </label>
+                <div class="flex items-center gap-2">
+                    <UButton 
+                        size="sm" 
+                        :variant="sharedForm.load_mode === 'always' ? 'solid' : 'outline'" 
+                        :color="sharedForm.load_mode === 'always' ? 'blue' : 'gray'"
+                        @click="updateForm({ load_mode: 'always' })"
+                    >
+                        Always
+                    </UButton>
+                    <UButton 
+                        size="sm" 
+                        :variant="sharedForm.load_mode === 'intelligent' ? 'solid' : 'outline'" 
+                        :color="sharedForm.load_mode === 'intelligent' ? 'purple' : 'gray'"
+                        @click="updateForm({ load_mode: 'intelligent' })"
+                    >
+                        Smart
+                    </UButton>
+                    <UButton 
+                        size="sm" 
+                        :variant="sharedForm.load_mode === 'disabled' ? 'solid' : 'outline'" 
+                        :color="sharedForm.load_mode === 'disabled' ? 'gray' : 'gray'"
+                        @click="updateForm({ load_mode: 'disabled' })"
+                    >
+                        Disabled
+                    </UButton>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">
+                    <span v-if="sharedForm.load_mode === 'always'">Always included in AI context</span>
+                    <span v-else-if="sharedForm.load_mode === 'intelligent'">Included when relevant to the query</span>
+                    <span v-else>Never included in AI context</span>
+                </p>
+            </div>
+
             <!-- Category -->
             <div class="flex flex-col">
                 <label class="text-sm font-medium text-gray-700 mb-2">
@@ -191,32 +276,36 @@
                 </div>
             </div>
 
-            <!-- Form Actions -->
-            <div class="flex justify-between items-center pt-4">
-                <!-- Delete button (only show when editing) -->
-                <UButton 
-                    v-if="isEditing"
-                    label="Delete Instruction" 
-                    color="red" 
-                    variant="soft" 
-                    @click="confirmDelete"
-                    :loading="isDeleting"
-                />
-                
-                <div class="flex space-x-2" :class="{ 'ml-auto': !isEditing }">
+            </div>
+
+            <!-- Form Actions (fixed at bottom) -->
+            <div class="shrink-0 bg-white border-t p-4">
+                <div class="flex justify-between items-center">
+                    <!-- Delete button (only show when editing) -->
                     <UButton 
-                        label="Cancel" 
-                        color="gray" 
+                        v-if="isEditing"
+                        label="Delete Instruction" 
+                        color="red" 
                         variant="soft" 
-                        @click="$emit('cancel')" 
+                        @click="confirmDelete"
+                        :loading="isDeleting"
                     />
-                    <UButton 
-                        type="submit" 
-                        :label="isEditing ? 'Update Instruction' : (isSuggestionEffective ? 'Submit Suggestion' : 'Create Instruction')"  
-                        color="blue"
-                        class="!text-white"
-                        :loading="isSubmitting"
-                    />
+                    
+                    <div class="flex space-x-2" :class="{ 'ml-auto': !isEditing }">
+                        <UButton 
+                            label="Cancel" 
+                            color="gray" 
+                            variant="soft" 
+                            @click="$emit('cancel')" 
+                        />
+                        <UButton 
+                            type="submit" 
+                            :label="isEditing ? 'Update Instruction' : (isSuggestionEffective ? 'Submit Suggestion' : 'Create Instruction')"  
+                            color="blue"
+                            class="!text-white"
+                            :loading="isSubmitting"
+                        />
+                    </div>
                 </div>
             </div>
         </form>
@@ -244,6 +333,9 @@ interface SharedForm {
     global_status: string | null
     is_seen: boolean
     can_user_toggle: boolean
+    
+    // Unified Instructions System fields
+    load_mode: 'always' | 'intelligent' | 'disabled'
 }
 
 interface MentionableItem {
@@ -260,9 +352,11 @@ const props = defineProps<{
     sharedForm: SharedForm
     selectedDataSources: string[]
     isSuggestion?: boolean
+    isGitSourced?: boolean
+    isGitSynced?: boolean
 }>()
 
-const emit = defineEmits(['instructionSaved', 'cancel', 'updateForm', 'updateDataSources'])
+const emit = defineEmits(['instructionSaved', 'cancel', 'updateForm', 'updateDataSources', 'unlink-from-git', 'relink-to-git'])
 
 // Reactive state
 const toast = useToast()
@@ -475,13 +569,14 @@ const submitForm = async () => {
             text: props.sharedForm.text,
             status: isSuggestionEffective.value ? 'draft' : 'published',
             category: props.sharedForm.category,
-            
+
             // Dual-status approach
             private_status: isSuggestionEffective.value ? 'draft' : 'published',
             global_status: isSuggestionEffective.value ? 'suggested' : null,
-            
+
             is_seen: true,
             can_user_toggle: true,
+            load_mode: props.sharedForm.load_mode || 'always',
             data_source_ids: isAllDataSourcesSelected.value ? [] : props.selectedDataSources,
             references: selectedReferences.value.map(r => ({
                 object_type: r.type,

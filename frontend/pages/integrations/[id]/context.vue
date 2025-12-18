@@ -1,77 +1,140 @@
 <template>
-    <div class="py-6">
-        <div class="border border-gray-200 rounded-lg p-6">
-            <!-- Enrichment -->
+    <div class="py-6 space-y-6">
+        <!-- Connect Git Repository Section (only shown when not connected) -->
+        <div v-if="!hasGitConnection" class="border border-gray-200 rounded-lg p-6">
             <div class="bg-white">
-                <div @click="toggleEnrichmentSection" class="flex items-center justify-between cursor-pointer hover:bg-gray-50">
-                    <div class="flex items-center border-b border-gray-200 pb-3 w-full">
-                        <h3 class="text-lg mt-1 font-semibold text-gray-900">Connect your git repository and load dbt, Dataform, LookML, markdown, and Tableau metadata files</h3>
+                <div class="flex items-center border-b border-gray-200 pb-3 w-full">
+                    <h3 class="text-lg mt-1 font-semibold text-gray-900">Connect your git repository and load dbt, Dataform, LookML, markdown, and Tableau metadata files</h3>
+                </div>
+                <div class="text-left mb-4 mt-5">
+                    <p class="text-sm text-gray-500 leading-relaxed">
+                        Connect additional context from Tableau, dbt, Dataform, LookML, code, and markdown files to your data sources. It will be used by AI agents throughout data analysis.
+                        <br />
+                        Integration is via git repository.
+                    </p>
+                    <div class="flex mt-4 mb-4 items-center space-x-3">
+                        <UTooltip text="Tableau"><img src="/public/icons/tableau.png" alt="Tableau" class="h-5 inline" /></UTooltip>
+                        <UTooltip text="dbt"><img src="/public/icons/dbt.png" alt="dbt" class="h-5 inline" /></UTooltip>
+                        <UTooltip text="Dataform"><img src="/public/icons/dataform.png" alt="Dataform" class="h-5 inline" /></UTooltip>
+                        <UTooltip text="LookML"><img src="/public/icons/lookml.png" alt="LookML" class="h-5 inline" /></UTooltip>
+                        <UTooltip text="Markdown"><img src="/public/icons/markdown.png" alt="Markdown" class="h-5 inline" /></UTooltip>
                     </div>
                 </div>
-                <div v-if="enrichmentExpanded" class="">
-                    <div class="text-left mb-4 mt-5">
-                        <p class="text-sm text-gray-500 leading-relaxed">
-                            Connect additional context from Tableau, dbt, Dataform, LookML, code, and markdown files to your data sources. It will be used by AI agents throughout data analysis.
-                            <br />
-                            Integration is via git repository.
-                        </p>
-                        <div class="flex mt-4 mb-4 items-center space-x-3">
-                            <UTooltip text="Tableau"><img src="/public/icons/tableau.png" alt="Tableau" class="h-5 inline" /></UTooltip>
-                            <UTooltip text="dbt"><img src="/public/icons/dbt.png" alt="dbt" class="h-5 inline" /></UTooltip>
-                            <UTooltip text="Dataform"><img src="/public/icons/dataform.png" alt="Dataform" class="h-5 inline" /></UTooltip>
-                            <UTooltip text="LookML"><img src="/public/icons/lookml.png" alt="LookML" class="h-5 inline" /></UTooltip>
-                            <UTooltip text="Markdown"><img src="/public/icons/markdown.png" alt="Markdown" class="h-5 inline" /></UTooltip>
-                        </div>
-                    </div>
 
-                    <div class="mb-4 mt-6">
-                        <div v-if="isLoading" class="inline-flex items-center text-gray-500 text-xs">
-                            <Spinner class="w-4 h-4 mr-2" />
-                            Loading...
-                        </div>
-                        <template v-else-if="integration?.git_repository">
-                            <div class="inline-flex items-center gap-3">
-                                <UTooltip :text="integration.git_repository.repo_url">
-                                    <UButton icon="heroicons:code-bracket" color="gray" :label="repoDisplayName" class="bg-white border border-gray-300 text-gray-500 px-4 py-2 text-xs rounded-md hover:bg-gray-200" @click="canUpdateDataSource ? showGitModal = true : null" :disabled="!canUpdateDataSource" />
-                                </UTooltip>
-                                <div class="flex items-center gap-2 text-xs text-gray-500">
-                                    <template v-if="isIndexing">
-                                        <Spinner class="w-3 h-3" />
-                                        <span>Indexing...</span>
-                                    </template>
-                                    <template v-else-if="repoStatus === 'failed'">
-                                        <UIcon name="heroicons:exclamation-circle" class="w-4 h-4 text-red-500" />
-                                        <span class="text-red-500">Failed</span>
-                                    </template>
-                                    <template v-else-if="lastIndexedAt">
-                                        <UIcon name="heroicons:check-circle" class="w-4 h-4 text-green-500" />
-                                        <span>Indexed <NuxtTime :datetime="lastIndexedAt" relative /></span>
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
-                        <UButton v-else-if="canUpdateDataSource" icon="heroicons:code-bracket" class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50" @click="showGitModal = true">Integrate</UButton>
+                <div class="mb-4 mt-6">
+                    <div v-if="isLoading" class="inline-flex items-center text-gray-500 text-xs">
+                        <Spinner class="w-4 h-4 mr-2" />
+                        Loading...
                     </div>
-                    <div
-                      v-if="showNoFilesMessage"
-                      class="mt-1 text-xs text-gray-500"
-                    >
-                      No dbt, Dataform, LookML, markdown, or Tableau metadata files were detected in this repository yet.
-                    </div>
-                    <ResourcesSelector ref="resourcesRef" :ds-id="String(dsId)" :can-update="canUpdateDataSource" @saved="onResourcesSaved" @error="onResourcesError" />
+                    <UButton v-else-if="canUpdateDataSource" icon="heroicons:code-bracket" class="bg-white border border-gray-300 rounded-lg px-3 py-1 text-xs text-black hover:bg-gray-50" @click="showGitModal = true">Connect Git Repository</UButton>
+                </div>
+            </div>
+        </div>
+
+        <GitRepoModalComponent v-model="showGitModal" :datasource-id="String(dsId)" :git-repository="integration?.git_repository" :metadata-resources="metadataResources" @changed="handleGitRepoChanged" />
+
+        <!-- Instructions Section (only shown when git is connected) -->
+        <div v-if="hasGitConnection" class="border border-gray-200 rounded-lg p-6">
+            <!-- Header with filter bar, bulk actions, and count -->
+            <div class="flex items-center justify-between gap-4 mb-3">
+                <InstructionsFilterBar
+                    :search="inst.filters.search"
+                    :source-types="inst.filters.sourceTypes"
+                    :available-source-types="availableSourceTypes"
+                    :status="inst.filters.status"
+                    :load-modes="inst.filters.loadModes"
+                    :categories="inst.filters.categories"
+                    :data-source-id="null"
+                    :label-ids="labelFilter"
+                    :labels="allLabels"
+                    :data-sources="[]"
+                    @update:search="inst.debouncedSearch"
+                    @update:source-types="v => inst.setFilter('sourceTypes', v)"
+                    @update:status="v => inst.setFilter('status', v)"
+                    @update:load-modes="v => inst.setFilter('loadModes', v)"
+                    @update:categories="v => inst.setFilter('categories', v)"
+                    @update:label-ids="handleLabelFilterChange"
+                    @label-created="fetchLabels"
+                    @reset="resetAllFilters"
+                />
+                <div class="flex items-center gap-3 shrink-0">
+                    <InstructionsBulkBar
+                        :selected-count="inst.selectedCount.value"
+                        :select-all-mode="inst.selectAllMode.value"
+                        :total="inst.total.value"
+                        :labels="allLabels"
+                        @select-all="inst.selectAll"
+                        @clear="inst.clearSelection"
+                        @publish="inst.bulkPublish"
+                        @archive="inst.bulkArchive"
+                        @make-draft="inst.bulkMakeDraft"
+                        @load-always="inst.bulkSetLoadAlways"
+                        @load-intelligent="inst.bulkSetLoadIntelligent"
+                        @load-disabled="inst.bulkSetLoadDisabled"
+                        @add-label="inst.bulkAddLabel"
+                        @remove-label="inst.bulkRemoveLabel"
+                    />
+
+                    <!-- Git Repositories button -->
+                    <GitConnectionButton
+                        :has-connection="hasGitConnection"
+                        :connected-repos="gitConnectedRepos"
+                        :last-indexed-at="lastIndexedAt"
+                        :custom-tooltip="gitStatusTooltip"
+                        @click="showGitModal = true"
+                    />
                 </div>
             </div>
 
-                    <GitRepoModalComponent v-model="showGitModal" :datasource-id="String(dsId)" :git-repository="integration?.git_repository" :metadata-resources="metadataResources" @changed="handleGitRepoChanged" />
+            <!-- Instructions Table -->
+            <div class="h-[400px]">
+                <InstructionsTable
+                    :instructions="inst.instructions.value"
+                    :loading="inst.isLoading.value || isIndexing"
+                    :selectable="true"
+                    :selected-ids="inst.selectedIds.value"
+                    :is-all-page-selected="inst.isAllPageSelected.value"
+                    :is-some-selected="inst.isSomeSelected.value"
+                    :show-source="true"
+                    :show-data-source="false"
+                    :show-load-mode="true"
+                    :show-labels="true"
+                    :show-status="true"
+                    :current-page="inst.currentPage.value"
+                    :page-size="inst.itemsPerPage.value"
+                    :total-items="inst.total.value"
+                    :total-pages="inst.pages.value"
+                    :visible-pages="inst.visiblePages.value"
+                    empty-title="No instructions"
+                    empty-message="No instructions associated with this data source yet."
+                    @click="openInstruction"
+                    @page-change="inst.setPage"
+                    @toggle-select="inst.toggleSelection"
+                    @toggle-page="inst.togglePageSelection"
+                />
+            </div>
         </div>
+
+        <!-- Instruction Modal -->
+        <InstructionModalComponent 
+            v-model="showInstructionModal" 
+            :instruction="selectedInstruction"
+            @instruction-saved="handleInstructionSaved"
+        />
     </div>
 </template>
 
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'integrations' })
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
-import ResourcesSelector from '~/components/datasources/ResourcesSelector.vue'
+import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
+import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
+import InstructionsFilterBar from '~/components/instructions/InstructionsFilterBar.vue'
+import InstructionsBulkBar from '~/components/instructions/InstructionsBulkBar.vue'
+import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import { useCan } from '~/composables/usePermissions'
+import { useInstructions } from '~/composables/useInstructions'
+import type { Instruction } from '~/composables/useInstructionHelpers'
 import Spinner from '@/components/Spinner.vue'
 
 const route = useRoute()
@@ -80,13 +143,26 @@ const dsId = computed(() => String(route.params.id || ''))
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 
 const showGitModal = ref(false)
-const enrichmentExpanded = ref(true)
 const isLoading = ref(false)
 
 const integration = ref<any>(null)
 const metadataResources = ref<any>({ resources: [] })
-const resourcesRef = ref<any>(null)
 let pollInterval: ReturnType<typeof setInterval> | null = null
+
+// Instructions using the composable
+const inst = useInstructions({
+    dataSourceId: dsId,
+    autoFetch: false,
+    pageSize: 15
+})
+
+const showInstructionModal = ref(false)
+const selectedInstruction = ref<Instruction | null>(null)
+
+// Labels and source types for filters
+const allLabels = ref<{ id: string; name: string; color?: string | null }[]>([])
+const labelFilter = ref<string[]>([])
+const availableSourceTypes = ref<{ value: string; label: string; icon?: string; heroicon?: string }[]>([])
 
 const repoDisplayName = computed(() => {
   const url = integration.value?.git_repository?.repo_url || ''
@@ -94,18 +170,42 @@ const repoDisplayName = computed(() => {
   return tail.replace(/\.git$/, '') || 'Repository'
 })
 
-// Get status from metadataResources (if full job response) or git_repository
 const repoStatus = computed(() => {
-  // metadataResources might contain full job data with status
   const jobStatus = metadataResources.value?.status
   if (jobStatus) return jobStatus
-  // Fallback to git_repository.status
   return integration.value?.git_repository?.status || null
 })
 const isIndexing = computed(() => ['pending', 'indexing', 'running'].includes(repoStatus.value))
+const hasGitConnection = computed(() => !!integration.value?.git_repository)
+
+// Git connected repos for the button component
+const gitConnectedRepos = computed(() => {
+  if (!hasGitConnection.value) return []
+  const provider = integration.value?.git_repository?.provider || 'custom'
+  return [{ provider, repoName: repoDisplayName.value }]
+})
+
+const gitStatusTooltip = computed(() => {
+  if (!hasGitConnection.value) return 'Connect a Git repository'
+  if (isIndexing.value) return 'Indexing...'
+  if (lastIndexedAt.value) {
+    const date = new Date(lastIndexedAt.value)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+    let timeAgo = ''
+    if (diffMins < 1) timeAgo = 'just now'
+    else if (diffMins < 60) timeAgo = `${diffMins}m ago`
+    else if (diffHours < 24) timeAgo = `${diffHours}h ago`
+    else timeAgo = `${diffDays}d ago`
+    return `Last indexed ${timeAgo}`
+  }
+  return 'Connected'
+})
 
 const lastIndexedAt = computed(() => {
-  // metadataResources might contain completed_at from the job
   return metadataResources.value?.completed_at || integration.value?.git_repository?.last_indexed_at || null
 })
 
@@ -130,14 +230,53 @@ async function fetchMetadataResources(silent = false) {
   }
 }
 
+function openInstruction(instruction: Instruction) {
+  selectedInstruction.value = instruction
+  showInstructionModal.value = true
+}
+
+function handleInstructionSaved() {
+  inst.refresh()
+  fetchAvailableSourceTypes()
+}
+
+async function fetchLabels() {
+  try {
+    const { data } = await useMyFetch<any[]>('/instructions/labels', { method: 'GET' })
+    allLabels.value = data.value || []
+  } catch (e) {
+    console.error('Failed to fetch labels:', e)
+  }
+}
+
+async function fetchAvailableSourceTypes() {
+  try {
+    const { data } = await useMyFetch<{ value: string; label: string; icon?: string; heroicon?: string }[]>('/instructions/source-types', { method: 'GET' })
+    availableSourceTypes.value = data.value || []
+  } catch (e) {
+    console.error('Failed to fetch available source types:', e)
+  }
+}
+
+function handleLabelFilterChange(values: string[]) {
+  labelFilter.value = values
+  inst.filters.labelIds = values
+  inst.currentPage.value = 1
+  inst.fetchInstructions()
+}
+
+function resetAllFilters() {
+  labelFilter.value = []
+  inst.resetFilters()
+}
+
 function startPolling() {
   stopPolling()
   pollInterval = setInterval(async () => {
     await fetchMetadataResources(true)
-    // Stop polling once indexing is done
     if (!isIndexing.value) {
       stopPolling()
-      resourcesRef.value?.refresh?.()
+      inst.refresh()
     }
   }, 5000)
 }
@@ -149,52 +288,31 @@ function stopPolling() {
   }
 }
 
-// Watch for indexing status changes to start/stop polling
 watch(isIndexing, (val) => {
   if (val) startPolling()
   else stopPolling()
 })
 
-function onResourcesSaved() {}
-function onResourcesError(e: any) { console.error(e) }
-
-function toggleEnrichmentSection() { enrichmentExpanded.value = !enrichmentExpanded.value }
-
 function handleGitRepoChanged() {
-  // Only refresh when actual changes were made (save, delete, reindex)
   fetchIntegration()
   fetchMetadataResources()
-  resourcesRef.value?.refresh?.()
-  // Start polling if indexing was triggered
+  inst.refresh()
   setTimeout(() => {
     if (isIndexing.value) startPolling()
   }, 500)
 }
-
-const showNoFilesMessage = computed(() => {
-  if (isLoading.value) return false
-  if (!integration.value?.git_repository) return false
-
-  const payload: any = metadataResources.value || {}
-  const items = Array.isArray(payload.items) ? payload.items : []
-  const legacyResources = Array.isArray(payload.resources) ? payload.resources : []
-  const total =
-    typeof payload.total === 'number'
-      ? payload.total
-      : (items.length || legacyResources.length)
-
-  return total === 0
-})
 
 onMounted(async () => {
   isLoading.value = true
   try {
     await fetchIntegration(true)
     await fetchMetadataResources(true)
+    await inst.fetchInstructions()
+    fetchLabels()
+    fetchAvailableSourceTypes()
   } finally {
     isLoading.value = false
   }
-  // Start polling if already indexing
   if (isIndexing.value) startPolling()
 })
 
@@ -202,5 +320,3 @@ onBeforeUnmount(() => {
   stopPolling()
 })
 </script>
-
-

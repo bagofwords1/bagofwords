@@ -364,3 +364,113 @@ def delete_label(test_client):
         return response.json()
     
     return _delete_label
+
+
+@pytest.fixture
+def get_instructions_by_source_type(test_client):
+    """Get instructions filtered by source_types (user, ai, git, dbt, markdown)"""
+    def _get_instructions_by_source_type(source_types, user_token=None, org_id=None, status=None, data_source_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for get_instructions_by_source_type")
+        if org_id is None:
+            pytest.fail("Organization ID is required for get_instructions_by_source_type")
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
+        params = {}
+        if isinstance(source_types, list):
+            params["source_types"] = ",".join(source_types)
+        else:
+            params["source_types"] = source_types
+        if status:
+            params["status"] = status
+        if data_source_id:
+            params["data_source_id"] = data_source_id
+        
+        response = test_client.get(
+            "/api/instructions",
+            headers=headers,
+            params=params
+        )
+        
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _get_instructions_by_source_type
+
+
+@pytest.fixture
+def unlink_instruction_from_git(test_client):
+    """Set source_sync_enabled=False on a git-sourced instruction to unlink it"""
+    def _unlink_instruction_from_git(instruction_id, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for unlink_instruction_from_git")
+        if org_id is None:
+            pytest.fail("Organization ID is required for unlink_instruction_from_git")
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
+        payload = {
+            "source_sync_enabled": False
+        }
+        
+        response = test_client.put(
+            f"/api/instructions/{instruction_id}",
+            json=payload,
+            headers=headers
+        )
+        
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _unlink_instruction_from_git
+
+
+@pytest.fixture
+def bulk_update_instructions(test_client):
+    """Bulk update multiple instructions"""
+    def _bulk_update_instructions(
+        ids,
+        user_token=None,
+        org_id=None,
+        status=None,
+        load_mode=None,
+        add_label_ids=None,
+        remove_label_ids=None
+    ):
+        if user_token is None:
+            pytest.fail("User token is required for bulk_update_instructions")
+        if org_id is None:
+            pytest.fail("Organization ID is required for bulk_update_instructions")
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+        
+        payload = {"ids": ids}
+        if status is not None:
+            payload["status"] = status
+        if load_mode is not None:
+            payload["load_mode"] = load_mode
+        if add_label_ids is not None:
+            payload["add_label_ids"] = add_label_ids
+        if remove_label_ids is not None:
+            payload["remove_label_ids"] = remove_label_ids
+        
+        response = test_client.put(
+            "/api/instructions/bulk",
+            json=payload,
+            headers=headers
+        )
+        
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _bulk_update_instructions

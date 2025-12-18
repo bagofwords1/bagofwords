@@ -6,11 +6,11 @@
             <!-- Modal container -->
             <div class="absolute inset-0 flex items-center justify-center p-4" @click.self="closeModal">
                 <div 
-                    class="relative bg-white rounded-lg shadow-xl w-[94vw] h-[85vh] overflow-hidden transition-all z-10 overscroll-contain"
+                    class="relative bg-white rounded-lg shadow-xl w-[94vw] h-[85vh] overflow-hidden transition-all z-10 overscroll-contain flex flex-col"
                     :class="isAnalyzing ? 'max-w-6xl' : 'max-w-3xl'"
                 >
                     <!-- Header -->
-                    <div class="flex items-start justify-between p-4 border-b">
+                    <div class="flex items-start justify-between p-4 border-b shrink-0">
                         <div>
                             <h1 class="text-lg font-semibold">{{ isEditing ? 'Edit Instruction' : 'Add New Instruction' }}</h1>
                             <p class="text-sm text-gray-500">Create or modify instructions for AI agents</p>
@@ -23,9 +23,9 @@
                     </div>
 
                     <!-- Body -->
-                    <div :class="isAnalyzing ? 'grid grid-cols-1 md:grid-cols-2 gap-0' : ''" class="h-[calc(85vh-56px)]">
+                    <div :class="isAnalyzing ? 'grid grid-cols-1 md:grid-cols-2 gap-0' : ''" class="flex-1 min-h-0">
                         <!-- Left: Form -->
-                        <div class="p-3 flex flex-col h-[calc(85vh-56px)]">
+                        <div class="flex flex-col h-full overflow-y-auto">
                             <!-- Conditional rendering based on the computed selectedInstructionType -->
                             <InstructionGlobalCreateComponent 
                                 v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
@@ -33,11 +33,15 @@
                                 :analyzing="isAnalyzing"
                                 :shared-form="sharedForm"
                                 :selected-data-sources="selectedDataSources"
+                                :is-git-sourced="isGitSourced"
+                                :is-git-synced="isGitSynced"
                                 @instruction-saved="handleInstructionSaved"
                                 @cancel="closeModal"
                                 @update-form="updateSharedForm"
                                 @update-data-sources="updateSelectedDataSources"
                                 @toggle-analyze="toggleAnalyze"
+                                @unlink-from-git="unlinkFromGit"
+                                @relink-to-git="relinkToGit"
                             />
                             <InstructionPrivateCreateComponent 
                                 v-else
@@ -45,16 +49,20 @@
                                 :shared-form="sharedForm"
                                 :selected-data-sources="selectedDataSources"
                                 :is-suggestion="effectiveIsSuggestion"
+                                :is-git-sourced="isGitSourced"
+                                :is-git-synced="isGitSynced"
                                 @instruction-saved="handleInstructionSaved"
                                 @cancel="closeModal"
                                 @update-form="updateSharedForm"
                                 @update-data-sources="updateSelectedDataSources"
                                 @toggle-analyze="toggleAnalyze"
+                                @unlink-from-git="unlinkFromGit"
+                                @relink-to-git="relinkToGit"
                             />
                         </div>
 
                         <!-- Right: Analysis panel -->
-                        <div v-if="isAnalyzing && useCan('create_instructions')" class="border-t md:border-t-0 md:border-l p-3 bg-gray-50 flex flex-col h-[calc(85vh-56px)]">
+                        <div v-if="isAnalyzing && useCan('create_instructions')" class="border-t md:border-t-0 md:border-l p-3 bg-gray-50 flex flex-col h-full overflow-y-auto">
                             <div class="pb-2 flex justify-start shrink-0">
                                 <UButton size="xs" variant="soft" color="blue" @click="refreshAnalysis">Refresh Analysis</UButton>
                             </div>
@@ -121,42 +129,6 @@
                                     </div>
                                 </div>
 
-                                <!-- Related Metadata Resources -->
-                                <div class="rounded-md border bg-white">
-                                    <div class="flex items-center justify-between p-2 cursor-pointer" @click="showResources = !showResources">
-                                        <div class="flex items-center gap-2">
-                                            <h3 class="text-xs font-semibold text-gray-900">Related Metadata Resources</h3>
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ relatedResources.length }}</span>
-                                        </div>
-                                        <Icon :name="showResources ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
-                                    </div>
-                                    <div v-show="showResources" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
-                                        <div v-if="isLoadingResources" class="py-6 flex items-center justify-center text-gray-500">
-                                            <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
-                                        </div>
-                                        <div v-else-if="relatedResources.length === 0" class="text-xs text-gray-500 py-2">No related metadata resources</div>
-                                        <ul v-else class="divide-y divide-gray-100">
-                                            <li v-for="res in relatedResources" :key="res.id" class="py-2">
-                                                <div class="flex items-start justify-between gap-3 cursor-pointer" @click="toggleResource(res.id)">
-                                                    <div class="min-w-0 flex items-start">
-                                                        <UIcon :name="resourceExpanded[res.id] ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-500 mr-1 mt-0.5" />
-                                                        <UIcon :name="getResourceIcon(res.resource_type)" class="w-4 h-4 text-gray-500 mr-2 mt-0.5" />
-                                                        <div class="min-w-0">
-                                                            <p class="text-xs text-gray-900 truncate">{{ res.name }}</p>
-                                                            <p v-if="res.path" class="text-[10px] text-gray-500 truncate mt-0.5">{{ res.path }}</p>
-                                                        </div>
-                                                    </div>
-                                                    <span class="inline-flex px-1.5 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-800 whitespace-nowrap">
-                                                        {{ formatResourceType(res.resource_type) }}
-                                                    </span>
-                                                </div>
-                                                <div v-if="resourceExpanded[res.id]" class="ml-7 mt-2">
-                                                    <ResourceDisplay :resource="res" />
-                                                </div>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -178,7 +150,6 @@ import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCrea
 import InstructionPrivateCreateComponent from '~/components/InstructionPrivateCreateComponent.vue'
 import InstructionLabelsManagerModal from '~/components/InstructionLabelsManagerModal.vue'
 import { usePermissionsLoaded, useCan } from '~/composables/usePermissions'
-import ResourceDisplay from '~/components/ResourceDisplay.vue'
 import Spinner from '~/components/Spinner.vue'
 import { onMounted, onUnmounted } from 'vue'
 
@@ -198,6 +169,11 @@ interface SharedForm {
     private_status: string | null
     global_status: string | null
     label_ids: string[]
+    // Unified Instructions System fields
+    load_mode: 'always' | 'intelligent' | 'disabled'
+    source_type?: 'user' | 'ai' | 'git'
+    source_sync_enabled?: boolean
+    title?: string | null
 }
 
 // Props and Emits
@@ -220,11 +196,18 @@ const sharedForm = ref<SharedForm>({
     can_user_toggle: true,
     private_status: null,
     global_status: 'approved',
-    label_ids: []
+    label_ids: [],
+    load_mode: 'always',
+    source_type: 'user',
+    source_sync_enabled: true,
+    title: null
 })
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
+const isGitSourced = computed(() => props.instruction?.source_type === 'git')
+// Use local form state for sync status so UI updates immediately
+const isGitSynced = computed(() => isGitSourced.value && sharedForm.value.source_sync_enabled !== false)
 
 const instructionModalOpen = computed({
     get: () => props.modelValue,
@@ -234,8 +217,6 @@ const instructionModalOpen = computed({
 const isAnalyzing = ref(false)
 const showImpact = ref(true)
 const showRelated = ref(true)
-const showResources = ref(true)
-const resourceExpanded = ref<Record<string, boolean>>({})
 const showManageLabelsModal = ref(false)
 
 // Mock data for the analysis pane
@@ -247,20 +228,6 @@ const impactScore = ref(0)
 const impactedPrompts = ref<PromptSample[]>([])
 const relatedInstructions = ref<Array<{ id: string; text: string; status: 'draft' | 'published' | 'archived'; createdByName: string }>>([])
 
-// Mock related metadata resources (subset of backend schema fields)
-type ModalResource = {
-    id: string
-    name: string
-    resource_type: string
-    path?: string
-    description?: string
-    sql_content?: string
-    raw_data?: any
-    columns?: any[]
-    depends_on?: string[]
-}
-const relatedResources = ref<ModalResource[]>([])
-
 const refreshAnalysis = async () => {
     const text = sharedForm.value?.text || (props.instruction?.text || '')
     if (!text || text.trim().length === 0) {
@@ -270,12 +237,11 @@ const refreshAnalysis = async () => {
     try {
         isLoadingImpact.value = true
         isLoadingRelated.value = true
-        isLoadingResources.value = true
         const body = {
             text,
-            include: ['impact', 'related_instructions', 'resources'],
+            include: ['impact', 'related_instructions'],
             instruction_id: props.instruction?.id || undefined,
-            limits: { prompts: 5, instructions: 5, resources: 5 }
+            limits: { prompts: 5, instructions: 5 }
         }
         const { data, error } = await useMyFetch('/instructions/analysis', {
             method: 'POST',
@@ -297,19 +263,6 @@ const refreshAnalysis = async () => {
                     createdByName: it.createdByName || 'unknown'
                 }))
             }
-            if (res.resources) {
-                relatedResources.value = (res.resources.items || []).map((it: any) => ({
-                    id: it.id,
-                    name: it.name,
-                    resource_type: it.resource_type,
-                    path: it.path || undefined,
-                    description: it.description || undefined,
-                    sql_content: it.sql_content || undefined,
-                    raw_data: it.raw_data || undefined,
-                    columns: it.columns || undefined,
-                    depends_on: it.depends_on || undefined
-                }))
-            }
         }
     } catch (e) {
         // swallow errors; keep mock data
@@ -317,7 +270,6 @@ const refreshAnalysis = async () => {
     } finally {
         isLoadingImpact.value = false
         isLoadingRelated.value = false
-        isLoadingResources.value = false
     }
 }
 
@@ -335,54 +287,31 @@ const formatDate = (d: string | Date | null | undefined) => {
     return dt.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-const getResourceIcon = (type: string) => {
-    // Align with ResourcesSelector.vue
-    if (type === 'model' || type === 'model_config' || type === 'dbt_model') return 'heroicons:cube'
-    if (type === 'metric' || type === 'dbt_metric') return 'heroicons:hashtag'
-    if (type === 'source') return 'heroicons:rectangle-stack'
-    return 'heroicons:document-text'
-}
-
-const formatResourceType = (type: string) => {
-    if (!type) return ''
-    return String(type).replace(/_/g, ' ')
-}
-
-const toggleResource = (id: string) => {
-    resourceExpanded.value[id] = !resourceExpanded.value[id]
-}
-
-// Each section's max height is one third of the right pane's height
-const sectionMaxHeight = 'calc((85vh - 56px) / 3)'
+// Each section's max height is half of the right pane's height (since we only have 2 sections now)
+const sectionMaxHeight = 'calc((85vh - 56px) / 2)'
 
 const impactMatchedCount = ref(0)
 const impactTotalCount = ref(0)
 
 const isLoadingImpact = ref(false)
 const isLoadingRelated = ref(false)
-const isLoadingResources = ref(false)
 
 const selectedInstructionType = computed(() => {
-    // 1. If we are editing an existing instruction, its status is the source of truth.
-    if (isEditing.value && props.instruction) {
-        const inst = props.instruction
-        // The "global" component handles approved global instructions and suggestions pending review.
-        const isHandledByGlobalComponent = inst.global_status === 'approved' || inst.global_status === 'suggested'
-        return isHandledByGlobalComponent ? 'global' : 'private'
-    }
-    
-    // 2. If creating a new instruction, the `initialType` prop takes precedence.
-    if (props.initialType) {
-        return props.initialType
-    }
-    
-    // 3. Otherwise, fall back to the user's permission level, waiting for them to load.
+    // Check permissions first - admins always use the global component for consistent UI
     const permissionsLoaded = usePermissionsLoaded()
     if (!permissionsLoaded.value) {
         // Default to private to avoid flashing the admin UI. It will correct itself once permissions load.
         return 'private' 
     }
-    return useCan('create_instructions') ? 'global' : 'private'
+    
+    // Admins always use the global component for all instruction types (git, user, AI)
+    // This ensures consistent edit UI regardless of instruction source
+    if (useCan('create_instructions')) {
+        return 'global'
+    }
+    
+    // Non-admins use the private component (for suggestions)
+    return 'private'
 })
 
 // Non-admins default to suggestions when creating
@@ -412,7 +341,11 @@ const resetForm = () => {
         can_user_toggle: true,
         private_status: null,
         global_status: 'approved',
-        label_ids: []
+        label_ids: [],
+        load_mode: 'always',
+        source_type: 'user',
+        source_sync_enabled: true,
+        title: null
     }
     selectedDataSources.value = []
 }
@@ -435,6 +368,58 @@ const handleLabelsUpdated = () => {
     // For now, the modal handles its own refresh
 }
 
+const unlinkFromGit = async () => {
+    if (!props.instruction?.id) return
+    
+    try {
+        const { data, error } = await useMyFetch(`/api/instructions/${props.instruction.id}`, {
+            method: 'PUT',
+            body: {
+                source_sync_enabled: false
+            }
+        })
+        
+        if (error.value) {
+            console.error('Failed to unlink from git:', error.value)
+            return
+        }
+        
+        if (data.value) {
+            // Update the local form state immediately
+            sharedForm.value.source_sync_enabled = false
+            emit('instructionSaved', data.value)
+        }
+    } catch (err) {
+        console.error('Error unlinking from git:', err)
+    }
+}
+
+const relinkToGit = async () => {
+    if (!props.instruction?.id) return
+    
+    try {
+        const { data, error } = await useMyFetch(`/api/instructions/${props.instruction.id}`, {
+            method: 'PUT',
+            body: {
+                source_sync_enabled: true
+            }
+        })
+        
+        if (error.value) {
+            console.error('Failed to relink to git:', error.value)
+            return
+        }
+        
+        if (data.value) {
+            // Update the local form state immediately
+            sharedForm.value.source_sync_enabled = true
+            emit('instructionSaved', data.value)
+        }
+    } catch (err) {
+        console.error('Error relinking to git:', err)
+    }
+}
+
 // Watchers
 watch(() => props.instruction, (newInstruction) => {
     if (newInstruction) {
@@ -447,7 +432,11 @@ watch(() => props.instruction, (newInstruction) => {
             can_user_toggle: newInstruction.can_user_toggle !== undefined ? newInstruction.can_user_toggle : true,
             private_status: newInstruction.private_status || null,
             global_status: newInstruction.global_status || 'approved',
-            label_ids: newInstruction.labels?.map((label: any) => label.id) || []
+            label_ids: newInstruction.labels?.map((label: any) => label.id) || [],
+            load_mode: newInstruction.load_mode || 'always',
+            source_type: newInstruction.source_type || 'user',
+            source_sync_enabled: newInstruction.source_sync_enabled !== false,
+            title: newInstruction.title || null
         }
         selectedDataSources.value = newInstruction.data_sources?.map((ds: DataSource) => ds.id) || []
     } else {

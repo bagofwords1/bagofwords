@@ -36,11 +36,20 @@ class MetadataResource(BaseSchema):
 
     # The job that indexed this resource version
     metadata_indexing_job_id = Column(String(36), ForeignKey("metadata_indexing_jobs.id"), nullable=True)
+    
+    # === Unified Instructions System fields ===
+    
+    # Loading behavior for AI context (default to intelligent for git resources)
+    load_mode = Column(String(20), default='intelligent')  # 'always' | 'intelligent' | 'disabled'
+    
+    # Link to the synced instruction (created during git indexing)
+    instruction_id = Column(String(36), ForeignKey("instructions.id"), nullable=True)
 
     
     # Relationships
     data_source = relationship("DataSource", back_populates="metadata_resources")
     metadata_indexing_job = relationship("MetadataIndexingJob", back_populates="metadata_resources")
+    instruction = relationship("Instruction", foreign_keys=[instruction_id], lazy="selectin")
     
     def __repr__(self):
         return f"<MetadataResource {self.resource_type}:{self.name}>"

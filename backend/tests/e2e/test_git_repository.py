@@ -20,6 +20,7 @@ def test_git_repository_create_index_delete(
     get_git_repository,
     index_git_repository,
     get_metadata_resources,
+    get_instructions_by_source_type,
     delete_git_repository,
 ):
     if not TEST_DB_PATH.exists():
@@ -79,6 +80,28 @@ def test_git_repository_create_index_delete(
 
     assert metadata_resources["status"] == "completed"
     assert isinstance(metadata_resources.get("resources"), list)
+    resources = metadata_resources.get("resources", [])
+    assert len(resources) > 0, "Expected metadata resources after indexing"
+
+    # Verify instructions were created from metadata resources
+    instructions_response = get_instructions_by_source_type(
+        source_types=["git", "dbt", "markdown"],
+        user_token=user_token,
+        org_id=org_id,
+        data_source_id=data_source["id"],
+    )
+    
+    # Handle paginated response
+    instructions = instructions_response.get("items", instructions_response)
+    if isinstance(instructions, dict):
+        instructions = instructions.get("items", [])
+    
+    assert len(instructions) > 0, "Expected instructions to be created after indexing"
+    
+    # Verify instructions have correct source_type
+    for instruction in instructions:
+        assert instruction["source_type"] == "git", "Instruction should have source_type='git'"
+        assert instruction["source_metadata_resource_id"] is not None, "Instruction should be linked to a resource"
 
     delete_response = delete_git_repository(
         data_source_id=data_source["id"],

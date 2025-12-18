@@ -1,281 +1,78 @@
 <template>
     <UModal v-model="instructionsListModal" :ui="{ width: 'sm:max-w-4xl' }">
-        <div class="p-6 relative h-[600px] flex flex-col">
-            <button @click="instructionsListModal = false"
-                class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
-                <Icon name="heroicons:x-mark" class="w-5 h-5" />
-            </button>
-            
-            <!-- Header -->
-            <div class="mb-6">
-                <h1 class="text-lg font-semibold">Global Instructions</h1>
-                <p class="mt-1 text-sm text-gray-500">Manage global AI instructions</p>
+        <div class="p-4 relative h-[550px] flex flex-col">
+            <!-- Header with close button -->
+            <div class="flex items-center justify-between mb-3">
+                <h1 class="text-base font-semibold text-gray-900">Instructions</h1>
+                <button @click="instructionsListModal = false"
+                    class="text-gray-400 hover:text-gray-600 outline-none">
+                    <Icon name="heroicons:x-mark" class="w-5 h-5" />
+                </button>
             </div>
 
-            <!-- Filter buttons, search, and Add button -->
-            <div class="mb-4 space-y-3">
-                <div class="flex justify-between items-center">
-                    <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg w-fit">
-                        <button 
-                            @click="setActiveFilter('all')" 
-                            :class="[
-                                activeFilter === 'all' 
-                                    ? 'bg-white text-gray-900 shadow-sm' 
-                                    : 'text-gray-500 hover:text-gray-900',
-                                'px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200'
-                            ]"
-                        >
-                            All Instructions
-                        </button>
-                        <button 
-                            @click="setActiveFilter('my')" 
-                            :class="[
-                                activeFilter === 'my' 
-                                    ? 'bg-white text-gray-900 shadow-sm' 
-                                    : 'text-gray-500 hover:text-gray-900',
-                                'px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200'
-                            ]"
-                        >
-                            {{ myInstructionsButtonText }}
-                        </button>
-                    </div>
-                    
+            <!-- Filter bar with Git button and Add button -->
+            <div class="flex items-center justify-between gap-3 mb-3">
+                <InstructionsFilterBar
+                    :search="inst.filters.search"
+                    :source-types="inst.filters.sourceTypes"
+                    :available-source-types="availableSourceTypes"
+                    :status="inst.filters.status"
+                    :load-modes="inst.filters.loadModes"
+                    :categories="inst.filters.categories"
+                    :data-source-id="inst.filters.dataSourceId"
+                    :label-ids="[]"
+                    :labels="[]"
+                    :data-sources="allDataSources"
+                    :compact="true"
+                    @update:search="inst.debouncedSearch"
+                    @update:source-types="v => inst.setFilter('sourceTypes', v)"
+                    @update:status="v => inst.setFilter('status', v)"
+                    @update:load-modes="v => inst.setFilter('loadModes', v)"
+                    @update:categories="v => inst.setFilter('categories', v)"
+                    @update:data-source-id="v => inst.setFilter('dataSourceId', v)"
+                    @reset="inst.resetFilters"
+                />
+                
+                <!-- Right side: Git button + Add button -->
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    <GitConnectionButton
+                        :has-connection="hasGitConnections"
+                        :connected-repos="gitConnectedRepos"
+                        :last-indexed-at="gitLastIndexed"
+                        @click="openGitModal"
+                    />
                     <UButton
-                        :icon="buttonIcon"
+                        icon="i-heroicons-plus"
                         color="blue"
                         size="xs"
-                        variant="solid"
                         @click="addInstruction"
                     >
-                        {{ buttonText }}
+                        {{ canCreateGlobalInstructions ? 'Add Instruction' : 'Suggest' }}
                     </UButton>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-3">
-                    <div class="relative w-full sm:max-w-xs">
-                        <input
-                            v-model="searchQuery"
-                            type="text"
-                            placeholder="Search instructions..."
-                            class="w-full pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-200"
-                        />
-                        <UIcon name="i-heroicons-magnifying-glass" class="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-                    </div>
-
-                    <div class="flex items-center space-x-2 text-xs text-gray-500">
-                        <USelectMenu
-                            v-model="labelFilter"
-                            :options="labelOptions"
-                            value-attribute="value"
-                            option-attribute="label"
-                            size="xs"
-                            class="w-40"
-                            multiple
-                            :close-on-select="false"
-                            :disabled="labelOptions.length === 0"
-                        >
-                            <template #label>
-                                <div class="flex items-center flex-wrap gap-1 text-xs text-gray-700">
-                                    <span v-if="selectedLabelOptions.length === 0" class="text-gray-500">Select labels</span>
-                                    <span
-                                        v-for="option in selectedLabelOptions.slice(0, 3)"
-                                        :key="option.value"
-                                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border"
-                                        :style="{ borderColor: option.color || '#CBD5F5' }"
-                                    >
-                                        <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
-                                        {{ option.label }}
-                                    </span>
-                                    <span v-if="selectedLabelOptions.length > 3" class="text-gray-500 text-xs">
-                                        +{{ selectedLabelOptions.length - 3 }}
-                                    </span>
-                                </div>
-                            </template>
-                            <template #option="{ option }">
-                                <div class="flex items-center justify-between text-xs text-gray-700 w-full">
-                                    <div class="flex items-center gap-2">
-                                        <span class="w-2 h-2 rounded-full" :style="{ backgroundColor: option.color || '#94A3B8' }"></span>
-                                        <span>{{ option.label }}</span>
-                                    </div>
-                                </div>
-                            </template>
-                        </USelectMenu>
-                    </div>
                 </div>
             </div>
 
             <!-- Instructions List -->
-            <div v-if="isLoading" class="flex items-center justify-center py-12 flex-1">
-                <Spinner />
-            </div>
-            <div v-else-if="filteredInstructions.length > 0" class="flex-1 flex flex-col min-h-0">
-                <div class="bg-white shadow-sm border border-gray-200 rounded-lg overflow-hidden flex flex-col flex-1 min-h-0">
-                    <div class="overflow-x-auto overflow-y-auto flex-1">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        Instruction
-                                    </th>
-                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                                    </th>
-                                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                                        <!-- References -->
-                                    </th>
-                                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">
-                                        <!-- Icons column -->
-                                    </th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                <tr v-for="instruction in paginatedInstructions" 
-                                    :key="instruction.id" 
-                                    :class="[
-                                        'hover:bg-gray-50 cursor-pointer'
-                                    ]"
-                                    @click="handleInstructionClick(instruction)"
-                                >
-                                    <td class="px-3 py-2 text-xs">
-                                        <div class="max-w-md">
-                                            <p 
-                                                class="text-gray-900 leading-tight"
-                                                :class="{ 'line-clamp-2': !expandedInstructions.has(instruction.id) }"
-                                            >{{ instruction.text }}</p>
-                                            <button 
-                                                v-if="instruction.text.length > 100"
-                                                @click.stop="toggleExpand(instruction.id)"
-                                                class="text-blue-500 hover:text-blue-700 text-[10px] mt-0.5 font-medium"
-                                            >
-                                                {{ expandedInstructions.has(instruction.id) ? 'show less' : 'show more' }}
-                                            </button>
-                                        </div>
-                                    </td>
-                                    <td class="px-3 py-2 text-xs">
-                                        <div class="flex flex-wrap items-center gap-1">
-                                            <template v-if="instruction.labels?.length">
-                                                <UTooltip
-                                                    v-for="label in instruction.labels.slice(0, 4)"
-                                                    :key="label.id"
-                                                    :text="label.description || label.name"
-                                                >
-                                                    <span
-                                                        class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full border text-[10px] font-medium"
-                                                        :style="{
-                                                            borderColor: label.color || '#CBD5F5',
-                                                            backgroundColor: label.color ? `${label.color}20` : '#F3F4F6',
-                                                            color: '#1F2937'
-                                                        }"
-                                                    >
-                                                        <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94A3B8' }"></span>
-                                                        {{ label.name }}
-                                                    </span>
-                                                </UTooltip>
-                                                <span v-if="instruction.labels.length > 4" class="text-[10px] text-gray-500 px-1.5 py-0.5">
-                                                    +{{ instruction.labels.length - 4 }}
-                                                </span>
-                                            </template>
-                                            <span v-else class="text-[10px] text-gray-400">None</span>
-                                        </div>
-                                    </td>
-                                    <td class="px-3 py-2 text-sm">
-                                        <div class="flex items-center justify-center gap-2">
-                                            <template v-if="(instruction as any).references && (instruction as any).references.length">
-                                                <UTooltip v-for="ref in (instruction as any).references" :key="ref.id" :text="getRefDisplayName(ref)">
-                                                    <UIcon :name="getRefIcon(ref.object_type)" class="w-3 h-3 text-gray-600" />
-                                                </UTooltip>
-                                            </template>
-                                            <span v-else class="text-xs text-gray-400">None</span>
-                                        </div>
-                                    </td>
-                                    <td class="px-3 py-2 text-sm">
-                                        <div class="flex items-center justify-center gap-2">
-                                            <!-- Status Icon -->
-                                            <UTooltip :text="getStatusTooltip(instruction)">
-                                                <div :class="getStatusIconClass(instruction)" class="w-3 h-3 rounded-full flex-shrink-0"></div>
-                                            </UTooltip>
-                                            
-                                            <!-- Category Icon -->
-                                            <UTooltip :text="'Category: ' + formatCategory(instruction.category)">
-                                                <Icon :name="getCategoryIcon(instruction.category)" class="w-4 h-4 text-gray-500 flex-shrink-0" />
-                                            </UTooltip>
-                                            
-                                            <!-- Data Source Icon -->
-                                            <UTooltip :text="getDataSourceTooltip(instruction)">
-                                                <div class="flex -space-x-1">
-                                                    <Icon v-if="instruction.data_sources.length === 0" 
-                                                          name="heroicons:globe-alt" 
-                                                          class="w-4 h-4 text-gray-500 flex-shrink-0" />
-                                                    <DataSourceIcon v-else-if="instruction.data_sources.length === 1"
-                                                                    :type="instruction.data_sources[0].type" 
-                                                                    class="w-4 h-4 flex-shrink-0" />
-                                                    <div v-else class="flex -space-x-1">
-                                                        <DataSourceIcon v-for="(dataSource, index) in instruction.data_sources.slice(0, 2)" 
-                                                                        :key="dataSource.id"
-                                                                        :type="dataSource.type" 
-                                                                        class="w-4 h-4 border border-white rounded flex-shrink-0" />
-                                                        <div v-if="instruction.data_sources.length > 2" 
-                                                             class="w-4 h-4 bg-gray-400 text-white text-xs rounded flex items-center justify-center border border-white flex-shrink-0">
-                                                            +{{ instruction.data_sources.length - 2 }}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </UTooltip>
-                                        </div>
-                                    </td>
-
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <!-- Pagination -->
-                    <div class="px-3 py-2 border-t border-gray-200 flex items-center justify-between flex-shrink-0">
-                        <div class="text-xs text-gray-700">
-                            Showing {{ (currentPage - 1) * pageSize + 1 }} to {{ Math.min(currentPage * pageSize, filteredInstructions.length) }} of {{ filteredInstructions.length }} instructions
-                        </div>
-                        <div class="flex items-center space-x-1">
-                            <UButton
-                                icon="i-heroicons-chevron-left"
-                                color="gray"
-                                variant="ghost"
-                                size="xs"
-                                @click="currentPage--"
-                                :disabled="currentPage === 1"
-                            >
-                                Previous
-                            </UButton>
-                            <div class="flex items-center space-x-1">
-                                <UButton
-                                    v-for="page in visiblePages"
-                                    :key="page"
-                                    :color="page === currentPage ? 'blue' : 'gray'"
-                                    :variant="page === currentPage ? 'solid' : 'ghost'"
-                                    size="xs"
-                                    @click="currentPage = page"
-                                    class="min-w-[28px]"
-                                >
-                                    {{ page }}
-                                </UButton>
-                            </div>
-                            <UButton
-                                icon="i-heroicons-chevron-right"
-                                color="gray"
-                                variant="ghost"
-                                size="xs"
-                                @click="currentPage++"
-                                :disabled="currentPage === totalPages"
-                            >
-                                Next
-                            </UButton>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div v-else class="flex items-center justify-center py-12 flex-1">
-                <div class="flex flex-col items-center justify-center gap-2">
-                    <Icon name="heroicons:document-text" class="mx-auto h-12 w-12 text-gray-400" />
-                    <h3 class="mt-2 text-sm font-medium text-gray-900">No instructions found</h3>
-                    <p class="mt-1 text-sm text-gray-500">{{ getEmptyStateMessage() }}</p>
-                </div>
+            <div class="flex-1 min-h-0">
+                <InstructionsTable
+                    :instructions="inst.instructions.value"
+                    :loading="inst.isLoading.value"
+                    :selectable="false"
+                    :compact="true"
+                    :show-source="true"
+                    :show-load-mode="true"
+                    :show-labels="false"
+                    :show-status="true"
+                    :current-page="inst.currentPage.value"
+                    :page-size="inst.itemsPerPage.value"
+                    :total-items="inst.total.value"
+                    :total-pages="inst.pages.value"
+                    :visible-pages="inst.visiblePages.value"
+                    empty-title="No instructions"
+                    empty-message="No instructions found matching your criteria."
+                    @click="handleInstructionClick"
+                    @page-change="inst.setPage"
+                />
             </div>
         </div>
 
@@ -283,7 +80,7 @@
         <InstructionModalComponent
             v-model="showInstructionModal"
             :instruction="editingInstruction"
-            :initial-type="initialInstructionType"
+            :initial-type="canCreateGlobalInstructions ? 'global' : 'private'"
             :is-suggestion="!canCreateGlobalInstructions"
             @instructionSaved="handleInstructionSaved"
         />
@@ -293,298 +90,142 @@
             v-model="showDetailsModal"
             :instruction="viewingInstruction"
         />
+
+        <!-- Git Repo Modal -->
+        <GitRepoModalComponent
+            v-model="showGitModal"
+            @changed="handleGitChanged"
+        />
     </UModal>
 </template>
 
 <script setup lang="ts">
-import InstructionModalComponent from '~/components/InstructionModalComponent.vue';
-import InstructionDetailsModal from '~/components/InstructionDetailsModal.vue';
-import DataSourceIcon from '~/components/DataSourceIcon.vue';
-
-// Define interfaces - same as before
-interface DataSource {
-    id: string
-    name: string
-    type: string
-}
-
-interface User {
-    id: string
-    name: string
-    email: string
-}
-
-interface InstructionLabel {
-    id: string
-    name: string
-    color?: string | null
-    description?: string | null
-}
-
-interface Instruction {
-    id: string
-    text: string
-    thumbs_up: number
-    status: 'draft' | 'published' | 'archived'
-    category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
-    user_id: string
-    organization_id: string
-    user: User
-    data_sources: DataSource[]
-    created_at: string
-    updated_at: string
-    
-    // Dual-status lifecycle fields
-    private_status: string | null
-    global_status: string | null
-    is_seen: boolean
-    can_user_toggle: boolean
-    reviewed_by_user_id: string | null
-    reviewed_by?: User
-    labels?: InstructionLabel[]
-}
+import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
+import InstructionDetailsModal from '~/components/InstructionDetailsModal.vue'
+import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
+import InstructionsFilterBar from '~/components/instructions/InstructionsFilterBar.vue'
+import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
+import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
+import { useInstructions } from '~/composables/useInstructions'
+import type { Instruction } from '~/composables/useInstructionHelpers'
 
 const toast = useToast()
 const instructionsListModal = ref(false)
-const activeFilter = ref('all') // Fix: start with 'all' not 'all-published'
-const instructions = ref<Instruction[]>([])
-const isLoading = ref(false)
 const showInstructionModal = ref(false)
 const editingInstruction = ref<Instruction | null>(null)
 const showDetailsModal = ref(false)
 const viewingInstruction = ref<Instruction | null>(null)
-const searchQuery = ref('')
-const labelFilter = ref<string[]>([])
-const expandedInstructions = ref<Set<string>>(new Set())
+const showGitModal = ref(false)
 
-// Pagination state
-const currentPage = ref(1)
-const pageSize = ref(10)
+// Instructions using the composable
+const inst = useInstructions({
+    autoFetch: false,
+    pageSize: 12
+})
+
+// Git connection status
+const gitConnectedCount = ref(0)
+const gitLastIndexed = ref<string | null>(null)
+const gitConnectedRepos = ref<{ provider: string; repoName: string }[]>([])
+const hasGitConnections = computed(() => gitConnectedCount.value > 0)
+
+// Data sources and source types
+const allDataSources = ref<{ id: string; name: string; type: string }[]>([])
+const availableSourceTypes = ref<{ value: string; label: string; icon?: string; heroicon?: string }[]>([])
 
 // Check if user can create global instructions
-const canCreateGlobalInstructions = computed(() => {
-    return useCan('create_instructions')
-})
+const canCreateGlobalInstructions = computed(() => useCan('create_instructions'))
 
-// Dynamic button text based on permissions
-const myInstructionsButtonText = computed(() => {
-    return canCreateGlobalInstructions.value 
-        ? 'My Contributed Instructions' 
-        : 'My Suggested Instructions'
-})
+// Fetch data sources
+const fetchDataSources = async () => {
+    try {
+        const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET' })
+        allDataSources.value = (data.value || []).map((ds: any) => ({
+            id: ds.id,
+            name: ds.name,
+            type: ds.type
+        }))
+    } catch (e) {
+        console.error('Failed to fetch data sources:', e)
+    }
+}
 
-const initialInstructionType = computed(() => {
-    return canCreateGlobalInstructions.value ? 'global' : 'private'
-})
+// Fetch available source types
+const fetchAvailableSourceTypes = async () => {
+    try {
+        const { data } = await useMyFetch<{ value: string; label: string; icon?: string; heroicon?: string }[]>('/instructions/source-types', { method: 'GET' })
+        availableSourceTypes.value = data.value || []
+    } catch (e) {
+        console.error('Failed to fetch available source types:', e)
+    }
+}
 
-// Computed properties for button
-const buttonText = computed(() => {
-    return canCreateGlobalInstructions.value ? 'Add Instruction' : 'Suggest Instruction'
-})
+// Fetch git status
+const fetchGitStatus = async () => {
+    try {
+        if (allDataSources.value.length === 0) return
 
-const buttonIcon = computed(() => {
-    return canCreateGlobalInstructions.value ? 'i-heroicons-plus' : 'i-heroicons-plus'
-})
+        const repos: { provider: string; repoName: string }[] = []
+        let connectedCount = 0
+        let latestIndexed: string | null = null
 
-// Color is set directly in template to avoid TS type mismatch
+        for (const ds of allDataSources.value) {
+            const { data: fullDs } = await useMyFetch(`/data_sources/${ds.id}`, { method: 'GET' })
+            if (fullDs.value && (fullDs.value as any).git_repository) {
+                connectedCount++
+                const gitRepo = (fullDs.value as any).git_repository
+                const repoName = gitRepo.repo_url?.split('/').pop()?.replace(/\.git$/, '') || 'Repository'
+                repos.push({ provider: gitRepo.provider, repoName })
 
-const labelOptions = computed(() => {
-    const unique = new Map<string, { label: string; value: string; color?: string | null }>()
-    instructions.value.forEach(instruction => {
-        ;(instruction.labels || []).forEach(label => {
-            if (label?.id && !unique.has(label.id)) {
-                unique.set(label.id, {
-                    label: label.name || 'Unnamed',
-                    value: label.id,
-                    color: label.color || null
-                })
+                const { data: metaData } = await useMyFetch(`/data_sources/${ds.id}/metadata_resources`, { method: 'GET' })
+                if (metaData.value) {
+                    const completedAt = (metaData.value as any).completed_at
+                    if (completedAt && (!latestIndexed || new Date(completedAt) > new Date(latestIndexed))) {
+                        latestIndexed = completedAt
+                    }
+                }
             }
-        })
-    })
-    const sorted = Array.from(unique.values()).sort((a, b) => a.label.localeCompare(b.label))
-    return sorted
-})
+        }
 
-const selectedLabelOptions = computed(() => {
-    if (!labelFilter.value.length) return []
-    const map = new Map(labelOptions.value.map(option => [option.value, option]))
-    return labelFilter.value.map(id => map.get(id)).filter(Boolean) as { label: string; value: string; color?: string | null }[]
-})
-
-const filteredInstructions = computed(() => {
-    let list = instructions.value
-
-    if (labelFilter.value.length) {
-        list = list.filter(instruction => (instruction.labels || []).some(label => labelFilter.value.includes(label.id)))
+        gitConnectedCount.value = connectedCount
+        gitLastIndexed.value = latestIndexed
+        gitConnectedRepos.value = repos
+    } catch (e) {
+        console.error('Failed to fetch git status:', e)
     }
+}
 
-    if (searchQuery.value.trim()) {
-        const q = searchQuery.value.toLowerCase().trim()
-        list = list.filter(instruction => {
-            const textMatch = instruction.text.toLowerCase().includes(q)
-            const userMatch = instruction.user?.name?.toLowerCase().includes(q) ?? false
-            const categoryMatch = instruction.category.toLowerCase().includes(q)
-            const dataSourceMatch = instruction.data_sources.some(ds => ds.name.toLowerCase().includes(q))
-            const labelMatch = (instruction.labels || []).some(label => label.name?.toLowerCase().includes(q))
-            return textMatch || userMatch || categoryMatch || dataSourceMatch || labelMatch
-        })
-    }
+const openGitModal = () => {
+    showGitModal.value = true
+}
 
-    return list
-})
-
-// Pagination derived values
-const paginatedInstructions = computed(() => {
-    const start = (currentPage.value - 1) * pageSize.value
-    const end = start + pageSize.value
-    return filteredInstructions.value.slice(start, end)
-})
-
-const totalPages = computed(() => {
-    const total = Math.ceil(filteredInstructions.value.length / pageSize.value)
-    return total > 0 ? total : 1
-})
-
-const visiblePages = computed(() => {
-    const pages: number[] = []
-    const total = totalPages.value
-    const current = currentPage.value
-    let start = Math.max(1, current - 2)
-    let end = Math.min(total, start + 4)
-    if (end - start < 4) {
-        start = Math.max(1, end - 4)
-    }
-    for (let i = start; i <= end; i++) {
-        pages.push(i)
-    }
-    return pages
-})
+const handleGitChanged = () => {
+    fetchGitStatus()
+    fetchAvailableSourceTypes()
+    inst.refresh()
+}
 
 // Methods
-// Get current user ID helper  
-const nuxtApp = useNuxtApp() as any
-const getCurrentUserId = () => {
-    return nuxtApp?.$auth?.user?.id || null
-}
-
-// Clean fetch method using the new permission-based parameters
-const fetchInstructions = async () => {
-    // Check if organization is available before making API call
-    const { organization, ensureOrganization } = useOrganization()
-    
-    try {
-        await ensureOrganization()
-        
-        if (!organization.value?.id) {
-            console.warn('InstructionsListModal: Organization not available, skipping API call')
-            return
-        }
-    } catch (error) {
-        console.error('InstructionsListModal: Error ensuring organization:', error)
-        return
-    }
-    
-    isLoading.value = true
-    try {
-        const params: any = {
-            limit: 1000,
-            include_own: true,
-        }
-        
-        if (activeFilter.value === 'my') {
-            const currentUserId = getCurrentUserId()
-            if (currentUserId) {
-                params.user_id = currentUserId
-                params.include_drafts = true
-                params.include_archived = true // Also fetch archived instructions
-            }
-        } else {
-            params.status = 'published'
-            if (useCan('view_hidden_instructions')) {
-                params.include_hidden = true
-            }
-        }
-        
-        //console.log('Fetching instructions with params:', params)
-        
-        const { data, error } = await useMyFetch<Instruction[]>('/api/instructions', {
-            method: 'GET',
-            query: params
-        })
-        
-        if (error.value) {
-            console.error('Failed to fetch instructions:', error.value)
-            toast.add({
-                title: 'Error',
-                description: 'Failed to fetch instructions',
-                color: 'red'
-            })
-        } else if (data.value) {
-            //console.log('Fetched instructions:', data.value.length)
-            
-            if (activeFilter.value === 'my') {
-                // Filter to show instructions that are either suggested, rejected, or private drafts.
-                instructions.value = data.value.filter(instruction => {
-                    const isSuggested = instruction.global_status === 'suggested'
-                    const isRejected = instruction.global_status === 'rejected'
-                    const isPrivateDraft = instruction.private_status === 'draft' && !instruction.global_status
-                    
-                    return isSuggested || isRejected || isPrivateDraft
-                })
-            } else {
-                instructions.value = data.value
-            }
-
-            // Clamp current page in case total pages shrank
-            if (currentPage.value > totalPages.value) {
-                currentPage.value = totalPages.value
-            }
-        }
-    } catch (err) {
-        console.error('Error:', err)
-        toast.add({
-            title: 'Error',
-            description: 'Failed to fetch instructions',
-            color: 'red'
-        })
-    } finally {
-        isLoading.value = false
-    }
-}
-
-const setActiveFilter = async (filter: string) => {
-    //console.log('Setting active filter to:', filter)
-    activeFilter.value = filter
-    currentPage.value = 1
-    await fetchInstructions()
-}
-
-const openModal = () => {
+const openModal = async () => {
     instructionsListModal.value = true
-    fetchInstructions()
+    await fetchDataSources()
+    fetchAvailableSourceTypes()
+    fetchGitStatus()
+    inst.fetchInstructions()
 }
-
-watch(searchQuery, () => {
-    currentPage.value = 1
-})
-
-watch(() => labelFilter.value.join(','), () => {
-    currentPage.value = 1
-})
 
 const handleInstructionClick = (instruction: Instruction) => {
     if (canCreateGlobalInstructions.value) {
         editingInstruction.value = instruction
         showInstructionModal.value = true
     } else {
-        // Show read-only details modal for users without global instruction permissions
         viewingInstruction.value = instruction
         showDetailsModal.value = true
     }
 }
 
-const handleInstructionSaved = (savedInstruction: Instruction) => {
-    fetchInstructions()
+const handleInstructionSaved = () => {
+    inst.refresh()
     showInstructionModal.value = false
     editingInstruction.value = null
     
@@ -599,155 +240,6 @@ const addInstruction = () => {
     editingInstruction.value = null
     showInstructionModal.value = true
 }
-
-const toggleExpand = (instructionId: string) => {
-    if (expandedInstructions.value.has(instructionId)) {
-        expandedInstructions.value.delete(instructionId)
-    } else {
-        expandedInstructions.value.add(instructionId)
-    }
-    // Trigger reactivity
-    expandedInstructions.value = new Set(expandedInstructions.value)
-}
-
-const getEmptyStateMessage = () => {
-    if (activeFilter.value === 'my') {
-        return canCreateGlobalInstructions.value
-            ? 'You haven\'t contributed any instructions yet.'
-            : 'You haven\'t suggested any instructions yet.'
-    }
-    return canCreateGlobalInstructions.value 
-        ? 'No global instructions available yet.' 
-        : 'No instructions to review yet.'
-}
-
-// Status display functions - same as ConsoleInstructions
-const getDisplayStatus = (instruction: Instruction) => {
-    return formatStatus(instruction.status) // Draft/Published/Archived
-}
-
-const getSubStatus = (instruction: Instruction) => {
-    if (instruction.global_status === 'suggested') {
-        return 'Pending Review'
-    } else if (instruction.reviewed_by_user_id && instruction.global_status) {
-        const reviewerName = instruction.reviewed_by?.name || 'Admin'
-        
-        if (instruction.global_status === 'approved') {
-            return `Approved by ${reviewerName}`
-        } else if (instruction.global_status === 'rejected') {
-            return `Rejected by ${reviewerName}`
-        }
-    }
-    
-    return null
-}
-
-const getStatusClass = (instruction: Instruction) => {
-    if (instruction.global_status === 'suggested') {
-        return 'bg-yellow-100 text-yellow-800'
-    } else if (instruction.global_status === 'approved') {
-        return 'bg-green-100 text-green-800'
-    } else if (instruction.global_status === 'rejected') {
-        return 'bg-red-100 text-red-800'
-    } else {
-        const statusClasses = {
-            draft: 'bg-yellow-100 text-yellow-800',
-            published: 'bg-green-100 text-green-800',
-            archived: 'bg-gray-100 text-gray-800'
-        }
-        return statusClasses[instruction.status as keyof typeof statusClasses] || 'bg-gray-100 text-gray-800'
-    }
-}
-
-const formatStatus = (status: string) => {
-    const statusMap = {
-        draft: 'Draft',
-        published: 'Published',
-        archived: 'Archived'
-    }
-    return statusMap[status as keyof typeof statusMap] || status
-}
-
-// Status icon functions
-const getStatusIconClass = (instruction: Instruction) => {
-    if (instruction.global_status === 'suggested') {
-        return 'bg-yellow-400'
-    } else if (instruction.global_status === 'approved') {
-        return 'bg-green-400'
-    } else if (instruction.global_status === 'rejected') {
-        return 'bg-red-400'
-    } else {
-        const statusClasses = {
-            draft: 'bg-yellow-400',
-            published: 'bg-green-400',
-            archived: 'bg-gray-400'
-        }
-        return statusClasses[instruction.status as keyof typeof statusClasses] || 'bg-gray-400'
-    }
-}
-
-const getStatusTooltip = (instruction: Instruction) => {
-    const baseStatus = formatStatus(instruction.status)
-    const subStatus = getSubStatus(instruction)
-    return subStatus ? `${baseStatus} - ${subStatus}` : baseStatus
-}
-
-const getCategoryIcon = (category: string) => {
-    const categoryIcons = {
-        code_gen: 'heroicons:code-bracket',
-        data_modeling: 'heroicons:cube',
-        general: 'heroicons:document-text',
-        system: 'heroicons:cog-6-tooth',
-        visualizations: 'heroicons:chart-bar',
-        dashboard: 'heroicons:squares-2x2'
-    }
-    return categoryIcons[category as keyof typeof categoryIcons] || 'heroicons:document-text'
-}
-
-const getDataSourceTooltip = (instruction: Instruction) => {
-    if (instruction.data_sources.length === 0) {
-        return 'All Data Sources'
-    } else if (instruction.data_sources.length === 1) {
-        return instruction.data_sources[0].name
-    } else {
-        return `${instruction.data_sources.length} Data Sources: ${instruction.data_sources.map(ds => ds.name).join(', ')}`
-    }
-}
-
-const getRefIcon = (type: string) => {
-  if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
-  if (type === 'datasource_table') return 'i-heroicons-table-cells'
-  if (type === 'memory') return 'i-heroicons-book-open'
-  return 'i-heroicons-circle'
-}
-
-const getRefDisplayName = (ref: any) => {
-  const objectType = ref.object_type
-  const dataSourceName = ref.data_source_name || 'Unknown'
-  
-  if (ref.display_text) return `${dataSourceName} - ${objectType}: ${ref.display_text}`
-  if (ref.object?.name) return `${dataSourceName} - ${objectType}: ${ref.object.name}`
-  if (ref.object?.title) return `${dataSourceName} - ${objectType}: ${ref.object.title}`
-  return `${dataSourceName} - ${objectType}`
-}
-
-const formatCategory = (category: string) => {
-    const categoryMap = {
-        code_gen: 'Code Generation',
-        data_modeling: 'Data Modeling',
-        general: 'General',
-        system: 'System',
-        visualizations: 'Visualizations',
-        dashboard: 'Dashboard'
-    }
-    return categoryMap[category as keyof typeof categoryMap] || category
-}
-
-onMounted(async () => {
-    // Wait a bit for organization to be loaded by parent components
-    await nextTick()
-    fetchInstructions()
-})
 
 defineExpose({ openModal })
 </script>

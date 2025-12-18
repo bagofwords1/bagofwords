@@ -16,7 +16,9 @@ from app.schemas.instruction_schema import (
     InstructionStatus,
     InstructionPrivateStatus,
     InstructionGlobalStatus,
-    InstructionCategory
+    InstructionCategory,
+    InstructionBulkUpdate,
+    InstructionBulkResponse
 )
 from app.models.instruction import Instruction
 from app.schemas.instruction_label_schema import (
@@ -58,36 +60,86 @@ async def create_global_instruction(
     return await instruction_service.create_instruction(db, instruction, current_user, organization, force_global=True)
 
 # LIST INSTRUCTIONS
-@router.get("/instructions", response_model=List[InstructionListSchema])
+@router.get("/instructions")
 @requires_permission('view_instructions')
 async def get_instructions(
     skip: int = Query(0, ge=0),
-    limit: int = Query(100, ge=1, le=1000),
+    limit: int = Query(50, ge=1, le=200),
     status: Optional[InstructionStatus] = Query(None),
-    category: Optional[InstructionCategory] = Query(None),
+    category: Optional[InstructionCategory] = Query(None, description="Single category filter (deprecated, use categories)"),
+    categories: Optional[str] = Query(None, description="Comma-separated categories"),
     include_own: bool = Query(True),
     include_drafts: bool = Query(False),
     include_archived: bool = Query(False), 
     include_hidden: bool = Query(False),
     user_id: Optional[str] = Query(None),
     data_source_id: Optional[str] = Query(None, description="Filter by data source id"),
+    source_types: Optional[str] = Query(None, description="Comma-separated source types: dbt, markdown, user, ai"),
+    load_mode: Optional[str] = Query(None, description="Single load mode filter (deprecated, use load_modes)"),
+    load_modes: Optional[str] = Query(None, description="Comma-separated load modes: always, intelligent, disabled"),
+    label_ids: Optional[str] = Query(None, description="Comma-separated label IDs"),
+    search: Optional[str] = Query(None, description="Search in instruction text and title"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get instructions with automatic permission-based filtering"""
+    """Get instructions with automatic permission-based filtering. Returns paginated response."""
+    # Parse label_ids from comma-separated string
+    parsed_label_ids = None
+    if label_ids:
+        parsed_label_ids = [lid.strip() for lid in label_ids.split(',') if lid.strip()]
+    
+    # Parse source_types from comma-separated string
+    parsed_source_types = None
+    if source_types:
+        parsed_source_types = [st.strip() for st in source_types.split(',') if st.strip()]
+    
+    # Parse categories from comma-separated string (prefer multi, fall back to single)
+    parsed_categories = None
+    if categories:
+        parsed_categories = [c.strip() for c in categories.split(',') if c.strip()]
+    elif category:
+        parsed_categories = [category.value]
+    
+    # Parse load_modes from comma-separated string (prefer multi, fall back to single)
+    parsed_load_modes = None
+    if load_modes:
+        parsed_load_modes = [lm.strip() for lm in load_modes.split(',') if lm.strip()]
+    elif load_mode:
+        parsed_load_modes = [load_mode]
+    
     return await instruction_service.get_instructions(
         db, organization, current_user,
         skip=skip, limit=limit,
         status=status.value if status else None,
-        category=category.value if category else None,
+        categories=parsed_categories,
         include_own=include_own,
         include_drafts=include_drafts,
         include_archived=include_archived,
         include_hidden=include_hidden,
         user_id=user_id,
-        data_source_id=data_source_id
+        data_source_id=data_source_id,
+        source_types=parsed_source_types,
+        load_modes=parsed_load_modes,
+        label_ids=parsed_label_ids,
+        search=search
     )
+
+
+# BULK UPDATE
+@router.put("/instructions/bulk", response_model=InstructionBulkResponse)
+@requires_permission('create_instructions')
+async def bulk_update_instructions(
+    bulk_update: InstructionBulkUpdate,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Bulk update multiple instructions (admin only)"""
+    return await instruction_service.bulk_update_instructions(
+        db, bulk_update, current_user, organization
+    )
+
 
 # SUGGESTION WORKFLOW
 @router.post("/instructions/{instruction_id}/suggest", response_model=InstructionSchema)
@@ -166,6 +218,17 @@ async def get_available_references(
     )
 
 # UTILITY ROUTES
+@router.get("/instructions/source-types", response_model=List[dict])
+@requires_permission('view_instructions')
+async def get_instruction_source_types(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Get available source types based on existing instructions (dbt, markdown, user, ai)"""
+    return await instruction_service.get_available_source_types(db, organization)
+
+
 @router.get("/instructions/categories", response_model=List[str])
 @requires_permission('view_instructions')
 async def get_instruction_categories():

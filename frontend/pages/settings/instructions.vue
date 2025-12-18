@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import ConsoleInstructions from '~/components/ConsoleInstructions.vue'
+
 definePageMeta({
     layout: 'settings'
 })
@@ -6,7 +8,6 @@ definePageMeta({
 
 <template>
     <div class="mt-6">
-        <h2 class="text-xl font-semibold mb-4">Console Instructions</h2>
-        <ConsoleInstructions />
+        <ConsoleInstructions show-header />
     </div>
 </template>

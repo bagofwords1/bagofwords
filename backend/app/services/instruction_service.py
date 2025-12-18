@@ -162,7 +162,7 @@ class InstructionService:
         request: InstructionAnalysisRequest,
     ) -> InstructionAnalysisResponse:
         """Naive analysis for instruction text with no external dependencies."""
-        include = set(request.include or ["impact", "related_instructions", "resources"])
+        include = set(request.include or ["impact", "related_instructions"])
         meta: dict = {}
         started_at = datetime.utcnow()
 
@@ -183,7 +183,7 @@ class InstructionService:
 
         # 3) Related instructions (permissions respected via existing query)
         if "related_instructions" in include:
-            rel_insts = await self.get_instructions(
+            rel_insts_response = await self.get_instructions(
                 db=db,
                 organization=organization,
                 current_user=current_user,
@@ -194,6 +194,8 @@ class InstructionService:
                 include_archived=False,
                 include_hidden=False,
             )
+            # Extract items from paginated response
+            rel_insts = rel_insts_response.get("items", [])
             # Naive token filter similar to prompts matching
             def text_matches(s: Optional[str]) -> bool:
                 text_l = (s or "").lower()
@@ -363,22 +365,26 @@ class InstructionService:
         return [it for _, it in scored]
 
     async def get_instructions(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         organization: Organization,
         current_user: User,
-        skip: int = 0, 
-        limit: int = 100,
+        skip: int = 0,
+        limit: int = 50,
         status: Optional[str] = None,
-        category: Optional[str] = None,
+        categories: Optional[List[str]] = None,
         include_own: bool = True,
         include_drafts: bool = False,
         include_archived: bool = False,
         include_hidden: bool = False,
         user_id: Optional[str] = None,
-        data_source_id: Optional[str] = None
-    ) -> List[InstructionListSchema]:
-        """Get instructions with clean permission-based filtering"""
+        data_source_id: Optional[str] = None,
+        source_types: Optional[List[str]] = None,
+        load_modes: Optional[List[str]] = None,
+        label_ids: Optional[List[str]] = None,
+        search: Optional[str] = None
+    ) -> dict:
+        """Get instructions with clean permission-based filtering. Returns paginated response."""
         
         user_permissions = await self._get_user_permissions(db, current_user, organization)
         
@@ -404,10 +410,104 @@ class InstructionService:
         if user_id and self._can_filter_by_user(user_permissions):
             conditions = [Instruction.user_id == user_id]
         
-        # Execute query
+        # Execute query with new filters
         return await self._execute_instructions_query(
-            db, organization, conditions, status, category, skip, limit, data_source_id
+            db, organization, conditions, status, categories, skip, limit,
+            data_source_id, source_types, load_modes, label_ids, search
         )
+
+    async def get_available_source_types(
+        self,
+        db: AsyncSession,
+        organization: Organization
+    ) -> List[Dict[str, Any]]:
+        """Get available source types based on existing instructions.
+        
+        Returns a list of source type objects with value, label, and icon info.
+        - User: only shown if user instructions exist
+        - AI: always shown
+        - Git: always shown (covers all git-sourced instructions)
+        - Plus dynamic sub-types (dbt, markdown, etc.) if they exist
+        """
+        from sqlalchemy import distinct
+        
+        available_types = []
+        
+        # Check for user instructions (only show if exists)
+        user_count = await db.scalar(
+            select(func.count(distinct(Instruction.id)))
+            .where(
+                and_(
+                    Instruction.organization_id == organization.id,
+                    Instruction.deleted_at == None,
+                    Instruction.source_type == 'user'
+                )
+            )
+        )
+        if user_count and user_count > 0:
+            available_types.append({
+                'value': 'user',
+                'label': 'User',
+                'heroicon': 'i-heroicons-user'
+            })
+        
+        # AI is always shown
+        available_types.append({
+            'value': 'ai',
+            'label': 'AI',
+            'heroicon': 'i-heroicons-sparkles'
+        })
+        
+        # Git is always shown (covers all git-sourced instructions)
+        available_types.append({
+            'value': 'git',
+            'label': 'Git',
+            'icon': '/icons/git-branch.svg'
+        })
+        
+        # Check for dbt instructions (git + dbt_* resource types)
+        dbt_count = await db.scalar(
+            select(func.count(distinct(Instruction.id)))
+            .select_from(Instruction)
+            .outerjoin(MetadataResource, Instruction.source_metadata_resource_id == MetadataResource.id)
+            .where(
+                and_(
+                    Instruction.organization_id == organization.id,
+                    Instruction.deleted_at == None,
+                    Instruction.source_type == 'git',
+                    MetadataResource.resource_type.like('dbt_%')
+                )
+            )
+        )
+        if dbt_count and dbt_count > 0:
+            available_types.append({
+                'value': 'dbt',
+                'label': 'dbt',
+                'icon': '/icons/dbt.png'
+            })
+        
+        # Check for markdown instructions (git + markdown_document resource type)
+        markdown_count = await db.scalar(
+            select(func.count(distinct(Instruction.id)))
+            .select_from(Instruction)
+            .outerjoin(MetadataResource, Instruction.source_metadata_resource_id == MetadataResource.id)
+            .where(
+                and_(
+                    Instruction.organization_id == organization.id,
+                    Instruction.deleted_at == None,
+                    Instruction.source_type == 'git',
+                    MetadataResource.resource_type == 'markdown_document'
+                )
+            )
+        )
+        if markdown_count and markdown_count > 0:
+            available_types.append({
+                'value': 'markdown',
+                'label': 'Markdown',
+                'icon': '/icons/markdown.png'
+            })
+        
+        return available_types
 
     async def get_instruction(
         self, 
@@ -608,6 +708,110 @@ class InstructionService:
         await db.commit()
         await db.refresh(instruction, ["user", "data_sources", "reviewed_by"])
         return InstructionSchema.from_orm(instruction)
+
+    async def bulk_update_instructions(
+        self,
+        db: AsyncSession,
+        bulk_update,  # InstructionBulkUpdate
+        current_user: User,
+        organization: Organization
+    ) -> dict:
+        """Bulk update multiple instructions (admin only)"""
+        from app.schemas.instruction_schema import InstructionBulkResponse
+        from app.models.instruction_label import InstructionLabel
+        
+        updated_count = 0
+        failed_ids = []
+        
+        # Fetch all instructions by IDs
+        result = await db.execute(
+            select(Instruction)
+            .options(selectinload(Instruction.labels))
+            .where(
+                and_(
+                    Instruction.id.in_(bulk_update.ids),
+                    Instruction.organization_id == organization.id,
+                    Instruction.deleted_at == None
+                )
+            )
+        )
+        instructions = result.scalars().all()
+        
+        # Build a set of found IDs
+        found_ids = {str(inst.id) for inst in instructions}
+        
+        # Track which IDs were not found
+        for req_id in bulk_update.ids:
+            if req_id not in found_ids:
+                failed_ids.append(req_id)
+        
+        # Fetch labels if needed
+        labels_to_add = []
+        labels_to_remove_ids = set()
+        
+        if bulk_update.add_label_ids:
+            label_result = await db.execute(
+                select(InstructionLabel).where(
+                    and_(
+                        InstructionLabel.id.in_(bulk_update.add_label_ids),
+                        InstructionLabel.organization_id == organization.id
+                    )
+                )
+            )
+            labels_to_add = label_result.scalars().all()
+        
+        if bulk_update.remove_label_ids:
+            labels_to_remove_ids = set(bulk_update.remove_label_ids)
+        
+        # Apply updates
+        for instruction in instructions:
+            try:
+                # Update status with proper handling of dual-status lifecycle
+                if bulk_update.status:
+                    instruction.status = bulk_update.status
+                    
+                    if bulk_update.status == 'published':
+                        # Publishing: clear private_status, set global_status to approved
+                        instruction.private_status = None
+                        instruction.global_status = 'approved'
+                        instruction.reviewed_by_user_id = current_user.id
+                        instruction.is_seen = True
+                    elif bulk_update.status == 'archived':
+                        # Archiving: set global_status to rejected
+                        instruction.global_status = 'rejected'
+                        instruction.reviewed_by_user_id = current_user.id
+                    elif bulk_update.status == 'draft':
+                        # Making draft: keep it as a draft (no global approval)
+                        instruction.global_status = None
+                        instruction.private_status = 'draft'
+                
+                # Update load mode
+                if bulk_update.load_mode:
+                    instruction.load_mode = bulk_update.load_mode
+                
+                # Add labels
+                for label in labels_to_add:
+                    if label not in instruction.labels:
+                        instruction.labels.append(label)
+                
+                # Remove labels
+                if labels_to_remove_ids:
+                    instruction.labels = [
+                        lbl for lbl in instruction.labels 
+                        if str(lbl.id) not in labels_to_remove_ids
+                    ]
+                
+                updated_count += 1
+            except Exception as e:
+                failed_ids.append(str(instruction.id))
+        
+        await db.commit()
+        
+        return InstructionBulkResponse(
+            updated_count=updated_count,
+            failed_ids=failed_ids,
+            message=f"Successfully updated {updated_count} instructions"
+        )
     
     async def get_instructions_for_data_source(
         self, 
@@ -1035,28 +1239,92 @@ class InstructionService:
         organization: Organization, 
         conditions: list, 
         status: Optional[str], 
-        category: Optional[str], 
+        categories: Optional[List[str]], 
         skip: int, 
         limit: int,
-        data_source_id: Optional[str] = None
-    ) -> List[InstructionSchema]:
-        """Execute the instructions query with given conditions"""
+        data_source_id: Optional[str] = None,
+        source_types: Optional[List[str]] = None,
+        load_modes: Optional[List[str]] = None,
+        label_ids: Optional[List[str]] = None,
+        search: Optional[str] = None
+    ) -> dict:
+        """Execute the instructions query with given conditions. Returns paginated response."""
+        from sqlalchemy import func
+        from app.models.instruction_label import InstructionLabel
+        from app.models.metadata_resource import MetadataResource
         
+        # Base query conditions
+        base_conditions = [
+            Instruction.organization_id == organization.id,
+            Instruction.deleted_at == None
+        ]
+        
+        # Build filter conditions list
+        filter_conditions = []
+        
+        if status:
+            filter_conditions.append(Instruction.status == status)
+        if categories:
+            filter_conditions.append(Instruction.category.in_(categories))
+        if data_source_id:
+            filter_conditions.append(Instruction.data_sources.any(DataSource.id == data_source_id))
+        if source_types:
+            # Build source type filter conditions
+            # source_types can contain: 'user', 'ai', 'git', 'dbt', 'markdown', etc.
+            source_type_conditions = []
+            for st in source_types:
+                if st == 'user':
+                    source_type_conditions.append(Instruction.source_type == 'user')
+                elif st == 'ai':
+                    source_type_conditions.append(Instruction.source_type == 'ai')
+                elif st == 'git':
+                    # All git-sourced instructions (dbt, markdown, etc.)
+                    source_type_conditions.append(Instruction.source_type == 'git')
+                elif st == 'dbt':
+                    # Git instructions with dbt resource types (dbt_model, dbt_source, etc.)
+                    source_type_conditions.append(
+                        and_(
+                            Instruction.source_type == 'git',
+                            Instruction.source_metadata_resource.has(
+                                MetadataResource.resource_type.like('dbt_%')
+                            )
+                        )
+                    )
+                elif st == 'markdown':
+                    # Git instructions with markdown resource type
+                    source_type_conditions.append(
+                        and_(
+                            Instruction.source_type == 'git',
+                            Instruction.source_metadata_resource.has(
+                                MetadataResource.resource_type == 'markdown_document'
+                            )
+                        )
+                    )
+            if source_type_conditions:
+                filter_conditions.append(or_(*source_type_conditions))
+        if load_modes:
+            filter_conditions.append(Instruction.load_mode.in_(load_modes))
+        if label_ids:
+            filter_conditions.append(Instruction.labels.any(InstructionLabel.id.in_(label_ids)))
+        if search:
+            search_term = f"%{search.lower()}%"
+            filter_conditions.append(
+                or_(
+                    func.lower(Instruction.text).like(search_term),
+                    func.lower(Instruction.title).like(search_term)
+                )
+            )
+        
+        # Build the main query
         query = (
             select(Instruction)
             .options(
                 selectinload(Instruction.user),
-                # lighter for list usage
                 selectinload(Instruction.data_sources),
                 selectinload(Instruction.reviewed_by),
                 selectinload(Instruction.labels),
             )
-            .where(
-                and_(
-                    Instruction.organization_id == organization.id,
-                    Instruction.deleted_at == None
-                )
-            )
+            .where(and_(*base_conditions))
         )
         
         # Apply permission-based conditions
@@ -1065,25 +1333,26 @@ class InstructionService:
         else:
             query = query.where(False)  # No access
         
-        # Apply filters
-        if status:
-            query = query.where(Instruction.status == status)
-        if category:
-            query = query.where(Instruction.category == category)
+        # Apply filter conditions
+        for fc in filter_conditions:
+            query = query.where(fc)
         
-        # Data source filter
-        if data_source_id:
-            query = query.where(Instruction.data_sources.any(DataSource.id == data_source_id))
+        # Count total before pagination
+        count_query = select(func.count()).select_from(query.subquery())
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
 
         # Apply pagination and ordering
         query = query.offset(skip).limit(limit).order_by(Instruction.created_at.desc())
         
         result = await db.execute(query)
         instructions = result.scalars().all()
-        # Map to list schema with minimal DS projection
+        
+        # Map to list schema
         from app.schemas.instruction_schema import InstructionListSchema
         from app.schemas.data_source_schema import DataSourceMinimalSchema
         from app.schemas.instruction_label_schema import InstructionLabelSchema
+        
         list_items: List[InstructionListSchema] = []
         for inst in instructions:
             ds_min = [DataSourceMinimalSchema.from_orm(ds) for ds in (inst.data_sources or [])]
@@ -1094,7 +1363,7 @@ class InstructionService:
                     status=inst.status,
                     category=inst.category,
                     user_id=inst.user_id,
-                    user=UserSchema.from_orm(inst.user),
+                    user=UserSchema.from_orm(inst.user) if inst.user else None,
                     organization_id=inst.organization_id,
                     private_status=inst.private_status,
                     global_status=inst.global_status,
@@ -1106,9 +1375,24 @@ class InstructionService:
                     created_at=inst.created_at,
                     updated_at=inst.updated_at,
                     ai_source=getattr(inst, "ai_source", None),
+                    # Unified Instructions System fields
+                    source_type=getattr(inst, "source_type", "user") or "user",
+                    source_metadata_resource_id=getattr(inst, "source_metadata_resource_id", None),
+                    source_git_commit_sha=getattr(inst, "source_git_commit_sha", None),
+                    source_sync_enabled=getattr(inst, "source_sync_enabled", True) if getattr(inst, "source_sync_enabled", None) is not None else True,
+                    load_mode=getattr(inst, "load_mode", "always") or "always",
+                    title=getattr(inst, "title", None),
+                    structured_data=getattr(inst, "structured_data", None),
                 )
             )
-        return list_items
+        
+        return {
+            "items": list_items,
+            "total": total,
+            "page": (skip // limit) + 1 if limit > 0 else 1,
+            "per_page": limit,
+            "pages": (total + limit - 1) // limit if limit > 0 else 1
+        }
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
         """Get user's permissions in the organization"""

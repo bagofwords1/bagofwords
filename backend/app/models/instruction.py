@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, Table
+from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, Table, JSON
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -53,6 +53,26 @@ class Instruction(BaseSchema):
     # Organization ownership
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False)
     
+    # === Unified Instructions System fields ===
+    
+    # Source tracking: where this instruction came from
+    source_type = Column(String(20), default='user')  # 'user' | 'ai' | 'git'
+    
+    # Git source info (only populated when source_type='git')
+    source_metadata_resource_id = Column(String(36), ForeignKey('metadata_resources.id'), nullable=True)
+    source_git_commit_sha = Column(String(40), nullable=True)
+    source_sync_enabled = Column(Boolean, default=True)  # False when user "unlinks" from git
+    
+    # Loading behavior for AI context
+    load_mode = Column(String(20), default='always')  # 'always' | 'intelligent' | 'disabled'
+    
+    # Display title (especially for git-sourced instructions)
+    title = Column(String(255), nullable=True)
+    
+    # Structured data (raw resource data) + formatted content (readable text)
+    structured_data = Column(JSON, nullable=True)
+    formatted_content = Column(Text, nullable=True)
+    
     # Relationships
     data_sources = relationship(
         "DataSource",
@@ -72,6 +92,7 @@ class Instruction(BaseSchema):
     organization = relationship("Organization")
     references = relationship("InstructionReference", back_populates="instruction", lazy="selectin", cascade="all, delete-orphan")
     agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="selectin")
+    source_metadata_resource = relationship("MetadataResource", foreign_keys=[source_metadata_resource_id], lazy="selectin")
     
     def __repr__(self):
         return f"<Instruction {self.category}:{self.text[:50]}...>"
@@ -147,3 +168,30 @@ class Instruction(BaseSchema):
     def label_names(self) -> list[str]:
         """Returns list of label names applied to this instruction"""
         return [label.name for label in self.labels]
+    
+    @property
+    def is_git_sourced(self) -> bool:
+        """Returns True if this instruction originated from a git repository"""
+        return self.source_type == 'git'
+    
+    @property
+    def is_ai_generated(self) -> bool:
+        """Returns True if this instruction was AI-generated"""
+        return self.source_type == 'ai' or self.ai_source is not None
+    
+    @property
+    def is_user_created(self) -> bool:
+        """Returns True if this instruction was created by a user"""
+        return self.source_type == 'user' and self.ai_source is None
+    
+    @property
+    def is_synced_with_git(self) -> bool:
+        """Returns True if this git instruction is still synced (not unlinked)"""
+        return self.is_git_sourced and self.source_sync_enabled
+    
+    @property
+    def display_title(self) -> str:
+        """Returns display title, falling back to text snippet"""
+        if self.title:
+            return self.title
+        return self.text[:100] + "..." if len(self.text) > 100 else self.text

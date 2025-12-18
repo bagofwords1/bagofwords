@@ -1,11 +1,58 @@
 <template>
     <div class="h-full flex flex-col overflow-hidden">
-        <form @submit.prevent="submitForm" class="p-4 flex-1 overflow-y-auto">
+        <form @submit.prevent="submitForm" class="flex-1 flex flex-col overflow-hidden">
+            <div class="p-4 flex-1 overflow-y-auto">
+            <!-- Git Source Info (above textarea) -->
+            <div v-if="props.isGitSourced" class="mx-auto max-w-xl mb-3">
+                <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-200">
+                    <div class="flex items-center gap-2 text-sm min-w-0">
+                        <Icon name="heroicons:code-bracket" class="w-4 h-4 text-gray-500 shrink-0" />
+                        <span class="text-gray-600 truncate font-mono text-xs">
+                            {{ instruction?.structured_data?.path || instruction?.title || 'Git Repository' }}
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0 ml-2">
+                        <UTooltip 
+                            v-if="props.isGitSynced"
+                            text="Stop syncing from git. You'll be able to edit manually, but changes from the repository won't update this instruction."
+                            :popper="{ placement: 'bottom' }"
+                        >
+                            <UButton 
+                                size="xs" 
+                                variant="ghost" 
+                                color="orange"
+                                @click="$emit('unlink-from-git')"
+                            >
+                                <Icon name="heroicons:link-slash" class="w-3 h-3 mr-1" />
+                                Unlink
+                            </UButton>
+                        </UTooltip>
+                        <template v-else>
+                            <span class="text-xs text-gray-500">Unlinked</span>
+                            <UTooltip 
+                                text="Resume syncing from git. Your manual edits will be overwritten on next repository sync."
+                                :popper="{ placement: 'bottom' }"
+                            >
+                                <UButton 
+                                    size="xs" 
+                                    variant="ghost" 
+                                    color="blue"
+                                    @click="$emit('relink-to-git')"
+                                >
+                                    <Icon name="heroicons:link" class="w-3 h-3 mr-1" />
+                                    Relink
+                                </UButton>
+                            </UTooltip>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
             <!-- Instruction Text -->
             <div class="flex flex-col mx-auto max-w-xl py-2">
                 <div class="flex items-center justify-between mb-4">
                     <label class="text-md font-medium text-gray-800">
-                        Create Instruction
+                        {{ isEditing ? 'Edit Instruction' : 'Create Instruction' }}
                     </label>
                     <UButton v-if="canAnalyze" size="xs" variant="soft" color="blue" @click="$emit('toggle-analyze')">
                         <span class="inline-flex items-center gap-1">
@@ -243,6 +290,42 @@
                 </div>
             </div>
 
+            <!-- Load Mode Selector -->
+            <div class="mx-auto max-w-xl mt-4">
+                <label class="text-xs font-medium text-gray-600 mb-1.5 block">AI Context Loading</label>
+                <div class="flex items-center gap-2">
+                    <UButton 
+                        size="xs" 
+                        :variant="instructionForm.load_mode === 'always' ? 'solid' : 'outline'" 
+                        :color="instructionForm.load_mode === 'always' ? 'blue' : 'gray'"
+                        @click="instructionForm.load_mode = 'always'"
+                    >
+                        Always
+                    </UButton>
+                    <UButton 
+                        size="xs" 
+                        :variant="instructionForm.load_mode === 'intelligent' ? 'solid' : 'outline'" 
+                        :color="instructionForm.load_mode === 'intelligent' ? 'purple' : 'gray'"
+                        @click="instructionForm.load_mode = 'intelligent'"
+                    >
+                        Smart
+                    </UButton>
+                    <UButton 
+                        size="xs" 
+                        :variant="instructionForm.load_mode === 'disabled' ? 'solid' : 'outline'" 
+                        :color="instructionForm.load_mode === 'disabled' ? 'gray' : 'gray'"
+                        @click="instructionForm.load_mode = 'disabled'"
+                    >
+                        Disabled
+                    </UButton>
+                </div>
+                <p class="text-[11px] text-gray-500 mt-1">
+                    <span v-if="instructionForm.load_mode === 'always'">Always included in AI context</span>
+                    <span v-else-if="instructionForm.load_mode === 'intelligent'">Included when relevant to the query</span>
+                    <span v-else>Never included in AI context</span>
+                </p>
+            </div>
+
             <!-- Advanced Section -->
             <div class="p-2 border border-gray-200 rounded-md mx-auto max-w-xl mt-4">
                 <div class="flex items-center cursor-pointer hover:bg-gray-50 p-1" @click="showAdvanced = !showAdvanced">
@@ -265,21 +348,25 @@
                 </div>
             </div>
 
-            <!-- Form Actions -->
-            <div class="sticky bottom-0 bg-white border-t flex justify-between items-center pt-3 mx-auto max-w-xl">
-                <!-- Delete button (only show when editing) -->
-                <UButton 
-                    v-if="isEditing"
-                    label="Delete Instruction" 
-                    color="red" 
-                    variant="soft" 
-                    @click="confirmDelete"
-                    :loading="isDeleting"
-                />
-                
-                <div class="flex space-x-2" :class="{ 'ml-auto': !isEditing }">
-                    <UButton label="Cancel" color="gray" variant="soft" size="xs" @click="$emit('cancel')" />
-                    <UButton type="submit" :label="isEditing ? 'Update Instruction' : 'Create Instruction'"  size="xs" class="!bg-blue-500 !text-white" :loading="isSubmitting" />
+            </div>
+            
+            <!-- Form Actions (fixed at bottom) -->
+            <div class="shrink-0 bg-white border-t p-4">
+                <div class="flex justify-between items-center mx-auto max-w-xl">
+                    <!-- Delete button (only show when editing) -->
+                    <UButton 
+                        v-if="isEditing"
+                        label="Delete Instruction" 
+                        color="red" 
+                        variant="soft" 
+                        @click="confirmDelete"
+                        :loading="isDeleting"
+                    />
+                    
+                    <div class="flex space-x-2" :class="{ 'ml-auto': !isEditing }">
+                        <UButton label="Cancel" color="gray" variant="soft" size="xs" @click="$emit('cancel')" />
+                        <UButton type="submit" :label="isEditing ? 'Update Instruction' : 'Create Instruction'"  size="xs" class="!bg-blue-500 !text-white" :loading="isSubmitting" />
+                    </div>
                 </div>
             </div>
         </form>
@@ -316,6 +403,9 @@ interface InstructionForm {
     global_status: string | null
     is_seen: boolean
     can_user_toggle: boolean
+    
+    // Unified Instructions System fields
+    load_mode: 'always' | 'intelligent' | 'disabled'
 }
 
 interface InstructionLabel {
@@ -337,9 +427,11 @@ interface MentionableItem {
 const props = defineProps<{
     instruction?: any
     analyzing?: boolean
+    isGitSourced?: boolean
+    isGitSynced?: boolean
 }>()
 
-const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form'])
+const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git'])
 
 // Reactive state
 const toast = useToast()
@@ -368,7 +460,8 @@ const instructionForm = ref<InstructionForm>({
     private_status: null,
     global_status: 'approved',
     is_seen: true,
-    can_user_toggle: true
+    can_user_toggle: true,
+    load_mode: 'always'
 })
 
 // Computed properties
@@ -687,6 +780,7 @@ const buildInstructionPayload = () => {
         global_status: instructionForm.value.global_status,
         is_seen: instructionForm.value.is_seen,
         can_user_toggle: instructionForm.value.can_user_toggle,
+        load_mode: instructionForm.value.load_mode,
         data_source_ids: dataSourceIds,
         label_ids: selectedLabelIds.value.slice(),
         references: selectedReferences.value.map(r => ({
@@ -704,12 +798,13 @@ const resetForm = () => {
         text: '',
         status: 'draft',
         category: 'general',
-        
+
         // Global instructions: null, approved, draft/published
         private_status: null,
         global_status: 'approved',
         is_seen: true,
-        can_user_toggle: true
+        can_user_toggle: true,
+        load_mode: 'always'
     }
     selectedDataSources.value = []
     selectedReferences.value = []
@@ -869,12 +964,13 @@ watch(() => props.instruction, (newInstruction) => {
             text: newInstruction.text || '',
             status: newInstruction.status || 'draft',
             category: newInstruction.category || 'general',
-            
+
             // Global instructions: null, approved, draft/published
             private_status: newInstruction.private_status || null,
             global_status: newInstruction.global_status || 'approved',
             is_seen: newInstruction.is_seen !== undefined ? newInstruction.is_seen : true,
-            can_user_toggle: newInstruction.can_user_toggle !== undefined ? newInstruction.can_user_toggle : true
+            can_user_toggle: newInstruction.can_user_toggle !== undefined ? newInstruction.can_user_toggle : true,
+            load_mode: newInstruction.load_mode || 'always'
         }
         selectedDataSources.value = newInstruction.data_sources?.map((ds: DataSource) => ds.id) || []
         selectedLabelIds.value = newInstruction.labels?.map((label: InstructionLabel) => label.id) || []

@@ -1,5 +1,22 @@
+"""
+DEPRECATED: This module is deprecated and will be removed in a future version.
+
+Use InstructionContextBuilder instead, which now handles both user-created
+instructions and git-sourced resources through the unified Instruction model.
+
+Example migration:
+    # Old way (deprecated)
+    builder = ResourceContextBuilder(db, data_sources, org, prompt)
+    context = await builder.build()
+    
+    # New way (recommended)
+    builder = InstructionContextBuilder(db, org)
+    context = await builder.build_full_context(query, data_source_ids=ds_ids)
+"""
+
 import re
 import json
+import warnings
 from sqlalchemy import select
 
 # Import the unified MetadataResource model
@@ -11,7 +28,20 @@ from app.ai.context.sections.resources_section import ResourcesSection
 
 
 class ResourceContextBuilder:
+    """
+    DEPRECATED: Use InstructionContextBuilder instead.
+    
+    This class is maintained for backwards compatibility but will be removed
+    in a future version. Git-sourced resources are now synced to Instructions
+    and should be loaded via InstructionContextBuilder.
+    """
+    
     def __init__(self, db, data_sources, organization, prompt_content):
+        warnings.warn(
+            "ResourceContextBuilder is deprecated. Use InstructionContextBuilder.build_full_context() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.db = db
         self.organization = organization
         self.prompt_content = prompt_content
