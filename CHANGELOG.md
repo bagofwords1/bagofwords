@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.280 (December 19, 2025)
+- Unified context and instructions
+- Added usage stats to Instructions
+- Added apply/load rules to instructions: always or smart (based on search/retrieval)
+- Redesigned Instructions table to include filters, git  based instructions, and more
+- 
+- Updated and added more automated e2e tests
+
 ## Version 0.0.279 (December 17, 2025)
 - Added **MCP Server** for integration with Claude, Cursor, and other MCP clients
 - Available tools: `create_report`, `get_context`, `inspect_data`, `create_data`
