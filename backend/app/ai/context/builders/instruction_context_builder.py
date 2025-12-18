@@ -1,17 +1,14 @@
-from typing import List, Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple, Dict
 import re
 import logging
 
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.instruction import (
-    Instruction
-)
-
+from app.models.instruction import Instruction
+from app.models.instruction_stats import InstructionStats
 from app.models.organization import Organization
 from app.models.user import User
-
 
 from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem, InstructionLabelItem
 
@@ -253,6 +250,14 @@ class InstructionContextBuilder:
                 category=category,
             )
         
+        # Collect all instruction IDs for batch stats loading
+        all_instruction_ids = [str(inst.id) for inst in always_instructions]
+        all_instruction_ids.extend([str(inst.id) for inst, _ in intelligent_results])
+        
+        # Batch-load usage stats for all instructions
+        usage_counts = await self._batch_load_usage_counts(all_instruction_ids)
+        logger.info(f"InstructionContextBuilder.build: usage_counts={usage_counts}")
+        
         # Deduplicate and build items with tracking
         seen_ids: Set[str] = set()
         items: List[InstructionItem] = []
@@ -262,6 +267,8 @@ class InstructionContextBuilder:
             inst_id = str(inst.id)
             if inst_id not in seen_ids:
                 seen_ids.add(inst_id)
+                usage = usage_counts.get(inst_id)
+                logger.info(f"InstructionContextBuilder.build: inst={inst_id}, usage={usage}")
                 items.append(InstructionItem(
                     id=inst_id,
                     category=inst.category,
@@ -271,6 +278,7 @@ class InstructionContextBuilder:
                     source_type=inst.source_type,
                     title=inst.title,
                     labels=self._extract_labels(inst),
+                    usage_count=usage,
                 ))
         
         # Add intelligent (search-matched) instructions
@@ -287,6 +295,7 @@ class InstructionContextBuilder:
                     source_type=inst.source_type,
                     title=inst.title,
                     labels=self._extract_labels(inst),
+                    usage_count=usage_counts.get(inst_id),
                 ))
         
         return InstructionsSection(items=items)
@@ -294,6 +303,45 @@ class InstructionContextBuilder:
     # --------------------------------------------------------------------- #
     # Private helpers                                                       #
     # --------------------------------------------------------------------- #
+    
+    async def _batch_load_usage_counts(self, instruction_ids: List[str]) -> Dict[str, int]:
+        """Batch-load usage counts for multiple instructions."""
+        if not instruction_ids:
+            return {}
+        
+        try:
+            org_id_str = str(self.organization.id)
+            instruction_ids_set = set(instruction_ids)
+            
+            # Query ALL org-wide stats for this org, then filter in Python
+            # This avoids any issues with IN clause on different ID formats
+            stmt = (
+                select(InstructionStats)
+                .where(
+                    and_(
+                        InstructionStats.org_id == org_id_str,
+                        or_(
+                            InstructionStats.report_id.is_(None),
+                            InstructionStats.report_id == "",
+                        ),
+                    )
+                )
+            )
+            result = await self.db.execute(stmt)
+            all_stats = result.scalars().all()
+            
+            # Filter to requested instruction IDs and build dict
+            counts: Dict[str, int] = {}
+            for stat in all_stats:
+                stat_inst_id = str(stat.instruction_id)
+                if stat_inst_id in instruction_ids_set and stat.usage_count:
+                    counts[stat_inst_id] = stat.usage_count
+            
+            logger.info(f"_batch_load_usage_counts: Found {len(counts)} stats for {len(instruction_ids)} instructions")
+            return counts
+        except Exception as e:
+            logger.warning(f"Failed to load usage counts: {e}")
+            return {}
     
     def _extract_labels(self, instruction: Instruction) -> Optional[List[InstructionLabelItem]]:
         """Extract labels from instruction for tracking."""

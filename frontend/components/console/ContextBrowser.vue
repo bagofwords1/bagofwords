@@ -182,6 +182,7 @@
                   <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider">Instruction</th>
                   <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Category</th>
                   <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-24">Labels</th>
+                  <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-16">Usage</th>
                   <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-20">Load</th>
                   <th class="px-3 py-2 text-left text-[10px] font-medium text-gray-500 uppercase tracking-wider w-16">Type</th>
                 </tr>
@@ -234,6 +235,13 @@
                         +{{ ins.labels.length - 2 }}
                       </span>
                     </div>
+                    <span v-else class="text-[9px] text-gray-400">—</span>
+                  </td>
+                  <!-- Usage count -->
+                  <td class="px-3 py-2">
+                    <span v-if="ins.usage_count" class="text-[10px] text-gray-700 font-medium">
+                      {{ ins.usage_count }}
+                    </span>
                     <span v-else class="text-[9px] text-gray-400">—</span>
                   </td>
                   <!-- Load mode -->

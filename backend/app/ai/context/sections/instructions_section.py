@@ -21,6 +21,9 @@ class InstructionItem(BaseModel):
     source_type: Optional[str] = None     # 'user' | 'git' | 'ai' | 'dbt' | 'markdown'
     title: Optional[str] = None           # For display/debugging
     labels: Optional[List[InstructionLabelItem]] = None  # Associated labels
+    
+    # Usage stats (from InstructionStats)
+    usage_count: Optional[int] = None     # Total times this instruction was used
 
 
 class InstructionsSection(ContextSection):
