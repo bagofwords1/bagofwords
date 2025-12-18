@@ -44,6 +44,8 @@ def test_git_repository_create_index_delete(
         "repo_url": repo_url,
         "branch": "main",
         "is_active": True,
+        "auto_publish": True,
+        "default_load_mode": "always",
     }
 
     created_repo = create_git_repository(
@@ -55,6 +57,9 @@ def test_git_repository_create_index_delete(
 
     assert created_repo["repo_url"] == repo_url
     assert created_repo["provider"] == "github"
+    # Verify new instruction sync settings
+    assert created_repo.get("auto_publish") is True, "auto_publish should be True"
+    assert created_repo.get("default_load_mode") == "always", "default_load_mode should be 'always'"
     repository_id = created_repo["id"]
 
     get_git_repository(
@@ -84,24 +89,24 @@ def test_git_repository_create_index_delete(
     assert len(resources) > 0, "Expected metadata resources after indexing"
 
     # Verify instructions were created from metadata resources
-    instructions_response = get_instructions_by_source_type(
+    # Fixture returns items directly (not paginated response)
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
     
-    # Handle paginated response
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
-    
     assert len(instructions) > 0, "Expected instructions to be created after indexing"
     
-    # Verify instructions have correct source_type
+    # Verify instructions have correct properties based on git repo settings
     for instruction in instructions:
         assert instruction["source_type"] == "git", "Instruction should have source_type='git'"
         assert instruction["source_metadata_resource_id"] is not None, "Instruction should be linked to a resource"
+        # Verify auto_publish=True results in published status
+        assert instruction["status"] == "published", "Instruction should be published (auto_publish=True)"
+        # Verify default_load_mode='always' is applied
+        assert instruction["load_mode"] == "always", "Instruction should have load_mode='always'"
 
     delete_response = delete_git_repository(
         data_source_id=data_source["id"],

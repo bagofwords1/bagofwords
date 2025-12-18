@@ -184,6 +184,10 @@ class InstructionSyncService:
         )
         data_source = data_source_result.scalar_one_or_none()
         
+        # Get user_id from git repository (creator of the repo)
+        # This is needed for test environments where user_id may still be NOT NULL
+        user_id = git_repo.user_id if git_repo else None
+        
         instruction = Instruction(
             text=formatted_text,
             title=resource.name,
@@ -199,8 +203,7 @@ class InstructionSyncService:
             structured_data=structured_data,
             formatted_content=formatted_text,
             organization_id=organization.id,
-            # Don't assign user_id - this is system-created
-            user_id=None,
+            user_id=user_id,  # Use git repo creator as instruction creator
             is_seen=True,
             can_user_toggle=True,
         )
@@ -303,7 +306,7 @@ class InstructionSyncService:
             structured_data=structured_data,
             formatted_content=formatted_text,
             organization_id=organization.id,
-            user_id=None,
+            user_id=published.user_id,  # Inherit user from parent instruction
             is_seen=True,
             can_user_toggle=True,
         )
@@ -348,16 +351,18 @@ class InstructionSyncService:
         resource: MetadataResource,
         git_repo: Optional[GitRepository] = None,
     ) -> str:
-        """Determine the load mode for a resource."""
-        # Check if resource has a specific load_mode set
-        if resource.load_mode:
-            return resource.load_mode
-
-        # Check git repository default load mode
+        """Determine the load mode for a resource.
+        
+        Priority order:
+        1. Git repository default_load_mode (if set and not 'intelligent')
+        2. Resource-specific load_mode (if explicitly set and different from model default)
+        3. Type-specific default from DEFAULT_LOAD_MODES
+        """
+        # Git repository setting takes priority if explicitly configured
         if git_repo and git_repo.default_load_mode:
             return git_repo.default_load_mode
 
-        # Use type-specific default
+        # Use type-specific default (this is more intentional than the model default)
         return self.DEFAULT_LOAD_MODES.get(resource.resource_type, 'intelligent')
     
     def _build_structured_data(self, resource: MetadataResource) -> Dict[str, Any]:

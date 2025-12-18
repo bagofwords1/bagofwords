@@ -93,7 +93,11 @@ def get_instructions(test_client):
         )
         
         assert response.status_code == 200, response.json()
-        return response.json()
+        data = response.json()
+        # Handle paginated response - return items for backward compatibility
+        if isinstance(data, dict) and "items" in data:
+            return data["items"]
+        return data
     
     return _get_instructions
 
@@ -397,7 +401,11 @@ def get_instructions_by_source_type(test_client):
         )
         
         assert response.status_code == 200, response.json()
-        return response.json()
+        data = response.json()
+        # Handle paginated response - return items for backward compatibility
+        if isinstance(data, dict) and "items" in data:
+            return data["items"]
+        return data
     
     return _get_instructions_by_source_type
 

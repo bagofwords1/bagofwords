@@ -77,18 +77,13 @@ def test_git_indexing_creates_instructions(
     resources = metadata_resources.get("resources", [])
     assert len(resources) > 0, "Expected metadata resources after indexing"
 
-    # Get git-sourced instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get git-sourced instructions (fixture returns items directly)
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    # Handle paginated response
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) > 0, "Expected instructions to be created after indexing"
 
@@ -164,17 +159,13 @@ def test_auto_publish_true_creates_published_instructions(
         org_id=org_id,
     )
 
-    # Get git-sourced instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get git-sourced instructions (fixture returns items directly)
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) > 0, "Expected instructions after indexing"
 
@@ -248,17 +239,13 @@ def test_auto_publish_false_creates_draft_instructions(
         org_id=org_id,
     )
 
-    # Get git-sourced instructions (include drafts)
-    instructions_response = get_instructions_by_source_type(
+    # Get git-sourced instructions (include drafts) - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) > 0, "Expected instructions after indexing"
 
@@ -332,17 +319,13 @@ def test_default_load_mode_applied_to_instructions(
         org_id=org_id,
     )
 
-    # Get git-sourced instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get git-sourced instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) > 0, "Expected instructions after indexing"
 
@@ -412,17 +395,13 @@ def test_unlink_instruction_preserves_on_delete(
         org_id=org_id,
     )
 
-    # Get git-sourced instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get git-sourced instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) >= 2, "Need at least 2 instructions for this test"
 
@@ -504,17 +483,13 @@ def test_delete_git_repo_deletes_synced_instructions(
         org_id=org_id,
     )
 
-    # Verify instructions exist
-    instructions_response = get_instructions_by_source_type(
+    # Verify instructions exist - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     initial_count = len(instructions)
     assert initial_count > 0, "Expected instructions after indexing"
@@ -527,17 +502,13 @@ def test_delete_git_repo_deletes_synced_instructions(
         org_id=org_id,
     )
 
-    # Verify instructions are deleted
-    instructions_after = get_instructions_by_source_type(
+    # Verify instructions are deleted - fixture returns items directly
+    remaining = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    remaining = instructions_after.get("items", instructions_after)
-    if isinstance(remaining, dict):
-        remaining = remaining.get("items", [])
     
     assert len(remaining) == 0, f"Expected no instructions after repo deletion, found {len(remaining)}"
 
@@ -605,17 +576,13 @@ def test_linked_instruction_count_excludes_unlinked(
     initial_count = initial_count_response.get("instruction_count", 0)
     assert initial_count > 0, "Expected linked instructions"
 
-    # Get an instruction to unlink
-    instructions_response = get_instructions_by_source_type(
+    # Get an instruction to unlink - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) > 0, "Need instructions to unlink"
 
@@ -707,17 +674,13 @@ def test_bulk_update_status_to_published(
         org_id=org_id,
     )
 
-    # Get draft instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get draft instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) >= 2, "Need at least 2 instructions for bulk test"
     
@@ -810,17 +773,13 @@ def test_bulk_update_load_mode_to_always(
         org_id=org_id,
     )
 
-    # Get instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) >= 2, "Need at least 2 instructions for bulk test"
 
@@ -916,17 +875,13 @@ def test_bulk_add_label_to_instructions(
     )
     label_id = label["id"]
 
-    # Get instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) >= 2, "Need at least 2 instructions for bulk test"
 
@@ -1028,17 +983,13 @@ def test_bulk_remove_label_from_instructions(
     )
     label_id = label["id"]
 
-    # Get instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) >= 2, "Need at least 2 instructions for bulk test"
 
@@ -1146,17 +1097,13 @@ def test_bulk_update_combined_status_and_load_mode(
         org_id=org_id,
     )
 
-    # Get instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) >= 2, "Need at least 2 instructions for bulk test"
     
@@ -1250,17 +1197,13 @@ def test_bulk_archive_instructions(
         org_id=org_id,
     )
 
-    # Get instructions
-    instructions_response = get_instructions_by_source_type(
+    # Get instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
-    instructions = instructions_response.get("items", instructions_response)
-    if isinstance(instructions, dict):
-        instructions = instructions.get("items", [])
     
     assert len(instructions) >= 2, "Need at least 2 instructions for bulk test"
 
