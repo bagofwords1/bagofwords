@@ -11,187 +11,137 @@
 
           <!-- Content Sections -->
           <div v-else class="space-y-6 fade-in">
-            <!-- Suggested Instructions -->
-            <div class="bg-white border border-gray-200 rounded-lg transition-all duration-500 ease-in-out">
-              <div 
-                @click="toggleInstructionsSection"
-                class="flex items-center justify-between cursor-pointer p-3 hover:bg-gray-50"
-              >
-                <div class="flex items-center">
-                  <UIcon 
-                    :name="instructionsExpanded ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
-                    class="w-5 h-5 text-gray-500 mr-2 transition-transform duration-200"
-                  />
-                  <h3 class="text-sm font-semibold text-gray-900">Suggested Instructions</h3>
-                </div>
+            <!-- Instructions List -->
+            <div class="space-y-4">
+              <div v-if="isLoadingInstructions" class="text-xs text-gray-500 flex items-center gap-2">
+                <Spinner class="w-4 h-4" />
+                Loading instructions...
               </div>
-
-              <div v-if="instructionsExpanded" class="px-3 pb-3">
-                <div class="text-left mb-4">
-                  <p class="text-xs leading-relaxed text-gray-500">Custom instructions are great for business-specific context, glossary and useful code guidelines/snippets.</p>
-                </div>
-                
-                <div class="space-y-3">
-                  <div v-if="isLoadingInstructions" class="text-xs text-gray-500 flex items-center gap-2">
-                    <Spinner class="w-4 h-4" />
-                    Loading instructions...
+              <div v-else class="space-y-2">
+                <div 
+                  v-for="instruction in paginatedInstructions" 
+                  :key="instruction.id"
+                  class="hover:bg-gray-50 bg-white border border-gray-200 rounded-md p-3 transition-colors relative cursor-pointer"
+                  @click="openInstructionEditor(instruction)"
+                >
+                  <!-- Git and type icons for git-sourced instructions -->
+                  <div v-if="instruction.source_type === 'git'" class="flex items-center gap-1 mb-1">
+                    <UTooltip text="Git-sourced">
+                      <img src="/icons/git-branch.svg" alt="Git" class="h-3 w-3 opacity-60" />
+                    </UTooltip>
+                    <UTooltip v-if="getResourceTypeIcon(instruction)" :text="getResourceTypeTooltip(instruction)">
+                      <img :src="getResourceTypeIcon(instruction) ?? undefined" :alt="getResourceTypeTooltip(instruction)" class="h-3 opacity-60" />
+                    </UTooltip>
+                    <UTooltip v-else-if="getResourceType(instruction)" :text="getResourceTypeTooltip(instruction)">
+                      <UIcon :name="getResourceTypeFallbackIcon(instruction)" class="w-3 h-3 text-gray-400" />
+                    </UTooltip>
                   </div>
-                  <div v-else>
-                    <div 
-                      v-for="instruction in suggestedInstructions" 
-                      :key="instruction.id"
-                      class="hover:bg-gray-50 bg-white mt-2 border border-gray-200 rounded-md p-3 transition-colors relative"
-                    >
-                      <div class="text-[12px] text-gray-800 leading-relaxed pr-24 whitespace-normal break-words max-w-full">
-                        {{ instruction.text }}
-                      </div>
-                      
-                      <div class="absolute top-2 right-2 flex items-center gap-2">
-                        <template v-if="instructionAction[instruction.id]">
-                          <span 
-                            class="px-2 py-0.5 text-[11px] rounded-full border"
-                            :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'"
-                          >
-                            {{ instructionAction[instruction.id] === 'approved' ? 'Approved' : 'Removed' }}
-                          </span>
-                        </template>
-                        <template v-else>
-                          <span class="hover:bg-gray-100 rounded cursor-pointer" @click="rejectInstruction(instruction)">
-                            <Icon 
-                              name="heroicons:x-mark" 
-                              class="w-4 h-4 text-red-500 rounded cursor-pointer" 
-                            />
-                          </span>
-                          <span class="hover:bg-gray-100 rounded cursor-pointer" @click="approveInstruction(instruction)">
-                            <Icon 
-                              name="heroicons:check" 
-                              class="w-4 h-4 text-green-500 rounded cursor-pointer" 
-                            />
-                          </span>
-                        </template>
-                      </div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                      <button class="text-xs text-blue-500 hover:text-blue-600 p-2 rounded-md" @click="openInstructionModal">
-                        Add Custom Instruction
-                      </button>
-                      <button 
-                        v-if="suggestedInstructions.length === 0 && hasAttemptedLLMSync"
-                        class="text-xs text-gray-500 hover:text-gray-600 p-2 rounded-md"
-                        :disabled="isLLMSyncInProgress"
-                        @click="runLLMSync"
+                  
+                  <div class="text-[12px] text-gray-800 leading-relaxed pr-24 whitespace-normal break-words max-w-full">
+                    {{ truncateText(instruction.text, 100) }}
+                  </div>
+                  
+                  <div class="absolute top-2 right-2 flex items-center gap-2">
+                    <template v-if="instructionAction[instruction.id]">
+                      <span 
+                        class="px-2 py-0.5 text-[11px] rounded-full border"
+                        :class="instructionAction[instruction.id] === 'approved' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-red-50 text-red-700 border-red-100'"
                       >
-                        {{ isLLMSyncInProgress ? 'Generating...' : 'Generate AI Suggestions' }}
-                      </button>
-                    </div>
+                        {{ instructionAction[instruction.id] === 'approved' ? 'Approved' : 'Removed' }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <span class="hover:bg-gray-100 rounded cursor-pointer" @click.stop="rejectInstruction(instruction)">
+                        <Icon 
+                          name="heroicons:x-mark" 
+                          class="w-4 h-4 text-red-500 rounded cursor-pointer" 
+                        />
+                      </span>
+                      <span class="hover:bg-gray-100 rounded cursor-pointer" @click.stop="approveInstruction(instruction)">
+                        <Icon 
+                          name="heroicons:check" 
+                          class="w-4 h-4 text-green-500 rounded cursor-pointer" 
+                        />
+                      </span>
+                    </template>
                   </div>
+                </div>
+
+                <!-- Minimalistic Pagination -->
+                <div v-if="totalPages > 1" class="flex items-center justify-center gap-1 mt-4">
+                  <button 
+                    v-for="page in totalPages" 
+                    :key="page"
+                    @click="currentPage = page"
+                    class="w-6 h-6 text-xs rounded-full transition-colors"
+                    :class="currentPage === page ? 'bg-blue-500 text-white' : 'text-gray-500 hover:bg-gray-100'"
+                  >
+                    {{ page }}
+                  </button>
+                </div>
+
+                <div class="flex items-center gap-2 mt-4">
+                  <UButton
+                    color="blue"
+                    variant="outline"
+                    size="xs"
+                    @click="openInstructionModal"
+                    icon="heroicons:plus"
+                  >
+                    Add Instruction
+                  </UButton>
+                  <button 
+                    v-if="allInstructions.length === 0 && hasAttemptedLLMSync"
+                    class="text-xs text-gray-500 hover:text-gray-600 p-2 rounded-md"
+                    :disabled="isLLMSyncInProgress"
+                    @click="runLLMSync"
+                  >
+                    {{ isLLMSyncInProgress ? 'Generating...' : 'Generate AI Suggestions' }}
+                  </button>
                 </div>
               </div>
             </div>
 
-            <!-- Git Integration & Instructions -->
-            <div class="bg-white border border-gray-200 rounded-lg transition-all duration-500 ease-in-out">
-              <div 
-                @click="toggleEnrichmentSection"
-                class="flex items-center justify-between cursor-pointer p-3 hover:bg-gray-50"
-              >
-                <div class="flex items-center">
-                  <UIcon 
-                    :name="enrichmentExpanded ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" 
-                    class="w-5 h-5 text-gray-500 mr-2 transition-transform duration-200"
-                  />
-                  <h3 class="text-sm font-semibold text-gray-900">Git-sourced Instructions</h3>
-                </div>
-                <div class="flex items-center gap-2">
-                  <UTooltip text="Tableau">
-                    <img src="/icons/tableau.png" alt="Tableau" class="h-3 inline" />
-                  </UTooltip>
-                  <UTooltip text="dbt">
-                    <img src="/icons/dbt.png" alt="dbt" class="h-3 inline" />
-                  </UTooltip>
-                  <UTooltip text="LookML">
-                    <img src="/icons/lookml.png" alt="LookML" class="h-3 inline" />
-                  </UTooltip>
-                  <UTooltip text="Markdown">
-                    <img src="/icons/markdown.png" alt="Markdown" class="h-3 inline" />
-                  </UTooltip>
-                </div>
-              </div>
-
-              <div v-if="enrichmentExpanded" class="px-3 pb-3">
-                <!-- Connect button when no git repo -->
-                <div v-if="!integration?.git_repository" class="text-center py-6">
-                  <p class="text-sm text-gray-500 mb-4">Connect a Git repo to load dbt models, markdown docs, and other resources as instructions.</p>
-                  <div class="flex items-center justify-center gap-3 mb-4">
-                    <UTooltip text="Tableau">
-                      <img src="/icons/tableau.png" alt="Tableau" class="h-5 inline" />
-                    </UTooltip>
-                    <UTooltip text="dbt">
-                      <img src="/icons/dbt.png" alt="dbt" class="h-5 inline" />
-                    </UTooltip>
-                    <UTooltip text="LookML">
-                      <img src="/icons/lookml.png" alt="LookML" class="h-5 inline" />
-                    </UTooltip>
-                    <UTooltip text="Markdown">
-                      <img src="/icons/markdown.png" alt="Markdown" class="h-5 inline" />
-                    </UTooltip>
-                  </div>
-                  <UButton
-                    icon="heroicons:code-bracket"
-                    color="blue"
-                    variant="soft"
-                    @click="showGitModal = true"
-                  >
-                    Connect Git Repository
-                  </UButton>
-                </div>
-
-                <!-- Git repo connected -->
-                <div v-else>
-                  <!-- Repo info bar -->
-                  <div class="flex items-center justify-between mb-3 px-1">
-                    <div class="flex items-center gap-2 text-xs text-gray-500">
-                      <UIcon name="heroicons:code-bracket" class="w-4 h-4" />
-                      <span class="font-medium">{{ repoDisplayName }}</span>
-                      <span v-if="isIndexingGit" class="text-amber-500 flex items-center gap-1">
-                        <UIcon name="heroicons:arrow-path" class="w-3 h-3 animate-spin" />
-                        Indexing...
-                      </span>
+            <!-- Git Integration Card -->
+            <div 
+              class="bg-blue-50/50 border border-blue-100 rounded-lg p-4 cursor-pointer hover:bg-blue-50 transition-colors"
+              @click="showGitModal = true"
+            >
+              <div class="flex items-center gap-3">
+                <GitBranchIcon class="w-5 h-5 text-blue-500 shrink-0" />
+                <div class="flex-1">
+                  <div class="flex items-center gap-2">
+                    <h3 class="text-sm font-semibold text-gray-900">Integrate Git</h3>
+                    <div class="flex items-center gap-1">
+                      <UTooltip text="Tableau">
+                        <img src="/icons/tableau.png" alt="Tableau" class="h-2.5 inline opacity-60" />
+                      </UTooltip>
+                      <UTooltip text="dbt">
+                        <img src="/icons/dbt.png" alt="dbt" class="h-2.5 inline opacity-60" />
+                      </UTooltip>
+                      <UTooltip text="LookML">
+                        <img src="/icons/lookml.png" alt="LookML" class="h-2.5 inline opacity-60" />
+                      </UTooltip>
+                      <UTooltip text="Markdown">
+                        <img src="/icons/markdown.png" alt="Markdown" class="h-2.5 inline opacity-60" />
+                      </UTooltip>
                     </div>
-                    <UButton
-                      icon="heroicons:cog-6-tooth"
-                      color="gray"
-                      variant="ghost"
-                      size="xs"
-                      @click="showGitModal = true"
-                    />
                   </div>
-
-                  <!-- Instructions table -->
-                  <div v-if="isLoadingGitInstructions" class="py-8 flex items-center justify-center">
-                    <Spinner class="w-5 h-5" />
-                  </div>
-                  <div v-else-if="gitInstructions.length === 0" class="py-6 text-center text-xs text-gray-500">
-                    <p v-if="isIndexingGit">Instructions will appear once indexing completes.</p>
-                    <p v-else>No git-sourced instructions yet. Try reindexing the repository.</p>
-                  </div>
-                  <div v-else class="max-h-80 overflow-y-auto border border-gray-100 rounded-lg">
-                    <InstructionsTable
-                      :instructions="gitInstructions"
-                      :loading="isLoadingGitInstructions"
-                      :selectable="false"
-                      :show-source="true"
-                      :show-category="false"
-                      :show-data-source="false"
-                      :show-load-mode="true"
-                      :show-labels="false"
-                      :show-status="true"
-                      :show-pagination="false"
-                      empty-title="No git instructions"
-                      empty-message="Connect a git repository to import instructions."
-                      @click="openInstructionDetail"
-                    />
-                  </div>
+                  <p class="text-xs text-gray-500 mt-0.5">
+                    <template v-if="integration?.git_repository">
+                      <span class="flex items-center gap-1.5">
+                        <UIcon name="heroicons:check-circle" class="w-3 h-3 text-green-500" />
+                        Connected to {{ repoDisplayName }}
+                        <span v-if="isIndexingGit" class="text-amber-500 flex items-center gap-1">
+                          <UIcon name="heroicons:arrow-path" class="w-3 h-3 animate-spin" />
+                          Indexing...
+                        </span>
+                      </span>
+                    </template>
+                    <template v-else>
+                      Connect a Git repo to load dbt models, markdown docs, and other resources.
+                    </template>
+                  </p>
                 </div>
               </div>
             </div>
@@ -225,9 +175,16 @@
     </div>
   <UModal v-model="showInstructionCreate" :ui="{ width: 'sm:max-w-2xl' }">
     <div>
-      <InstructionGlobalCreateComponent @instructionSaved="() => { showInstructionCreate = false; fetchInstructions(); }" @cancel="() => { showInstructionCreate = false }" />
+      <InstructionGlobalCreateComponent @instructionSaved="() => { showInstructionCreate = false; fetchInstructions(); fetchGitInstructions(); }" @cancel="() => { showInstructionCreate = false }" />
     </div>
   </UModal>
+
+  <!-- Instruction Editor Modal -->
+  <InstructionModalComponent 
+    v-model="showInstructionEditor"
+    :instruction="selectedInstruction"
+    @instructionSaved="handleInstructionEditorSaved"
+  />
 
 
   </div>
@@ -238,8 +195,15 @@ definePageMeta({ auth: true, layout: 'onboarding' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
 import InstructionGlobalCreateComponent from '@/components/InstructionGlobalCreateComponent.vue'
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
-import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
+import InstructionModalComponent from '@/components/InstructionModalComponent.vue'
+import GitBranchIcon from '@/components/icons/GitBranchIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+
+const { getResourceType, getResourceTypeIcon, getResourceTypeTooltip, getResourceTypeFallbackIcon } = useInstructionHelpers()
+
+// Pagination
+const PAGE_SIZE = 7
+const currentPage = ref(1)
 
 const route = useRoute()
 const { updateOnboarding } = useOnboarding()
@@ -252,20 +216,47 @@ const isLLMSyncInProgress = ref(false)
 const showInstructionCreate = ref(false)
 const showGitModal = ref(false)
 const hasAttemptedLLMSync = ref(false)
-const enrichmentExpanded = ref(true)
-const instructionsExpanded = ref(true)
+
+// Instruction editor
+const showInstructionEditor = ref(false)
+const selectedInstruction = ref<any>(null)
 
 // Git-sourced instructions
 const gitInstructions = ref<any[]>([])
 const isLoadingGitInstructions = ref(false)
 const isIndexingGit = computed(() => integration.value?.git_repository?.status === 'pending')
 
-function toggleEnrichmentSection() {
-  enrichmentExpanded.value = !enrichmentExpanded.value
+// Merge suggested and git instructions into one list
+const allInstructions = computed(() => {
+  const suggested = suggestedInstructions.value.filter(i => i.source_type !== 'git')
+  const git = gitInstructions.value.map(i => ({ ...i, source_type: 'git' }))
+  return [...suggested, ...git]
+})
+
+// Pagination computed
+const totalPages = computed(() => Math.ceil(allInstructions.value.length / PAGE_SIZE))
+const paginatedInstructions = computed(() => {
+  const start = (currentPage.value - 1) * PAGE_SIZE
+  return allInstructions.value.slice(start, start + PAGE_SIZE)
+})
+
+// Text truncation
+function truncateText(text: string, maxLength: number): string {
+  if (!text || text.length <= maxLength) return text
+  return text.slice(0, maxLength) + '...'
 }
 
-function toggleInstructionsSection() {
-  instructionsExpanded.value = !instructionsExpanded.value
+// Open instruction in editor
+function openInstructionEditor(instruction: any) {
+  selectedInstruction.value = instruction
+  showInstructionEditor.value = true
+}
+
+function handleInstructionEditorSaved() {
+  showInstructionEditor.value = false
+  selectedInstruction.value = null
+  fetchInstructions()
+  fetchGitInstructions()
 }
 
 const integration = ref<any>(null)
@@ -291,7 +282,7 @@ async function fetchInstructions() {
   isLoadingInstructions.value = true
   try {
     // Leverage same API shape as InstructionsListModal: published instructions; filter by ds via query if backend supports it
-    const params: any = { limit: 100 }
+    const params: any = { limit: 30 }
     if (dsId.value) params.data_source_id = dsId.value
     const { data, error } = await useMyFetch<any>('/instructions', { method: 'GET', query: params })
     if (!error.value && data.value) {
@@ -400,7 +391,7 @@ async function fetchGitInstructions() {
   isLoadingGitInstructions.value = true
   try {
     const params: any = { 
-      limit: 100,
+      limit: 30,
       data_source_id: dsId.value,
       source_types: 'git,dbt,markdown'
     }
@@ -413,11 +404,6 @@ async function fetchGitInstructions() {
   } finally {
     isLoadingGitInstructions.value = false
   }
-}
-
-function openInstructionDetail(instruction: any) {
-  // For now, just log - could open a modal in future
-  console.log('Instruction clicked:', instruction)
 }
 
 function handleGitModalClose(value: boolean) {
