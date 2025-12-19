@@ -56,12 +56,14 @@ def upgrade() -> None:
         # Make user_id nullable (git-sourced instructions don't have a user creator)
         batch_op.alter_column('user_id', existing_type=sa.String(length=36), nullable=True)
         
-        # Foreign key for source_metadata_resource_id
+        # Foreign key for source_metadata_resource_id with ON DELETE SET NULL
+        # This allows metadata_resources to be deleted without breaking instructions
         batch_op.create_foreign_key(
             'fk_instruction_source_metadata_resource', 
             'metadata_resources', 
             ['source_metadata_resource_id'], 
-            ['id']
+            ['id'],
+            ondelete='SET NULL'
         )
     
     # Add new fields to metadata_resources table
@@ -69,12 +71,14 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column('load_mode', sa.String(length=20), nullable=True))
         batch_op.add_column(sa.Column('instruction_id', sa.String(length=36), nullable=True))
         
-        # Foreign key for instruction_id
+        # Foreign key for instruction_id with ON DELETE SET NULL
+        # This allows instructions to be deleted without breaking metadata_resources
         batch_op.create_foreign_key(
             'fk_metadata_resource_instruction',
             'instructions',
             ['instruction_id'],
-            ['id']
+            ['id'],
+            ondelete='SET NULL'
         )
     
     # Populate default values for existing data
