@@ -115,7 +115,7 @@
                                                     v-if="helpers.getResourceTypeIcon(instruction)"
                                                     :src="helpers.getResourceTypeIcon(instruction)" 
                                                     :alt="helpers.getResourceTypeTooltip(instruction)"
-                                                    class="h-6 object-contain"
+                                                    class="w-6 object-contain"
                                                 />
                                                 <UIcon 
                                                     v-else
