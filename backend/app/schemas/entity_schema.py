@@ -6,6 +6,7 @@ from enum import Enum
 from app.schemas.view_schema import ViewSchema
 from app.schemas.data_source_schema import DataSourceMinimalSchema
 from app.schemas.user_schema import UserSchema
+from app.schemas.base import OptionalUTCDatetime, UTCDatetime
 
 
 class EntityPrivateStatus(str, Enum):
@@ -30,9 +31,9 @@ class EntityBase(BaseModel):
     data: Dict[str, Any] = Field(default_factory=dict)
     view: Optional[ViewSchema] = None
     status: str = "draft"  # 'draft' | 'published'
-    published_at: Optional[datetime] = None
+    published_at: OptionalUTCDatetime = None
     pinned: bool = False
-    last_refreshed_at: Optional[datetime] = None
+    last_refreshed_at: OptionalUTCDatetime = None
     auto_refresh_enabled: bool = False
     auto_refresh_interval: Optional[int] = None
     auto_refresh_interval_unit: Optional[str] = None
@@ -60,8 +61,8 @@ class EntityUpdate(BaseModel):
     data: Optional[Dict[str, Any]] = None
     view: Optional[ViewSchema] = None
     status: Optional[str] = None
-    published_at: Optional[datetime] = None
-    last_refreshed_at: Optional[datetime] = None
+    published_at: OptionalUTCDatetime = None
+    last_refreshed_at: OptionalUTCDatetime = None
     data_source_ids: Optional[List[str]] = None
     private_status: Optional[str] = None
     global_status: Optional[str] = None
@@ -84,8 +85,8 @@ class EntitySchema(EntityBase):
     owner: Optional[UserSchema] = None
     reviewed_by: Optional[UserSchema] = None
     data_sources: List[DataSourceMinimalSchema] = []
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     source_step_id: Optional[str] = None
     trigger_reason: Optional[str] = None
 
@@ -113,7 +114,7 @@ class EntityListSchema(BaseModel):
     organization_id: str
     owner_id: str
     data_sources: List[DataSourceMinimalSchema] = []
-    updated_at: datetime
+    updated_at: UTCDatetime
     pinned: bool = False
     auto_refresh_enabled: bool = False
     auto_refresh_interval: Optional[int] = None

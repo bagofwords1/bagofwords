@@ -503,10 +503,11 @@ const formData = ref({
     branch: 'main',
     privateKey: '',
     autoPublish: true,
-    defaultLoadMode: 'always',
+    defaultLoadMode: 'auto',
 })
 
 const loadModeOptions = [
+    { value: 'auto', label: 'Auto - Markdown always, others smart' },
     { value: 'intelligent', label: 'Smart - Load based on search relevance' },
     { value: 'always', label: 'Always - Always include in context' },
     { value: 'disabled', label: 'Disabled - Never include automatically' },
@@ -575,7 +576,7 @@ const displayFileCount = computed(() => {
 // Edit settings for connected repo
 const editSettings = ref({
     autoPublish: false,
-    defaultLoadMode: 'intelligent'
+    defaultLoadMode: 'auto'
 })
 
 // Watch for connected repo changes
@@ -588,7 +589,7 @@ watch(connectedRepo, (repo) => {
             justSaved.value = false
         } else {
             editSettings.value.autoPublish = repo.auto_publish ?? false
-            editSettings.value.defaultLoadMode = repo.default_load_mode ?? 'intelligent'
+            editSettings.value.defaultLoadMode = repo.default_load_mode ?? 'auto'
         }
     }
 }, { immediate: true })
@@ -615,7 +616,7 @@ watch(gitModalOpen, async (open) => {
                 branch: 'main',
                 privateKey: '',
                 autoPublish: true,
-                defaultLoadMode: 'always',
+                defaultLoadMode: 'auto',
             }
         }
     }
@@ -697,7 +698,7 @@ function selectDataSource(ds: DataSourceWithGit) {
             branch: 'main',
             privateKey: '',
             autoPublish: true,
-            defaultLoadMode: 'always',
+            defaultLoadMode: 'auto',
         }
     }
 }

@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from app.schemas.base import OptionalUTCDatetime
 
 
 class MetadataResourceSchema(BaseModel):
@@ -27,13 +28,13 @@ class MetadataResourceSchema(BaseModel):
     
     # Status and tracking
     is_active: bool = True
-    last_synced_at: Optional[datetime] = None
+    last_synced_at: OptionalUTCDatetime = None
     
     # The data source this resource belongs to
     data_source_id: str
     
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: OptionalUTCDatetime = None
+    updated_at: OptionalUTCDatetime = None
 
     class Config:
         from_attributes = True
@@ -70,7 +71,7 @@ class MetadataResourceUpdate(BaseModel):
     columns: Optional[List[Dict[str, Any]]] = None
     depends_on: Optional[List[str]] = None
     is_active: Optional[bool] = None
-    last_synced_at: Optional[datetime] = None
+    last_synced_at: OptionalUTCDatetime = None
 
 
 class MetadataResourceResponse(MetadataResourceSchema):

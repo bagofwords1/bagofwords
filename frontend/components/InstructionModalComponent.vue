@@ -6,26 +6,33 @@
             <!-- Modal container -->
             <div class="absolute inset-0 flex items-center justify-center p-4" @click.self="closeModal">
                 <div 
-                    class="relative bg-white rounded-lg shadow-xl w-[94vw] h-[85vh] overflow-hidden transition-all z-10 overscroll-contain flex flex-col"
-                    :class="isAnalyzing ? 'max-w-6xl' : 'max-w-3xl'"
+                    class="relative bg-white rounded-xl shadow-2xl w-[94vw] overflow-hidden z-10 overscroll-contain flex flex-col"
+                    :style="{
+                        maxWidth: isAnalyzing ? '1200px' : '680px',
+                        maxHeight: 'min(85vh, 800px)',
+                        transition: 'max-width 300ms cubic-bezier(0.4, 0, 0.2, 1)'
+                    }"
                 >
                     <!-- Header -->
-                    <div class="flex items-start justify-between p-4 border-b shrink-0">
+                    <div class="flex items-center justify-between px-5 py-4 border-b shrink-0">
                         <div>
-                            <h1 class="text-lg font-semibold">{{ isEditing ? 'Edit Instruction' : 'Add New Instruction' }}</h1>
-                            <p class="text-sm text-gray-500">Create or modify instructions for AI agents</p>
+                            <h1 class="text-lg font-semibold text-gray-900">{{ isEditing ? 'Edit Instruction' : 'New Instruction' }}</h1>
+                            <p class="text-sm text-gray-500">Define rules for AI agents</p>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <button @click="closeModal" class="text-gray-500 hover:text-gray-700">
-                                <Icon name="heroicons:x-mark" class="w-5 h-5" />
-                            </button>
-                        </div>
+                        <button @click="closeModal" class="text-gray-400 hover:text-gray-600 transition-colors">
+                            <Icon name="heroicons:x-mark" class="w-5 h-5" />
+                        </button>
                     </div>
 
                     <!-- Body -->
-                    <div :class="isAnalyzing ? 'grid grid-cols-1 md:grid-cols-2 gap-0' : ''" class="flex-1 min-h-0">
+                    <div 
+                        class="flex-1 min-h-0 grid transition-all duration-300 ease-out"
+                        :style="{
+                            gridTemplateColumns: isAnalyzing ? '1fr 1fr' : '1fr 0px'
+                        }"
+                    >
                         <!-- Left: Form -->
-                        <div class="flex flex-col h-full overflow-y-auto">
+                        <div class="flex flex-col h-full overflow-y-auto min-w-0">
                             <!-- Conditional rendering based on the computed selectedInstructionType -->
                             <InstructionGlobalCreateComponent 
                                 v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
@@ -62,27 +69,35 @@
                         </div>
 
                         <!-- Right: Analysis panel -->
-                        <div v-if="isAnalyzing && useCan('create_instructions')" class="border-t md:border-t-0 md:border-l p-3 bg-gray-50 flex flex-col h-full overflow-y-auto">
-                            <div class="pb-2 flex justify-start shrink-0">
-                                <UButton size="xs" variant="soft" color="blue" @click="refreshAnalysis">Refresh Analysis</UButton>
-                            </div>
-                            <div class="space-y-3 flex-1 overflow-y-auto pr-1">
+                        <div class="overflow-hidden">
+                            <div 
+                                v-if="isAnalyzing && useCan('create_instructions')" 
+                                class="h-full border-l border-gray-200 bg-gradient-to-b from-gray-50 to-white flex flex-col"
+                            >
+                                <!-- Panel header -->
+                                <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between shrink-0">
+                                    <h3 class="text-sm font-semibold text-gray-800">Analysis</h3>
+                                    <UButton size="xs" variant="ghost" color="blue" @click="refreshAnalysis">
+                                        <Icon name="heroicons:arrow-path" class="w-3.5 h-3.5 mr-1" />
+                                        Refresh
+                                    </UButton>
+                                </div>
+                                <div class="flex-1 overflow-y-auto p-4 space-y-4">
                                 <!-- Impact Estimation -->
-                                <div class="rounded-md border bg-white">
-                                    <div class="flex items-center justify-between p-2 cursor-pointer" @click="showImpact = !showImpact">
+                                <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
+                                    <div class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors" @click="showImpact = !showImpact">
                                         <div class="flex items-center gap-2">
-                                            <h3 class="text-xs font-semibold text-gray-900">Impact Estimation</h3>
-                                            <span class="text-[11px] text-gray-600">score:</span>
+                                            <h3 class="text-sm font-medium text-gray-900">Impact</h3>
                                             <UTooltip :text="impactTotalCount ? `${impactMatchedCount} of ${impactTotalCount} prompts relevant` : 'No prompts analyzed'">
-                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-blue-100 text-blue-800">
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">
                                                     {{ Math.round(impactScore * 100) }}%
                                                 </span>
                                             </UTooltip>
                                         </div>
-                                        <Icon :name="showImpact ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
+                                        <Icon :name="showImpact ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-400 transition-transform" />
                                     </div>
-                                    <div v-show="showImpact" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
-                                        <p class="text-[11px] text-gray-600 mb-2">Sample impacted prompts</p>
+                                    <div v-show="showImpact" class="border-t border-gray-100 p-3 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
+                                        <p class="text-xs text-gray-500 mb-2">Sample impacted prompts</p>
                                         <div v-if="isLoadingImpact" class="py-6 flex items-center justify-center text-gray-500">
                                             <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
                                         </div>
@@ -99,15 +114,15 @@
                                 </div>
 
                                 <!-- Related Instructions -->
-                                <div class="rounded-md border bg-white">
-                                    <div class="flex items-center justify-between p-2 cursor-pointer" @click="showRelated = !showRelated">
+                                <div class="rounded-lg border border-gray-200 bg-white shadow-sm">
+                                    <div class="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 transition-colors" @click="showRelated = !showRelated">
                                         <div class="flex items-center gap-2">
-                                            <h3 class="text-xs font-semibold text-gray-900">Related Instructions</h3>
-                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 text-gray-800 text-[11px]">{{ relatedInstructions.length }}</span>
+                                            <h3 class="text-sm font-medium text-gray-900">Related</h3>
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">{{ relatedInstructions.length }}</span>
                                         </div>
-                                        <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-600" />
+                                        <Icon :name="showRelated ? 'heroicons:chevron-down' : 'heroicons:chevron-right'" class="w-4 h-4 text-gray-400 transition-transform" />
                                     </div>
-                                    <div v-show="showRelated" class="border-t p-2 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
+                                    <div v-show="showRelated" class="border-t border-gray-100 p-3 overflow-y-auto" :style="{ maxHeight: sectionMaxHeight }">
                                         <div v-if="isLoadingRelated" class="py-6 flex items-center justify-center text-gray-500">
                                             <Spinner class="w-4 h-4 mr-2" /> <span class="text-xs">Loading...</span>
                                         </div>
@@ -129,6 +144,7 @@
                                     </div>
                                 </div>
 
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -287,8 +303,8 @@ const formatDate = (d: string | Date | null | undefined) => {
     return dt.toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-// Each section's max height is half of the right pane's height (since we only have 2 sections now)
-const sectionMaxHeight = 'calc((85vh - 56px) / 2)'
+// Each section's max height for the analysis panel
+const sectionMaxHeight = 'calc((min(85vh, 800px) - 120px) / 2)'
 
 const impactMatchedCount = ref(0)
 const impactTotalCount = ref(0)

@@ -8,6 +8,7 @@ from app.schemas.data_source_schema import DataSourceSchema, DataSourceMinimalSc
 from app.schemas.instruction_label_schema import InstructionLabelSchema
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema, InstructionReferenceCreate
 from app.schemas.user_schema import UserSchema
+from app.schemas.base import UTCDatetime
 
 class InstructionStatus(str, Enum):
     DRAFT = "draft"
@@ -131,8 +132,8 @@ class InstructionSchema(InstructionBase):
     data_sources: List[DataSourceSchema] = []
     references: List[InstructionReferenceSchema] = []
     labels: List[InstructionLabelSchema] = []
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     agent_execution_id: Optional[str] = None
     trigger_reason: Optional[str] = None
 
@@ -193,8 +194,8 @@ class InstructionListSchema(BaseModel):
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []
     labels: List[InstructionLabelSchema] = []
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True

@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
 from datetime import datetime
+from app.schemas.base import OptionalUTCDatetime, UTCDatetime
 
 
 class AgentExecutionSchema(BaseModel):
@@ -11,8 +12,8 @@ class AgentExecutionSchema(BaseModel):
     user_id: Optional[str] = None
     report_id: Optional[str] = None
     status: str
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: OptionalUTCDatetime = None
+    completed_at: OptionalUTCDatetime = None
     total_duration_ms: Optional[float] = None
     first_token_ms: Optional[float] = None
     thinking_ms: Optional[float] = None
@@ -25,8 +26,8 @@ class AgentExecutionSchema(BaseModel):
     instructions_effectiveness: Optional[int] = None
     context_effectiveness: Optional[int] = None
     response_score: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -40,8 +41,8 @@ class ContextSnapshotSchema(BaseModel):
     prompt_text: Optional[str]
     prompt_tokens: Optional[int]
     hash: Optional[str]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -61,8 +62,8 @@ class PlanDecisionSchema(BaseModel):
     action_args_json: Optional[Dict[str, Any]]
     metrics_json: Optional[Dict[str, Any]]
     context_snapshot_id: Optional[str]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -79,8 +80,8 @@ class PlanDecisionReducedSchema(BaseModel):
     action_args_json: Optional[Dict[str, Any]]
     metrics_json: Optional[Dict[str, Any]]
     context_snapshot_id: Optional[str]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True

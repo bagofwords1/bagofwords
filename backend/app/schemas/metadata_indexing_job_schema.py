@@ -3,6 +3,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime
 from enum import Enum
 from app.schemas.metadata_resource_schema import MetadataResourceSchema
+from app.schemas.base import OptionalUTCDatetime
 
 class JobStatus(str, Enum):
     PENDING = "pending"
@@ -32,14 +33,14 @@ class MetadataIndexingJobSchema(BaseModel):
     resources_failed: int = 0
     
     # Timing information
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: OptionalUTCDatetime = None
+    completed_at: OptionalUTCDatetime = None
     
     # The data source this job is processing
     data_source_id: str
     
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+    created_at: OptionalUTCDatetime = None
+    updated_at: OptionalUTCDatetime = None
 
     class Config:
         from_attributes = True
@@ -62,8 +63,8 @@ class MetadataIndexingJobUpdate(BaseModel):
     config: Optional[Dict[str, Any]] = None
     resources_processed: Optional[int] = None
     resources_failed: Optional[int] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: OptionalUTCDatetime = None
+    completed_at: OptionalUTCDatetime = None
 
 
 class MetadataIndexingJobResponse(MetadataIndexingJobSchema):

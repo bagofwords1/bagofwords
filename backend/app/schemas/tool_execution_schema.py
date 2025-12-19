@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, Any, Dict
 from datetime import datetime
+from app.schemas.base import OptionalUTCDatetime, UTCDatetime
 
 
 class ToolExecutionSchema(BaseModel):
@@ -12,8 +13,8 @@ class ToolExecutionSchema(BaseModel):
     arguments_json: Dict[str, Any]
     status: str
     success: bool
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
+    started_at: OptionalUTCDatetime
+    completed_at: OptionalUTCDatetime
     duration_ms: Optional[float]
     attempt_number: int
     max_retries: int
@@ -25,8 +26,8 @@ class ToolExecutionSchema(BaseModel):
     created_step_id: Optional[str]
     context_snapshot_id: Optional[str]
     error_message: Optional[str]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True

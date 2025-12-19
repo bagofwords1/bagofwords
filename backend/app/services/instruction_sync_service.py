@@ -354,12 +354,18 @@ class InstructionSyncService:
         """Determine the load mode for a resource.
         
         Priority order:
-        1. Git repository default_load_mode (if set and not 'intelligent')
-        2. Resource-specific load_mode (if explicitly set and different from model default)
-        3. Type-specific default from DEFAULT_LOAD_MODES
+        1. Git repository default_load_mode (if set)
+           - 'auto' mode: markdown → 'always', others → 'intelligent'
+           - Other modes are applied directly
+        2. Type-specific default from DEFAULT_LOAD_MODES
         """
         # Git repository setting takes priority if explicitly configured
         if git_repo and git_repo.default_load_mode:
+            if git_repo.default_load_mode == 'auto':
+                # Auto mode: markdown files always load, others use intelligent
+                if resource.resource_type == 'markdown_document':
+                    return 'always'
+                return 'intelligent'
             return git_repo.default_load_mode
 
         # Use type-specific default (this is more intentional than the model default)

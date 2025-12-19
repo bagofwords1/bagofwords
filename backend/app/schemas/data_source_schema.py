@@ -27,14 +27,15 @@ import uuid
 from datetime import datetime
 import json
 from app.schemas.git_repository_schema import GitRepositorySchema
+from app.schemas.base import OptionalUTCDatetime, UTCDatetime
 
 class DataSourceReportSchema(BaseModel):
     id: str
     name: str
     type: str
     organization_id: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     context: Optional[str]
     description: Optional[str]
     summary: Optional[str]
@@ -63,8 +64,8 @@ class DataSourceMembershipSchema(BaseModel):
     principal_type: str  # "user" or "group"
     principal_id: str
     config: Optional[Dict[str, Any]] = None  # For future row-level access
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -80,10 +81,10 @@ class DataSourceUserStatus(BaseModel):
     has_user_credentials: bool
     auth_mode: Optional[str] = None
     is_primary: Optional[bool] = None
-    last_used_at: Optional[datetime] = None
-    expires_at: Optional[datetime] = None
+    last_used_at: OptionalUTCDatetime = None
+    expires_at: OptionalUTCDatetime = None
     connection: Literal["offline", "not_connected", "success", "unknown"] = "unknown"
-    last_checked_at: Optional[datetime] = None
+    last_checked_at: OptionalUTCDatetime = None
     effective_auth: Literal["user", "system", "none"] = "none"
     uses_fallback: bool = False
     credentials_id: Optional[str] = None
@@ -102,8 +103,8 @@ class DataSourceSchema(DataSourceBase):
         from_attributes = True
     id: str
     organization_id: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     context: Optional[str]
     description: Optional[str]
     summary: Optional[str]
@@ -139,7 +140,7 @@ class DataSourceListItemSchema(BaseModel):
     auth_policy: str
     description: Optional[str]
     conversation_starters: Optional[list] = None
-    created_at: datetime
+    created_at: UTCDatetime
     status: str  # "active" | "inactive"
     user_status: Optional[DataSourceUserStatus] = None
 

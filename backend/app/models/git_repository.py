@@ -19,7 +19,7 @@ class GitRepository(BaseSchema):
     
     # Instruction sync settings
     auto_publish = Column(Boolean, nullable=False, default=False)  # Auto-publish synced instructions
-    default_load_mode = Column(String(20), nullable=False, default='intelligent')  # always, intelligent, disabled
+    default_load_mode = Column(String(20), nullable=False, default='auto')  # auto, always, intelligent, disabled
     
     # Foreign Keys
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False)

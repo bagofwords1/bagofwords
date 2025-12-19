@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 import json
+from app.schemas.base import OptionalUTCDatetime, UTCDatetime
 
 
 class GitRepositoryBase(BaseModel):
@@ -10,7 +11,7 @@ class GitRepositoryBase(BaseModel):
     branch: str = "main"
     is_active: bool = True
     auto_publish: bool = False  # Auto-publish synced instructions
-    default_load_mode: str = "intelligent"  # always, intelligent, disabled
+    default_load_mode: str = "auto"  # auto, always, intelligent, disabled
 
 
 class GitRepositorySchema(GitRepositoryBase):
@@ -18,9 +19,9 @@ class GitRepositorySchema(GitRepositoryBase):
     user_id: str
     organization_id: str
     data_source_id: Optional[str]
-    last_indexed_at: Optional[datetime]
-    created_at: datetime
-    updated_at: datetime
+    last_indexed_at: OptionalUTCDatetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     status: Optional[str] = None
     class Config:
         from_attributes = True

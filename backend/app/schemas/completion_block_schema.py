@@ -3,6 +3,7 @@ from typing import Optional, List
 from datetime import datetime
 from .widget_schema import WidgetSchema
 from .step_schema import StepSchema
+from app.schemas.base import OptionalUTCDatetime, UTCDatetime
 
 
 class ToolExecutionMinifiedSchema(BaseModel):
@@ -20,8 +21,8 @@ class ToolExecutionMinifiedSchema(BaseModel):
     created_step: Optional[StepSchema] = None
     
     # Timing
-    started_at: Optional[datetime]
-    completed_at: Optional[datetime]
+    started_at: OptionalUTCDatetime
+    completed_at: OptionalUTCDatetime
     
     class Config:
         from_attributes = True
@@ -48,10 +49,10 @@ class CompletionBlockSchema(BaseModel):
     reasoning: Optional[str]  # plan_decision.reasoning
     
     # Timing
-    started_at: Optional[datetime] 
-    completed_at: Optional[datetime]
-    created_at: datetime
-    updated_at: datetime
+    started_at: OptionalUTCDatetime
+    completed_at: OptionalUTCDatetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
     
     class Config:
         from_attributes = True
