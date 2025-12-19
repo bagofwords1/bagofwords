@@ -24,9 +24,9 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column('auto_publish', sa.Boolean(), nullable=True))
         batch_op.add_column(sa.Column('default_load_mode', sa.String(length=20), nullable=True))
     
-    # Set default values for git_repositories
-    op.execute("UPDATE git_repositories SET auto_publish = 0 WHERE auto_publish IS NULL")
-    op.execute("UPDATE git_repositories SET default_load_mode = 'intelligent' WHERE default_load_mode IS NULL")
+    # Set default values for git_repositories (use false/true for PostgreSQL compatibility)
+    op.execute("UPDATE git_repositories SET auto_publish = false WHERE auto_publish IS NULL")
+    op.execute("UPDATE git_repositories SET default_load_mode = 'auto' WHERE default_load_mode IS NULL")
     
     # Make columns non-nullable after setting defaults
     with op.batch_alter_table('git_repositories', schema=None) as batch_op:
@@ -88,8 +88,8 @@ def upgrade() -> None:
     # Set default load_mode for existing metadata_resources
     op.execute("UPDATE metadata_resources SET load_mode = 'intelligent' WHERE load_mode IS NULL")
     
-    # Set default source_sync_enabled
-    op.execute("UPDATE instructions SET source_sync_enabled = 1 WHERE source_sync_enabled IS NULL")
+    # Set default source_sync_enabled (use true for PostgreSQL compatibility)
+    op.execute("UPDATE instructions SET source_sync_enabled = true WHERE source_sync_enabled IS NULL")
 
 
 def downgrade() -> None:
