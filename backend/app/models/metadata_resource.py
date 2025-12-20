@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, ForeignKey
+from sqlalchemy import Column, String, Boolean, JSON, DateTime, Text, ForeignKey, Integer
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
@@ -44,6 +44,10 @@ class MetadataResource(BaseSchema):
     
     # Link to the synced instruction (created during git indexing)
     instruction_id = Column(String(36), ForeignKey("instructions.id"), nullable=True)
+    
+    # Chunk position within parent file (for search/context)
+    chunk_start_line = Column(Integer, nullable=True)
+    chunk_end_line = Column(Integer, nullable=True)
 
     
     # Relationships

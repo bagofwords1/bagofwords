@@ -753,3 +753,249 @@ class InstructionSyncService:
                     parts.append(f"- {col.get('name', 'unknown')}")
         
         return "\n".join(parts)
+
+    # ========================================
+    # NEW: Instruction-first flow (1 file = 1 instruction)
+    # ========================================
+    
+    async def sync_file_to_instruction(
+        self,
+        db: AsyncSession,
+        file_path: str,
+        file_content: str,
+        content_hash: str,
+        organization: Organization,
+        git_repo: GitRepository,
+        data_source: Optional[DataSource] = None,
+    ) -> Optional[Instruction]:
+        """
+        Sync a single file to its instruction (1 file = 1 instruction).
+        
+        Follows the 5-rule reindex logic:
+        1. New file -> Create instruction
+        2. User-created -> Never touch
+        3. Unlinked -> Skip
+        4. Linked -> Update text field directly
+        5. Deleted files -> Archive (handled separately)
+        """
+        import hashlib
+        
+        existing = await self._find_instruction_by_file_path(db, file_path, organization.id)
+        
+        # Rule 1: New file -> Create
+        if existing is None:
+            return await self._create_file_instruction(
+                db, file_path, file_content, content_hash, organization, git_repo, data_source
+            )
+        
+        # Rule 2: User-created -> Never touch
+        if existing.source_type != 'git':
+            logger.debug(f"Skipping user-created instruction {existing.id}")
+            return None
+        
+        # Rule 3: Unlinked -> Skip
+        if not existing.source_sync_enabled:
+            logger.debug(f"Skipping unlinked instruction {existing.id}")
+            return None
+        
+        # Rule 4: Linked -> Update text field directly
+        # Check if content actually changed (using hash)
+        if existing.content_hash == content_hash:
+            # Just update the commit SHA
+            existing.source_git_commit_sha = git_repo.last_indexed_commit_sha
+            await db.commit()
+            return existing
+        
+        # Content changed - update
+        existing.text = file_content
+        existing.content_hash = content_hash
+        existing.source_git_commit_sha = git_repo.last_indexed_commit_sha
+        existing.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(existing)
+        
+        logger.info(f"Updated instruction {existing.id} from file {file_path}")
+        return existing
+    
+    async def _find_instruction_by_file_path(
+        self,
+        db: AsyncSession,
+        file_path: str,
+        org_id: str,
+    ) -> Optional[Instruction]:
+        """Find instruction by source_file_path."""
+        stmt = select(Instruction).where(
+            and_(
+                Instruction.source_file_path == file_path,
+                Instruction.organization_id == org_id,
+                Instruction.deleted_at == None,
+            )
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+    
+    async def _create_file_instruction(
+        self,
+        db: AsyncSession,
+        file_path: str,
+        file_content: str,
+        content_hash: str,
+        organization: Organization,
+        git_repo: GitRepository,
+        data_source: Optional[DataSource] = None,
+    ) -> Instruction:
+        """Create new instruction for a git file."""
+        from pathlib import Path
+        
+        # Extract title from file path
+        title = Path(file_path).stem
+        
+        # Determine load mode based on file extension and repo settings
+        load_mode = self._get_load_mode_for_file(file_path, git_repo)
+        
+        instruction = Instruction(
+            text=file_content,
+            title=title,
+            source_type='git',
+            source_file_path=file_path,
+            content_hash=content_hash,
+            source_sync_enabled=True,
+            source_git_commit_sha=git_repo.last_indexed_commit_sha,
+            load_mode=load_mode,
+            status='published' if git_repo.auto_publish else 'draft',
+            private_status=None,
+            global_status='approved' if git_repo.auto_publish else None,
+            category='general',
+            organization_id=organization.id,
+            user_id=git_repo.user_id,
+            is_seen=True,
+            can_user_toggle=True,
+        )
+        
+        db.add(instruction)
+        await db.commit()
+        await db.refresh(instruction)
+        
+        # Associate instruction with the data source
+        if data_source:
+            instruction.data_sources.append(data_source)
+            await db.commit()
+        
+        logger.info(f"Created file instruction {instruction.id} for {file_path}")
+        return instruction
+    
+    def _get_load_mode_for_file(self, file_path: str, git_repo: GitRepository) -> str:
+        """Determine load mode based on file extension and repo settings."""
+        from pathlib import Path
+        
+        ext = Path(file_path).suffix.lower()
+        
+        # Git repository setting takes priority if explicitly configured
+        if git_repo.default_load_mode:
+            if git_repo.default_load_mode == 'auto':
+                # Auto mode: markdown files always load, others use intelligent
+                if ext in ['.md', '.markdown']:
+                    return 'always'
+                return 'intelligent'
+            return git_repo.default_load_mode
+        
+        # Default by extension
+        if ext in ['.md', '.markdown']:
+            return 'always'
+        return 'intelligent'
+    
+    async def rebuild_chunks(
+        self,
+        db: AsyncSession,
+        instruction: Instruction,
+        chunks: List[Dict[str, Any]],
+        data_source_id: Optional[str] = None,
+        job_id: Optional[str] = None,
+    ) -> List[MetadataResource]:
+        """
+        Delete old chunks and create new ones for an instruction.
+        
+        Args:
+            db: Database session
+            instruction: The parent instruction
+            chunks: List of chunk dicts with keys like 'name', 'resource_type', 
+                    'start_line', 'end_line', 'description', 'raw_data', etc.
+            data_source_id: Data source to associate chunks with
+            job_id: Indexing job ID to associate chunks with
+        """
+        from sqlalchemy import delete
+        
+        # Batch delete old chunks
+        await db.execute(
+            delete(MetadataResource).where(
+                MetadataResource.instruction_id == instruction.id
+            )
+        )
+        
+        # Batch insert new chunks
+        new_resources = []
+        for chunk in chunks:
+            resource = MetadataResource(
+                instruction_id=instruction.id,
+                name=chunk.get('name', ''),
+                resource_type=chunk.get('resource_type', 'unknown'),
+                path=instruction.source_file_path,
+                description=chunk.get('description', ''),
+                raw_data=chunk.get('raw_data', {}),
+                sql_content=chunk.get('sql_content'),
+                columns=chunk.get('columns', []),
+                depends_on=chunk.get('depends_on', []),
+                chunk_start_line=chunk.get('start_line'),
+                chunk_end_line=chunk.get('end_line'),
+                data_source_id=data_source_id,
+                metadata_indexing_job_id=job_id,
+                is_active=True,
+            )
+            new_resources.append(resource)
+        
+        if new_resources:
+            db.add_all(new_resources)
+            await db.commit()
+        
+        logger.debug(f"Rebuilt {len(new_resources)} chunks for instruction {instruction.id}")
+        return new_resources
+    
+    async def archive_deleted_files(
+        self,
+        db: AsyncSession,
+        org_id: str,
+        current_file_paths: set,
+    ) -> int:
+        """
+        Archive instructions for files that no longer exist in git.
+        
+        Rule 5: Deleted files -> Archive
+        
+        Returns:
+            Number of instructions archived
+        """
+        # Find all git-sourced, linked instructions not in current file paths
+        stmt = select(Instruction).where(
+            and_(
+                Instruction.source_type == 'git',
+                Instruction.source_sync_enabled == True,
+                Instruction.organization_id == org_id,
+                Instruction.source_file_path != None,
+                Instruction.deleted_at == None,
+                Instruction.status != 'archived',
+            )
+        )
+        result = await db.execute(stmt)
+        instructions = result.scalars().all()
+        
+        archived_count = 0
+        for instruction in instructions:
+            if instruction.source_file_path not in current_file_paths:
+                instruction.status = 'archived'
+                archived_count += 1
+                logger.info(f"Archived instruction {instruction.id} - file {instruction.source_file_path} was deleted")
+        
+        if archived_count > 0:
+            await db.commit()
+        
+        return archived_count

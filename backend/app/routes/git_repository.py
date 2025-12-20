@@ -126,3 +126,20 @@ async def index_git_repository(
         data_source_id,
         organization
     )
+
+@router.get("/data_sources/{data_source_id}/git_repository/{repository_id}/job_status")
+@requires_permission('update_data_source')
+async def get_indexing_job_status(
+    data_source_id: str,
+    repository_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get current indexing job status with progress percentage"""
+    return await git_repository_service.get_indexing_job_status(
+        db,
+        repository_id,
+        data_source_id,
+        organization
+    )

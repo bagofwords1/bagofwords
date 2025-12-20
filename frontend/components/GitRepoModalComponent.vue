@@ -153,6 +153,15 @@
                         <div v-if="metadata_resources?.error_message" class="mt-2 text-sm text-red-500">
                             {{ metadata_resources.error_message }}
                         </div>
+
+                        <!-- Indexing Progress Bar -->
+                        <div v-if="isReindexing" class="mt-3 space-y-1">
+                            <div class="flex items-center justify-between text-xs text-gray-500">
+                                <span>{{ indexingPhase || 'Indexing...' }}</span>
+                                <span>{{ indexingProgress }}%</span>
+                            </div>
+                            <UProgress :value="indexingProgress" size="sm" color="blue" />
+                        </div>
                     </div>
 
                     <!-- Settings -->
@@ -304,15 +313,21 @@
                 <!-- Step 3: Indexing -->
                 <div v-else-if="currentStep === 3" class="space-y-4">
                     <div class="text-center py-4">
-                        <div v-if="isIndexing" class="space-y-2">
+                        <div v-if="isIndexing || isReindexing" class="space-y-3">
                             <UIcon name="i-heroicons-arrow-path" class="w-10 h-10 text-blue-500 mx-auto animate-spin" />
                             <p class="text-sm font-medium text-gray-900">Indexing Repository...</p>
-                            <p class="text-sm text-gray-500">This may take a few moments</p>
+                            <div class="px-8">
+                                <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                                    <span>{{ indexingPhase || 'Processing...' }}</span>
+                                    <span>{{ indexingProgress }}%</span>
+                                </div>
+                                <UProgress :value="indexingProgress" size="sm" color="blue" />
+                            </div>
                         </div>
                         <div v-else class="space-y-2">
                             <UIcon name="i-heroicons-check-circle" class="w-10 h-10 text-green-500 mx-auto" />
                             <p class="text-sm font-medium text-gray-900">Repository Connected</p>
-                            <p class="text-sm text-gray-500">Indexing has started in the background</p>
+                            <p class="text-sm text-gray-500">Indexing complete</p>
                         </div>
                     </div>
                 </div>
@@ -359,8 +374,7 @@
                                 :disabled="isIndexing"
                                 @click="reindexRepository"
                             >
-                                <UIcon name="i-heroicons-arrow-path" class="w-4 h-4 mr-1" />
-                                Reindex
+                                Sync Git
                             </UButton>
                             <UButton color="gray" variant="soft" size="sm" @click="gitModalOpen = false">Close</UButton>
                         </template>
@@ -404,7 +418,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
 interface ConnectionStatus {
@@ -487,6 +501,11 @@ const linkedInstructionCount = ref(0)
 const isLoadingCount = ref(false)
 const detectedFileCount = ref<number | null>(null)
 const justSaved = ref(false) // Track if we just saved to preserve form settings
+
+// Progress tracking for indexing
+const indexingProgress = ref(0)
+const indexingPhase = ref('')
+let pollInterval: ReturnType<typeof setInterval> | null = null
 
 // Providers
 const gitProviders = [
@@ -600,6 +619,12 @@ watch(gitModalOpen, async (open) => {
         // Reset selection state
         selectedDsForConnection.value = null
         
+        // Reset indexing state
+        isReindexing.value = false
+        indexingProgress.value = 0
+        indexingPhase.value = ''
+        stopPolling()
+        
         // If no datasourceId provided, fetch data sources
         if (!props.datasourceId) {
             await fetchDataSources()
@@ -619,6 +644,9 @@ watch(gitModalOpen, async (open) => {
                 defaultLoadMode: 'auto',
             }
         }
+    } else {
+        // Modal closing - stop polling
+        stopPolling()
     }
 })
 
@@ -787,6 +815,10 @@ async function testAndProceed() {
 
 async function saveAndIndex() {
     isLoading.value = true
+    isReindexing.value = true
+    indexingProgress.value = 0
+    indexingPhase.value = 'starting'
+    
     try {
         const response = await useMyFetch(`/data_sources/${activeDatasourceId.value}/git_repository`, {
             method: 'POST',
@@ -805,11 +837,15 @@ async function saveAndIndex() {
             justSaved.value = true // Preserve form settings when connectedRepo updates
             currentStep.value = 3
             emit('changed')
+            // Start polling for indexing progress
+            setTimeout(() => startPolling(), 500) // Small delay to let backend start
         } else {
             toast.add({ title: 'Failed to save repository', color: 'red' })
+            isReindexing.value = false
         }
     } catch (error) {
         toast.add({ title: 'Failed to save repository', color: 'red' })
+        isReindexing.value = false
     } finally {
         isLoading.value = false
     }
@@ -895,6 +931,9 @@ async function reindexRepository() {
     if (!connectedRepo.value?.id) return
     
     isReindexing.value = true
+    indexingProgress.value = 0
+    indexingPhase.value = 'starting'
+    
     try {
         const response = await useMyFetch(`/data_sources/${activeDatasourceId.value}/git_repository/${connectedRepo.value.id}/index`, {
             method: 'POST'
@@ -902,12 +941,92 @@ async function reindexRepository() {
         
         if ((response.status as any).value === 'success') {
             toast.add({ title: 'Reindexing started', color: 'green' })
-            emit('changed')
+            startPolling()
         }
     } catch (error) {
         toast.add({ title: 'Failed to reindex', color: 'red' })
-    } finally {
         isReindexing.value = false
     }
 }
+
+async function pollJobStatus() {
+    if (!connectedRepo.value?.id || !activeDatasourceId.value) return
+    
+    try {
+        const { data } = await useMyFetch<{
+            status: string
+            phase: string | null
+            progress: number
+            processed_files: number
+            total_files: number
+            error_message: string | null
+        }>(`/data_sources/${activeDatasourceId.value}/git_repository/${connectedRepo.value.id}/job_status`, {
+            key: `job-status-${Date.now()}` // Prevent caching
+        })
+        
+        if (!data.value) return
+        
+        const jobData = data.value
+        
+        // Handle different phases
+        const phase = jobData.phase || ''
+        const status = jobData.status || ''
+        
+        if (phase === 'parsing' || (status === 'running' && !jobData.total_files)) {
+            indexingPhase.value = 'Parsing files...'
+            indexingProgress.value = 15 // Show some progress during parsing
+        } else if (phase === 'syncing') {
+            const processed = jobData.processed_files || 0
+            const total = jobData.total_files || 0
+            indexingPhase.value = total > 0 ? `Syncing ${processed}/${total}` : 'Syncing...'
+            indexingProgress.value = jobData.progress || 0
+        } else if (phase === 'completed' || status === 'completed') {
+            indexingPhase.value = 'Completed'
+            indexingProgress.value = 100
+        } else if (status === 'running') {
+            indexingPhase.value = phase || 'Processing...'
+            indexingProgress.value = Math.max(jobData.progress || 0, 5) // At least show some progress
+        } else {
+            indexingPhase.value = phase || 'Starting...'
+            indexingProgress.value = jobData.progress || 0
+        }
+        
+        if (jobData.status === 'completed') {
+            indexingProgress.value = 100
+            indexingPhase.value = 'Completed'
+            stopPolling()
+            // Keep showing progress for a moment before hiding
+            setTimeout(() => {
+                isReindexing.value = false
+                emit('changed')
+            }, 1500)
+            toast.add({ title: 'Indexing completed', color: 'green' })
+        } else if (jobData.status === 'failed') {
+            stopPolling()
+            isReindexing.value = false
+            toast.add({ title: jobData.error_message || 'Indexing failed', color: 'red' })
+        }
+    } catch (error) {
+        console.error('Failed to poll job status:', error)
+    }
+}
+
+function startPolling() {
+    stopPolling() // Clear any existing interval
+    // Poll immediately, then every 1 second
+    pollJobStatus()
+    pollInterval = setInterval(pollJobStatus, 1000)
+}
+
+function stopPolling() {
+    if (pollInterval) {
+        clearInterval(pollInterval)
+        pollInterval = null
+    }
+}
+
+// Cleanup on unmount
+onUnmounted(() => {
+    stopPolling()
+})
 </script>

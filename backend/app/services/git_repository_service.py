@@ -517,3 +517,40 @@ class GitRepositoryService:
             raise HTTPException(status_code=500, detail=f"Failed to clone repository: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to clone repository: {str(e)}")
+
+    async def get_indexing_job_status(
+        self,
+        db: AsyncSession,
+        repository_id: str,
+        data_source_id: str,
+        organization: Organization
+    ):
+        """Get current indexing job status with progress percentage"""
+        # Verify repository exists
+        await self._verify_repository(db, repository_id, data_source_id, organization)
+        
+        # Get the latest indexing job for this repository
+        result = await db.execute(
+            select(MetadataIndexingJob)
+            .where(MetadataIndexingJob.git_repository_id == repository_id)
+            .order_by(MetadataIndexingJob.created_at.desc())
+            .limit(1)
+        )
+        job = result.scalar_one_or_none()
+        
+        if not job:
+            return {"status": "none", "progress": 0}
+        
+        # Calculate progress percentage
+        progress = 0
+        if job.total_files and job.total_files > 0:
+            progress = int((job.processed_files or 0) / job.total_files * 100)
+        
+        return {
+            "status": job.status,
+            "phase": job.current_phase,
+            "progress": progress,
+            "processed_files": job.processed_files or 0,
+            "total_files": job.total_files or 0,
+            "error_message": job.error_message,
+        }

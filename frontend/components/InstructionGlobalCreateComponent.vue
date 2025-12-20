@@ -41,9 +41,24 @@
                     </template>
                 </div>
 
-                <!-- Hero Textarea -->
+                <!-- Hero Textarea / Code Editor -->
                 <div class="border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
+                    <!-- Header with title and code view toggle -->
+                    <div class="flex items-center justify-between px-3 py-1.5 bg-white border-b border-gray-100">
+                        <span class="text-xs font-medium text-gray-500">Instruction</span>
+                        <button 
+                            type="button"
+                            @click="codeView = !codeView"
+                            class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
+                            :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
+                        >
+                            <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
+                        </button>
+                    </div>
+                    
+                    <!-- Normal textarea -->
                     <textarea 
+                        v-if="!codeView"
                         v-model="instructionForm.text"
                         placeholder="Describe the instruction for the AI agent...
 
@@ -57,6 +72,25 @@ Examples:
                                placeholder:text-gray-400"
                         required
                     />
+                    
+                    <!-- Code editor (Monaco with white background) -->
+                    <ClientOnly v-else>
+                        <MonacoEditor
+                            v-model="instructionForm.text"
+                            lang="sql"
+                            :options="{ 
+                                theme: 'vs', 
+                                automaticLayout: true, 
+                                minimap: { enabled: false }, 
+                                wordWrap: 'on',
+                                lineNumbers: 'on',
+                                fontSize: 12,
+                                scrollBeyondLastLine: false
+                            }"
+                            style="height: 210px"
+                        />
+                    </ClientOnly>
+                    
                     <!-- Action buttons row -->
                     <div class="px-3 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
                         <button 
@@ -427,6 +461,7 @@ const showLabelModal = ref(false)
 const editingLabel = ref<InstructionLabel | null>(null)
 const showUnlinkConfirm = ref(false)
 const originalText = ref('')
+const codeView = ref(false)
 
 // Form data
 const instructionForm = ref<InstructionForm>({

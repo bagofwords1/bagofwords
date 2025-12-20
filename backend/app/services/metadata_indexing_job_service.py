@@ -97,7 +97,9 @@ class MetadataIndexingJobService:
             git_repository_id=git_repository.id,
             status="running", # Start as running
             started_at=datetime.utcnow(),
-            detected_project_types=detected_project_types # Store detected types
+            detected_project_types=detected_project_types, # Store detected types
+            current_phase='starting',  # Initial phase for progress tracking
+            processed_files=0,
         )
         db.add(job)
         try:
@@ -698,6 +700,14 @@ class MetadataIndexingJobService:
                 
                 logger.info(f"Background job {job_id}: Starting parsing for types {detected_project_types}")
 
+                # Update job phase to 'parsing'
+                await db.execute(
+                    update(MetadataIndexingJob)
+                    .where(MetadataIndexingJob.id == job_id)
+                    .values(current_phase='parsing', processed_files=0)
+                )
+                await db.commit()
+
                 existing_count_result = await db.execute(
                     select(func.count(MetadataResource.id)).where(
                         MetadataResource.data_source_id == data_source_id
@@ -809,9 +819,19 @@ class MetadataIndexingJobService:
                     
                     # Sync all created/updated resources to instructions
                     logger.info(f"Job {job_id}: Syncing {len(all_created_resources)} resources to instructions")
+                    
+                    # Update job phase to 'syncing' with total count
+                    total_resources = len(all_created_resources)
+                    await db.execute(
+                        update(MetadataIndexingJob)
+                        .where(MetadataIndexingJob.id == job_id)
+                        .values(current_phase='syncing', total_files=total_resources, processed_files=0)
+                    )
+                    await db.commit()
+                    
                     synced_count = 0
                     sync_errors = 0
-                    for resource in all_created_resources:
+                    for i, resource in enumerate(all_created_resources):
                         try:
                             result = await self.instruction_sync_service.sync_resource_to_instruction(
                                 db, resource, current_org
@@ -824,6 +844,16 @@ class MetadataIndexingJobService:
                         except Exception as sync_error:
                             sync_errors += 1
                             logger.error(f"Job {job_id}: Failed to sync resource {resource.id} ({getattr(resource, 'name', 'unknown')}) to instruction: {sync_error}", exc_info=True)
+                        
+                        # Update progress every 10 resources or on last item
+                        if (i + 1) % 10 == 0 or i == total_resources - 1:
+                            await db.execute(
+                                update(MetadataIndexingJob)
+                                .where(MetadataIndexingJob.id == job_id)
+                                .values(processed_files=i + 1)
+                            )
+                            await db.commit()
+                    
                     logger.info(f"Job {job_id}: Synced {synced_count}/{len(all_created_resources)} resources to instructions ({sync_errors} errors)")
 
                 # All database operations below will use the new session
@@ -835,6 +865,9 @@ class MetadataIndexingJobService:
                         "completed_at": datetime.utcnow(),
                         "total_resources": len(all_created_resources),
                         "processed_resources": len(all_created_resources),
+                        "total_files": len(all_created_resources),
+                        "processed_files": len(all_created_resources),
+                        "current_phase": 'completed' if job_status == 'completed' else 'failed',
                         "error_message": job_error_message
                     })
                 )

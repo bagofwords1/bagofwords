@@ -62,6 +62,8 @@ class Instruction(BaseSchema):
     source_metadata_resource_id = Column(String(36), ForeignKey('metadata_resources.id'), nullable=True)
     source_git_commit_sha = Column(String(40), nullable=True)
     source_sync_enabled = Column(Boolean, default=True)  # False when user "unlinks" from git
+    source_file_path = Column(String(500), nullable=True)  # Git file path for 1 file = 1 instruction
+    content_hash = Column(String(64), nullable=True)  # SHA-256 hash for fast change detection
     
     # Loading behavior for AI context
     load_mode = Column(String(20), default='always')  # 'always' | 'intelligent' | 'disabled'

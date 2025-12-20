@@ -43,6 +43,11 @@ class MetadataIndexingJob(BaseSchema):
     total_resources = Column(Integer, nullable=True)
     processed_resources = Column(Integer, nullable=True, default=0)
     
+    # File-level progress tracking for UI percentage display
+    total_files = Column(Integer, nullable=True)
+    processed_files = Column(Integer, nullable=True, default=0)
+    current_phase = Column(String(50), nullable=True)  # 'cloning', 'parsing', 'syncing', 'cleanup'
+    
     # Error tracking
     error_message = Column(Text, nullable=True)
     error_details = Column(JSON, nullable=True)

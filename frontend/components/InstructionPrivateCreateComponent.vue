@@ -59,10 +59,23 @@
 
             <!-- Instruction Text -->
             <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    Instruction <span class="text-red-500">*</span>
-                </label>
+                <div class="flex items-center justify-between mb-2">
+                    <label class="text-sm font-medium text-gray-700">
+                        Instruction <span class="text-red-500">*</span>
+                    </label>
+                    <button 
+                        type="button"
+                        @click="codeView = !codeView"
+                        class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
+                        :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
+                    >
+                        <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
+                    </button>
+                </div>
+                
+                <!-- Normal textarea -->
                 <UTextarea 
+                    v-if="!codeView"
                     :model-value="sharedForm.text"
                     @update:model-value="updateForm({ text: $event })"
                     :rows="4"
@@ -70,6 +83,27 @@
                     class="w-full"
                     required
                 />
+                
+                <!-- Code editor (Monaco with white background) -->
+                <ClientOnly v-else>
+                    <div class="border border-gray-300 rounded-md overflow-hidden">
+                        <MonacoEditor
+                            :model-value="sharedForm.text"
+                            @update:model-value="updateForm({ text: $event })"
+                            lang="sql"
+                            :options="{ 
+                                theme: 'vs', 
+                                automaticLayout: true, 
+                                minimap: { enabled: false }, 
+                                wordWrap: 'on',
+                                lineNumbers: 'on',
+                                fontSize: 12,
+                                scrollBeyondLastLine: false
+                            }"
+                            style="height: 150px"
+                        />
+                    </div>
+                </ClientOnly>
             </div>
 
             <!-- Data Sources -->
@@ -365,6 +399,7 @@ const isDeleting = ref(false)
 const availableDataSources = ref<DataSource[]>([])
 const mentionableOptions = ref<MentionableItem[]>([])
 const selectedReferences = ref<MentionableItem[]>([])
+const codeView = ref(false)
 
 // Determine if this should be treated as a suggestion (non-admins can only suggest)
 const isSuggestionEffective = computed(() => props.isSuggestion || !useCan('create_instructions'))

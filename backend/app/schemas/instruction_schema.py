@@ -71,6 +71,8 @@ class InstructionBase(BaseModel):
     source_metadata_resource_id: Optional[str] = None
     source_git_commit_sha: Optional[str] = None
     source_sync_enabled: bool = True  # False when user "unlinks" from git
+    source_file_path: Optional[str] = None  # Git file path for 1 file = 1 instruction
+    content_hash: Optional[str] = None  # SHA-256 hash for change detection
     
     # Loading behavior for AI context
     load_mode: str = "always"  # 'always' | 'intelligent' | 'disabled'
