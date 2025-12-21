@@ -5,6 +5,7 @@ import os
 
 @pytest.mark.e2e
 def test_global_instruction_creation(create_global_instruction,
+get_instruction,
 create_user,
 login_user,
 whoami):
@@ -28,6 +29,10 @@ whoami):
     assert instruction["status"] == "published"
     assert instruction["private_status"] is None
     assert instruction["global_status"] == "approved"
+    
+    # Build System: Verify version is created
+    fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    assert fetched.get("current_version_id") is not None, "Instruction should have current_version_id after creation"
 
 
 @pytest.mark.e2e
@@ -240,6 +245,10 @@ def test_update_instruction_add_labels(
     )
     assert len(instruction["labels"]) == 0
 
+    # Get original version ID
+    original = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    original_version_id = original.get("current_version_id")
+
     # Create labels
     label1 = create_label(name="Finance", user_token=user_token, org_id=org_id)
     label2 = create_label(name="Marketing", user_token=user_token, org_id=org_id)
@@ -260,6 +269,11 @@ def test_update_instruction_add_labels(
     # Verify by fetching
     fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
     assert len(fetched["labels"]) == 2
+    
+    # Build System: Verify version changed after label update
+    new_version_id = fetched.get("current_version_id")
+    assert new_version_id is not None, "Should have current_version_id"
+    assert new_version_id != original_version_id, "Version should change after adding labels"
 
 
 @pytest.mark.e2e
@@ -292,6 +306,10 @@ def test_update_instruction_replace_labels(
     )
     assert len(instruction["labels"]) == 2
 
+    # Get original version ID
+    original = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
+    original_version_id = original.get("current_version_id")
+
     # Update instruction to replace labels
     updated = update_instruction(
         instruction_id=instruction["id"],
@@ -307,6 +325,11 @@ def test_update_instruction_replace_labels(
     fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)
     assert len(fetched["labels"]) == 1
     assert fetched["labels"][0]["id"] == label3["id"]
+    
+    # Build System: Verify new version created after label replacement
+    new_version_id = fetched.get("current_version_id")
+    assert new_version_id is not None, "Should have current_version_id"
+    assert new_version_id != original_version_id, "New version should be created after replacing labels"
 
 
 @pytest.mark.e2e
@@ -476,3 +499,45 @@ def test_multiple_instructions_share_label(
     assert instruction2["labels"][0]["id"] == shared_label["id"]
     assert len(instruction3["labels"]) == 1
     assert instruction3["labels"][0]["id"] == shared_label["id"]
+
+
+# ============================================================================
+# BUILD SYSTEM INTEGRATION TESTS
+# ============================================================================
+
+@pytest.mark.e2e
+def test_create_instruction_verify_build_exists(
+    create_global_instruction,
+    get_main_build,
+    get_build_contents,
+    create_user,
+    login_user,
+    whoami
+):
+    """Test that created instruction is in the main build contents."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    # Create instruction
+    instruction = create_global_instruction(
+        text="Instruction for build verification",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    # Verify main build exists
+    main_build = get_main_build(user_token=user_token, org_id=org_id)
+    assert main_build is not None, "Main build should exist after instruction creation"
+    
+    # Verify instruction is in build contents
+    contents = get_build_contents(
+        build_id=main_build["id"],
+        user_token=user_token,
+        org_id=org_id
+    )
+    
+    instruction_ids_in_build = [c.get("instruction_id") for c in contents]
+    assert instruction["id"] in instruction_ids_in_build, \
+        "Created instruction should be in the main build contents"

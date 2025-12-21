@@ -6,6 +6,10 @@ Create Date: 2025-12-20 10:00:00.000000
 
 """
 from typing import Sequence, Union
+from datetime import datetime
+import hashlib
+import uuid
+import json
 
 from alembic import op
 import sqlalchemy as sa
@@ -152,6 +156,143 @@ def upgrade() -> None:
     with op.batch_alter_table('metadata_indexing_jobs', schema=None) as batch_op:
         batch_op.add_column(sa.Column('build_id', sa.String(length=36), nullable=True))
         # Note: For SQLite, foreign key will be enforced at application level
+    
+    # =========================================================================
+    # DATA MIGRATION: Migrate existing instructions to the build system
+    # =========================================================================
+    # This creates initial builds, versions, and build_contents for all
+    # existing instructions so upgrading customers have their data migrated.
+    # =========================================================================
+    
+    connection = op.get_bind()
+    now = datetime.utcnow()
+    
+    # Get all organizations that have instructions
+    orgs_result = connection.execute(
+        sa.text("""
+            SELECT DISTINCT organization_id 
+            FROM instructions 
+            WHERE deleted_at IS NULL
+        """)
+    )
+    org_ids = [row[0] for row in orgs_result.fetchall()]
+    
+    for org_id in org_ids:
+        # Get all non-deleted instructions for this organization
+        instructions_result = connection.execute(
+            sa.text("""
+                SELECT id, text, title, structured_data, status, load_mode, category
+                FROM instructions 
+                WHERE organization_id = :org_id 
+                AND deleted_at IS NULL
+            """),
+            {"org_id": org_id}
+        )
+        instructions = instructions_result.fetchall()
+        
+        if not instructions:
+            continue
+        
+        # Create the initial build for this organization
+        build_id = str(uuid.uuid4())
+        total_count = len(instructions)
+        
+        connection.execute(
+            sa.text("""
+                INSERT INTO instruction_builds 
+                (id, build_number, status, source, is_main, organization_id, 
+                 total_instructions, added_count, created_at, updated_at, approved_at)
+                VALUES 
+                (:id, 1, 'approved', 'migration', :is_main, :org_id,
+                 :total, :total, :now, :now, :now)
+            """),
+            {
+                "id": build_id,
+                "is_main": True,
+                "org_id": org_id,
+                "total": total_count,
+                "now": now,
+            }
+        )
+        
+        # Create version and build_content for each instruction
+        for inst in instructions:
+            inst_id = inst[0]
+            text = inst[1] or ""
+            title = inst[2]
+            structured_data = inst[3]
+            status = inst[4] or "published"
+            load_mode = inst[5] or "always"
+            category = inst[6]
+            
+            # Compute content hash
+            hash_content = text + (title or "") + (load_mode or "")
+            content_hash = hashlib.sha256(hash_content.encode('utf-8')).hexdigest()[:16]
+            
+            # Create InstructionVersion
+            version_id = str(uuid.uuid4())
+            
+            # Handle structured_data - it may already be JSON or a string
+            structured_data_json = None
+            if structured_data:
+                if isinstance(structured_data, str):
+                    structured_data_json = structured_data
+                else:
+                    structured_data_json = json.dumps(structured_data)
+            
+            # Handle category_ids as JSON array
+            category_ids_json = json.dumps([category]) if category else None
+            
+            connection.execute(
+                sa.text("""
+                    INSERT INTO instruction_versions
+                    (id, instruction_id, version_number, text, title, structured_data,
+                     status, load_mode, category_ids, content_hash, created_at, updated_at)
+                    VALUES
+                    (:id, :inst_id, 1, :text, :title, :structured_data,
+                     :status, :load_mode, :category_ids, :hash, :now, :now)
+                """),
+                {
+                    "id": version_id,
+                    "inst_id": inst_id,
+                    "text": text,
+                    "title": title,
+                    "structured_data": structured_data_json,
+                    "status": status,
+                    "load_mode": load_mode,
+                    "category_ids": category_ids_json,
+                    "hash": content_hash,
+                    "now": now,
+                }
+            )
+            
+            # Update instruction with current_version_id
+            connection.execute(
+                sa.text("""
+                    UPDATE instructions 
+                    SET current_version_id = :version_id 
+                    WHERE id = :inst_id
+                """),
+                {"version_id": version_id, "inst_id": inst_id}
+            )
+            
+            # Create BuildContent linking build -> instruction -> version
+            build_content_id = str(uuid.uuid4())
+            connection.execute(
+                sa.text("""
+                    INSERT INTO build_contents
+                    (id, build_id, instruction_id, instruction_version_id, created_at, updated_at)
+                    VALUES
+                    (:id, :build_id, :inst_id, :version_id, :now, :now)
+                """),
+                {
+                    "id": build_content_id,
+                    "build_id": build_id,
+                    "inst_id": inst_id,
+                    "version_id": version_id,
+                    "now": now,
+                }
+            )
 
 
 def downgrade() -> None:

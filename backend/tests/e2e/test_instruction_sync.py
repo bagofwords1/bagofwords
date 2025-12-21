@@ -24,6 +24,7 @@ def test_git_indexing_creates_instructions(
     index_git_repository,
     get_metadata_resources,
     get_instructions_by_source_type,
+    get_main_build,
     delete_git_repository,
 ):
     """Test that indexing a git repository creates instructions for each resource."""
@@ -93,6 +94,11 @@ def test_git_indexing_creates_instructions(
         assert instruction["source_metadata_resource_id"] is not None, "Instruction should be linked to a resource"
         assert instruction["source_sync_enabled"] is True, "Instruction should be synced"
         assert instruction["title"] is not None, "Instruction should have a title"
+
+    # Build System: Verify a build was created with source='git'
+    main_build = get_main_build(user_token=user_token, org_id=org_id)
+    assert main_build is not None, "Main build should exist after git indexing"
+    assert main_build["source"] == "git", f"Build source should be 'git', got {main_build['source']}"
 
     # Cleanup
     delete_git_repository(
@@ -441,6 +447,8 @@ def test_delete_git_repo_deletes_synced_instructions(
     create_git_repository,
     index_git_repository,
     get_instructions_by_source_type,
+    get_builds,
+    get_build_diff,
     delete_git_repository,
 ):
     """Test that deleting a git repository deletes all synced instructions."""
@@ -494,6 +502,10 @@ def test_delete_git_repo_deletes_synced_instructions(
     initial_count = len(instructions)
     assert initial_count > 0, "Expected instructions after indexing"
 
+    # Get build before delete
+    builds_before = get_builds(user_token=user_token, org_id=org_id)
+    build_before_id = builds_before["items"][0]["id"] if builds_before["items"] else None
+
     # Delete git repository
     delete_git_repository(
         data_source_id=data_source["id"],
@@ -511,6 +523,24 @@ def test_delete_git_repo_deletes_synced_instructions(
     )
     
     assert len(remaining) == 0, f"Expected no instructions after repo deletion, found {len(remaining)}"
+
+    # Build System: Verify diff shows removed instructions
+    # When comparing new build against old build, the "removed" items are those
+    # that were in the old build but not in the new build
+    builds_after = get_builds(user_token=user_token, org_id=org_id)
+    if builds_after["total"] > 0 and build_before_id:
+        build_after_id = builds_after["items"][0]["id"]
+        if build_after_id != build_before_id:
+            # Compare OLD build against NEW build to see what was removed
+            # removed = items in build_before but not in build_after
+            diff = get_build_diff(
+                build_id=build_before_id,
+                compare_to_build_id=build_after_id,
+                user_token=user_token,
+                org_id=org_id
+            )
+            removed_count = diff.get("removed_count", len(diff.get("removed", [])))
+            assert removed_count > 0, f"Diff should show removed instructions, got {removed_count}"
 
 
 @pytest.mark.e2e
@@ -630,6 +660,7 @@ def test_bulk_update_status_to_published(
     get_instructions_by_source_type,
     get_instruction,
     bulk_update_instructions,
+    get_builds,
     delete_git_repository,
 ):
     """Test bulk updating instruction status from draft to published."""
@@ -688,6 +719,10 @@ def test_bulk_update_status_to_published(
     for inst in instructions[:2]:
         assert inst["status"] == "draft", f"Expected draft, got {inst['status']}"
 
+    # Get build count before bulk update
+    builds_before = get_builds(user_token=user_token, org_id=org_id)
+    count_before = builds_before["total"]
+
     # Bulk update to published
     instruction_ids = [inst["id"] for inst in instructions[:2]]
     result = bulk_update_instructions(
@@ -708,6 +743,11 @@ def test_bulk_update_status_to_published(
             org_id=org_id,
         )
         assert updated_inst["status"] == "published", f"Expected published, got {updated_inst['status']}"
+
+    # Build System: Verify a single build was created for bulk update
+    builds_after = get_builds(user_token=user_token, org_id=org_id)
+    new_builds = builds_after["total"] - count_before
+    assert new_builds <= 1, f"Bulk update should create at most 1 build, created {new_builds}"
 
     # Cleanup
     delete_git_repository(
@@ -783,6 +823,16 @@ def test_bulk_update_load_mode_to_always(
     
     assert len(instructions) >= 2, "Need at least 2 instructions for bulk test"
 
+    # Get original version IDs
+    original_versions = {}
+    for inst in instructions[:2]:
+        fetched = get_instruction(
+            instruction_id=inst["id"],
+            user_token=user_token,
+            org_id=org_id,
+        )
+        original_versions[inst["id"]] = fetched.get("current_version_id")
+
     # Bulk update to load_mode='always'
     instruction_ids = [inst["id"] for inst in instructions[:2]]
     result = bulk_update_instructions(
@@ -794,7 +844,7 @@ def test_bulk_update_load_mode_to_always(
     
     assert result["updated_count"] == 2, f"Expected 2 updated, got {result['updated_count']}"
 
-    # Verify instructions have load_mode='always'
+    # Verify instructions have load_mode='always' and new versions
     for inst_id in instruction_ids:
         updated_inst = get_instruction(
             instruction_id=inst_id,
@@ -802,6 +852,13 @@ def test_bulk_update_load_mode_to_always(
             org_id=org_id,
         )
         assert updated_inst["load_mode"] == "always", f"Expected 'always', got {updated_inst.get('load_mode')}"
+        
+        # Build System: Verify new version was created
+        new_version_id = updated_inst.get("current_version_id")
+        original_version_id = original_versions[inst_id]
+        if original_version_id:
+            assert new_version_id != original_version_id, \
+                f"Version should change after load_mode update for {inst_id}"
 
     # Cleanup
     delete_git_repository(

@@ -126,12 +126,12 @@ def get_instruction(test_client):
 
 @pytest.fixture
 def update_instruction(test_client):
-    def _update_instruction(instruction_id, text=None, status=None, category=None, data_source_ids=None, label_ids=None, user_token=None, org_id=None):
+    def _update_instruction(instruction_id, text=None, status=None, category=None, data_source_ids=None, label_ids=None, load_mode=None, user_token=None, org_id=None):
         if user_token is None:
             pytest.fail("User token is required for update_instruction")
         if org_id is None:
             pytest.fail("Organization ID is required for update_instruction")
-        
+
         payload = {}
         if text is not None:
             payload["text"] = text
@@ -143,6 +143,8 @@ def update_instruction(test_client):
             payload["data_source_ids"] = data_source_ids
         if label_ids is not None:
             payload["label_ids"] = label_ids
+        if load_mode is not None:
+            payload["load_mode"] = load_mode
         
         headers = {
             "Authorization": f"Bearer {user_token}",

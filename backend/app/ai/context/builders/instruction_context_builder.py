@@ -28,24 +28,13 @@ class InstructionContextBuilder:
     - `search_instructions()`: Search instructions with load_mode='intelligent' by keyword
     - `build()`: Combined always + intelligent instructions (with proper tracking)
 
-    Usage example
-    -------------
-    ```python
-    builder = InstructionContextBuilder(db_session, organization)
+    Load behavior:
+    1. Load ALL 'always' instructions first
+    2. Fill remaining capacity with 'intelligent' instructions (keyword-matched)
+    3. Skip 'disabled' instructions
     
-    # Load instructions with load_mode='always'
-    always_instructions = await builder.load_always_instructions()
-    
-    # Search intelligently loaded instructions
-    relevant_instructions = await builder.search_instructions("revenue metrics")
-    
-    # Build context with proper load tracking
-    # Without query: only loads 'always' instructions
-    context = await builder.build()
-    
-    # With query: loads 'always' + searches 'intelligent' instructions
-    context = await builder.build(query="user query about revenue")
-    ```
+    The max_instructions_in_context setting (default 50) controls total capacity.
+    'Always' instructions take priority and can exceed the limit.
     """
     
     # Common stopwords to filter out when extracting keywords
@@ -58,11 +47,26 @@ class InstructionContextBuilder:
         "me", "us", "them", "all", "some", "any", "no", "not", "but", "if",
         "show", "get", "find", "give", "tell", "list", "display", "want", "need",
     }
+    
+    # Default max instructions in context
+    DEFAULT_MAX_INSTRUCTIONS = 50
 
-    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None):
+    def __init__(self, db: AsyncSession, organization: Organization, current_user: Optional[User] = None, organization_settings=None):
         self.db = db
         self.organization = organization
         self.current_user = current_user
+        self.organization_settings = organization_settings
+    
+    def _get_max_instructions(self) -> int:
+        """Get max instructions limit from org settings or default."""
+        if self.organization_settings:
+            try:
+                config = self.organization_settings.get_config("max_instructions_in_context")
+                if config and config.value is not None:
+                    return int(config.value)
+            except Exception:
+                pass
+        return self.DEFAULT_MAX_INSTRUCTIONS
 
     async def load_instructions(
         self,
@@ -157,10 +161,13 @@ class InstructionContextBuilder:
         """
         Search instructions with load_mode='intelligent' by keyword relevance.
         
+        If query is empty, returns all intelligent instructions (up to limit)
+        with score 0, allowing them to fill remaining capacity.
+        
         Parameters
         ----------
         query : str
-            The user query to match against.
+            The user query to match against. If empty, returns all intelligent.
         limit : int
             Maximum number of results to return.
         data_source_ids : List[str] | None, optional
@@ -174,10 +181,7 @@ class InstructionContextBuilder:
             List of (instruction, score) tuples, sorted by relevance.
         """
         # Extract keywords from query
-        keywords = self._extract_keywords(query)
-        
-        if not keywords:
-            return []
+        keywords = self._extract_keywords(query) if query else set()
         
         # Load all intelligent instructions
         stmt = (
@@ -198,12 +202,16 @@ class InstructionContextBuilder:
         result = await self.db.execute(stmt)
         all_instructions = result.scalars().all()
         
-        # Score and filter by keyword match
+        # Score and filter by keyword match (or include all if no keywords)
         scored: List[Tuple[Instruction, float]] = []
         for instruction in all_instructions:
-            score = self._score_instruction(instruction, keywords)
-            if score > 0:
-                scored.append((instruction, score))
+            if keywords:
+                score = self._score_instruction(instruction, keywords)
+                if score > 0:
+                    scored.append((instruction, score))
+            else:
+                # No query - include all with score 0
+                scored.append((instruction, 0.0))
         
         # Sort by score descending and limit
         scored.sort(key=lambda x: x[1], reverse=True)
@@ -221,18 +229,22 @@ class InstructionContextBuilder:
         """
         Build instructions context with proper load tracking.
         
+        Load behavior:
+        1. Load ALL 'always' instructions (they always take priority)
+        2. Fill remaining capacity with 'intelligent' instructions matched by keywords
+        3. Skip 'disabled' instructions
+        
         Parameters
         ----------
         query : str | None, optional
-            The user query for intelligent search. If None, only 'always'
-            instructions are loaded. If provided, also searches for 
-            'intelligent' instructions that match.
+            The user query for intelligent search. Used to score and rank
+            'intelligent' instructions by keyword relevance.
         data_source_ids : List[str] | None, optional
             Filter by data sources.
         category : str | None, optional
             Filter by category.
         intelligent_limit : int
-            Max intelligent instructions to include (only used when query provided).
+            Deprecated - max_instructions_in_context setting is used instead.
         build_id : str | None, optional
             If provided, load instructions from this specific build.
             If None, defaults to the main build (is_main=True) if one exists,
@@ -243,8 +255,14 @@ class InstructionContextBuilder:
         InstructionsSection
             Instructions section with proper load_mode and load_reason tracking.
         """
+        max_instructions = self._get_max_instructions()
+        
         # Try to load from build if build_id is provided or main build exists
-        build_items = await self._load_from_build(build_id)
+        build_items = await self._load_from_build(
+            build_id=build_id,
+            query=query or "",
+            max_instructions=max_instructions,
+        )
         
         if build_items is not None:
             # Build-based loading - return items with version tracking
@@ -255,15 +273,22 @@ class InstructionContextBuilder:
             query=query,
             data_source_ids=data_source_ids,
             category=category,
-            intelligent_limit=intelligent_limit,
+            max_instructions=max_instructions,
         )
     
     async def _load_from_build(
         self,
         build_id: Optional[str] = None,
+        query: str = "",
+        max_instructions: int = 50,
     ) -> Optional[List[InstructionItem]]:
         """
         Load instructions from a specific build or the main build.
+        
+        Load behavior:
+        1. Load ALL 'always' instructions (they take priority)
+        2. Fill remaining capacity with 'intelligent' instructions (keyword-matched)
+        3. Skip 'disabled' instructions
         
         Returns None if no build is available (fallback to legacy).
         """
@@ -310,10 +335,9 @@ class InstructionContextBuilder:
         if not contents:
             return []  # Build exists but is empty
         
-        # Build instruction items with version tracking
-        items: List[InstructionItem] = []
-        instruction_ids = [str(c.instruction_id) for c in contents]
-        usage_counts = await self._batch_load_usage_counts(instruction_ids)
+        # Separate by load_mode
+        always_contents: List[Tuple[BuildContent, Instruction, InstructionVersion]] = []
+        intelligent_contents: List[Tuple[BuildContent, Instruction, InstructionVersion]] = []
         
         for content in contents:
             instruction = content.instruction
@@ -322,19 +346,33 @@ class InstructionContextBuilder:
             if not instruction or not version:
                 continue
             
-            # Only include published instructions that are not disabled
+            # Skip unpublished and disabled
             if instruction.status != "published":
                 continue
             if version.load_mode == "disabled":
                 continue
             
+            # Categorize by load_mode
+            if version.load_mode == "intelligent":
+                intelligent_contents.append((content, instruction, version))
+            else:
+                # 'always' or None (treat NULL as always for backwards compat)
+                always_contents.append((content, instruction, version))
+        
+        # Batch load usage counts for all candidates
+        all_instruction_ids = [str(c.instruction_id) for c in contents]
+        usage_counts = await self._batch_load_usage_counts(all_instruction_ids)
+        
+        # Build items for 'always' instructions (they all get loaded)
+        always_items: List[InstructionItem] = []
+        for content, instruction, version in always_contents:
             inst_id = str(instruction.id)
-            items.append(InstructionItem(
+            always_items.append(InstructionItem(
                 id=inst_id,
                 category=instruction.category,
                 text=version.text or "",
                 load_mode=version.load_mode or "always",
-                load_reason="build",
+                load_reason="always",
                 source_type=instruction.source_type,
                 title=version.title,
                 labels=self._extract_labels(instruction),
@@ -346,7 +384,49 @@ class InstructionContextBuilder:
                 build_number=build.build_number,
             ))
         
-        return items
+        # Calculate remaining slots for intelligent instructions
+        remaining_slots = max_instructions - len(always_items)
+        intelligent_items: List[InstructionItem] = []
+        
+        if remaining_slots > 0 and intelligent_contents:
+            # Extract keywords from query for scoring
+            keywords = self._extract_keywords(query) if query else set()
+            
+            # Score and rank intelligent instructions
+            scored: List[Tuple[InstructionItem, float]] = []
+            for content, instruction, version in intelligent_contents:
+                score = self._score_instruction_version(version, keywords)
+                # Include if score > 0 OR if we have no query (load all intelligent)
+                if score > 0 or not query:
+                    inst_id = str(instruction.id)
+                    item = InstructionItem(
+                        id=inst_id,
+                        category=instruction.category,
+                        text=version.text or "",
+                        load_mode="intelligent",
+                        load_reason=f"search_match:{score:.2f}" if score > 0 else "fill",
+                        source_type=instruction.source_type,
+                        title=version.title,
+                        labels=self._extract_labels(instruction),
+                        usage_count=usage_counts.get(inst_id),
+                        # Version/Build lineage tracking
+                        version_id=str(version.id),
+                        version_number=version.version_number,
+                        content_hash=version.content_hash,
+                        build_number=build.build_number,
+                    )
+                    scored.append((item, score))
+            
+            # Sort by score descending and take top N
+            scored.sort(key=lambda x: x[1], reverse=True)
+            intelligent_items = [item for item, _ in scored[:remaining_slots]]
+        
+        logger.info(
+            f"_load_from_build: loaded {len(always_items)} always + "
+            f"{len(intelligent_items)} intelligent (max={max_instructions})"
+        )
+        
+        return always_items + intelligent_items
     
     async def _build_legacy(
         self,
@@ -354,11 +434,15 @@ class InstructionContextBuilder:
         *,
         data_source_ids: Optional[List[str]] = None,
         category: Optional[str] = None,
-        intelligent_limit: int = 10,
+        max_instructions: int = 50,
     ) -> InstructionsSection:
         """
         Legacy build method - loads instructions directly without build system.
         Used as fallback when no build is available.
+        
+        Load behavior:
+        1. Load ALL 'always' instructions (they take priority)
+        2. Fill remaining capacity with 'intelligent' instructions (keyword-matched)
         """
         # Load always instructions
         always_instructions = await self.load_always_instructions(
@@ -366,12 +450,15 @@ class InstructionContextBuilder:
             category=category,
         )
         
-        # Search intelligent instructions only if query is provided
+        # Calculate remaining slots for intelligent instructions
+        remaining_slots = max(0, max_instructions - len(always_instructions))
+        
+        # Search intelligent instructions to fill remaining slots
         intelligent_results: List[Tuple[Instruction, float]] = []
-        if query:
+        if remaining_slots > 0:
             intelligent_results = await self.search_instructions(
-                query,
-                limit=intelligent_limit,
+                query or "",
+                limit=remaining_slots,
                 data_source_ids=data_source_ids,
                 category=category,
             )
@@ -382,19 +469,16 @@ class InstructionContextBuilder:
         
         # Batch-load usage stats for all instructions
         usage_counts = await self._batch_load_usage_counts(all_instruction_ids)
-        logger.info(f"InstructionContextBuilder.build: usage_counts={usage_counts}")
         
         # Deduplicate and build items with tracking
         seen_ids: Set[str] = set()
         items: List[InstructionItem] = []
         
-        # Add always instructions first
+        # Add always instructions first (they all get loaded)
         for inst in always_instructions:
             inst_id = str(inst.id)
             if inst_id not in seen_ids:
                 seen_ids.add(inst_id)
-                usage = usage_counts.get(inst_id)
-                logger.info(f"InstructionContextBuilder.build: inst={inst_id}, usage={usage}")
                 items.append(InstructionItem(
                     id=inst_id,
                     category=inst.category,
@@ -404,10 +488,10 @@ class InstructionContextBuilder:
                     source_type=inst.source_type,
                     title=inst.title,
                     labels=self._extract_labels(inst),
-                    usage_count=usage,
+                    usage_count=usage_counts.get(inst_id),
                 ))
         
-        # Add intelligent (search-matched) instructions
+        # Add intelligent (search-matched) instructions to fill remaining slots
         for inst, score in intelligent_results:
             inst_id = str(inst.id)
             if inst_id not in seen_ids:
@@ -417,12 +501,17 @@ class InstructionContextBuilder:
                     category=inst.category,
                     text=inst.text or "",
                     load_mode="intelligent",
-                    load_reason=f"search_match:{score:.2f}",
+                    load_reason=f"search_match:{score:.2f}" if score > 0 else "fill",
                     source_type=inst.source_type,
                     title=inst.title,
                     labels=self._extract_labels(inst),
                     usage_count=usage_counts.get(inst_id),
                 ))
+        
+        logger.info(
+            f"_build_legacy: loaded {len(always_instructions)} always + "
+            f"{len(intelligent_results)} intelligent (max={max_instructions})"
+        )
         
         return InstructionsSection(items=items)
 
@@ -502,10 +591,42 @@ class InstructionContextBuilder:
         """
         # Build searchable text from instruction
         searchable = self._build_searchable_text(instruction)
+        return self._score_text(searchable, keywords)
+    
+    def _score_instruction_version(self, version: InstructionVersion, keywords: Set[str]) -> float:
+        """
+        Score an instruction version based on keyword matching.
+        
+        Used for build-based loading to match against version.text/title.
+        Returns a score between 0 and 1.
+        """
+        # Build searchable text from version fields
+        parts = [version.text or ""]
+        if version.title:
+            parts.append(version.title)
+        if version.structured_data:
+            if isinstance(version.structured_data, dict):
+                if version.structured_data.get('name'):
+                    parts.append(version.structured_data['name'])
+                if version.structured_data.get('description'):
+                    parts.append(version.structured_data['description'])
+        searchable = " ".join(parts)
+        return self._score_text(searchable, keywords)
+    
+    def _score_text(self, searchable: str, keywords: Set[str]) -> float:
+        """
+        Score text based on keyword matching.
+        
+        Uses both exact matching and substring matching for better recall.
+        Returns a score between 0 and 1.
+        """
         searchable_lower = searchable.lower()
         searchable_keywords = self._extract_keywords(searchable)
         
         if not searchable_keywords and not searchable_lower:
+            return 0.0
+        
+        if not keywords:
             return 0.0
         
         # Score 1: Exact keyword match (Jaccard similarity)

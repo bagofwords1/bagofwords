@@ -77,14 +77,28 @@
                 <!-- Token display -->
                 <div>
                     <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Access Token</div>
-                    <div class="relative bg-gray-50 rounded-lg border border-gray-200">
+                    <!-- No tokens exist yet -->
+                    <div v-if="apiKeys.length === 0 && !currentToken" class="bg-gray-50 rounded-lg border border-gray-200 border-dashed px-4 py-6 text-center">
+                        <p class="text-sm text-gray-500 mb-3">No access token generated yet</p>
+                        <UButton 
+                            size="sm" 
+                            color="blue"
+                            @click="regenerateToken"
+                            :loading="creating"
+                        >
+                            <UIcon name="heroicons-plus" class="w-4 h-4 mr-1" />
+                            Generate Token
+                        </UButton>
+                    </div>
+                    <!-- Token exists -->
+                    <div v-else class="relative bg-gray-50 rounded-lg border border-gray-200">
                         <div class="px-3 py-2 pr-20 flex items-center gap-3">
                             <code class="font-mono text-xs text-gray-700">{{ currentToken || '••••••••••••••••••••••••••••••••' }}</code>
                             <span v-if="!currentToken && apiKeys.length > 0" class="text-[10px] text-gray-400">{{ formatDate(apiKeys[0].created_at) }}</span>
                         </div>
                         <div class="absolute top-1/2 -translate-y-1/2 right-2">
                             <UTooltip 
-                                :text="currentToken ? '' : (apiKeys.length === 0 ? 'Generate token to copy' : 'Regenerate token to copy')" 
+                                :text="currentToken ? '' : 'Regenerate token to copy'" 
                                 :popper="{ placement: 'top' }"
                             >
                                 <button 

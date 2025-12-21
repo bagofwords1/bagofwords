@@ -107,7 +107,8 @@ class AgentV2:
             data_sources=self.data_sources,
             user=getattr(self.head_completion, 'user', None) if self.head_completion else None,
             head_completion=self.head_completion,
-            widget=self.widget
+            widget=self.widget,
+            organization_settings=self.organization_settings
         )
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()

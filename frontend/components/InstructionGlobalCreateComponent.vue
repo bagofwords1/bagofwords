@@ -169,26 +169,32 @@ Examples:
                         </template>
                     </USelectMenu>
 
-                    <!-- AI Context Loading - Segmented Control -->
-                    <div class="inline-flex rounded-md border border-gray-200 p-0.5 bg-white">
-                        <UTooltip 
-                            v-for="mode in loadModes"
-                            :key="mode.value"
-                            :text="mode.tooltip"
-                            :popper="{ placement: 'top' }"
-                        >
-                            <button 
-                                type="button"
-                                @click="instructionForm.load_mode = mode.value"
-                                class="px-2 py-0.5 text-[11px] font-medium rounded transition-all"
-                                :class="instructionForm.load_mode === mode.value 
-                                    ? 'bg-gray-100 text-gray-900 shadow-sm' 
-                                    : 'text-gray-500 hover:text-gray-700'"
-                            >
-                                {{ mode.label }}
-                            </button>
-                        </UTooltip>
-                    </div>
+                    <!-- AI Context Loading -->
+                    <USelectMenu 
+                        v-model="instructionForm.load_mode" 
+                        :options="loadModeOptions" 
+                        option-attribute="label" 
+                        value-attribute="value" 
+                        size="xs"
+                        class="w-auto"
+                        :ui-menu="{ width: 'w-60' }"
+                    >
+                        <template #label>
+                            <div class="inline-flex items-center text-xs text-gray-700">
+                                <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 mr-1" />
+                                {{ getLoadModeLabel(instructionForm.load_mode) }}
+                            </div>
+                        </template>
+                        <template #option="{ option }">
+                            <div class="flex flex-col gap-0.5 py-0.5">
+                                <div class="flex items-center gap-1.5">
+                                    <Icon :name="getLoadModeIcon(option.value)" class="w-3 h-3" />
+                                    <span class="text-xs font-medium">{{ option.label }}</span>
+                                </div>
+                                <span class="text-[10px] text-gray-500 ml-4">{{ option.description }}</span>
+                            </div>
+                        </template>
+                    </USelectMenu>
 
                     <!-- Labels -->
                     <USelectMenu
@@ -247,23 +253,23 @@ Examples:
                         </template>
                     </USelectMenu>
 
-                    <!-- Visibility Popover -->
-                    <UPopover :popper="{ placement: 'bottom-end' }">
-                        <UButton size="xs" color="gray" variant="ghost" class="px-1.5">
-                            <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3.5 h-3.5" />
-                        </UButton>
-                        <template #panel>
-                            <div class="p-3 w-56 space-y-3">
-                                <div class="flex items-center justify-between">
-                                    <div>
-                                        <p class="text-xs font-medium text-gray-700">Visible in list</p>
-                                        <p class="text-[10px] text-gray-500">Show in instructions list</p>
-                                    </div>
-                                    <UToggle v-model="instructionForm.is_seen" size="sm" />
-                                </div>
-                            </div>
-                        </template>
-                    </UPopover>
+                    <!-- Visibility Toggle -->
+                    <UTooltip 
+                        :text="instructionForm.is_seen ? 'Visible in instructions list' : 'Hidden from instructions list'"
+                        :popper="{ placement: 'top' }"
+                    >
+                        <button
+                            type="button"
+                            @click="instructionForm.is_seen = !instructionForm.is_seen"
+                            class="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md border transition-all"
+                            :class="instructionForm.is_seen 
+                                ? 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50' 
+                                : 'bg-gray-100 border-gray-300 text-gray-500 hover:bg-gray-200'"
+                        >
+                            <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3" />
+                            <span>{{ instructionForm.is_seen ? 'Visible' : 'Hidden' }}</span>
+                        </button>
+                    </UTooltip>
                 </div>
 
                 <!-- Scope Row -->
@@ -392,6 +398,26 @@ Examples:
         </div>
     </UModal>
 
+    <!-- Delete Confirmation Modal (non-git) -->
+    <UModal v-model="showDeleteConfirm" :ui="{ width: 'sm:max-w-md' }">
+        <div class="p-4">
+            <p class="text-sm text-gray-700 mb-3">
+                Are you sure you want to delete this instruction?
+            </p>
+            <p class="text-xs text-gray-500 mb-4">
+                This action cannot be undone.
+            </p>
+            <div class="flex justify-end gap-2">
+                <UButton color="gray" variant="ghost" size="xs" @click="showDeleteConfirm = false">
+                    Cancel
+                </UButton>
+                <UButton color="red" size="xs" @click="confirmDeleteNonGit">
+                    Delete
+                </UButton>
+            </div>
+        </div>
+    </UModal>
+
     <!-- Delete Git-Synced Confirmation Modal -->
     <UModal v-model="showDeleteGitConfirm" :ui="{ width: 'sm:max-w-md' }">
         <div class="p-4">
@@ -490,6 +516,7 @@ const isLoadingLabels = ref(false)
 const showLabelModal = ref(false)
 const editingLabel = ref<InstructionLabel | null>(null)
 const showUnlinkConfirm = ref(false)
+const showDeleteConfirm = ref(false)
 const showDeleteGitConfirm = ref(false)
 const originalText = ref('')
 const codeView = ref(false)
@@ -554,11 +581,27 @@ const selectedLabelObjects = computed(() => {
 
 const labelModalTitle = computed(() => editingLabel.value?.id ? 'Edit Label' : 'Add Label')
 
-// Load mode options for segmented control
-const loadModes = [
-    { value: 'always' as const, label: 'Always', tooltip: 'Always included in AI context' },
-    { value: 'intelligent' as const, label: 'Smart', tooltip: 'Included only when relevant to the query' }
+// Load mode options for dropdown
+const loadModeOptions = [
+    { value: 'always' as const, label: 'Always', description: 'Always included in AI context' },
+    { value: 'intelligent' as const, label: 'Smart', description: 'Included only when relevant to the query' }
 ]
+
+const getLoadModeIcon = (mode: string) => {
+    const icons: Record<string, string> = {
+        always: 'heroicons:bolt',
+        intelligent: 'heroicons:sparkles'
+    }
+    return icons[mode] || 'heroicons:bolt'
+}
+
+const getLoadModeLabel = (mode: string) => {
+    const labels: Record<string, string> = {
+        always: 'Always',
+        intelligent: 'Smart'
+    }
+    return labels[mode] || mode
+}
 
 // Filter mentionable options based on selected data sources
 const filteredMentionableOptions = computed(() => {
@@ -951,6 +994,12 @@ const confirmDelete = async () => {
         return
     }
     
+    // Show regular confirmation modal for non-git items
+    showDeleteConfirm.value = true
+}
+
+const confirmDeleteNonGit = async () => {
+    showDeleteConfirm.value = false
     await doDelete()
 }
 

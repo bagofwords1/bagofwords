@@ -284,12 +284,12 @@ const fetchGitStatus = async () => {
                 hasGit = true
                 provider = (fullDs.value as any).git_repository.provider
                 repoUrl = (fullDs.value as any).git_repository.repo_url
-            }
-            
-            // Fetch metadata for last indexed time
-            const { data: metaData } = await useMyFetch(`/data_sources/${ds.id}/metadata_resources`, { method: 'GET' })
-            if (metaData.value) {
-                completedAt = (metaData.value as any).completed_at || null
+                
+                // Only fetch metadata for data sources with git connection
+                const { data: metaData } = await useMyFetch(`/data_sources/${ds.id}/metadata_resources`, { method: 'GET' })
+                if (metaData.value) {
+                    completedAt = (metaData.value as any).completed_at || null
+                }
             }
             
             results.push({ hasGit, completedAt, provider, repoUrl })

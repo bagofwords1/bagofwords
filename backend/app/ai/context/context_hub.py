@@ -86,10 +86,12 @@ class ContextHub:
         data_sources,
         user=None,
         head_completion=None,
-        widget=None
+        widget=None,
+        organization_settings=None
     ):
         self.db = db
         self.organization = organization
+        self.organization_settings = organization_settings
         self.data_sources = data_sources
         self.report = report
         self.user = user
@@ -119,7 +121,11 @@ class ContextHub:
         """Initialize all context builders."""
         
         # Existing builders (enhanced)
-        self.instruction_builder = InstructionContextBuilder(self.db, self.organization)
+        self.instruction_builder = InstructionContextBuilder(
+            self.db, 
+            self.organization, 
+            organization_settings=self.organization_settings
+        )
         self.code_builder = CodeContextBuilder(self.db, self.organization)
         self.resource_builder = ResourceContextBuilder(self.db, self.data_sources, self.organization, self.prompt_content)
         self.files_builder = FilesContextBuilder(self.db, self.organization, self.report)
