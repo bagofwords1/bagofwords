@@ -8,6 +8,7 @@ export interface UseInstructionsOptions {
   autoFetch?: boolean
   pageSize?: number
   persistFiltersInUrl?: boolean
+  onBulkSuccess?: () => void | Promise<void>  // Callback after bulk operations
 }
 
 export interface InstructionFilters {
@@ -18,6 +19,7 @@ export interface InstructionFilters {
   loadModes: string[]
   labelIds: string[]
   dataSourceId: string | null
+  buildId: string | null
 }
 
 export interface PaginatedResponse {
@@ -33,7 +35,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     dataSourceId,
     autoFetch = true,
     pageSize = 25,
-    persistFiltersInUrl = false
+    persistFiltersInUrl = false,
+    onBulkSuccess
   } = options
 
   const route = useRoute()
@@ -43,6 +46,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
   // State
   const instructions = ref<Instruction[]>([])
   const isLoading = ref(false)
+  const isBulkUpdating = ref(false)
   const error = ref<string | null>(null)
   const total = ref(0)
   const pages = ref(1)
@@ -59,7 +63,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     sourceTypes: [],
     loadModes: [],
     labelIds: [],
-    dataSourceId: null
+    dataSourceId: null,
+    buildId: null
   })
 
   // Selection state
@@ -151,6 +156,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
       if (filters.loadModes.length) queryParams.load_modes = filters.loadModes.join(',')
       if (filters.labelIds.length) queryParams.label_ids = filters.labelIds.join(',')
       if (filters.search?.trim()) queryParams.search = filters.search.trim()
+      if (filters.buildId) queryParams.build_id = filters.buildId
 
       const { data, error: fetchError } = await useMyFetch<PaginatedResponse>('/api/instructions', {
         method: 'GET',
@@ -260,6 +266,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
 
   // Bulk actions
   const bulkUpdate = async (updates: { status?: string; load_mode?: string; add_label_ids?: string[]; remove_label_ids?: string[] }) => {
+    isBulkUpdating.value = true
     try {
       // If selectAllMode is 'all', we need to fetch all matching IDs first
       let idsToUpdate: string[] = []
@@ -315,9 +322,16 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
       })
 
       clearSelection()
-      fetchInstructions()
+      await fetchInstructions()
+      
+      // Trigger callback to refresh builds list
+      if (onBulkSuccess) {
+        await onBulkSuccess()
+      }
     } catch (err: any) {
       toast.add({ title: 'Error', description: err.message, color: 'red' })
+    } finally {
+      isBulkUpdating.value = false
     }
   }
 
@@ -350,6 +364,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     // State
     instructions,
     isLoading,
+    isBulkUpdating,
     error,
     total,
     pages,

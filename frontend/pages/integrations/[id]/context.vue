@@ -83,11 +83,18 @@
                         :custom-tooltip="gitStatusTooltip"
                         @click="showGitModal = true"
                     />
+
+                    <!-- Build Version Selector -->
+                    <BuildVersionSelector
+                        v-model="selectedBuildId"
+                        :builds="availableBuilds"
+                        :loading="loadingBuilds"
+                    />
                 </div>
             </div>
 
             <!-- Instructions Table -->
-            <div class="h-[400px]">
+            <div class="h-[calc(100vh-280px)]">
                 <InstructionsTable
                     :instructions="inst.instructions.value"
                     :loading="inst.isLoading.value || isIndexing"
@@ -132,6 +139,7 @@ import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import InstructionsFilterBar from '~/components/instructions/InstructionsFilterBar.vue'
 import InstructionsBulkBar from '~/components/instructions/InstructionsBulkBar.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
+import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useInstructions } from '~/composables/useInstructions'
 import type { Instruction } from '~/composables/useInstructionHelpers'
@@ -163,6 +171,11 @@ const selectedInstruction = ref<Instruction | null>(null)
 const allLabels = ref<{ id: string; name: string; color?: string | null }[]>([])
 const labelFilter = ref<string[]>([])
 const availableSourceTypes = ref<{ value: string; label: string; icon?: string; heroicon?: string }[]>([])
+
+// Build version selection
+const selectedBuildId = ref<string | null>(null)
+const availableBuilds = ref<{ value: string; label: string; buildNumber: number; status: string; createdAt: string; source: string }[]>([])
+const loadingBuilds = ref(false)
 
 const repoDisplayName = computed(() => {
   const url = integration.value?.git_repository?.repo_url || ''
@@ -270,6 +283,42 @@ function resetAllFilters() {
   inst.resetFilters()
 }
 
+// Fetch available builds for version selector
+async function fetchBuilds() {
+  loadingBuilds.value = true
+  try {
+    const { data } = await useMyFetch<{ items: any[]; total: number }>('/api/builds', { 
+      method: 'GET',
+      query: { limit: 50 }
+    })
+    if (data.value?.items) {
+      const builds = data.value.items
+        .sort((a: any, b: any) => b.build_number - a.build_number)
+      
+      availableBuilds.value = builds.map((build: any) => ({
+        value: build.id,
+        label: String(build.build_number),
+        buildNumber: build.build_number,
+        status: build.status,
+        createdAt: build.created_at,
+        source: build.source,
+        gitProvider: build.git_provider
+      }))
+    }
+  } catch (e) {
+    console.error('Failed to fetch builds:', e)
+  } finally {
+    loadingBuilds.value = false
+  }
+}
+
+// Watch for build selection changes
+watch(selectedBuildId, (newBuildId) => {
+  inst.filters.buildId = newBuildId
+  inst.currentPage.value = 1
+  inst.fetchInstructions()
+})
+
 function startPolling() {
   stopPolling()
   pollInterval = setInterval(async () => {
@@ -310,6 +359,7 @@ onMounted(async () => {
     await inst.fetchInstructions()
     fetchLabels()
     fetchAvailableSourceTypes()
+    fetchBuilds()
   } finally {
     isLoading.value = false
   }

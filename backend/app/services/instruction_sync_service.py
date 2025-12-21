@@ -8,6 +8,7 @@ Instructions, including:
 - Creating pending versions for published instructions
 - Archiving instructions when resources are deleted
 - Formatting structured data into readable text
+- Creating InstructionVersions and adding to builds
 """
 
 import logging
@@ -15,6 +16,7 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 
 from app.models.instruction import Instruction
 from app.models.metadata_resource import MetadataResource
@@ -23,6 +25,7 @@ from app.models.organization_settings import OrganizationSettings
 from app.models.data_source import DataSource
 from app.models.git_repository import GitRepository
 from app.models.metadata_indexing_job import MetadataIndexingJob
+from app.models.instruction_build import InstructionBuild
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 
 logger = logging.getLogger(__name__)
@@ -63,7 +66,12 @@ class InstructionSyncService:
     }
     
     def __init__(self):
-        pass  # No external service dependencies
+        # Import here to avoid circular imports
+        from app.services.build_service import BuildService
+        from app.services.instruction_version_service import InstructionVersionService
+        
+        self.build_service = BuildService()
+        self.version_service = InstructionVersionService()
     
     async def _get_org_settings(self, db: AsyncSession, organization_id: str) -> Optional[OrganizationSettings]:
         """Get organization settings directly without user context."""
@@ -80,6 +88,7 @@ class InstructionSyncService:
         resource: MetadataResource,
         organization: Organization,
         commit_sha: Optional[str] = None,
+        build: Optional[InstructionBuild] = None,
     ) -> Optional[Instruction]:
         """
         Create or update an instruction from a metadata resource.
@@ -89,6 +98,7 @@ class InstructionSyncService:
             resource: The metadata resource to sync
             organization: The organization
             commit_sha: Optional git commit SHA
+            build: Optional build to add the instruction version to
             
         Returns:
             The created or updated instruction, or None if skipped
@@ -108,24 +118,43 @@ class InstructionSyncService:
         existing = await self._find_instruction_for_resource(db, fresh_resource.id)
         
         if existing:
-            return await self._handle_existing_instruction(db, existing, fresh_resource, organization, commit_sha)
+            return await self._handle_existing_instruction(db, existing, fresh_resource, organization, commit_sha, build)
         else:
-            return await self._create_instruction_from_resource(db, fresh_resource, organization, commit_sha)
+            # Before creating a new instruction, check if there was an unlinked/deleted one
+            # If an instruction was previously unlinked (source_sync_enabled=False), don't recreate it
+            unlinked_instruction = await self._find_instruction_for_resource(db, fresh_resource.id, include_deleted=True)
+            if unlinked_instruction and not unlinked_instruction.source_sync_enabled:
+                logger.debug(f"Skipping resource {fresh_resource.id} - previously unlinked instruction {unlinked_instruction.id} exists")
+                return None
+            
+            return await self._create_instruction_from_resource(db, fresh_resource, organization, commit_sha, build)
     
     async def _find_instruction_for_resource(
         self,
         db: AsyncSession,
-        resource_id: str
+        resource_id: str,
+        include_deleted: bool = False
     ) -> Optional[Instruction]:
-        """Find an existing instruction linked to a metadata resource."""
-        stmt = select(Instruction).where(
-            and_(
-                Instruction.source_metadata_resource_id == resource_id,
-                Instruction.deleted_at == None
+        """Find an existing instruction linked to a metadata resource.
+        
+        Args:
+            resource_id: The metadata resource ID
+            include_deleted: If True, also finds soft-deleted instructions
+        """
+        if include_deleted:
+            # Find any instruction (including deleted) - used to check for unlinked instructions
+            stmt = select(Instruction).where(
+                Instruction.source_metadata_resource_id == resource_id
+            ).order_by(Instruction.created_at.desc())  # Get most recent
+        else:
+            stmt = select(Instruction).where(
+                and_(
+                    Instruction.source_metadata_resource_id == resource_id,
+                    Instruction.deleted_at == None
+                )
             )
-        )
         result = await db.execute(stmt)
-        return result.scalar_one_or_none()
+        return result.scalars().first()
     
     async def _get_git_repository_for_resource(
         self,
@@ -159,6 +188,7 @@ class InstructionSyncService:
         resource: MetadataResource,
         organization: Organization,
         commit_sha: Optional[str] = None,
+        build: Optional[InstructionBuild] = None,
     ) -> Instruction:
         """Create a new instruction from a metadata resource."""
         # Get git repository settings from the resource's indexing job
@@ -229,6 +259,42 @@ class InstructionSyncService:
             await db.commit()
             logger.debug(f"Linked resource {resource.id} to instruction {instruction.id}")
         
+        # === Build System Integration ===
+        # Create version and add to build
+        if build:
+            try:
+                # Re-fetch instruction with relationships for version creation
+                inst_stmt = (
+                    select(Instruction)
+                    .options(
+                        selectinload(Instruction.data_sources),
+                        selectinload(Instruction.labels),
+                        selectinload(Instruction.references),
+                    )
+                    .where(Instruction.id == instruction.id)
+                )
+                inst_result = await db.execute(inst_stmt)
+                instruction_with_rels = inst_result.scalar_one()
+                
+                # Create the first version
+                version = await self.version_service.create_version(
+                    db, instruction_with_rels, user_id=user_id
+                )
+                
+                # Update instruction's current version
+                instruction_with_rels.current_version_id = version.id
+                
+                # Add the version to the build
+                await self.build_service.add_to_build(
+                    db, build.id, instruction_with_rels.id, version.id
+                )
+                
+                await db.commit()
+                logger.info(f"Created version {version.id} for git instruction {instruction.id}, added to build {build.id}")
+            except Exception as e:
+                logger.warning(f"Failed to create version for git instruction {instruction.id}: {e}")
+                # Don't fail the instruction creation if versioning fails
+        
         logger.info(f"Created instruction {instruction.id} from resource {resource.id} ({resource.resource_type})")
         return instruction
     
@@ -239,6 +305,7 @@ class InstructionSyncService:
         resource: MetadataResource,
         organization: Organization,
         commit_sha: Optional[str] = None,
+        build: Optional[InstructionBuild] = None,
     ) -> Optional[Instruction]:
         """Handle update to an existing instruction."""
         # If unlinked from git, skip
@@ -257,9 +324,7 @@ class InstructionSyncService:
             await db.commit()
             return existing
         
-        # Content changed - handle based on status
-        if existing.status == 'draft':
-            # Safe to auto-update drafts
+        # Content changed - update instruction directly (all statuses now get versioned)
             existing.text = new_text
             existing.title = resource.name
             existing.structured_data = new_structured_data
@@ -267,14 +332,43 @@ class InstructionSyncService:
             existing.source_git_commit_sha = commit_sha
             await db.commit()
             await db.refresh(existing)
-            logger.info(f"Updated draft instruction {existing.id} from resource {resource.id}")
-            return existing
         
-        if existing.status == 'published':
-            # Create new version for review
-            return await self._create_pending_version(db, existing, resource, organization, commit_sha)
+        # === Build System Integration ===
+        # Create new version for the updated instruction
+        if build:
+            try:
+                # Re-fetch instruction with relationships for version creation
+                inst_stmt = (
+                    select(Instruction)
+                    .options(
+                        selectinload(Instruction.data_sources),
+                        selectinload(Instruction.labels),
+                        selectinload(Instruction.references),
+                    )
+                    .where(Instruction.id == existing.id)
+                )
+                inst_result = await db.execute(inst_stmt)
+                instruction_with_rels = inst_result.scalar_one()
+                
+                # Create new version
+                version = await self.version_service.create_version(
+                    db, instruction_with_rels, user_id=existing.user_id
+                )
+                
+                # Update instruction's current version
+                instruction_with_rels.current_version_id = version.id
+                
+                # Add the version to the build
+                await self.build_service.add_to_build(
+                    db, build.id, instruction_with_rels.id, version.id
+                )
+                
+                await db.commit()
+                logger.info(f"Created version {version.id} for updated git instruction {existing.id}, added to build {build.id}")
+            except Exception as e:
+                logger.warning(f"Failed to create version for updated git instruction {existing.id}: {e}")
         
-        # For archived instructions, don't update
+        logger.info(f"Updated instruction {existing.id} from resource {resource.id}")
         return existing
     
     async def _create_pending_version(

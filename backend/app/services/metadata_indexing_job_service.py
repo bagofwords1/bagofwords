@@ -24,6 +24,7 @@ from app.core.sqlx_parser import SQLXResourceExtractor
 from app.dependencies import async_session_maker # Import the session maker
 from app.settings.config import settings
 from app.services.instruction_sync_service import InstructionSyncService
+from app.services.build_service import BuildService
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class MetadataIndexingJobService:
             'dataform': SQLXResourceExtractor,
         }
         self.instruction_sync_service = InstructionSyncService()
+        self.build_service = BuildService()
 
     async def _verify_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization):
         """Verify data source exists and belongs to organization"""
@@ -829,12 +831,42 @@ class MetadataIndexingJobService:
                     )
                     await db.commit()
                     
+                    # === Build System Integration ===
+                    # Create a draft build for this git sync job
+                    sync_build = None
+                    try:
+                        # Get git repository info for build metadata
+                        git_repo_result = await db.execute(
+                            select(GitRepository).where(GitRepository.id == repository_id)
+                        )
+                        git_repo = git_repo_result.scalar_one_or_none()
+                        
+                        sync_build = await self.build_service.get_or_create_draft_build(
+                            db, 
+                            current_org.id, 
+                            source='git',
+                            metadata_indexing_job_id=job_id,
+                            commit_sha=None,  # Could be added if we track commits
+                            branch=git_repo.branch if git_repo else None
+                        )
+                        
+                        # Link the build to the job
+                        await db.execute(
+                            update(MetadataIndexingJob)
+                            .where(MetadataIndexingJob.id == job_id)
+                            .values(build_id=sync_build.id)
+                        )
+                        await db.commit()
+                        logger.info(f"Job {job_id}: Created build {sync_build.id} for git sync")
+                    except Exception as build_error:
+                        logger.warning(f"Job {job_id}: Failed to create build: {build_error}")
+                    
                     synced_count = 0
                     sync_errors = 0
                     for i, resource in enumerate(all_created_resources):
                         try:
                             result = await self.instruction_sync_service.sync_resource_to_instruction(
-                                db, resource, current_org
+                                db, resource, current_org, build=sync_build
                             )
                             if result:
                                 synced_count += 1
@@ -855,6 +887,18 @@ class MetadataIndexingJobService:
                             await db.commit()
                     
                     logger.info(f"Job {job_id}: Synced {synced_count}/{len(all_created_resources)} resources to instructions ({sync_errors} errors)")
+                    
+                    # === Finalize Build ===
+                    # Auto-finalize the build to make instructions visible in main
+                    # Always finalize if build exists (it may have copied instructions from main)
+                    if sync_build:
+                        try:
+                            await self.build_service.submit_build(db, sync_build.id)
+                            await self.build_service.approve_build(db, sync_build.id, approved_by_user_id=None)
+                            await self.build_service.promote_build(db, sync_build.id)
+                            logger.info(f"Job {job_id}: Finalized build {sync_build.id} (synced: {synced_count}, total: {sync_build.total_instructions})")
+                        except Exception as finalize_error:
+                            logger.warning(f"Job {job_id}: Failed to finalize build {sync_build.id}: {finalize_error}")
 
                 # All database operations below will use the new session
                 await db.execute(

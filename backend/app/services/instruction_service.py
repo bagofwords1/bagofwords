@@ -39,6 +39,8 @@ from app.schemas.instruction_analysis_schema import (
 from app.schemas.instruction_reference_schema import InstructionReferenceSchema
 from app.services.instruction_reference_service import InstructionReferenceService
 from app.services.llm_service import LLMService
+from app.services.build_service import BuildService
+from app.services.instruction_version_service import InstructionVersionService
 from app.dependencies import async_session_maker
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from app.core.telemetry import telemetry
@@ -47,11 +49,16 @@ from app.models.report import Report
 from sqlalchemy import select, func, or_, and_
 import re
 from datetime import datetime, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 class InstructionService:
     def __init__(self):
         self.reference_service = InstructionReferenceService()
         self.llm_service = LLMService()
+        self.build_service = BuildService()
+        self.version_service = InstructionVersionService()
     
     async def create_instruction(
         self, 
@@ -59,7 +66,9 @@ class InstructionService:
         instruction_data: InstructionCreate, 
         current_user: User, 
         organization: Organization,
-        force_global: bool = False
+        force_global: bool = False,
+        build = None,  # Optional: use existing build instead of creating new one
+        auto_finalize: bool = True,  # If False, skip auto-finalization (for batching)
     ) -> InstructionSchema:
         """Create a new instruction following the dual-status matrix"""
         
@@ -113,6 +122,43 @@ class InstructionService:
             ds_ids = instruction_data.data_source_ids if instruction_data.data_source_ids else None
             await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, ds_ids)
             await db.commit()  # Commit the references
+        
+        # === Build System Integration ===
+        # Create version and add to build for ALL instructions (including draft/suggested)
+        try:
+            # Re-fetch instruction with relationships for version creation
+            await db.refresh(instruction, ['data_sources', 'labels', 'references'])
+            
+            # Create the first version
+            version = await self.version_service.create_version(
+                db, instruction, user_id=current_user.id
+            )
+            
+            # Update instruction's current version
+            instruction.current_version_id = version.id
+            
+            # Use provided build or get/create a draft build for user changes
+            target_build = build
+            if target_build is None:
+                target_build = await self.build_service.get_or_create_draft_build(
+                    db, organization.id, source='user', user_id=current_user.id
+                )
+            
+            # Add the version to the build
+            await self.build_service.add_to_build(
+                db, target_build.id, instruction.id, version.id
+            )
+            
+            await db.commit()
+            
+            # Auto-finalize unless explicitly disabled (for batching scenarios)
+            if auto_finalize:
+                await self._auto_finalize_build(db, target_build, current_user)
+            
+            logger.info(f"Created version {version.id} for instruction {instruction.id}, added to build {target_build.id}")
+        except Exception as e:
+            logger.warning(f"Failed to create version for instruction {instruction.id}: {e}")
+            # Don't fail the instruction creation if versioning fails
         
         # Telemetry: emit minimal, non-PII metadata using existing fields only
         try:
@@ -382,9 +428,14 @@ class InstructionService:
         source_types: Optional[List[str]] = None,
         load_modes: Optional[List[str]] = None,
         label_ids: Optional[List[str]] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        build_id: Optional[str] = None
     ) -> dict:
-        """Get instructions with clean permission-based filtering. Returns paginated response."""
+        """Get instructions with clean permission-based filtering. Returns paginated response.
+        
+        By default, loads instructions from the main build (is_main=True).
+        Pass build_id to load from a specific build instead.
+        """
         
         user_permissions = await self._get_user_permissions(db, current_user, organization)
         
@@ -413,7 +464,8 @@ class InstructionService:
         # Execute query with new filters
         return await self._execute_instructions_query(
             db, organization, conditions, status, categories, skip, limit,
-            data_source_id, source_types, load_modes, label_ids, search
+            data_source_id, source_types, load_modes, label_ids, search,
+            build_id=build_id
         )
 
     async def get_available_source_types(
@@ -598,6 +650,53 @@ class InstructionService:
             await self.reference_service.replace_for_instruction(db, instruction.id, instruction_data.references or [], organization, current_ds_ids)
 
         await db.commit()
+        
+        # === Build System Integration ===
+        # Create new version if content has changed
+        try:
+            # Re-fetch instruction with relationships for version creation
+            fresh_for_version = await db.execute(
+                select(Instruction)
+                .options(
+                    selectinload(Instruction.data_sources),
+                    selectinload(Instruction.labels),
+                    selectinload(Instruction.references),
+                )
+                .where(Instruction.id == instruction.id)
+            )
+            instruction_with_rels = fresh_for_version.scalar_one()
+            
+            # Check if content has changed
+            if await self.version_service.has_content_changed(db, instruction_with_rels):
+                # Create new version
+                version = await self.version_service.create_version(
+                    db, instruction_with_rels, user_id=current_user.id
+                )
+                
+                # Update instruction's current version
+                instruction_with_rels.current_version_id = version.id
+                
+                # Get or create a draft build for user changes
+                build = await self.build_service.get_or_create_draft_build(
+                    db, organization.id, source='user', user_id=current_user.id
+                )
+                
+                # Add the version to the build
+                await self.build_service.add_to_build(
+                    db, build.id, instruction_with_rels.id, version.id
+                )
+                
+                await db.commit()
+                
+                # Always auto-finalize to keep main build in sync
+                # All instructions (including draft/suggested) are in main for UI display
+                await self._auto_finalize_build(db, build, current_user)
+                
+                logger.info(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
+        except Exception as e:
+            logger.warning(f"Failed to create version for updated instruction {instruction.id}: {e}")
+            # Don't fail the update if versioning fails
+        
         # Re-fetch instruction with proper eager loading to avoid lazy loading issues
         fresh_instruction = await db.execute(
             select(Instruction)
@@ -654,14 +753,14 @@ class InstructionService:
 
 
     async def delete_instruction(
-        self, 
-        db: AsyncSession, 
-        instruction_id: str, 
+        self,
+        db: AsyncSession,
+        instruction_id: str,
         organization: Organization,
         current_user: User
     ) -> bool:
         """Delete an instruction (soft delete)"""
-        
+
         result = await db.execute(
             select(Instruction).where(
                 and_(
@@ -671,15 +770,35 @@ class InstructionService:
             )
         )
         instruction = result.scalar_one_or_none()
-        
+
         if not instruction:
             raise HTTPException(status_code=404, detail="Instruction not found")
-        
+
         # Permission check is handled by the decorator, so we can proceed with deletion
         # Soft delete (using BaseSchema's soft delete functionality)
         from datetime import datetime
         instruction.deleted_at = datetime.utcnow()
         await db.commit()
+        
+        # === Build System Integration ===
+        # Create a new build that removes this instruction
+        try:
+            build = await self.build_service.get_or_create_draft_build(
+                db, organization.id, source='user', user_id=current_user.id
+            )
+            
+            # Remove the instruction from the build
+            await self.build_service.remove_from_build(db, build.id, instruction_id)
+            await db.commit()
+            
+            # Auto-finalize to reflect deletion in main build
+            await self._auto_finalize_build(db, build, current_user)
+            
+            logger.info(f"Removed instruction {instruction_id} from build {build.id}")
+        except Exception as e:
+            logger.warning(f"Failed to update build for deleted instruction {instruction_id}: {e}")
+            # Don't fail the deletion if build update fails
+        
         return True
     
     async def increment_thumbs_up(
@@ -723,10 +842,14 @@ class InstructionService:
         updated_count = 0
         failed_ids = []
         
-        # Fetch all instructions by IDs
+        # Fetch all instructions by IDs with relationships needed for versioning
         result = await db.execute(
             select(Instruction)
-            .options(selectinload(Instruction.labels))
+            .options(
+                selectinload(Instruction.labels),
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.references),
+            )
             .where(
                 and_(
                     Instruction.id.in_(bulk_update.ids),
@@ -763,12 +886,29 @@ class InstructionService:
         if bulk_update.remove_label_ids:
             labels_to_remove_ids = set(bulk_update.remove_label_ids)
         
+        # === Build System Integration ===
+        # Create a single build for all bulk updates
+        bulk_build = None
+        try:
+            bulk_build = await self.build_service.get_or_create_draft_build(
+                db, organization.id, source='user', user_id=current_user.id
+            )
+            logger.debug(f"Created bulk update build {bulk_build.id}")
+        except Exception as build_error:
+            logger.warning(f"Failed to create bulk update build: {build_error}")
+        
+        # Track instructions that were actually modified for versioning
+        modified_instructions = []
+        
         # Apply updates
         for instruction in instructions:
             try:
+                modified = False
+                
                 # Update status with proper handling of dual-status lifecycle
                 if bulk_update.status:
                     instruction.status = bulk_update.status
+                    modified = True
                     
                     if bulk_update.status == 'published':
                         # Publishing: clear private_status, set global_status to approved
@@ -788,24 +928,67 @@ class InstructionService:
                 # Update load mode
                 if bulk_update.load_mode:
                     instruction.load_mode = bulk_update.load_mode
+                    modified = True
                 
                 # Add labels
                 for label in labels_to_add:
                     if label not in instruction.labels:
                         instruction.labels.append(label)
+                        modified = True
                 
                 # Remove labels
                 if labels_to_remove_ids:
+                    original_count = len(instruction.labels)
                     instruction.labels = [
                         lbl for lbl in instruction.labels 
                         if str(lbl.id) not in labels_to_remove_ids
                     ]
+                    if len(instruction.labels) != original_count:
+                        modified = True
+                
+                if modified:
+                    modified_instructions.append(instruction)
                 
                 updated_count += 1
             except Exception as e:
                 failed_ids.append(str(instruction.id))
         
         await db.commit()
+        
+        # === Create versions and add to build ===
+        if bulk_build and modified_instructions:
+            try:
+                for instruction in modified_instructions:
+                    # Re-fetch with fresh relationships
+                    fresh_result = await db.execute(
+                        select(Instruction)
+                        .options(
+                            selectinload(Instruction.labels),
+                            selectinload(Instruction.data_sources),
+                            selectinload(Instruction.references),
+                        )
+                        .where(Instruction.id == instruction.id)
+                    )
+                    fresh_instruction = fresh_result.scalar_one()
+                    
+                    # Create version
+                    version = await self.version_service.create_version(
+                        db, fresh_instruction, user_id=current_user.id
+                    )
+                    fresh_instruction.current_version_id = version.id
+                    
+                    # Add to build
+                    await self.build_service.add_to_build(
+                        db, bulk_build.id, fresh_instruction.id, version.id
+                    )
+                
+                await db.commit()
+                
+                # Finalize the build
+                await self._auto_finalize_build(db, bulk_build, current_user)
+                logger.info(f"Finalized bulk update build {bulk_build.id} with {len(modified_instructions)} instructions")
+            except Exception as version_error:
+                logger.warning(f"Failed to create versions for bulk update: {version_error}")
         
         return InstructionBulkResponse(
             updated_count=updated_count,
@@ -1246,18 +1429,51 @@ class InstructionService:
         source_types: Optional[List[str]] = None,
         load_modes: Optional[List[str]] = None,
         label_ids: Optional[List[str]] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        build_id: Optional[str] = None
     ) -> dict:
-        """Execute the instructions query with given conditions. Returns paginated response."""
+        """Execute the instructions query with given conditions. Returns paginated response.
+        
+        By default, loads instructions from the main build (is_main=True).
+        Pass build_id to load from a specific build instead.
+        """
         from sqlalchemy import func
         from app.models.instruction_label import InstructionLabel
         from app.models.metadata_resource import MetadataResource
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
         
         # Base query conditions
         base_conditions = [
             Instruction.organization_id == organization.id,
             Instruction.deleted_at == None
         ]
+        
+        # Get the target build (specific or main)
+        target_build_id = build_id
+        if not target_build_id:
+            # Get the main build for this organization
+            main_build_result = await db.execute(
+                select(InstructionBuild.id).where(
+                    and_(
+                        InstructionBuild.organization_id == organization.id,
+                        InstructionBuild.is_main == True,
+                        InstructionBuild.deleted_at == None
+                    )
+                )
+            )
+            main_build = main_build_result.scalar_one_or_none()
+            if main_build:
+                target_build_id = main_build
+        
+        # If we have a target build, filter instructions to only those in the build
+        if target_build_id:
+            # Get instruction IDs that are in the target build
+            build_instruction_ids_subquery = (
+                select(BuildContent.instruction_id)
+                .where(BuildContent.build_id == target_build_id)
+            )
+            base_conditions.append(Instruction.id.in_(build_instruction_ids_subquery))
         
         # Build filter conditions list
         filter_conditions = []
@@ -1383,6 +1599,8 @@ class InstructionService:
                     load_mode=getattr(inst, "load_mode", "always") or "always",
                     title=getattr(inst, "title", None),
                     structured_data=getattr(inst, "structured_data", None),
+                    # Build System fields
+                    current_version_id=getattr(inst, "current_version_id", None),
                 )
             )
         
@@ -1639,6 +1857,38 @@ class InstructionService:
             instruction_dict["references"] = populated_references
         
         return InstructionSchema(**instruction_dict)
+    
+    async def _auto_finalize_build(
+        self, 
+        db: AsyncSession, 
+        build, 
+        current_user: User
+    ) -> None:
+        """
+        Auto-finalize a build by submitting and approving it immediately.
+        This makes the build system invisible to regular users - only draft/suggested
+        instructions accumulate in builds for admin review.
+        """
+        from app.models.instruction_build import InstructionBuild
+        
+        try:
+            # Only finalize if still in draft state
+            if build.status != 'draft':
+                return
+            
+            # Submit the build
+            await self.build_service.submit_build(db, build.id)
+            
+            # Auto-approve and promote to main
+            await self.build_service.approve_build(
+                db, build.id, approved_by_user_id=current_user.id
+            )
+            await self.build_service.promote_build(db, build.id)
+            
+            logger.info(f"Auto-finalized build {build.id} (published instruction)")
+        except Exception as e:
+            logger.warning(f"Failed to auto-finalize build {build.id}: {e}")
+            # Don't fail the instruction operation if auto-finalize fails
     
     async def _instructions_to_schema_with_references(self, db: AsyncSession, instructions) -> List[InstructionSchema]:
         """Convert multiple instructions to schemas with populated references."""

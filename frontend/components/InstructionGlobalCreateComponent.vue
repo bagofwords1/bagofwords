@@ -375,7 +375,7 @@ Examples:
         @deleted="handleLabelModalDeleted"
     />
 
-    <!-- Unlink Confirmation Modal -->
+    <!-- Unlink Confirmation Modal (for save) -->
     <UModal v-model="showUnlinkConfirm" :ui="{ width: 'sm:max-w-md' }">
         <div class="p-4">
             <p class="text-sm text-gray-700 mb-4">
@@ -387,6 +387,36 @@ Examples:
                 </UButton>
                 <UButton color="blue" size="xs" @click="confirmUnlinkAndSave">
                     Unlink & Save
+                </UButton>
+            </div>
+        </div>
+    </UModal>
+
+    <!-- Delete Git-Synced Confirmation Modal -->
+    <UModal v-model="showDeleteGitConfirm" :ui="{ width: 'sm:max-w-md' }">
+        <div class="p-4">
+            <p class="text-sm text-gray-700 mb-3">
+                This instruction is synced from git.
+            </p>
+            <div class="space-y-2 mb-4">
+                <div class="flex items-start gap-2 text-xs text-gray-600">
+                    <span class="text-red-500 font-medium shrink-0">Delete:</span>
+                    <span>Will be recreated on next git sync</span>
+                </div>
+                <div class="flex items-start gap-2 text-xs text-gray-600">
+                    <span class="text-orange-500 font-medium shrink-0">Unlink & Delete:</span>
+                    <span>Will not be recreated (stops syncing)</span>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2">
+                <UButton color="gray" variant="ghost" size="xs" @click="showDeleteGitConfirm = false">
+                    Cancel
+                </UButton>
+                <UButton color="red" variant="soft" size="xs" @click="confirmDeleteGitSynced">
+                    Delete
+                </UButton>
+                <UButton color="orange" size="xs" @click="confirmUnlinkAndDelete">
+                    Unlink & Delete
                 </UButton>
             </div>
         </div>
@@ -460,6 +490,7 @@ const isLoadingLabels = ref(false)
 const showLabelModal = ref(false)
 const editingLabel = ref<InstructionLabel | null>(null)
 const showUnlinkConfirm = ref(false)
+const showDeleteGitConfirm = ref(false)
 const originalText = ref('')
 const codeView = ref(false)
 
@@ -914,11 +945,30 @@ const confirmUnlinkAndSave = () => {
 const confirmDelete = async () => {
     if (!props.instruction?.id) return
     
-    const confirmed = window.confirm(
-        `Are you sure you want to delete the instruction "${props.instruction.text.substring(0, 50)}${props.instruction.text.length > 50 ? '...' : ''}"?`
-    )
+    // If git-synced, show special confirmation modal
+    if (props.isGitSynced) {
+        showDeleteGitConfirm.value = true
+        return
+    }
     
-    if (!confirmed) return
+    await doDelete()
+}
+
+const confirmDeleteGitSynced = async () => {
+    showDeleteGitConfirm.value = false
+    await doDelete()
+}
+
+const confirmUnlinkAndDelete = async () => {
+    showDeleteGitConfirm.value = false
+    // Unlink first, then delete
+    emit('unlink-from-git')
+    // Small delay to let the unlink happen, then delete
+    setTimeout(() => doDelete(), 100)
+}
+
+const doDelete = async () => {
+    if (!props.instruction?.id) return
     
     isDeleting.value = true
     

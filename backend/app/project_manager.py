@@ -698,9 +698,13 @@ class ProjectManager:
         trigger_reason: str = None,
         ai_source: str | None = None,
         user_id: str | None = None,
+        build = None,  # Optional InstructionBuild to add instruction to
     ) -> Instruction:
         """
         Create a single draft instruction owned by the system (user_id=None).
+        
+        Args:
+            build: Optional InstructionBuild to add this instruction to (for batching)
         """
         try:
             clean_text = (text or "").strip()
@@ -722,6 +726,32 @@ class ProjectManager:
             db.add(instruction)
             await db.commit()
             await db.refresh(instruction)
+            
+            # === Build System Integration ===
+            if build:
+                try:
+                    from app.services.instruction_version_service import InstructionVersionService
+                    from app.services.build_service import BuildService
+                    
+                    version_service = InstructionVersionService()
+                    build_service = BuildService()
+                    
+                    # Create version for this instruction
+                    version = await version_service.create_version(
+                        db, instruction, user_id=user_id
+                    )
+                    instruction.current_version_id = version.id
+                    
+                    # Add to the build
+                    await build_service.add_to_build(
+                        db, build.id, instruction.id, version.id
+                    )
+                    await db.commit()
+                    
+                    self.logger.debug(f"Added AI instruction {instruction.id} to build {build.id}")
+                except Exception as build_error:
+                    self.logger.warning(f"Failed to add instruction to build: {build_error}")
+                    # Don't fail the instruction creation
 
             return instruction
         except Exception as e:

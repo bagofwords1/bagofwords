@@ -1,7 +1,10 @@
 import asyncio
 import json
+import logging
 from typing import Dict, Optional
 from pydantic import ValidationError
+
+logger = logging.getLogger(__name__)
 
 from app.ai.agents.planner import PlannerV2
 from app.ai.context import ContextHub, ContextBuildSpec
@@ -244,6 +247,23 @@ class AgentV2:
                     drafts = []
                     # Format trigger reason from conditions for persistence
                     trigger_reason = "; ".join(c.get("name", "") for c in conditions) if conditions else ""
+                    
+                    # === Build System Integration ===
+                    # Create a single build for all AI-suggested instructions in this execution
+                    ai_build = None
+                    try:
+                        from app.services.build_service import BuildService
+                        build_service = BuildService()
+                        ai_build = await build_service.get_or_create_draft_build(
+                            self.db,
+                            str(self.organization.id),
+                            source='ai',
+                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+                        )
+                        logger.debug(f"Created AI build {ai_build.id} for agent execution {self.current_execution.id}")
+                    except Exception as build_error:
+                        logger.warning(f"Failed to create AI build: {build_error}")
+                    
                     async for draft in self.suggest_instructions.stream_suggestions(
                         context_view=view_for_suggest, 
                         context_hub=self.context_hub, 
@@ -258,7 +278,8 @@ class AgentV2:
                             agent_execution_id=str(self.current_execution.id),
                             trigger_reason=trigger_reason,
                             ai_source="completion",
-                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                            build=ai_build  # Pass build for batching
                         )
                         # Append a minimal client payload
                         draft_payload = {
@@ -291,6 +312,19 @@ class AgentV2:
                             ))
                         except Exception:
                             pass
+                    
+                    # === Finalize Build ===
+                    # Auto-finalize the AI build after all suggestions are created
+                    if ai_build and len(drafts) > 0:
+                        try:
+                            from app.services.build_service import BuildService
+                            build_service = BuildService()
+                            await build_service.submit_build(self.db, ai_build.id)
+                            await build_service.approve_build(self.db, ai_build.id, approved_by_user_id=None)
+                            await build_service.promote_build(self.db, ai_build.id)
+                            logger.info(f"Finalized AI build {ai_build.id} with {len(drafts)} instructions")
+                        except Exception as finalize_error:
+                            logger.warning(f"Failed to finalize AI build: {finalize_error}")
 
                     try:
                         seq_si_f = await self.project_manager.next_seq(self.db, self.current_execution)

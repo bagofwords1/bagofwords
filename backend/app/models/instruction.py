@@ -75,6 +75,11 @@ class Instruction(BaseSchema):
     structured_data = Column(JSON, nullable=True)
     formatted_content = Column(Text, nullable=True)
     
+    # === Build System fields ===
+    # Points to the currently active version of this instruction
+    # Note: FK constraint not enforced at DB level for SQLite compatibility
+    current_version_id = Column(String(36), nullable=True)
+    
     # Relationships
     data_sources = relationship(
         "DataSource",
@@ -95,6 +100,23 @@ class Instruction(BaseSchema):
     references = relationship("InstructionReference", back_populates="instruction", lazy="selectin", cascade="all, delete-orphan")
     agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="selectin")
     source_metadata_resource = relationship("MetadataResource", foreign_keys=[source_metadata_resource_id], lazy="selectin")
+    
+    # Version history relationship
+    versions = relationship(
+        "InstructionVersion",
+        back_populates="instruction",
+        lazy="selectin",
+        foreign_keys="InstructionVersion.instruction_id",
+        cascade="all, delete-orphan"
+    )
+    current_version = relationship(
+        "InstructionVersion",
+        primaryjoin="Instruction.current_version_id == InstructionVersion.id",
+        foreign_keys="Instruction.current_version_id",
+        lazy="selectin",
+        post_update=True,
+        uselist=False
+    )
     
     # Usage tracking relationships
     usage_events = relationship("InstructionUsageEvent", back_populates="instruction", lazy="dynamic")

@@ -86,6 +86,13 @@
                     :last-indexed-at="gitLastIndexed"
                     @click="openGitRepositoriesModal"
                 />
+
+                <!-- Build Version Selector -->
+                <BuildVersionSelector
+                    v-model="selectedBuildId"
+                    :builds="availableBuilds"
+                    :loading="loadingBuilds"
+                />
             </div>
         </div>
 
@@ -93,7 +100,7 @@
         <div class="flex-1 min-h-0">
             <InstructionsTable
                 :instructions="inst.instructions.value"
-                :loading="inst.isLoading.value"
+                :loading="inst.isLoading.value || inst.isBulkUpdating.value"
                 :selectable="true"
                 :selected-ids="inst.selectedIds.value"
                 :is-all-page-selected="inst.isAllPageSelected.value"
@@ -150,6 +157,7 @@ import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import InstructionsFilterBar from '~/components/instructions/InstructionsFilterBar.vue'
 import InstructionsBulkBar from '~/components/instructions/InstructionsBulkBar.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
+import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useInstructions } from '~/composables/useInstructions'
 import type { Instruction } from '~/composables/useInstructionHelpers'
@@ -161,11 +169,15 @@ withDefaults(defineProps<{
     showHeader: false
 })
 
+// Wrapper for fetchBuilds to avoid hoisting issues
+const refreshBuilds = () => fetchBuilds()
+
 // Instructions composable with URL persistence
 const inst = useInstructions({
     autoFetch: true,
     pageSize: 25,
-    persistFiltersInUrl: true
+    persistFiltersInUrl: true,
+    onBulkSuccess: refreshBuilds  // Refresh builds list after bulk updates
 })
 
 // UI state
@@ -193,6 +205,11 @@ const availableSourceTypes = ref<{ value: string; label: string; icon?: string; 
 // Learning settings
 const learningEnabled = ref(false)
 const learningSettings = ref<{ enabled: boolean; sensitivity: number; conditions: Record<string, boolean>; mode?: 'on' | 'off' } | null>(null)
+
+// Build version selection
+const selectedBuildId = ref<string | null>(null)
+const availableBuilds = ref<{ value: string; label: string; buildNumber: number; status: string; createdAt: string; source: string }[]>([])
+const loadingBuilds = ref(false)
 
 // Computed
 const canCreate = computed(() => useCan('create_instructions'))
@@ -360,6 +377,44 @@ const resetAllFilters = () => {
     inst.resetFilters()
 }
 
+// Fetch available builds for version selector
+const fetchBuilds = async () => {
+    loadingBuilds.value = true
+    try {
+        // Fetch builds (backend defaults to approved status)
+        const { data } = await useMyFetch<{ items: any[]; total: number }>('/api/builds', { 
+            method: 'GET',
+            query: { limit: 50 }
+        })
+        if (data.value?.items) {
+            // Sort by build_number desc
+            const builds = data.value.items
+                .sort((a: any, b: any) => b.build_number - a.build_number)
+            
+            availableBuilds.value = builds.map((build: any) => ({
+                value: build.id,
+                label: String(build.build_number),
+                buildNumber: build.build_number,
+                status: build.status,
+                createdAt: build.created_at,
+                source: build.source,
+                gitProvider: build.git_provider
+            }))
+        }
+    } catch (e) {
+        console.error('Failed to fetch builds:', e)
+    } finally {
+        loadingBuilds.value = false
+    }
+}
+
+// Watch for build selection changes
+watch(selectedBuildId, (newBuildId) => {
+    inst.filters.buildId = newBuildId
+    inst.currentPage.value = 1
+    inst.fetchInstructions()
+})
+
 // Expose refresh for parent
 const refresh = () => {
     inst.refresh()
@@ -374,5 +429,6 @@ onMounted(async () => {
     fetchLearningSettings()
     fetchGitStatus()
     fetchAvailableSourceTypes()
+    fetchBuilds()
 })
 </script>

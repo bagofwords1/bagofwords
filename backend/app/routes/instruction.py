@@ -79,11 +79,16 @@ async def get_instructions(
     load_modes: Optional[str] = Query(None, description="Comma-separated load modes: always, intelligent, disabled"),
     label_ids: Optional[str] = Query(None, description="Comma-separated label IDs"),
     search: Optional[str] = Query(None, description="Search in instruction text and title"),
+    build_id: Optional[str] = Query(None, description="Load from specific build (defaults to main build)"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get instructions with automatic permission-based filtering. Returns paginated response."""
+    """Get instructions with automatic permission-based filtering. Returns paginated response.
+    
+    By default, loads instructions from the main build (is_main=True).
+    Pass build_id to load from a specific build instead.
+    """
     # Parse label_ids from comma-separated string
     parsed_label_ids = None
     if label_ids:
@@ -122,7 +127,8 @@ async def get_instructions(
         source_types=parsed_source_types,
         load_modes=parsed_load_modes,
         label_ids=parsed_label_ids,
-        search=search
+        search=search,
+        build_id=build_id
     )
 
 
@@ -368,4 +374,79 @@ async def delete_instruction(
     if not success:
         raise HTTPException(status_code=404, detail="Instruction not found")
     return {"message": "Instruction deleted successfully"}
+
+
+# ==================== Version Endpoints ====================
+
+from app.services.instruction_version_service import InstructionVersionService
+from app.schemas.instruction_version_schema import (
+    InstructionVersionSchema,
+    InstructionVersionListSchema,
+    PaginatedVersionResponse,
+)
+
+instruction_version_service = InstructionVersionService()
+
+
+@router.get("/instructions/{instruction_id}/versions")
+@requires_permission('view_instructions')
+async def get_instruction_versions(
+    instruction_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Get version history for an instruction."""
+    # Verify instruction exists and belongs to org
+    instruction = await instruction_service.get_instruction(
+        db, instruction_id, organization, current_user
+    )
+    if not instruction:
+        raise HTTPException(status_code=404, detail="Instruction not found")
+    
+    result = await instruction_version_service.get_versions(
+        db, instruction_id, skip=skip, limit=limit
+    )
+    
+    # Convert to list schemas
+    items = [InstructionVersionListSchema.model_validate(v) for v in result["items"]]
+    
+    return PaginatedVersionResponse(
+        items=items,
+        total=result["total"],
+        page=result["page"],
+        per_page=result["per_page"],
+        pages=result["pages"],
+        instruction_id=instruction_id,
+    )
+
+
+@router.get("/instructions/{instruction_id}/versions/{version_id}", response_model=InstructionVersionSchema)
+@requires_permission('view_instructions')
+async def get_instruction_version(
+    instruction_id: str,
+    version_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Get a specific version of an instruction."""
+    # Verify instruction exists and belongs to org
+    instruction = await instruction_service.get_instruction(
+        db, instruction_id, organization, current_user
+    )
+    if not instruction:
+        raise HTTPException(status_code=404, detail="Instruction not found")
+    
+    version = await instruction_version_service.get_version(db, version_id)
+    
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+    
+    if version.instruction_id != instruction_id:
+        raise HTTPException(status_code=400, detail="Version does not belong to this instruction")
+    
+    return InstructionVersionSchema.model_validate(version)
 

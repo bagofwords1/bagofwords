@@ -245,6 +245,23 @@ class DemoDataSourceService:
         try:
             instruction_service = InstructionService()
             
+            # === Build System Integration ===
+            # Create a single build for all demo instructions
+            demo_build = None
+            try:
+                from app.services.build_service import BuildService
+                build_service = BuildService()
+                demo_build = await build_service.get_or_create_draft_build(
+                    db,
+                    organization.id,
+                    source='user',
+                    user_id=current_user.id
+                )
+                logger.debug(f"Created demo build {demo_build.id} for data source {data_source.name}")
+            except Exception as build_error:
+                logger.warning(f"Failed to create demo build: {build_error}")
+            
+            created_count = 0
             for instruction_text in demo.instructions:
                 instruction_data = InstructionCreate(
                     text=instruction_text,
@@ -258,7 +275,20 @@ class DemoDataSourceService:
                     current_user=current_user,
                     organization=organization,
                     force_global=True,  # Make them global/approved so they're active immediately
+                    build=demo_build,  # Use shared build
+                    auto_finalize=False,  # Don't finalize yet
                 )
+                created_count += 1
+            
+            # === Finalize Build ===
+            if demo_build and created_count > 0:
+                try:
+                    await build_service.submit_build(db, demo_build.id)
+                    await build_service.approve_build(db, demo_build.id, approved_by_user_id=current_user.id)
+                    await build_service.promote_build(db, demo_build.id)
+                    logger.info(f"Finalized demo build {demo_build.id} with {created_count} instructions")
+                except Exception as finalize_error:
+                    logger.warning(f"Failed to finalize demo build: {finalize_error}")
             
             logger.info(f"Created {len(demo.instructions)} instructions for demo data source: {data_source.name}")
         except Exception as e:

@@ -139,6 +139,9 @@ class InstructionSchema(InstructionBase):
     agent_execution_id: Optional[str] = None
     trigger_reason: Optional[str] = None
 
+    # === Build System fields ===
+    current_version_id: Optional[str] = None
+
     class Config:
         from_attributes = True
 
@@ -192,6 +195,9 @@ class InstructionListSchema(BaseModel):
     load_mode: str = "always"
     title: Optional[str] = None
     structured_data: Optional[Dict[str, Any]] = None
+    
+    # === Build System fields ===
+    current_version_id: Optional[str] = None
     
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []

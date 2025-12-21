@@ -64,9 +64,20 @@ class MetadataIndexingJob(BaseSchema):
 
     is_active = Column(Boolean, nullable=False, default=True)
     
+    # Link to the InstructionBuild created by this job (if instruction sync was involved)
+    # Note: FK constraint not enforced at DB level for SQLite compatibility
+    build_id = Column(String(36), nullable=True)
+    
     # Relationships
     data_source = relationship("DataSource", back_populates="metadata_indexing_jobs")
     git_repository = relationship("GitRepository", back_populates="metadata_indexing_jobs")
+    build = relationship(
+        "InstructionBuild",
+        primaryjoin="MetadataIndexingJob.build_id == InstructionBuild.id",
+        foreign_keys="MetadataIndexingJob.build_id",
+        lazy="selectin",
+        uselist=False
+    )
     
     # Use lambda for late binding to avoid circular imports
     metadata_resources = relationship(

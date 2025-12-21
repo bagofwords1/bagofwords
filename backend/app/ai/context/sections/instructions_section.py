@@ -25,6 +25,12 @@ class InstructionItem(BaseModel):
     # Usage stats (from InstructionStats)
     usage_count: Optional[int] = None     # Total times this instruction was used
 
+    # Version/Build lineage tracking (for reproducibility)
+    version_id: Optional[str] = None      # InstructionVersion.id
+    version_number: Optional[int] = None  # InstructionVersion.version_number
+    content_hash: Optional[str] = None    # InstructionVersion.content_hash
+    build_number: Optional[int] = None    # InstructionBuild.build_number
+
 
 class InstructionsSection(ContextSection):
     tag_name: ClassVar[str] = "instructions"

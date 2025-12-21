@@ -275,6 +275,23 @@ class DataSourceService:
         try:
             created_instruction_payloads: list[dict] = []
             instruction_service = InstructionService()
+            
+            # === Build System Integration ===
+            # Create a single build for all onboarding instructions
+            onboarding_build = None
+            try:
+                from app.services.build_service import BuildService
+                build_service = BuildService()
+                onboarding_build = await build_service.get_or_create_draft_build(
+                    db,
+                    organization.id,
+                    source='ai',
+                    user_id=current_user.id if current_user else None
+                )
+                logger.info(f"Created onboarding build {onboarding_build.id} for data source {data_source_id}")
+            except Exception as build_error:
+                logger.warning(f"Failed to create onboarding build: {build_error}")
+            
             async for draft in suggest_instructions.onboarding_suggestions(context_view=view):
                 text = (draft or {}).get("text")
                 category = (draft or {}).get("category")
@@ -295,6 +312,8 @@ class DataSourceService:
                         instruction_data=create_payload,
                         current_user=current_user or User(),
                         organization=organization,
+                        build=onboarding_build,  # Use shared build
+                        auto_finalize=False,  # Don't finalize yet
                     )
                     created_instruction_payloads.append({
                         "id": created.id,
@@ -307,6 +326,17 @@ class DataSourceService:
                 except Exception as e:
                     # Skip persisting this draft if creation fails
                     continue
+            
+            # === Finalize Build ===
+            if onboarding_build and len(created_instruction_payloads) > 0:
+                try:
+                    await build_service.submit_build(db, onboarding_build.id)
+                    await build_service.approve_build(db, onboarding_build.id, approved_by_user_id=current_user.id if current_user else None)
+                    await build_service.promote_build(db, onboarding_build.id)
+                    logger.info(f"Finalized onboarding build {onboarding_build.id} with {len(created_instruction_payloads)} instructions")
+                except Exception as finalize_error:
+                    logger.warning(f"Failed to finalize onboarding build: {finalize_error}")
+            
             if created_instruction_payloads:
                 result["instructions"] = created_instruction_payloads
         except Exception as e:

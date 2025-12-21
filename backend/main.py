@@ -70,6 +70,7 @@ from app.routes import (
     mentions,
     api_key,
     mcp,
+    build,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 
@@ -186,6 +187,7 @@ app.include_router(external_user_mapping.router, prefix="/api")
 app.include_router(slack_webhook.router)
 app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
+app.include_router(build.router, prefix="/api")
 app.include_router(console.router, prefix="/api")
 app.include_router(agent_execution.router, prefix="/api")
 app.include_router(onboarding.router, prefix="/api")

@@ -80,24 +80,32 @@
                   </button>
                 </div>
 
-                <div class="flex items-center gap-2 mt-4">
-                  <UButton
-                    color="blue"
-                    variant="outline"
-                    size="xs"
-                    @click="openInstructionModal"
-                    icon="heroicons:plus"
-                  >
-                    Add Instruction
-                  </UButton>
-                  <button 
-                    v-if="allInstructions.length === 0 && hasAttemptedLLMSync"
-                    class="text-xs text-gray-500 hover:text-gray-600 p-2 rounded-md"
-                    :disabled="isLLMSyncInProgress"
-                    @click="runLLMSync"
-                  >
-                    {{ isLLMSyncInProgress ? 'Generating...' : 'Generate AI Suggestions' }}
-                  </button>
+                <div class="flex items-center justify-between mt-4">
+                  <div class="flex items-center gap-2">
+                    <UButton
+                      color="blue"
+                      variant="outline"
+                      size="xs"
+                      @click="openInstructionModal"
+                      icon="heroicons:plus"
+                    >
+                      Add Instruction
+                    </UButton>
+                    <button 
+                      v-if="allInstructions.length === 0 && hasAttemptedLLMSync"
+                      class="text-xs text-gray-500 hover:text-gray-600 p-2 rounded-md"
+                      :disabled="isLLMSyncInProgress"
+                      @click="runLLMSync"
+                    >
+                      {{ isLLMSyncInProgress ? 'Generating...' : 'Generate AI Suggestions' }}
+                    </button>
+                  </div>
+                  <!-- Build Version Selector -->
+                  <BuildVersionSelector
+                    v-model="selectedBuildId"
+                    :builds="availableBuilds"
+                    :loading="loadingBuilds"
+                  />
                 </div>
               </div>
             </div>
@@ -198,6 +206,7 @@ import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import InstructionModalComponent from '@/components/InstructionModalComponent.vue'
 import GitBranchIcon from '@/components/icons/GitBranchIcon.vue'
 import Spinner from '~/components/Spinner.vue'
+import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
 
 const { getResourceType, getResourceTypeIcon, getResourceTypeTooltip, getResourceTypeFallbackIcon } = useInstructionHelpers()
 
@@ -225,6 +234,11 @@ const selectedInstruction = ref<any>(null)
 const gitInstructions = ref<any[]>([])
 const isLoadingGitInstructions = ref(false)
 const isIndexingGit = computed(() => integration.value?.git_repository?.status === 'pending')
+
+// Build version selection
+const selectedBuildId = ref<string | null>(null)
+const availableBuilds = ref<{ value: string; label: string; buildNumber: number; status: string; createdAt: string; source: string }[]>([])
+const loadingBuilds = ref(false)
 
 // Merge suggested and git instructions into one list
 const allInstructions = computed(() => {
@@ -413,6 +427,35 @@ function handleGitModalClose(value: boolean) {
   }
 }
 
+// Fetch available builds for version selector
+async function fetchBuilds() {
+  loadingBuilds.value = true
+  try {
+    const { data } = await useMyFetch<{ items: any[]; total: number }>('/api/builds', { 
+      method: 'GET',
+      query: { limit: 50 }
+    })
+    if (data.value?.items) {
+      const builds = data.value.items
+        .sort((a: any, b: any) => b.build_number - a.build_number)
+      
+      availableBuilds.value = builds.map((build: any) => ({
+        value: build.id,
+        label: String(build.build_number),
+        buildNumber: build.build_number,
+        status: build.status,
+        createdAt: build.created_at,
+        source: build.source,
+        gitProvider: build.git_provider
+      }))
+    }
+  } catch (e) {
+    console.error('Failed to fetch builds:', e)
+  } finally {
+    loadingBuilds.value = false
+  }
+}
+
 async function handleSave() {
   if (saving.value) return
   saving.value = true
@@ -452,8 +495,9 @@ onMounted(async () => {
   const integrationPromise = fetchIntegration()
   const instructionsPromise = fetchInstructions()
   const gitInstructionsPromise = fetchGitInstructions()
+  const buildsPromise = fetchBuilds()
 
-  await Promise.all([integrationPromise, instructionsPromise, gitInstructionsPromise])
+  await Promise.all([integrationPromise, instructionsPromise, gitInstructionsPromise, buildsPromise])
 
   // Only run LLM sync if conditions are met
   if (shouldRunLLMSync()) {

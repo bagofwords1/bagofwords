@@ -21,6 +21,8 @@ from app.services.metadata_indexing_job_service import MetadataIndexingJobServic
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.metadata_resource import MetadataResource
 from app.models.instruction import Instruction
+from app.models.build_content import BuildContent
+from app.models.instruction_version import InstructionVersion
 from app.core.telemetry import telemetry
 from urllib.parse import urlparse
 
@@ -295,8 +297,8 @@ class GitRepositoryService:
         resource_ids = [r.id for r in resources_to_delete]
         job_ids_to_delete = [job.id for job in metadata_indexing_jobs]
         
-        # 3. Delete synced instructions linked to these resources (before deleting resources)
-        # Only delete instructions that are still synced (source_sync_enabled=True)
+        # 3. Handle synced instructions linked to these resources (before deleting resources)
+        # Only process instructions that are still synced (source_sync_enabled=True)
         # Unlinked instructions are kept as user-owned
         if resource_ids:
             # Find instructions that reference these resources AND are still synced
@@ -308,26 +310,60 @@ class GitRepositoryService:
             )
             instructions_result = await db.execute(instructions_stmt)
             instructions_to_delete = instructions_result.scalars().all()
-            
-            deleted_count = len(instructions_to_delete)
 
-            # First pass: clear FK references and relationships
+            deleted_count = len(instructions_to_delete)
+            instruction_ids_to_delete = [inst.id for inst in instructions_to_delete]
+
+            # === Build System Integration ===
+            # Create a new build that REMOVES these instructions
+            # This preserves history - old builds still contain the instructions for diffing
+            if instruction_ids_to_delete:
+                try:
+                    from app.services.build_service import BuildService
+                    build_service = BuildService()
+                    
+                    # Get the organization from the data source
+                    ds_result = await db.execute(
+                        select(DataSource).where(DataSource.id == data_source_id)
+                    )
+                    data_source = ds_result.scalar_one_or_none()
+                    
+                    if data_source:
+                        # Create a new build for this deletion
+                        deletion_build = await build_service.get_or_create_draft_build(
+                            db,
+                            data_source.organization_id,
+                            source='git',
+                            user_id=None
+                        )
+                        
+                        # Remove instructions from the new build (not from old builds!)
+                        for instruction_id in instruction_ids_to_delete:
+                            await build_service.remove_from_build(db, deletion_build.id, instruction_id)
+                            self.logger.debug(f"Removed instruction {instruction_id} from build {deletion_build.id}")
+                        
+                        await db.commit()
+                        
+                        # Auto-finalize the build
+                        await build_service.submit_build(db, deletion_build.id)
+                        await build_service.approve_build(db, deletion_build.id, approved_by_user_id=None)
+                        await build_service.promote_build(db, deletion_build.id)
+                        
+                        self.logger.info(f"Created deletion build {deletion_build.id} removing {len(instruction_ids_to_delete)} instructions")
+                except Exception as build_error:
+                    self.logger.warning(f"Failed to create deletion build: {build_error}")
+
+            # Soft-delete instructions (set deleted_at) instead of hard delete
+            # This preserves them in old builds for history/diffing
+            from datetime import datetime
             for instruction in instructions_to_delete:
-                instruction.data_sources = []
-                instruction.labels = []
-                instruction.source_metadata_resource_id = None
-            
-            await db.flush()
-            
-            # Second pass: delete instructions
-            for instruction in instructions_to_delete:
-                await db.delete(instruction)
-                self.logger.info(f"Deleted instruction {instruction.id} (was linked to resource in data source {data_source_id})")
+                instruction.deleted_at = datetime.utcnow()
+                instruction.source_metadata_resource_id = None  # Unlink from resource
+                self.logger.info(f"Soft-deleted instruction {instruction.id} (was linked to resource in data source {data_source_id})")
 
             if deleted_count > 0:
-                self.logger.info(f"Deleted {deleted_count} instructions linked to git repository {repository_id}")
+                self.logger.info(f"Soft-deleted {deleted_count} instructions linked to git repository {repository_id}")
             
-            # Commit instruction deletions before deleting resources to avoid circular dependency
             await db.commit()
 
         # 4. Delete resources (re-fetch to avoid detached instance issues)

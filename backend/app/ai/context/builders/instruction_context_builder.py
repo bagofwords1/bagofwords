@@ -3,10 +3,14 @@ import re
 import logging
 
 from sqlalchemy import select, and_, or_, func
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instruction import Instruction
 from app.models.instruction_stats import InstructionStats
+from app.models.instruction_build import InstructionBuild
+from app.models.build_content import BuildContent
+from app.models.instruction_version import InstructionVersion
 from app.models.organization import Organization
 from app.models.user import User
 
@@ -212,6 +216,7 @@ class InstructionContextBuilder:
         data_source_ids: Optional[List[str]] = None,
         category: Optional[str] = None,
         intelligent_limit: int = 10,
+        build_id: Optional[str] = None,
     ) -> InstructionsSection:
         """
         Build instructions context with proper load tracking.
@@ -228,11 +233,132 @@ class InstructionContextBuilder:
             Filter by category.
         intelligent_limit : int
             Max intelligent instructions to include (only used when query provided).
+        build_id : str | None, optional
+            If provided, load instructions from this specific build.
+            If None, defaults to the main build (is_main=True) if one exists,
+            otherwise falls back to legacy behavior (direct instruction query).
             
         Returns
         -------
         InstructionsSection
             Instructions section with proper load_mode and load_reason tracking.
+        """
+        # Try to load from build if build_id is provided or main build exists
+        build_items = await self._load_from_build(build_id)
+        
+        if build_items is not None:
+            # Build-based loading - return items with version tracking
+            return InstructionsSection(items=build_items)
+        
+        # Fallback to legacy behavior (direct instruction query)
+        return await self._build_legacy(
+            query=query,
+            data_source_ids=data_source_ids,
+            category=category,
+            intelligent_limit=intelligent_limit,
+        )
+    
+    async def _load_from_build(
+        self,
+        build_id: Optional[str] = None,
+    ) -> Optional[List[InstructionItem]]:
+        """
+        Load instructions from a specific build or the main build.
+        
+        Returns None if no build is available (fallback to legacy).
+        """
+        # Get the build
+        if build_id:
+            build_result = await self.db.execute(
+                select(InstructionBuild)
+                .where(
+                    and_(
+                        InstructionBuild.id == build_id,
+                        InstructionBuild.deleted_at == None,
+                    )
+                )
+            )
+            build = build_result.scalar_one_or_none()
+        else:
+            # Try to get the main build
+            build_result = await self.db.execute(
+                select(InstructionBuild)
+                .where(
+                    and_(
+                        InstructionBuild.organization_id == self.organization.id,
+                        InstructionBuild.is_main == True,
+                        InstructionBuild.deleted_at == None,
+                    )
+                )
+            )
+            build = build_result.scalar_one_or_none()
+        
+        if not build:
+            return None  # No build available, fallback to legacy
+        
+        # Load build contents with versions
+        contents_result = await self.db.execute(
+            select(BuildContent)
+            .options(
+                selectinload(BuildContent.instruction),
+                selectinload(BuildContent.instruction_version),
+            )
+            .where(BuildContent.build_id == build.id)
+        )
+        contents = contents_result.scalars().all()
+        
+        if not contents:
+            return []  # Build exists but is empty
+        
+        # Build instruction items with version tracking
+        items: List[InstructionItem] = []
+        instruction_ids = [str(c.instruction_id) for c in contents]
+        usage_counts = await self._batch_load_usage_counts(instruction_ids)
+        
+        for content in contents:
+            instruction = content.instruction
+            version = content.instruction_version
+            
+            if not instruction or not version:
+                continue
+            
+            # Only include published instructions that are not disabled
+            if instruction.status != "published":
+                continue
+            if version.load_mode == "disabled":
+                continue
+            
+            inst_id = str(instruction.id)
+            items.append(InstructionItem(
+                id=inst_id,
+                category=instruction.category,
+                text=version.text or "",
+                load_mode=version.load_mode or "always",
+                load_reason="build",
+                source_type=instruction.source_type,
+                title=version.title,
+                labels=self._extract_labels(instruction),
+                usage_count=usage_counts.get(inst_id),
+                # Version/Build lineage tracking
+                version_id=str(version.id),
+                version_number=version.version_number,
+                content_hash=version.content_hash,
+                build_number=build.build_number,
+            ))
+        
+        return items
+    
+    async def _build_legacy(
+        self,
+        query: Optional[str] = None,
+        *,
+        data_source_ids: Optional[List[str]] = None,
+        category: Optional[str] = None,
+        intelligent_limit: int = 10,
+    ) -> InstructionsSection:
+        """
+        Legacy build method - loads instructions directly without build system.
+        Used as fallback when no build is available.
         """
         # Load always instructions
         always_instructions = await self.load_always_instructions(
