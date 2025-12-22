@@ -1,4 +1,5 @@
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+import logging
 
 import json
 from partialjson.json_parser import JSONParser
@@ -6,6 +7,8 @@ from partialjson.json_parser import JSONParser
 from app.ai.llm import LLM
 from app.models.llm_model import LLMModel
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 
 # Category definitions with descriptions
@@ -251,6 +254,7 @@ Return a single JSON object matching this schema exactly:
         emitted_indices: set[int] = set()
         yielded_count = 0
 
+        chunk_count = 0
         async for chunk in self.llm.inference_stream(
             prompt,
             usage_scope=usage_scope,
@@ -258,14 +262,22 @@ Return a single JSON object matching this schema exactly:
         ):
             if not chunk:
                 continue
+            chunk_count += 1
             buffer += chunk
             try:
                 parsed = parser.parse(buffer)
             except Exception:
                 parsed = None
-
+            
+            # Handle both {"instructions": [...]} and direct [...] formats
+            arr = None
             if isinstance(parsed, dict):
                 arr = parsed.get("instructions")
+            elif isinstance(parsed, list):
+                # LLM returned array directly instead of wrapped object
+                arr = parsed
+            
+            if arr is not None:
                 if isinstance(arr, list):
                     for idx, item in enumerate(arr):
                         if not isinstance(item, dict):
@@ -316,6 +328,9 @@ Return a single JSON object matching this schema exactly:
                                 "category": category,
                                 "confidence": confidence,
                             }
+        
+        # Log summary only
+        logger.debug(f"[{usage_scope}] Stream complete: {chunk_count} chunks, {yielded_count} items yielded")
 
     async def enhance_instruction(
         self,

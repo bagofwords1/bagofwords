@@ -299,8 +299,8 @@ function openInstructionModal() {
 async function fetchInstructions() {
   isLoadingInstructions.value = true
   try {
-    // Leverage same API shape as InstructionsListModal: published instructions; filter by ds via query if backend supports it
-    const params: any = { limit: 30 }
+    // Fetch instructions including drafts (for onboarding suggestions)
+    const params: any = { limit: 30, include_drafts: true, include_own: true }
     if (dsId.value) params.data_source_id = dsId.value
     const { data, error } = await useMyFetch<any>('/instructions', { method: 'GET', query: params })
     if (!error.value && data.value) {

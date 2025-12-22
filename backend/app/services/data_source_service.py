@@ -1,5 +1,9 @@
 import importlib
+import logging
+
 from app.models.user import User
+
+logger = logging.getLogger(__name__)
 from app.models.organization import Organization
 from app.models.data_source import DataSource
 from app.schemas.data_source_registry import (
@@ -292,7 +296,9 @@ class DataSourceService:
             except Exception as build_error:
                 logger.warning(f"Failed to create onboarding build: {build_error}")
             
+            draft_count = 0
             async for draft in suggest_instructions.onboarding_suggestions(context_view=view):
+                draft_count += 1
                 text = (draft or {}).get("text")
                 category = (draft or {}).get("category")
                 if not (text and category):
@@ -325,7 +331,10 @@ class DataSourceService:
                     })
                 except Exception as e:
                     # Skip persisting this draft if creation fails
+                    logger.debug(f"Failed to create instruction from draft: {e}")
                     continue
+            
+            logger.debug(f"Onboarding: created {len(created_instruction_payloads)} instructions from {draft_count} drafts")
             
             # === Finalize Build ===
             if onboarding_build and len(created_instruction_payloads) > 0:
@@ -340,7 +349,7 @@ class DataSourceService:
             if created_instruction_payloads:
                 result["instructions"] = created_instruction_payloads
         except Exception as e:
-            pass
+            logger.debug(f"Onboarding suggestions failed: {e}")
 
         return result
 
