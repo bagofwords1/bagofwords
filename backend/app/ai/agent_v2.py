@@ -43,7 +43,7 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, small_model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None):
+                 model=None, small_model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
@@ -108,7 +108,8 @@ class AgentV2:
             user=getattr(self.head_completion, 'user', None) if self.head_completion else None,
             head_completion=self.head_completion,
             widget=self.widget,
-            organization_settings=self.organization_settings
+            organization_settings=self.organization_settings,
+            build_id=build_id
         )
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()

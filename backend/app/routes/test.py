@@ -159,7 +159,7 @@ async def run_suite(suite_id: str, background: bool = Query(True), db: AsyncSess
 @router.post("/runs", response_model=TestRunSchema)
 @requires_permission('manage_tests')
 async def create_run(payload: TestRunCreate, db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user)):
-    run = await run_service.create_run(db, organization, current_user, case_ids=payload.case_ids, trigger_reason=payload.trigger_reason or "manual")
+    run = await run_service.create_run(db, organization, current_user, case_ids=payload.case_ids, trigger_reason=payload.trigger_reason or "manual", build_id=payload.build_id)
     return run
 
 
@@ -323,6 +323,7 @@ async def create_run_batch(payload: TestRunBatchCreate, db: AsyncSession = Depen
         case_ids=payload.case_ids,
         suite_id=payload.suite_id,
         trigger_reason=payload.trigger_reason or "manual",
+        build_id=payload.build_id,
     )
     return run
 

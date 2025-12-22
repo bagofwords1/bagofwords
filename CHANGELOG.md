@@ -1,6 +1,10 @@
 # Release Notes
 
 ## Version 0.0.280 (December 19, 2025)
+- added build, versioning and trackcing for instructions
+- fixed issue with 
+
+## Version 0.0.280 (December 19, 2025)
 - Unified context and instructions
 - Added usage stats to Instructions
 - Added apply/load rules to instructions: always or smart (based on search/retrieval)

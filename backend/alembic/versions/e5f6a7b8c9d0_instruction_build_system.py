@@ -293,9 +293,21 @@ def upgrade() -> None:
                     "now": now,
                 }
             )
+    
+    # =========================================================================
+    # Add build_id to test_runs table for tracking which build was used
+    # =========================================================================
+    with op.batch_alter_table('test_runs', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('build_id', sa.String(length=36), nullable=True))
+        batch_op.create_index('ix_test_runs_build_id', ['build_id'])
 
 
 def downgrade() -> None:
+    # Remove build_id from test_runs (using batch for SQLite compatibility)
+    with op.batch_alter_table('test_runs', schema=None) as batch_op:
+        batch_op.drop_index('ix_test_runs_build_id')
+        batch_op.drop_column('build_id')
+    
     # Remove column from metadata_indexing_jobs (using batch for SQLite compatibility)
     with op.batch_alter_table('metadata_indexing_jobs', schema=None) as batch_op:
         batch_op.drop_column('build_id')

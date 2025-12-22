@@ -74,6 +74,9 @@ class TestRunSchema(BaseModel):
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     summary_json: Optional[Dict[str, Any]] = None
+    # Build system
+    build_id: Optional[str] = None
+    build_number: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -84,6 +87,9 @@ class TestRunSchema(BaseModel):
 class TestRunCreate(BaseModel):
     case_ids: Optional[List[str]] = None
     trigger_reason: Optional[str] = "manual"
+    # Build system: optionally specify which instruction build to use
+    # If None, uses the current main build (is_main=True)
+    build_id: Optional[str] = None
 
 
 

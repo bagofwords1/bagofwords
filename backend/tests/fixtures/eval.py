@@ -168,3 +168,84 @@ def create_test_case(test_client):
     return _create_test_case
 
 
+@pytest.fixture
+def create_test_run(test_client):
+    """Create a test run for specified case IDs."""
+    def _create_test_run(*, case_ids, trigger_reason="manual", build_id=None, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for create_test_run")
+        if org_id is None:
+            pytest.fail("Organization ID is required for create_test_run")
+        if not case_ids:
+            pytest.fail("case_ids is required for create_test_run")
+
+        payload = {
+            "case_ids": case_ids,
+            "trigger_reason": trigger_reason,
+        }
+        if build_id is not None:
+            payload["build_id"] = build_id
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.post(
+            "/api/tests/runs",
+            json=payload,
+            headers=headers,
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _create_test_run
+
+
+@pytest.fixture
+def get_test_runs(test_client):
+    """Get list of test runs."""
+    def _get_test_runs(*, user_token=None, org_id=None, suite_id=None, status=None, page=1, limit=20):
+        if user_token is None:
+            pytest.fail("User token is required for get_test_runs")
+        if org_id is None:
+            pytest.fail("Organization ID is required for get_test_runs")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        params = {"page": page, "limit": limit}
+        if suite_id:
+            params["suite_id"] = suite_id
+        if status:
+            params["status"] = status
+
+        response = test_client.get("/api/tests/runs", headers=headers, params=params)
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _get_test_runs
+
+
+@pytest.fixture
+def get_test_run(test_client):
+    """Get a specific test run by ID."""
+    def _get_test_run(run_id, *, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for get_test_run")
+        if org_id is None:
+            pytest.fail("Organization ID is required for get_test_run")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.get(f"/api/tests/runs/{run_id}", headers=headers)
+        return response
+
+    return _get_test_run
+
+

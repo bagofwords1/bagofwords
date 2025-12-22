@@ -87,7 +87,8 @@ class ContextHub:
         user=None,
         head_completion=None,
         widget=None,
-        organization_settings=None
+        organization_settings=None,
+        build_id: Optional[str] = None
     ):
         self.db = db
         self.organization = organization
@@ -98,6 +99,8 @@ class ContextHub:
         self.head_completion = head_completion
         self.widget = widget
         self.prompt_content = head_completion.prompt if head_completion else ""
+        # Build system: specific instruction build to use (None = main build)
+        self.build_id = build_id
         
         # Initialize metadata
         self.metadata = ContextMetadata(
@@ -252,8 +255,11 @@ class ContextHub:
         if spec.include_instructions:
             # Build object, then render for legacy ContextSnapshot
             instruction_config = spec.instruction_config or InstructionContextConfig()
+            # Use instruction_config.build_id if specified, otherwise fall back to hub's build_id
+            effective_build_id = instruction_config.build_id or self.build_id
             inst_section = await self.instruction_builder.build(
                 category=instruction_config.category,
+                build_id=effective_build_id,
             )
             context.instructions_context = inst_section.render()
             section_sizes['instructions'] = _section_token_length(context.instructions_context or '')
@@ -416,8 +422,8 @@ class ContextHub:
         import asyncio
         # Run all static builders in parallel
         schemas_task = asyncio.create_task(self.schema_builder.build())
-        # Pass query to enable intelligent instruction search
-        instructions_task = asyncio.create_task(self.instruction_builder.build(query))
+        # Pass query and build_id to enable intelligent instruction search from specific build
+        instructions_task = asyncio.create_task(self.instruction_builder.build(query, build_id=self.build_id))
         resources_task = asyncio.create_task(self.resource_builder.build())
         files_task = asyncio.create_task(self.files_builder.build())
         

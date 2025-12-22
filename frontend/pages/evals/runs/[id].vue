@@ -20,6 +20,13 @@
                 <span>Triggered {{ timeAgo(run?.started_at) }} {{ prettyTriggerAdverb(run?.trigger_reason) }}</span>
                 <span class="mx-1">|</span>
                 <span>Total duration: {{ formatDuration(run?.started_at, run?.finished_at) }}</span>
+                <template v-if="run?.build_id">
+                  <span class="mx-1">|</span>
+                  <span class="inline-flex items-center gap-1">
+                    <Icon name="heroicons:cube" class="w-3 h-3" />
+                    Build #{{ run?.build_number || '—' }}
+                  </span>
+                </template>
               </div>
             </div>
             <div class="ml-auto flex items-center gap-2">
@@ -222,6 +229,9 @@ type TestRun = {
   started_at?: string
   finished_at?: string
   title?: string
+  // Build system
+  build_id?: string
+  build_number?: number
 }
 
 type RuleEvidence = { type: 'create_data' | 'clarify' | 'completion' | 'judge', occurrence?: number, step_id?: string }

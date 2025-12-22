@@ -180,6 +180,7 @@
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Started</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trigger</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Build</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Results</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duration</th>
@@ -195,6 +196,13 @@
                                         <td class="px-6 py-3">{{ formatDate(r.started_at) }}</td>
                                         <td class="px-6 py-3 capitalize">{{ r.trigger_reason || 'manual' }}</td>
                                         <td class="px-6 py-3">
+                                            <span v-if="r.build_number" class="inline-flex items-center gap-1 text-gray-600">
+                                                <Icon name="heroicons:cube" class="w-3 h-3" />
+                                                #{{ r.build_number }}
+                                            </span>
+                                            <span v-else class="text-gray-400">—</span>
+                                        </td>
+                                        <td class="px-6 py-3">
                                             <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full" :class="runStatusClass(r)">
                                                 {{ derivedRunStatus(r) || '—' }}
                                             </span>
@@ -205,7 +213,7 @@
                                         <td class="px-6 py-3">{{ formatDuration(r.started_at, r.finished_at) }}</td>
                                     </tr>
                                     <tr v-if="filteredRuns.length === 0">
-                                        <td colspan="6" class="px-6 py-6 text-center text-gray-500">No test runs yet</td>
+                                        <td colspan="7" class="px-6 py-6 text-center text-gray-500">No test runs yet</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -271,6 +279,7 @@ const suiteFilterOptions = computed(() => {
     const entries = (suitesOrdered.value || []).map(s => ({ label: s.name, value: s.id }))
     return [...opts, ...entries]
 })
+
 const showAddCase = ref(false)
 const selectedSuiteId = ref<string>('')
 const selectedCaseId = ref<string>('')
@@ -332,7 +341,7 @@ interface TestCaseRow {
 }
 
 const suitesById = ref<Record<string, string>>({})
-interface RunItem { id: string; title?: string; started_at?: string; trigger_reason?: string; status?: string; finished_at?: string }
+interface RunItem { id: string; title?: string; started_at?: string; trigger_reason?: string; status?: string; finished_at?: string; build_id?: string; build_number?: number }
 const runs = ref<RunItem[]>([])
 const runResults = ref<Record<string, { total: number; passed: number; failed: number; error: number }>>({})
 const runResultsCaseIds = ref<Record<string, Set<string>>>({})
@@ -438,6 +447,7 @@ async function loadSuites() {
     suitesOrdered.value = suitesList
     suitesById.value = Object.fromEntries(suitesList.map(s => [s.id, s.name]))
 }
+
 
 async function loadCases() {
     const params = new URLSearchParams()
@@ -556,6 +566,7 @@ async function runSelected() {
     try {
         if (selectedIds.value.size === 0) return
         const selectedCaseIds = tests.value.filter(t => selectedIds.value.has(t.id)).map(t => t.id)
+        // Uses main build by default (build_id: null)
         const res: any = await useMyFetch('/api/tests/runs', {
             method: 'POST',
             body: { case_ids: selectedCaseIds, trigger_reason: 'manual' }

@@ -117,6 +117,10 @@ class InstructionContextConfig(BaseModel):
     # InstructionContextBuilder.load_instructions() parameters
     status: str = "published"
     category: Optional[str] = None
+    
+    # Build system - specify a build_id to load instructions from a specific build
+    # If None, uses the main build (is_main=True) or falls back to legacy loading
+    build_id: Optional[str] = None
 
 
 class MessageContextConfig(BaseModel):

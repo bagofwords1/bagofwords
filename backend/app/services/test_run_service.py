@@ -134,7 +134,7 @@ class TestRunService:
 
         return head
 
-    async def create_run(self, db: AsyncSession, organization, current_user, case_ids: Optional[List[str]] = None, trigger_reason: Optional[str] = "manual") -> TestRun:
+    async def create_run(self, db: AsyncSession, organization, current_user, case_ids: Optional[List[str]] = None, trigger_reason: Optional[str] = "manual", build_id: Optional[str] = None) -> TestRun:
         # Resolve cases set
         if not case_ids or len(case_ids) == 0:
             raise HTTPException(status_code=400, detail="case_ids is required")
@@ -159,6 +159,22 @@ class TestRunService:
         # to compute "Suite Tests Run #N". For now, keep simple case-centric title.
         suite_ids_str = ",".join(sorted(suite_ids_set))
 
+        # Resolve build_id: use provided or get current main build
+        resolved_build_id = build_id
+        if not resolved_build_id:
+            # Get main build for this organization
+            from app.models.instruction_build import InstructionBuild
+            main_build_result = await db.execute(
+                select(InstructionBuild).where(
+                    InstructionBuild.organization_id == str(organization.id),
+                    InstructionBuild.is_main == True,
+                    InstructionBuild.deleted_at.is_(None)
+                )
+            )
+            main_build = main_build_result.scalar_one_or_none()
+            if main_build:
+                resolved_build_id = str(main_build.id)
+
         # Create run
         run = TestRun(
             suite_ids=suite_ids_str,
@@ -167,6 +183,7 @@ class TestRunService:
             status="in_progress",
             started_at=datetime.utcnow(),
             title=title,
+            build_id=resolved_build_id,
         )
         db.add(run)
         await db.commit()
@@ -438,7 +455,7 @@ class TestRunService:
         return summaries
 
     # -------- New API: Batch create + execute (background) --------
-    async def create_and_execute_background(self, db: AsyncSession, organization, current_user, case_ids: Optional[List[str]] = None, suite_id: Optional[str] = None, trigger_reason: Optional[str] = "manual") -> tuple[TestRun, List[TestResult]]:
+    async def create_and_execute_background(self, db: AsyncSession, organization, current_user, case_ids: Optional[List[str]] = None, suite_id: Optional[str] = None, trigger_reason: Optional[str] = "manual", build_id: Optional[str] = None) -> tuple[TestRun, List[TestResult]]:
         # Resolve cases from inputs
         cases = await self._resolve_cases_inputs(db, str(organization.id), case_ids, suite_id)
         if not cases:
@@ -452,6 +469,21 @@ class TestRunService:
         suite_ids_set = {str(c.suite_id) for c in cases}
         suite_ids_str = ",".join(sorted(suite_ids_set))
 
+        # Resolve build_id: use provided or get current main build
+        resolved_build_id = build_id
+        if not resolved_build_id:
+            from app.models.instruction_build import InstructionBuild
+            main_build_result = await db.execute(
+                select(InstructionBuild).where(
+                    InstructionBuild.organization_id == str(organization.id),
+                    InstructionBuild.is_main == True,
+                    InstructionBuild.deleted_at.is_(None)
+                )
+            )
+            main_build = main_build_result.scalar_one_or_none()
+            if main_build:
+                resolved_build_id = str(main_build.id)
+
         run = TestRun(
             suite_ids=suite_ids_str,
             requested_by_user_id=str(current_user.id) if current_user else None,
@@ -459,6 +491,7 @@ class TestRunService:
             status="in_progress",
             started_at=datetime.utcnow(),
             title=title,
+            build_id=resolved_build_id,
         )
         db.add(run)
         await db.commit()
@@ -485,6 +518,7 @@ class TestRunService:
             completion_data = CompletionCreate(prompt=prompt)
 
             # Create head+system and run agent in background using existing service
+            # Pass resolved_build_id so agent uses correct instruction build
             v2 = await self.completions.create_completion(
                 db=db,
                 report_id=str(report.id),
@@ -492,6 +526,7 @@ class TestRunService:
                 current_user=current_user,
                 organization=organization,
                 background=True,
+                build_id=resolved_build_id,
             )
 
             # Extract head completion id (user role) from the returned list

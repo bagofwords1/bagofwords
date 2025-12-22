@@ -255,6 +255,7 @@ class CompletionService:
                 step=step,
                 clients=clients,
                 mode=completion_data.prompt.mode,
+                build_id=build_id,
             )
 
             try:
@@ -291,15 +292,16 @@ class CompletionService:
             )
 
     async def create_completion(
-        self, 
-        db: AsyncSession, 
-        report_id: str, 
-        completion_data: CompletionCreate, 
-        current_user: User, 
-        organization: Organization, 
+        self,
+        db: AsyncSession,
+        report_id: str,
+        completion_data: CompletionCreate,
+        current_user: User,
+        organization: Organization,
         background: bool = False,
         external_user_id: str = None,
         external_platform: str = None,
+        build_id: str = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -441,6 +443,7 @@ class CompletionService:
                                 widget=widget_obj,
                                 step=step_obj,
                                 clients=clients,
+                                build_id=build_id,
                             )
                             await agent.main_execution()
                         except Exception as e:
@@ -489,6 +492,7 @@ class CompletionService:
                         widget=widget,
                         step=step,
                         clients=clients,
+                        build_id=build_id,
                     )
                     await agent.main_execution()
 
@@ -1242,6 +1246,7 @@ class CompletionService:
         organization: Organization,
         external_user_id: str = None,
         external_platform: str = None,
+        build_id: str = None,
     ):
         """Create a completion with real-time streaming events via SSE."""
         try:
@@ -1392,7 +1397,8 @@ class CompletionService:
                             widget=widget_obj,
                             step=step_obj,
                             event_queue=event_queue,  # Pass event queue for streaming
-                            clients=clients
+                            clients=clients,
+                            build_id=build_id,
                         )
                         
                         # Emit telemetry: stream started

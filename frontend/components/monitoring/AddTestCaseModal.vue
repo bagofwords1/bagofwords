@@ -6,7 +6,7 @@
                     <h3 class="text-lg font-semibold text-gray-900">{{ isEditing ? 'Edit Test Case' : 'Add Test Case' }}</h3>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="close" />
                 </div>
-                <div class="mt-2">
+                <div class="mt-2 space-y-2">
                     <div class="flex flex-col md:flex-row md:items-center gap-2">
                         <div class="text-xs text-gray-600 md:w-20">Suite</div>
                         <div class="flex-1">
@@ -25,8 +25,25 @@
                             </USelectMenu>
                         </div>
                     </div>
-                    <div class="text-[11px] text-gray-400 mt-1">
-                        Select an existing suite{{ isEditing ? '' : ' or choose "Create New Suite…" to add one' }}.
+                    <div class="flex flex-col md:flex-row md:items-center gap-2">
+                        <div class="text-xs text-gray-600 md:w-20">Build</div>
+                        <div class="flex-1">
+                            <USelectMenu
+                                v-model="selectedBuildId"
+                                :options="buildOptions"
+                                option-attribute="label"
+                                value-attribute="value"
+                                size="xs"
+                                class="text-xs w-full md:w-64"
+                            >
+                                <template #option="{ option }">
+                                    <div class="text-xs truncate">{{ option.label }}</div>
+                                </template>
+                            </USelectMenu>
+                        </div>
+                    </div>
+                    <div class="text-[11px] text-gray-400">
+                        Select an existing suite{{ isEditing ? '' : ' or choose "Create New Suite…" to add one' }}. Build version affects "Save and Run".
                     </div>
                 </div>
             </template>
@@ -304,6 +321,18 @@ const suiteOptions = computed(() => {
 const showCreateSuiteModal = ref(false)
 const createSuiteName = ref('')
 const createSuiteLoading = ref(false)
+// Build selection for test runs
+interface BuildItem { id: string; build_number: number; source?: string; is_main?: boolean }
+const builds = ref<BuildItem[]>([])
+const selectedBuildId = ref<string>('latest')
+const buildOptions = computed(() => {
+    const opts = [{ label: 'Latest (Main Build)', value: 'latest' }]
+    const entries = builds.value.map(b => ({
+        label: `Build #${b.build_number}${b.is_main ? ' (current)' : ''} - ${b.source || 'user'}`,
+        value: b.id
+    }))
+    return [...opts, ...entries]
+})
 // Test prompt context
 const testSelectedDataSources = ref<any[]>([])
 const testSelectedModelId = ref<string>('')
@@ -469,6 +498,7 @@ const loadCatalog = async () => {
 
 onMounted(async () => {
   await loadSuites()
+  await loadBuilds()
   await loadCatalog()
   await loadJudgeModels()
   // Prepopulate when editing
@@ -503,6 +533,15 @@ async function loadSuites() {
     suites.value = []
   } finally {
     suitesLoading.value = false
+  }
+}
+
+async function loadBuilds() {
+  try {
+    const res = await useMyFetch<{ items: BuildItem[] }>('/api/builds?limit=20')
+    builds.value = (res.data.value as any)?.items || []
+  } catch (e) {
+    console.error('Failed to load builds', e)
   }
 }
 
@@ -853,10 +892,11 @@ const runNow = async () => {
       emit('created', created.case)
       caseId = created.case.id
     }
-    // Create the run for this single case
-      const runRes: any = await useMyFetch('/api/tests/runs', {
+    // Create the run for this single case with selected build
+    const buildId = selectedBuildId.value === 'latest' ? null : selectedBuildId.value
+    const runRes: any = await useMyFetch('/api/tests/runs', {
       method: 'POST',
-      body: { case_ids: [caseId], trigger_reason: 'manual' }
+      body: { case_ids: [caseId], trigger_reason: 'manual', build_id: buildId }
     })
     if (runRes?.error?.value) throw runRes.error.value
     const run = runRes?.data?.value

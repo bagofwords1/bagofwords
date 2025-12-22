@@ -45,6 +45,20 @@ class TestRun(BaseSchema):
     started_at = Column(DateTime, nullable=True)
     finished_at = Column(DateTime, nullable=True)
     summary_json = Column(JSON, nullable=True, default=dict)
+    
+    # Build system: which instruction build was used for this test run
+    # Enables comparison of test results across different instruction versions
+    build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True, index=True)
+    
+    # Relationship to build (lazy loaded by default)
+    build = relationship("InstructionBuild", foreign_keys=[build_id], lazy="joined")
+    
+    @property
+    def build_number(self):
+        """Get the build number from the related build, if available."""
+        if self.build:
+            return self.build.build_number
+        return None
 
 
 class TestResult(BaseSchema):
