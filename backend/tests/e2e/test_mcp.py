@@ -585,7 +585,6 @@ def test_mcp_get_context(
     test_client,
     create_api_key,
     install_demo_data_source,
-    delete_data_source,
     create_user,
     login_user,
     whoami
@@ -616,44 +615,36 @@ def test_mcp_get_context(
     enable_mcp(user_token=user_token, org_id=org_id)
 
     # Install demo data source
-    demo_result = install_demo_data_source(
+    install_demo_data_source(
         demo_id="chinook",
         user_token=user_token,
         org_id=org_id,
     )
-    data_source_id = demo_result["data_source_id"]
+    # No need to track data_source_id - cleanup handled by run_migrations fixture
 
-    try:
-        # Create a report first
-        report_response = mcp_tool_call("create_report", {"title": "Context Test Report"})
-        assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
+    # Create a report first
+    report_response = mcp_tool_call("create_report", {"title": "Context Test Report"})
+    assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
 
-        # Extract report_id from the response
-        report_result_text = report_response.json()["result"]["content"][0]["text"]
-        # Parse the report_id from the string representation
-        import ast
-        report_result = ast.literal_eval(report_result_text)
-        report_id = report_result["report_id"]
+    # Extract report_id from the response
+    report_result_text = report_response.json()["result"]["content"][0]["text"]
+    # Parse the report_id from the string representation
+    import ast
+    report_result = ast.literal_eval(report_result_text)
+    report_id = report_result["report_id"]
 
-        # Call get_context
-        context_response = mcp_tool_call("get_context", {"report_id": report_id})
-        assert context_response.status_code == 200
+    # Call get_context
+    context_response = mcp_tool_call("get_context", {"report_id": report_id})
+    assert context_response.status_code == 200
 
-        data = context_response.json()
-        assert data["result"]["isError"] is False
+    data = context_response.json()
+    assert data["result"]["isError"] is False
 
-        context_text = data["result"]["content"][0]["text"]
-        # Verify context contains expected data
-        assert "data_sources" in context_text
-        assert "Chinook" in context_text or "chinook" in context_text.lower()
-
-    finally:
-        # Cleanup
-        delete_data_source(
-            data_source_id=data_source_id,
-            user_token=user_token,
-            org_id=org_id,
-        )
+    context_text = data["result"]["content"][0]["text"]
+    # Verify context contains expected data
+    assert "data_sources" in context_text
+    assert "Chinook" in context_text or "chinook" in context_text.lower()
+    # No manual cleanup needed - database reset by run_migrations fixture
 
 
 @pytest.mark.e2e
@@ -662,7 +653,6 @@ def test_mcp_get_context_with_patterns(
     test_client,
     create_api_key,
     install_demo_data_source,
-    delete_data_source,
     create_user,
     login_user,
     whoami
@@ -693,38 +683,30 @@ def test_mcp_get_context_with_patterns(
     enable_mcp(user_token=user_token, org_id=org_id)
 
     # Install demo data source
-    demo_result = install_demo_data_source(
+    install_demo_data_source(
         demo_id="chinook",
         user_token=user_token,
         org_id=org_id,
     )
-    data_source_id = demo_result["data_source_id"]
+    # No need to track data_source_id - cleanup handled by run_migrations fixture
 
-    try:
-        # Create a report first
-        report_response = mcp_tool_call("create_report", {"title": "Pattern Test Report"})
-        assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
+    # Create a report first
+    report_response = mcp_tool_call("create_report", {"title": "Pattern Test Report"})
+    assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
 
-        # Extract report_id
-        import ast
-        report_result_text = report_response.json()["result"]["content"][0]["text"]
-        report_result = ast.literal_eval(report_result_text)
-        report_id = report_result["report_id"]
+    # Extract report_id
+    import ast
+    report_result_text = report_response.json()["result"]["content"][0]["text"]
+    report_result = ast.literal_eval(report_result_text)
+    report_id = report_result["report_id"]
 
-        # Call get_context with pattern filter
-        context_response = mcp_tool_call("get_context", {"report_id": report_id, "patterns": ["album", "artist"]})
-        assert context_response.status_code == 200
+    # Call get_context with pattern filter
+    context_response = mcp_tool_call("get_context", {"report_id": report_id, "patterns": ["album", "artist"]})
+    assert context_response.status_code == 200
 
-        data = context_response.json()
-        assert data["result"]["isError"] is False
-
-    finally:
-        # Cleanup
-        delete_data_source(
-            data_source_id=data_source_id,
-            user_token=user_token,
-            org_id=org_id,
-        )
+    data = context_response.json()
+    assert data["result"]["isError"] is False
+    # No manual cleanup needed - database reset by run_migrations fixture
 
 
 # ============================================================================
@@ -737,7 +719,6 @@ def test_mcp_inspect_data_no_llm(
     test_client,
     create_api_key,
     install_demo_data_source,
-    delete_data_source,
     create_user,
     login_user,
     whoami
@@ -768,42 +749,34 @@ def test_mcp_inspect_data_no_llm(
     enable_mcp(user_token=user_token, org_id=org_id)
 
     # Install demo data source
-    demo_result = install_demo_data_source(
+    install_demo_data_source(
         demo_id="chinook",
         user_token=user_token,
         org_id=org_id,
     )
-    data_source_id = demo_result["data_source_id"]
+    # No need to track data_source_id - cleanup handled by run_migrations fixture
 
-    try:
-        # Create a report first
-        report_response = mcp_tool_call("create_report", {"title": "Inspect Test Report"})
-        assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
+    # Create a report first
+    report_response = mcp_tool_call("create_report", {"title": "Inspect Test Report"})
+    assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
 
-        # Extract report_id
-        import ast
-        report_result_text = report_response.json()["result"]["content"][0]["text"]
-        report_result = ast.literal_eval(report_result_text)
-        report_id = report_result["report_id"]
+    # Extract report_id
+    import ast
+    report_result_text = report_response.json()["result"]["content"][0]["text"]
+    report_result = ast.literal_eval(report_result_text)
+    report_id = report_result["report_id"]
 
-        # Call inspect_data - should fail due to no LLM
-        inspect_response = mcp_tool_call("inspect_data", {"report_id": report_id, "prompt": "Show me all albums"})
-        assert inspect_response.status_code == 200
+    # Call inspect_data - should fail due to no LLM
+    inspect_response = mcp_tool_call("inspect_data", {"report_id": report_id, "prompt": "Show me all albums"})
+    assert inspect_response.status_code == 200
 
-        data = inspect_response.json()
-        # The tool should return an error about no LLM configured
-        # It may be in isError or in the text content
-        content_text = data["result"]["content"][0]["text"]
-        # Either isError is True or the content indicates an error
-        assert data["result"]["isError"] is True or "error" in content_text.lower() or "no default" in content_text.lower() or "llm" in content_text.lower()
-
-    finally:
-        # Cleanup
-        delete_data_source(
-            data_source_id=data_source_id,
-            user_token=user_token,
-            org_id=org_id,
-        )
+    data = inspect_response.json()
+    # The tool should return an error about no LLM configured
+    # It may be in isError or in the text content
+    content_text = data["result"]["content"][0]["text"]
+    # Either isError is True or the content indicates an error
+    assert data["result"]["isError"] is True or "error" in content_text.lower() or "no default" in content_text.lower() or "llm" in content_text.lower()
+    # No manual cleanup needed - database reset by run_migrations fixture
 
 
 # ============================================================================
@@ -816,7 +789,6 @@ def test_mcp_create_data_no_llm(
     test_client,
     create_api_key,
     install_demo_data_source,
-    delete_data_source,
     create_user,
     login_user,
     whoami
@@ -847,38 +819,30 @@ def test_mcp_create_data_no_llm(
     enable_mcp(user_token=user_token, org_id=org_id)
 
     # Install demo data source
-    demo_result = install_demo_data_source(
+    install_demo_data_source(
         demo_id="chinook",
         user_token=user_token,
         org_id=org_id,
     )
-    data_source_id = demo_result["data_source_id"]
+    # No need to track data_source_id - cleanup handled by run_migrations fixture
 
-    try:
-        # Create a report first
-        report_response = mcp_tool_call("create_report", {"title": "Create Data Test Report"})
-        assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
+    # Create a report first
+    report_response = mcp_tool_call("create_report", {"title": "Create Data Test Report"})
+    assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
 
-        # Extract report_id
-        import ast
-        report_result_text = report_response.json()["result"]["content"][0]["text"]
-        report_result = ast.literal_eval(report_result_text)
-        report_id = report_result["report_id"]
+    # Extract report_id
+    import ast
+    report_result_text = report_response.json()["result"]["content"][0]["text"]
+    report_result = ast.literal_eval(report_result_text)
+    report_id = report_result["report_id"]
 
-        # Call create_data - should fail due to no LLM
-        create_response = mcp_tool_call("create_data", {"report_id": report_id, "prompt": "Show me total sales by artist"})
-        assert create_response.status_code == 200
+    # Call create_data - should fail due to no LLM
+    create_response = mcp_tool_call("create_data", {"report_id": report_id, "prompt": "Show me total sales by artist"})
+    assert create_response.status_code == 200
 
-        data = create_response.json()
-        # The tool should return an error about no LLM configured
-        content_text = data["result"]["content"][0]["text"]
-        # Either isError is True or the content indicates an error
-        assert data["result"]["isError"] is True or "error" in content_text.lower() or "no default" in content_text.lower() or "llm" in content_text.lower()
-
-    finally:
-        # Cleanup
-        delete_data_source(
-            data_source_id=data_source_id,
-            user_token=user_token,
-            org_id=org_id,
-        )
+    data = create_response.json()
+    # The tool should return an error about no LLM configured
+    content_text = data["result"]["content"][0]["text"]
+    # Either isError is True or the content indicates an error
+    assert data["result"]["isError"] is True or "error" in content_text.lower() or "no default" in content_text.lower() or "llm" in content_text.lower()
+    # No manual cleanup needed - database reset by run_migrations fixture
