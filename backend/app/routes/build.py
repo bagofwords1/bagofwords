@@ -28,7 +28,7 @@ build_service = BuildService()
 # ==================== List and Get ====================
 
 @router.get("", response_model=PaginatedBuildResponse)
-@requires_permission('view_instructions')
+@requires_permission('view_builds')
 async def list_builds(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -78,7 +78,7 @@ async def get_main_build(
 
 
 @router.get("/{build_id}", response_model=InstructionBuildSchema)
-@requires_permission('view_instructions')
+@requires_permission('view_builds')
 async def get_build(
     build_id: str,
     current_user: User = Depends(current_user),
@@ -98,7 +98,7 @@ async def get_build(
 
 
 @router.get("/{build_id}/contents")
-@requires_permission('view_instructions')
+@requires_permission('view_builds')
 async def get_build_contents(
     build_id: str,
     current_user: User = Depends(current_user),
@@ -168,7 +168,7 @@ async def create_build(
 
 
 @router.post("/{build_id}/submit", response_model=InstructionBuildSchema)
-@requires_permission('create_instructions')
+@requires_permission('create_builds')
 async def submit_build(
     build_id: str,
     current_user: User = Depends(current_user),
@@ -190,7 +190,7 @@ async def submit_build(
 
 
 @router.post("/{build_id}/approve", response_model=InstructionBuildSchema)
-@requires_permission('update_instructions')
+@requires_permission('create_builds')
 async def approve_build(
     build_id: str,
     current_user: User = Depends(current_user),
@@ -212,7 +212,7 @@ async def approve_build(
 
 
 @router.post("/{build_id}/reject", response_model=InstructionBuildSchema)
-@requires_permission('update_instructions')
+@requires_permission('create_builds')
 async def reject_build(
     build_id: str,
     reject_data: BuildRejectSchema,
@@ -235,7 +235,7 @@ async def reject_build(
 
 
 @router.post("/{build_id}/promote", response_model=InstructionBuildSchema)
-@requires_permission('update_instructions')
+@requires_permission('create_builds')
 async def promote_build(
     build_id: str,
     current_user: User = Depends(current_user),
@@ -382,10 +382,16 @@ async def rollback_to_build(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Rollback by promoting this (older) approved build to main."""
+    """
+    Rollback by creating a new build that copies from the target approved build.
+    
+    This creates a new build with source='rollback' and copies all instruction
+    versions from the target build, then promotes it to main. This provides
+    a clear audit trail of when rollbacks occurred.
+    """
     build = await build_service.rollback_to_build(
         db, build_id, organization.id, current_user.id
     )
-    
+
     return InstructionBuildSchema.model_validate(build)
 

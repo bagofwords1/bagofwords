@@ -723,25 +723,53 @@ class BuildService:
         user_id: str,
     ) -> InstructionBuild:
         """
-        Rollback by promoting an older approved build to main.
-        This simply calls promote_build on the target build.
+        Rollback by creating a new build that copies from an older approved build.
+        
+        This creates a new build with:
+        - New build_number (next in sequence)
+        - source='rollback' to distinguish from regular builds
+        - All contents copied from the target build
+        - Auto-approved and promoted to main
+        
+        This provides clear audit trail of when rollbacks happened.
         
         Note: The target build must be in 'approved' status.
         """
-        build = await self.get_build(db, target_build_id)
-        if not build:
+        target_build = await self.get_build(db, target_build_id)
+        if not target_build:
             raise HTTPException(status_code=404, detail="Build not found")
         
-        if build.organization_id != org_id:
+        if target_build.organization_id != org_id:
             raise HTTPException(status_code=403, detail="Build does not belong to this organization")
         
-        if build.status != 'approved':
+        if target_build.status != 'approved':
             raise HTTPException(
                 status_code=400, 
-                detail=f"Can only rollback to approved builds (current status: {build.status})"
+                detail=f"Can only rollback to approved builds (current status: {target_build.status})"
             )
         
-        return await self.promote_build(db, target_build_id)
+        # Create a new build with source='rollback' (don't copy from main)
+        new_build = await self.create_build(
+            db, 
+            org_id, 
+            source='rollback',
+            user_id=user_id,
+            copy_from_main=False,  # Don't copy from current main
+        )
+        
+        # Copy contents from the TARGET build (not main)
+        copied = await self._copy_build_contents(db, target_build_id, new_build.id)
+        logger.info(f"Rollback: copied {copied} instructions from build {target_build_id} to new build {new_build.id}")
+        
+        # Auto-approve and promote the new build
+        new_build.status = 'approved'
+        new_build.approved_by_user_id = user_id
+        new_build.approved_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(new_build)
+        
+        # Promote to main
+        return await self.promote_build(db, new_build.id)
     
     # ==================== Helpers ====================
     

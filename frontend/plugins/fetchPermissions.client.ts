@@ -110,7 +110,9 @@ function getPermissionsForRole(role: string): string[] {
       'refresh_entities',
       'approve_entities',
       'reject_entities',
-      'manage_tests'
+      'manage_tests',
+      'view_builds',
+      'create_builds'
     ],
     member: [
       'view_data_source',
@@ -145,7 +147,8 @@ function getPermissionsForRole(role: string): string[] {
       'view_entities',
       'refresh_entities',
       'suggest_entities',
-      'withdraw_entities'
+      'withdraw_entities',
+      'view_builds'
     ],
     // Add more roles and permissions as needed
   }

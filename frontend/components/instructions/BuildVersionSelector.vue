@@ -9,9 +9,9 @@
             :ui="{
                 wrapper: 'relative',
                 trigger: 'inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300',
-                option: { size: 'xs', padding: 'px-2 py-1' },
-                width: 'w-40'
+                option: { size: 'xs', padding: 'px-2 py-1' }
             }"
+            :ui-menu="{ width: 'w-56' }"
         >
             <template #leading>
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-500" />
@@ -29,7 +29,17 @@
                 </div>
             </template>
             <template #option="{ option }">
-                <div class="flex items-center gap-1.5 text-xs w-full">
+                <!-- Version Explorer option -->
+                <div 
+                    v-if="option.value === '__explorer__'"
+                    class="flex items-center gap-1.5 text-xs w-full border-t border-gray-100 pt-1 -mt-1 text-blue-600"
+                    @click.stop="openExplorer"
+                >
+                    <UIcon name="i-heroicons-folder-open" class="w-3.5 h-3.5 shrink-0" />
+                    <span class="flex-1 font-medium">{{ option.label }}</span>
+                </div>
+                <!-- Regular build option -->
+                <div v-else class="flex items-center gap-1.5 text-xs w-full">
                     <UIcon :name="getSourceIcon(option.source)" class="w-3.5 h-3.5 text-gray-500 shrink-0" />
                     <span class="flex-1">{{ option.label }}</span>
                     <!-- Info icon for builds with parent (not Latest) -->
@@ -44,16 +54,17 @@
         </USelectMenu>
     </UTooltip>
     
-    <!-- Diff Modal -->
-    <BuildDiffModal
+    <!-- Build Explorer Modal -->
+    <BuildExplorerModal
         v-model="isDiffModalOpen"
         :build-id="diffBuildId || ''"
         :compare-to-build-id="diffParentBuildId || ''"
+        @rollback="(id: string) => emit('rollback', id)"
     />
 </template>
 
 <script setup lang="ts">
-import BuildDiffModal from './BuildDiffModal.vue'
+import BuildExplorerModal from './BuildExplorerModal.vue'
 
 interface BuildOption {
     value: string | null
@@ -83,6 +94,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     'update:modelValue': [value: string | null]
+    'rollback': [newBuildId: string]
 }>()
 
 // Diff modal state
@@ -90,7 +102,14 @@ const isDiffModalOpen = ref(false)
 
 const selectedBuild = computed({
     get: () => props.modelValue,
-    set: (value) => emit('update:modelValue', value)
+    set: (value) => {
+        // Don't actually select the explorer option - it just opens the modal
+        if (value === '__explorer__') {
+            openExplorer()
+            return
+        }
+        emit('update:modelValue', value)
+    }
 })
 
 // Get icon based on source type
@@ -130,6 +149,13 @@ const buildOptions = computed(() => {
             gitProvider: build.gitProvider
         })
     }
+    
+    // Add Version Explorer option at the end
+    options.push({
+        value: '__explorer__',
+        label: 'Version Explorer',
+        source: 'explorer'
+    })
     
     return options
 })
@@ -194,5 +220,12 @@ const openDiffModalFor = (buildId: string) => {
         diffParentBuildId.value = parentId
         isDiffModalOpen.value = true
     }
+}
+
+const openExplorer = () => {
+    // Open the modal without specific build - it will show all builds
+    diffBuildId.value = null
+    diffParentBuildId.value = null
+    isDiffModalOpen.value = true
 }
 </script>

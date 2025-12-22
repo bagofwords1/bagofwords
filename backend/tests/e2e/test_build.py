@@ -980,7 +980,7 @@ def test_diff_detailed_shows_previous_text(
 # ============================================================================
 
 @pytest.mark.e2e
-def test_rollback_restores_previous_build(
+def test_rollback_creates_new_build(
     create_user,
     login_user,
     whoami,
@@ -989,7 +989,169 @@ def test_rollback_restores_previous_build(
     get_main_build,
     rollback_build,
 ):
-    """Test that rollback restores a previous build."""
+    """Test that rollback creates a new build (not promotes the old one)."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    # Create first instruction
+    create_global_instruction(
+        text="First instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    builds_after_first = get_builds(user_token=user_token, org_id=org_id)
+    first_build_id = builds_after_first["items"][0]["id"]
+    count_after_first = builds_after_first["total"]
+
+    # Create second instruction (new build)
+    create_global_instruction(
+        text="Second instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    builds_after_second = get_builds(user_token=user_token, org_id=org_id)
+    
+    if len(builds_after_second["items"]) >= 2:
+        count_before_rollback = builds_after_second["total"]
+        
+        # Rollback to first build - this should create a NEW build
+        rolled_back = rollback_build(
+            build_id=first_build_id,
+            user_token=user_token,
+            org_id=org_id
+        )
+        
+        # The returned build should be main
+        assert rolled_back["is_main"] is True, "New build from rollback should be main"
+        
+        # The returned build should be a NEW build, not the original first build
+        assert rolled_back["id"] != first_build_id, "Rollback should create a new build, not promote the old one"
+        
+        # Total build count should increase by 1
+        builds_after_rollback = get_builds(user_token=user_token, org_id=org_id)
+        assert builds_after_rollback["total"] == count_before_rollback + 1, "Rollback should create exactly 1 new build"
+
+
+@pytest.mark.e2e
+def test_rollback_updates_is_main(
+    create_user,
+    login_user,
+    whoami,
+    create_global_instruction,
+    get_builds,
+    get_main_build,
+    get_build_contents,
+    rollback_build,
+):
+    """Test that rollback creates a new main build with same contents as target."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    create_global_instruction(
+        text="First instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    first_main = get_main_build(user_token=user_token, org_id=org_id)
+    first_build_id = first_main["id"]
+    
+    # Get contents of first build to compare later
+    first_contents = get_build_contents(build_id=first_build_id, user_token=user_token, org_id=org_id)
+    first_instruction_ids = {c["instruction_id"] for c in first_contents}
+
+    create_global_instruction(
+        text="Second instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    current_main = get_main_build(user_token=user_token, org_id=org_id)
+    
+    if current_main["id"] != first_build_id:
+        rolled_back = rollback_build(
+            build_id=first_build_id,
+            user_token=user_token,
+            org_id=org_id
+        )
+        
+        new_main = get_main_build(user_token=user_token, org_id=org_id)
+        
+        # New main should be the newly created build, NOT the original first build
+        assert new_main["id"] == rolled_back["id"], "Main build should be the new rollback build"
+        assert new_main["id"] != first_build_id, "Main build should NOT be the original target build"
+        
+        # New build should have same contents as the target build
+        new_contents = get_build_contents(build_id=new_main["id"], user_token=user_token, org_id=org_id)
+        new_instruction_ids = {c["instruction_id"] for c in new_contents}
+        assert new_instruction_ids == first_instruction_ids, "Rollback build should have same instructions as target"
+
+
+@pytest.mark.e2e
+def test_rollback_preserves_history(
+    create_user,
+    login_user,
+    whoami,
+    create_global_instruction,
+    get_builds,
+    rollback_build,
+):
+    """Test that rollback preserves all build history and adds a new build."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    create_global_instruction(
+        text="First instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    builds_before = get_builds(user_token=user_token, org_id=org_id)
+    first_build_id = builds_before["items"][0]["id"]
+    count_before = builds_before["total"]
+
+    create_global_instruction(
+        text="Second instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    builds_middle = get_builds(user_token=user_token, org_id=org_id)
+    
+    if builds_middle["total"] > count_before:
+        rollback_build(
+            build_id=first_build_id,
+            user_token=user_token,
+            org_id=org_id
+        )
+        
+        builds_after = get_builds(user_token=user_token, org_id=org_id)
+        # Rollback creates a new build, so count should increase by exactly 1
+        assert builds_after["total"] == builds_middle["total"] + 1, "Rollback should add exactly one new build"
+
+
+@pytest.mark.e2e
+def test_rollback_build_has_source_rollback(
+    create_user,
+    login_user,
+    whoami,
+    create_global_instruction,
+    get_builds,
+    get_main_build,
+    rollback_build,
+):
+    """Test that rollback creates a build with source='rollback'."""
     user = create_user()
     user_token = login_user(user["email"], user["password"])
     org_id = whoami(user_token)["organizations"][0]["id"]
@@ -1023,98 +1185,8 @@ def test_rollback_restores_previous_build(
             org_id=org_id
         )
         
-        assert rolled_back["is_main"] is True, "Rolled back build should be main"
-
-
-@pytest.mark.e2e
-def test_rollback_updates_is_main(
-    create_user,
-    login_user,
-    whoami,
-    create_global_instruction,
-    get_builds,
-    get_main_build,
-    rollback_build,
-):
-    """Test that rollback updates is_main flag correctly."""
-    user = create_user()
-    user_token = login_user(user["email"], user["password"])
-    org_id = whoami(user_token)["organizations"][0]["id"]
-
-    create_global_instruction(
-        text="First instruction",
-        user_token=user_token,
-        org_id=org_id,
-        status="published"
-    )
-
-    first_main = get_main_build(user_token=user_token, org_id=org_id)
-    first_build_id = first_main["id"]
-
-    create_global_instruction(
-        text="Second instruction",
-        user_token=user_token,
-        org_id=org_id,
-        status="published"
-    )
-
-    current_main = get_main_build(user_token=user_token, org_id=org_id)
-    
-    if current_main["id"] != first_build_id:
-        rollback_build(
-            build_id=first_build_id,
-            user_token=user_token,
-            org_id=org_id
-        )
-        
-        new_main = get_main_build(user_token=user_token, org_id=org_id)
-        assert new_main["id"] == first_build_id, "Main build should be the rolled back build"
-
-
-@pytest.mark.e2e
-def test_rollback_preserves_history(
-    create_user,
-    login_user,
-    whoami,
-    create_global_instruction,
-    get_builds,
-    rollback_build,
-):
-    """Test that rollback preserves all build history."""
-    user = create_user()
-    user_token = login_user(user["email"], user["password"])
-    org_id = whoami(user_token)["organizations"][0]["id"]
-
-    create_global_instruction(
-        text="First instruction",
-        user_token=user_token,
-        org_id=org_id,
-        status="published"
-    )
-
-    builds_before = get_builds(user_token=user_token, org_id=org_id)
-    first_build_id = builds_before["items"][0]["id"]
-    count_before = builds_before["total"]
-
-    create_global_instruction(
-        text="Second instruction",
-        user_token=user_token,
-        org_id=org_id,
-        status="published"
-    )
-
-    builds_middle = get_builds(user_token=user_token, org_id=org_id)
-    
-    if builds_middle["total"] > count_before:
-        rollback_build(
-            build_id=first_build_id,
-            user_token=user_token,
-            org_id=org_id
-        )
-        
-        builds_after = get_builds(user_token=user_token, org_id=org_id)
-        # History should be preserved - total should be >= before rollback
-        assert builds_after["total"] >= builds_middle["total"], "All builds should be preserved after rollback"
+        # The new build should have source='rollback' for audit trail
+        assert rolled_back.get("source") == "rollback", "Rollback build should have source='rollback'"
 
 
 # ============================================================================
