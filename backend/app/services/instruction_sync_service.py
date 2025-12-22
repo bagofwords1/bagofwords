@@ -26,6 +26,8 @@ from app.models.data_source import DataSource
 from app.models.git_repository import GitRepository
 from app.models.metadata_indexing_job import MetadataIndexingJob
 from app.models.instruction_build import InstructionBuild
+from app.models.datasource_table import DataSourceTable
+from app.models.instruction_reference import InstructionReference
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 
 logger = logging.getLogger(__name__)
@@ -247,6 +249,9 @@ class InstructionSyncService:
             instruction.data_sources.append(data_source)
             await db.commit()
         
+        # Resolve frontmatter references (e.g., table references from Cursor Rules-like format)
+        await self._resolve_frontmatter_references(db, instruction, resource)
+        
         logger.info(f"Created git instruction {instruction.id} for resource {resource.id} ({resource.name})")
         
         # Update the resource with the instruction link
@@ -325,13 +330,31 @@ class InstructionSyncService:
             return existing
         
         # Content changed - update instruction directly (all statuses now get versioned)
-            existing.text = new_text
-            existing.title = resource.name
-            existing.structured_data = new_structured_data
-            existing.formatted_content = new_text
-            existing.source_git_commit_sha = commit_sha
-            await db.commit()
-            await db.refresh(existing)
+        existing.text = new_text
+        existing.title = resource.name
+        existing.structured_data = new_structured_data
+        existing.formatted_content = new_text
+        existing.source_git_commit_sha = commit_sha
+        
+        # Update load mode from frontmatter if present
+        git_repo = await self._get_git_repository_for_resource(db, resource)
+        existing.load_mode = self._get_load_mode_for_resource(resource, git_repo)
+        
+        await db.commit()
+        await db.refresh(existing, ['data_sources'])
+        
+        # Re-resolve frontmatter references (clear old ones and create new)
+        # First, delete existing references for this instruction
+        from sqlalchemy import delete
+        await db.execute(
+            delete(InstructionReference).where(
+                InstructionReference.instruction_id == existing.id
+            )
+        )
+        await db.commit()
+        
+        # Then create new references from frontmatter
+        await self._resolve_frontmatter_references(db, existing, resource)
         
         # === Build System Integration ===
         # Create new version for the updated instruction
@@ -448,11 +471,21 @@ class InstructionSyncService:
         """Determine the load mode for a resource.
         
         Priority order:
-        1. Git repository default_load_mode (if set)
+        1. Frontmatter alwaysApply field (for markdown documents)
+           - alwaysApply: true → 'always'
+           - alwaysApply: false → 'intelligent'
+        2. Git repository default_load_mode (if set)
            - 'auto' mode: markdown → 'always', others → 'intelligent'
            - Other modes are applied directly
-        2. Type-specific default from DEFAULT_LOAD_MODES
+        3. Type-specific default from DEFAULT_LOAD_MODES
         """
+        # Check frontmatter for alwaysApply (highest priority)
+        always_apply = self._get_frontmatter_value(resource, 'alwaysApply')
+        if always_apply is True:
+            return 'always'
+        elif always_apply is False:
+            return 'intelligent'
+        
         # Git repository setting takes priority if explicitly configured
         if git_repo and git_repo.default_load_mode:
             if git_repo.default_load_mode == 'auto':
@@ -464,6 +497,134 @@ class InstructionSyncService:
 
         # Use type-specific default (this is more intentional than the model default)
         return self.DEFAULT_LOAD_MODES.get(resource.resource_type, 'intelligent')
+    
+    def _get_frontmatter_value(self, resource: MetadataResource, key: str, default=None):
+        """
+        Extract a value from resource frontmatter, handling various nesting structures.
+        
+        The frontmatter can be stored in different locations depending on how the
+        resource was created:
+        - resource.raw_data['always_apply'] (top-level from markdown_parser)
+        - resource.raw_data['frontmatter'][key] (frontmatter dict)
+        - resource.raw_data['raw_data']['frontmatter'][key] (nested when entire item stored)
+        """
+        if not resource.raw_data or not isinstance(resource.raw_data, dict):
+            return default
+        
+        # Map frontmatter keys to top-level convenience keys
+        key_mapping = {
+            'alwaysApply': 'always_apply',
+            'references': 'references',
+        }
+        
+        # Try top-level convenience key first (set by markdown_parser)
+        top_level_key = key_mapping.get(key, key)
+        if top_level_key in resource.raw_data:
+            return resource.raw_data[top_level_key]
+        
+        # Try frontmatter dict at top level
+        frontmatter = resource.raw_data.get('frontmatter', {})
+        if isinstance(frontmatter, dict) and key in frontmatter:
+            return frontmatter[key]
+        
+        # Try nested raw_data.frontmatter (when entire item dict is stored)
+        nested_raw_data = resource.raw_data.get('raw_data', {})
+        if isinstance(nested_raw_data, dict):
+            nested_frontmatter = nested_raw_data.get('frontmatter', {})
+            if isinstance(nested_frontmatter, dict) and key in nested_frontmatter:
+                return nested_frontmatter[key]
+        
+        return default
+    
+    async def _resolve_frontmatter_references(
+        self,
+        db: AsyncSession,
+        instruction: Instruction,
+        resource: MetadataResource,
+    ) -> int:
+        """
+        Resolve frontmatter references and create InstructionReference entries.
+        
+        Looks up table names in DataSourceTable, scoped to the instruction's data sources.
+        Non-matching references are silently skipped.
+        
+        Args:
+            db: Database session
+            instruction: The instruction to add references to
+            resource: The source metadata resource with frontmatter
+            
+        Returns:
+            Number of references created
+        """
+        # Get references from frontmatter using helper that handles various nesting structures
+        references = self._get_frontmatter_value(resource, 'references', default=[])
+        
+        if not references or not isinstance(references, list):
+            logger.debug(f"No references in frontmatter for resource {resource.id}")
+            return 0
+        
+        logger.info(f"Found {len(references)} references in frontmatter: {references}")
+        
+        # Refresh instruction to ensure data_sources relationship is loaded
+        await db.refresh(instruction, ['data_sources'])
+        
+        # Get the instruction's data source IDs for scoping
+        data_source_ids = [ds.id for ds in instruction.data_sources] if instruction.data_sources else []
+        logger.debug(f"Instruction {instruction.id} has {len(data_source_ids)} data sources")
+        
+        created_count = 0
+        for ref_name in references:
+            if not isinstance(ref_name, str) or not ref_name.strip():
+                continue
+            
+            ref_name = ref_name.strip()
+            
+            # Build query to find matching table
+            table_query = select(DataSourceTable).where(
+                and_(
+                    DataSourceTable.name == ref_name,
+                    DataSourceTable.is_active == True,
+                )
+            )
+            
+            # Scope to instruction's data sources if any
+            if data_source_ids:
+                table_query = table_query.where(
+                    DataSourceTable.datasource_id.in_(data_source_ids)
+                )
+            
+            result = await db.execute(table_query)
+            table = result.scalars().first()
+            
+            if table:
+                # Check if reference already exists
+                existing_ref = await db.execute(
+                    select(InstructionReference).where(
+                        and_(
+                            InstructionReference.instruction_id == instruction.id,
+                            InstructionReference.object_type == 'datasource_table',
+                            InstructionReference.object_id == table.id,
+                        )
+                    )
+                )
+                if not existing_ref.scalars().first():
+                    # Create the reference
+                    instruction_ref = InstructionReference(
+                        instruction_id=instruction.id,
+                        object_type='datasource_table',
+                        object_id=table.id,
+                    )
+                    db.add(instruction_ref)
+                    created_count += 1
+                    logger.info(f"Created reference from instruction {instruction.id} to table '{table.name}' (id={table.id})")
+            else:
+                logger.warning(f"Reference '{ref_name}' not found in DataSourceTable (scoped to {len(data_source_ids)} data sources)")
+        
+        if created_count > 0:
+            await db.commit()
+            logger.info(f"Created {created_count} references for instruction {instruction.id}")
+        
+        return created_count
     
     def _build_structured_data(self, resource: MetadataResource) -> Dict[str, Any]:
         """Build structured data dictionary for storage."""

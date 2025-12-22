@@ -657,6 +657,8 @@ class BuildService:
                 
                 # Compute which fields changed
                 changed_fields = []
+                references_added = 0
+                references_removed = 0
                 if version_a and version_b:
                     if version_a.text != version_b.text:
                         changed_fields.append('text')
@@ -668,6 +670,19 @@ class BuildService:
                         changed_fields.append('load_mode')
                     if version_a.category_ids != version_b.category_ids:
                         changed_fields.append('category')
+                    
+                    # Check references changes
+                    refs_a = set()
+                    refs_b = set()
+                    if version_a.references_json:
+                        refs_a = {(r.get('object_type'), r.get('object_id')) for r in version_a.references_json}
+                    if version_b.references_json:
+                        refs_b = {(r.get('object_type'), r.get('object_id')) for r in version_b.references_json}
+                    
+                    if refs_a != refs_b:
+                        changed_fields.append('references')
+                        references_added = len(refs_b - refs_a)
+                        references_removed = len(refs_a - refs_b)
                 
                 # Get category values
                 category_a = None
@@ -694,6 +709,8 @@ class BuildService:
                     "load_mode": version_b.load_mode if version_b else (instruction.load_mode if instruction else None),
                     "previous_load_mode": version_a.load_mode if version_a else None,
                     "changed_fields": changed_fields if changed_fields else None,
+                    "references_added": references_added if references_added else None,
+                    "references_removed": references_removed if references_removed else None,
                     "from_version_number": version_a.version_number if version_a else None,
                     "to_version_number": version_b.version_number if version_b else None,
                 })

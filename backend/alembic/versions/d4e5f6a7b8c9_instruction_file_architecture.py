@@ -60,3 +60,4 @@ def downgrade() -> None:
     with op.batch_alter_table('instructions', schema=None) as batch_op:
         batch_op.drop_column('content_hash')
         batch_op.drop_column('source_file_path')
+

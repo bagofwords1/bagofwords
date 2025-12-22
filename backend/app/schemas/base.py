@@ -53,3 +53,4 @@ class TimestampMixin(BaseModel):
     updated_at: OptionalUTCDatetime = None
 
     model_config = ConfigDict(from_attributes=True)
+

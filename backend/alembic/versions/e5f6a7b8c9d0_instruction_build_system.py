@@ -68,7 +68,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(['organization_id'], ['organizations.id']),
         sa.ForeignKeyConstraint(['created_by_user_id'], ['users.id']),
         sa.ForeignKeyConstraint(['approved_by_user_id'], ['users.id']),
-        sa.ForeignKeyConstraint(['metadata_indexing_job_id'], ['metadata_indexing_jobs.id']),
+        sa.ForeignKeyConstraint(['metadata_indexing_job_id'], ['metadata_indexing_jobs.id'], ondelete='SET NULL'),
         sa.ForeignKeyConstraint(['agent_execution_id'], ['agent_executions.id']),
     )
     

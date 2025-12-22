@@ -26,7 +26,7 @@ class InstructionBuild(BaseSchema):
     is_main = Column(Boolean, default=False, nullable=False, index=True)
     
     # Trigger links - one populated based on source
-    metadata_indexing_job_id = Column(String(36), ForeignKey('metadata_indexing_jobs.id'), nullable=True)
+    metadata_indexing_job_id = Column(String(36), ForeignKey('metadata_indexing_jobs.id', ondelete='SET NULL'), nullable=True)
     agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True)
     
     # Git info (populated when source='git')

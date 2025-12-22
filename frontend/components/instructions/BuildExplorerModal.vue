@@ -151,9 +151,57 @@
                                     <div 
                                         v-for="item in modifiedItems.slice(0, 5)" 
                                         :key="item.instruction_id"
-                                        class="border-l-2 border-l-amber-400 bg-amber-50/30 pl-2 py-1 rounded-r text-[10px] text-gray-700"
+                                        class="border-l-2 border-l-amber-400 bg-amber-50/30 pl-2 py-1.5 rounded-r"
                                     >
-                                        {{ truncateText(item.title || item.text, 80) }}
+                                        <div class="text-[10px] text-gray-700 font-medium">
+                                            {{ truncateText(item.title || item.text, 80) }}
+                                        </div>
+                                        <!-- Show what changed -->
+                                        <div class="flex flex-wrap gap-1 mt-1">
+                                            <span 
+                                                v-if="item.changed_fields?.includes('text')"
+                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px]"
+                                            >
+                                                <UIcon name="i-heroicons-document-text" class="w-2.5 h-2.5" />
+                                                text
+                                            </span>
+                                            <span 
+                                                v-if="item.changed_fields?.includes('status')"
+                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px]"
+                                            >
+                                                <UIcon name="i-heroicons-flag" class="w-2.5 h-2.5" />
+                                                {{ item.previous_status }} → {{ item.status }}
+                                            </span>
+                                            <span 
+                                                v-if="item.changed_fields?.includes('load_mode')"
+                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-purple-100 text-purple-700 rounded text-[9px]"
+                                            >
+                                                <UIcon name="i-heroicons-bolt" class="w-2.5 h-2.5" />
+                                                {{ formatLoadMode(item.previous_load_mode) }} → {{ formatLoadMode(item.load_mode) }}
+                                            </span>
+                                            <span 
+                                                v-if="item.changed_fields?.includes('category')"
+                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-gray-100 text-gray-700 rounded text-[9px]"
+                                            >
+                                                <UIcon name="i-heroicons-tag" class="w-2.5 h-2.5" />
+                                                category
+                                            </span>
+                                            <span 
+                                                v-if="item.changed_fields?.includes('references')"
+                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-teal-100 text-teal-700 rounded text-[9px]"
+                                            >
+                                                <UIcon name="i-heroicons-table-cells" class="w-2.5 h-2.5" />
+                                                references
+                                                <template v-if="item.references_added">+{{ item.references_added }}</template>
+                                                <template v-if="item.references_removed">-{{ item.references_removed }}</template>
+                                            </span>
+                                            <span 
+                                                v-if="item.changed_fields?.includes('title')"
+                                                class="inline-flex items-center gap-0.5 px-1 py-0.5 bg-gray-100 text-gray-600 rounded text-[9px]"
+                                            >
+                                                title
+                                            </span>
+                                        </div>
                                     </div>
                                     <div v-if="modifiedItems.length > 5" class="text-[10px] text-gray-400 pl-2">
                                         +{{ modifiedItems.length - 5 }} more
@@ -258,7 +306,14 @@ interface DiffInstructionItem {
     status?: string
     load_mode?: string
     previous_text?: string
+    previous_title?: string
+    previous_status?: string
+    previous_load_mode?: string
+    previous_category?: string
     changed_fields?: string[]
+    // References changes
+    references_added?: number
+    references_removed?: number
 }
 
 interface BuildDiffDetailedResponse {
@@ -366,6 +421,16 @@ const loadingBuildContent = computed(() => loadingDiff.value || loadingInstructi
 const truncateText = (text: string, maxLength: number) => {
     if (!text) return ''
     return text.length > maxLength ? text.slice(0, maxLength) + '...' : text
+}
+
+const formatLoadMode = (mode?: string) => {
+    if (!mode) return '?'
+    const labels: Record<string, string> = {
+        always: 'Always',
+        intelligent: 'Smart',
+        disabled: 'Disabled'
+    }
+    return labels[mode] || mode
 }
 
 const fetchBuilds = async () => {

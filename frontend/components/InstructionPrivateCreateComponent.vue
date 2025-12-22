@@ -517,8 +517,27 @@ const fetchAvailableReferences = async () => {
     }
 }
 
+// Full instruction data (fetched separately to get references)
+const fullInstruction = ref<any>(null)
+
+const fetchFullInstruction = async () => {
+    if (!props.instruction?.id) return
+    
+    try {
+        const { data, error } = await useMyFetch<any>(`/instructions/${props.instruction.id}`, { method: 'GET' })
+        if (!error.value && data.value) {
+            fullInstruction.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching full instruction:', err)
+    }
+}
+
 const initReferencesFromInstruction = () => {
-    if (props.instruction && Array.isArray(props.instruction.references)) {
+    // Use fullInstruction if available (has references), fallback to props.instruction
+    const instruction = fullInstruction.value || props.instruction
+    
+    if (instruction && Array.isArray(instruction.references)) {
         const map: Record<string, MentionableItem> = {}
         for (const m of mentionableOptions.value) map[m.id] = m
         
@@ -526,7 +545,7 @@ const initReferencesFromInstruction = () => {
         const seenObjectIds = new Set<string>()
         const preselected: MentionableItem[] = []
         
-        for (const r of props.instruction.references) {
+        for (const r of instruction.references) {
             // Skip duplicates
             if (seenObjectIds.has(r.object_id)) continue
             seenObjectIds.add(r.object_id)
@@ -708,12 +727,16 @@ watch(isSuggestionEffective, (newValue) => {
 }, { immediate: true })
 
 // Lifecycle
-onMounted(() => {
+onMounted(async () => {
     fetchDataSources()
-    fetchAvailableReferences().then(() => initReferencesFromInstruction())
+    // Fetch full instruction first (to get references), then available references, then init
+    await fetchFullInstruction()
+    await fetchAvailableReferences()
+    initReferencesFromInstruction()
 })
 
-watch(() => props.instruction, () => {
+watch(() => props.instruction, async () => {
+    await fetchFullInstruction()
     initReferencesFromInstruction()
 })
 

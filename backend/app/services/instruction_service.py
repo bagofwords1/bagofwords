@@ -1808,6 +1808,7 @@ class InstructionService:
         
         # Populate the referenced objects for each reference
         if instruction.references:
+            logger.debug(f"Populating {len(instruction.references)} references for instruction {instruction.id}")
             populated_references = []
             for ref in instruction.references:
                 ref_data = ref.__dict__.copy()
@@ -1851,10 +1852,16 @@ class InstructionService:
                         from app.schemas.memory_schema import MemorySchema
                         ref_data["object"] = MemorySchema.from_orm(referenced_obj).model_dump()
                         # Memories don't have data sources, so no additional info needed
+                else:
+                    logger.warning(f"Referenced object not found: type={ref.object_type}, id={ref.object_id}")
                 
+                # Always include the reference, even if the object couldn't be fetched
                 populated_references.append(InstructionReferenceSchema(**ref_data))
             
             instruction_dict["references"] = populated_references
+            logger.debug(f"Returning {len(populated_references)} populated references")
+        else:
+            logger.debug(f"No references found for instruction {instruction.id}")
         
         return InstructionSchema(**instruction_dict)
     
