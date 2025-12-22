@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.281 (December 19, 2025)
+## Version 0.0.282 (December 22, 2025)
 - Launched instruction build/versioning system: every instruction update creates a new version, with point-in-time builds (snapshots), approval workflow, diff, and rollback.
 - All instructions now tied to builds; `is_main` build sets active instruction set for org, with full history & audit.
 - Added `/builds` API: get builds, build diffs, rollback, and detailed version/content lineage for every instruction.

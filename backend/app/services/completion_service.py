@@ -171,6 +171,7 @@ class CompletionService:
         organization: Organization,
         external_user_id: str = None,
         external_platform: str = None,
+        build_id: str = None,
     ) -> CompletionContextEstimateSchema:
         try:
             if not completion_data or not completion_data.prompt or not completion_data.prompt.content:

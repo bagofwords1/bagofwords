@@ -47,8 +47,13 @@ def create_async_database_engine():
                 database_url,
                 echo=False,
                 future=True,
-                # Required for SQLite to handle concurrent requests
-                connect_args={"check_same_thread": False}
+                # NullPool: close connections immediately to avoid "database is locked" in CI
+                poolclass=NullPool,
+                connect_args={
+                    "check_same_thread": False,
+                    # Timeout in seconds to wait for database lock
+                    "timeout": 30,
+                }
             )
         else:
             # PostgreSQL: use asyncpg driver with NullPool to avoid connection issues
