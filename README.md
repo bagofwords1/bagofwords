@@ -18,7 +18,7 @@ Built for reliable quick answers and deeper investigations like root-cause analy
 - **Agentic loop** - chat with data, ask complex questions, run multi-step analysis with tools, reasoning, and reflection  
 - **Any LLM ↔ Any warehouse** - OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift  
 - **Git repo indexing** - use `AGENTS.md`, dbt, LookML, Dataform, Tableau, and code as live context  
-- **Centralized instructions** - one place for definitions, business terms, and rules with approval workflows  
+- **Centralized instructions** - one place for definitions, business terms, and rules with full versioning, tracking, and approval workflows  
 - **Self-learning** - learns from usage and surfaces instruction and semantic-layer updates, review-gated  
 - **Reliability** - full observability: agent traces, plans, guardrails, LLM judges, evals  
 - **Auth & deploy** - run via Docker/Compose/k8s with SSO, RBAC, warehouse inherited permissions, and audit trail  
@@ -56,16 +56,16 @@ Create reports, deep analysis or quick visuals with an AI interface powered by a
 </div>
 
 ### Create and customize AI instructions and rules
-Manage your AI rules and instructions with review process and control
+Manage your AI rules and instructions with review process, full versioning and tracking, and control
 <div style="text-align: center; margin: 20px 0;">
-    <img src="./media/instructions.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+    <img src="./media/add-instructions.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
     <i></i>
 </div>
 
 ### Connect dbt, Tableau, and more for better AI context
-Enrich your AI context with dbt models, Tableau data sources, AGENTS.md and your git repo
+Enrich your AI context with  dbt models, Tableau data sources, AGENTS.md and your git repo
 <div style="text-align: center; margin: 20px 0;">
-    <img src="./media/dbt.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
+    <img src="./media/instructions-table.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
     <i></i>
 </div>
 
@@ -100,9 +100,9 @@ Bag of words supports a wide range of LLM providers out of the box. You can brin
 
 | Provider         | Supported Models / APIs         | Notes                                                                 |
 |------------------|---------------------------------|-----------------------------------------------------------------------|
-| **OpenAI**       | GPT-5, GPT-4.1, o-models, etc.    | Any OpenAI-compatible endpoint (including self-hosted, vLLM, etc.)    |
-| **Azure OpenAI** | GPT-5, GPT-4.1, o-models, etc.            | Azure resource/endpoint support, including model deployment names      |
-| **Google Gemini**| Gemini 2.5, Flash versions, etc.    | Requires Google Cloud API key                                         |
+| **OpenAI**       | GPT models, o-models, etc.    | Any OpenAI-compatible endpoint (including self-hosted, vLLM, etc.)    |
+| **Azure OpenAI** | GPT models, o-models, etc.            | Azure resource/endpoint support, including model deployment names      |
+| **Google Gemini**| Gemini, Flash versions, etc.    | Requires Google Cloud API key                                         |
 | **Anthropic**    | Claude, Sonnet, Haiku    | Just provide the API key          |
 | **Any OpenAI-compatible** | vLLM, LM Studio, Ollama, etc. | Just provide the base URL and API key                                 |
 
