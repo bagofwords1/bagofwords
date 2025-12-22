@@ -199,6 +199,26 @@ def _reset_postgres_schema(alembic_config):
     engine.dispose()
 
 
+def _dispose_async_engine():
+    """Dispose of the async engine to release all SQLite connections."""
+    from app.dependencies import engine
+    import asyncio
+    
+    async def _dispose():
+        await engine.dispose()
+    
+    # Run dispose in event loop
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If loop is running, create a new one for cleanup
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        loop.run_until_complete(_dispose())
+    except Exception as e:
+        print(f"Warning: Failed to dispose engine: {e}")
+
+
 @pytest.fixture(scope="function", autouse=True)
 def run_migrations(alembic_config, db_backend):
     """Run migrations per test function for isolation."""
@@ -207,6 +227,9 @@ def run_migrations(alembic_config, db_backend):
         # PostgreSQL: reset schema BEFORE test to avoid stale async connections
         print("Resetting PostgreSQL schema...")
         _reset_postgres_schema(alembic_config)
+    elif db_backend == "sqlite":
+        # SQLite: dispose engine before migrations to release any stale connections
+        _dispose_async_engine()
     
     print("Starting migrations...")
     command.upgrade(alembic_config, "head")
@@ -216,8 +239,9 @@ def run_migrations(alembic_config, db_backend):
     
     # Cleanup after test
     if db_backend == "sqlite":
-        # SQLite: downgrade and remove file
+        # SQLite: dispose engine first to release connections, then downgrade and remove file
         print("Cleaning up SQLite...")
+        _dispose_async_engine()
         command.downgrade(alembic_config, "base")
         db_file = alembic_config.get_main_option("sqlalchemy.url").replace('sqlite:///', '')
         if os.path.exists(db_file):
