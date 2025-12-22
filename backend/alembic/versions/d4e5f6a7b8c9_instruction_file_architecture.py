@@ -61,3 +61,4 @@ def downgrade() -> None:
         batch_op.drop_column('content_hash')
         batch_op.drop_column('source_file_path')
 
+

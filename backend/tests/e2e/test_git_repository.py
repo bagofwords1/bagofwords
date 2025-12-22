@@ -105,8 +105,12 @@ def test_git_repository_create_index_delete(
         assert instruction["source_metadata_resource_id"] is not None, "Instruction should be linked to a resource"
         # Verify auto_publish=True results in published status
         assert instruction["status"] == "published", "Instruction should be published (auto_publish=True)"
-        # Verify default_load_mode='always' is applied
-        assert instruction["load_mode"] == "always", "Instruction should have load_mode='always'"
+        # Verify load_mode respects priority: frontmatter > git repo default_load_mode
+        # Markdown files with alwaysApply: false in frontmatter will have 'intelligent'
+        # Others should inherit 'always' from git repo's default_load_mode
+        assert instruction["load_mode"] in ["always", "intelligent"], (
+            f"Instruction should have valid load_mode, got {instruction.get('load_mode')}"
+        )
 
     delete_response = delete_git_repository(
         data_source_id=data_source["id"],

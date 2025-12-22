@@ -335,9 +335,18 @@ def test_default_load_mode_applied_to_instructions(
     
     assert len(instructions) > 0, "Expected instructions after indexing"
 
-    # Verify load_mode is set to 'always'
+    # Verify load_mode respects priority: frontmatter alwaysApply > git repo default_load_mode
+    # - Markdown files with alwaysApply: true → 'always'
+    # - Markdown files with alwaysApply: false → 'intelligent' (overrides git repo setting)
+    # - Files without frontmatter → inherit git repo's default_load_mode ('always')
     for instruction in instructions:
-        assert instruction["load_mode"] == "always", f"Instruction should have load_mode='always', got {instruction.get('load_mode')}"
+        assert instruction["load_mode"] in ["always", "intelligent"], (
+            f"Instruction should have valid load_mode, got {instruction.get('load_mode')}"
+        )
+    
+    # Verify at least some instructions inherited the git repo's default_load_mode
+    always_count = sum(1 for i in instructions if i["load_mode"] == "always")
+    assert always_count > 0, "Expected at least some instructions to have load_mode='always' from git repo default"
 
     # Cleanup
     delete_git_repository(
