@@ -84,11 +84,13 @@
                         @click="showGitModal = true"
                     />
 
-                    <!-- Build Version Selector -->
+                    <!-- Build Version Selector - only show if user can view builds -->
                     <BuildVersionSelector
+                        v-if="canViewBuilds"
                         v-model="selectedBuildId"
                         :builds="availableBuilds"
                         :loading="loadingBuilds"
+                        @rollback="handleRollback"
                     />
                 </div>
             </div>
@@ -149,6 +151,7 @@ const route = useRoute()
 const dsId = computed(() => String(route.params.id || ''))
 
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
+const canViewBuilds = computed(() => useCan('view_builds'))
 
 const showGitModal = ref(false)
 const isLoading = ref(false)
@@ -318,6 +321,13 @@ watch(selectedBuildId, (newBuildId) => {
   inst.currentPage.value = 1
   inst.fetchInstructions()
 })
+
+// Handle rollback - refresh builds and instructions
+async function handleRollback(newBuildId: string) {
+  await fetchBuilds()
+  selectedBuildId.value = null // Reset to main/latest
+  inst.refresh()
+}
 
 function startPolling() {
   stopPolling()

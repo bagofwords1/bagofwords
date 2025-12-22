@@ -259,7 +259,7 @@ async def promote_build(
 # ==================== Draft Editing ====================
 
 @router.put("/{build_id}/contents/{instruction_id}", response_model=BuildContentSchema)
-@requires_permission('update_instructions')
+@requires_permission('create_builds')
 async def add_or_update_build_content(
     build_id: str,
     instruction_id: str,
@@ -318,7 +318,7 @@ async def remove_build_content(
 # ==================== Diff and Rollback ====================
 
 @router.get("/{build_id}/diff", response_model=BuildDiffSchema)
-@requires_permission('view_instructions')
+@requires_permission('view_builds')
 async def diff_builds(
     build_id: str,
     compare_to: str = Query(..., description="ID of the build to compare against"),
@@ -375,7 +375,7 @@ async def diff_builds_detailed(
 
 
 @router.post("/{build_id}/rollback", response_model=InstructionBuildSchema)
-@requires_permission('update_instructions')
+@requires_permission('create_builds')
 async def rollback_to_build(
     build_id: str,
     current_user: User = Depends(current_user),

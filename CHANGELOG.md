@@ -1,16 +1,20 @@
 # Release Notes
 
-## Version 0.0.280 (December 19, 2025)
-- added build, versioning and trackcing for instructions
-- fixed issue with 
+## Version 0.0.281 (December 19, 2025)
+- Launched instruction build/versioning system: every instruction update creates a new version, with point-in-time builds (snapshots), approval workflow, diff, and rollback.
+- All instructions now tied to builds; `is_main` build sets active instruction set for org, with full history & audit.
+- Added `/builds` API: get builds, build diffs, rollback, and detailed version/content lineage for every instruction.
+- Test/Eval runs can select which build to use.
+- Exposed top-k instructions retrieval API.
+- Extensive automated E2E test coverage for build/version/rollback/git flows.
 
 ## Version 0.0.280 (December 19, 2025)
-- Unified context and instructions
-- Added usage stats to Instructions
-- Added apply/load rules to instructions: always or smart (based on search/retrieval)
-- Redesigned Instructions table to include filters, git  based instructions, and more
-- 
-- Updated and added more automated e2e tests
+- Context and instructions are now unified
+- Instructions now show detailed usage statistics
+- New rules for instruction application: always apply, or smart based on relevance/search
+- Instructions table redesigned—now with filters, git-sourced instructions, and other enhancements
+- Improved create/edit instruction workflow with a refreshed design
+- Expanded and updated automated end-to-end tests
 
 ## Version 0.0.279 (December 17, 2025)
 - Added **MCP Server** for integration with Claude, Cursor, and other MCP clients

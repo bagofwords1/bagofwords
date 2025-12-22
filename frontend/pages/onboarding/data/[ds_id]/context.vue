@@ -100,11 +100,13 @@
                       {{ isLLMSyncInProgress ? 'Generating...' : 'Generate AI Suggestions' }}
                     </button>
                   </div>
-                  <!-- Build Version Selector -->
+                  <!-- Build Version Selector - only show if user can view builds -->
                   <BuildVersionSelector
+                    v-if="canViewBuilds"
                     v-model="selectedBuildId"
                     :builds="availableBuilds"
                     :loading="loadingBuilds"
+                    @rollback="handleRollback"
                   />
                 </div>
               </div>
@@ -207,8 +209,10 @@ import InstructionModalComponent from '@/components/InstructionModalComponent.vu
 import GitBranchIcon from '@/components/icons/GitBranchIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
+import { useCan } from '~/composables/usePermissions'
 
 const { getResourceType, getResourceTypeIcon, getResourceTypeTooltip, getResourceTypeFallbackIcon } = useInstructionHelpers()
+const canViewBuilds = computed(() => useCan('view_builds'))
 
 // Pagination
 const PAGE_SIZE = 7
@@ -454,6 +458,14 @@ async function fetchBuilds() {
   } finally {
     loadingBuilds.value = false
   }
+}
+
+// Handle rollback - refresh builds and instructions
+async function handleRollback(newBuildId: string) {
+  await fetchBuilds()
+  selectedBuildId.value = null // Reset to main/latest
+  await fetchInstructions()
+  await fetchGitInstructions()
 }
 
 async function handleSave() {

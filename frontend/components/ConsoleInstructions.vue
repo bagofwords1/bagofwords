@@ -87,11 +87,13 @@
                     @click="openGitRepositoriesModal"
                 />
 
-                <!-- Build Version Selector -->
+                <!-- Build Version Selector - only show if user can view builds -->
                 <BuildVersionSelector
+                    v-if="canViewBuilds"
                     v-model="selectedBuildId"
                     :builds="availableBuilds"
                     :loading="loadingBuilds"
+                    @rollback="handleRollback"
                 />
             </div>
         </div>
@@ -213,6 +215,7 @@ const loadingBuilds = ref(false)
 
 // Computed
 const canCreate = computed(() => useCan('create_instructions'))
+const canViewBuilds = computed(() => useCan('view_builds'))
 const addButtonLabel = computed(() => canCreate.value ? 'Add Instruction' : 'Suggest')
 
 const hasGitConnections = computed(() => gitConnectedCount.value > 0)
@@ -406,6 +409,16 @@ const fetchBuilds = async () => {
     } finally {
         loadingBuilds.value = false
     }
+}
+
+// Handle rollback - refresh builds and instructions
+const handleRollback = async (newBuildId: string) => {
+    // Refresh builds list to show the new rollback build
+    await fetchBuilds()
+    // Select the new build (which should be main)
+    selectedBuildId.value = null // Reset to main/latest
+    // Refresh instructions
+    inst.refresh()
 }
 
 // Watch for build selection changes
