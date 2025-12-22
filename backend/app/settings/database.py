@@ -1,9 +1,17 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 from app.settings.config import settings
 import os
+
+
+def _set_sqlite_pragmas(dbapi_connection, connection_record):
+    """Set SQLite pragmas for better concurrency handling."""
+    cursor = dbapi_connection.cursor()
+    # Wait up to 30 seconds for locks to be released
+    cursor.execute("PRAGMA busy_timeout = 30000")
+    cursor.close()
 
 
 def _get_test_database_url() -> str:
@@ -55,6 +63,8 @@ def create_async_database_engine():
                     "timeout": 30,
                 }
             )
+            # Register event listener to set busy_timeout pragma on each connection
+            event.listen(engine.sync_engine, "connect", _set_sqlite_pragmas)
         else:
             # PostgreSQL: use asyncpg driver with NullPool to avoid connection issues
             database_url = database_url.replace(
