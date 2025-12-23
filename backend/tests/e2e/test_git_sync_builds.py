@@ -983,3 +983,160 @@ def test_unlinked_instruction_in_new_build(
         content_instruction_ids = [c.get("instruction_id") for c in contents]
         assert instruction_id in content_instruction_ids, \
             "Unlinked instruction should still be in main build after repo delete"
+
+
+# ============================================================================
+# GIT-TO-BOW BRANCH SYNC
+# ============================================================================
+
+@pytest.mark.e2e
+def test_sync_feature_branch_creates_draft(
+    create_user,
+    login_user,
+    whoami,
+    create_data_source,
+    create_git_repository,
+    sync_git_branch,
+    get_build,
+    delete_git_repository,
+):
+    """Test that syncing a feature branch creates a draft build (not auto-approved)."""
+    if not TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {TEST_DB_PATH}")
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    data_source = create_data_source(
+        name="Feature Branch Sync Test",
+        type="sqlite",
+        config={"database": str(TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    git_payload = {
+        "provider": "github",
+        "repo_url": TEST_GIT_REPO_URL,
+        "branch": "main",
+        "is_active": True,
+        "auto_publish": True,  # Even with auto_publish, branch sync should create draft
+    }
+
+    created_repo = create_git_repository(
+        data_source_id=data_source["id"],
+        payload=git_payload,
+        user_token=user_token,
+        org_id=org_id,
+    )
+    repository_id = created_repo["id"]
+
+    try:
+        # Sync the main branch (simulating a feature branch workflow)
+        sync_result = sync_git_branch(
+            repository_id=repository_id,
+            branch="main",
+            user_token=user_token,
+            org_id=org_id,
+        )
+
+        assert sync_result["status"] == "draft", \
+            f"Branch sync should create draft build, got {sync_result['status']}"
+        
+        # Verify via get_build
+        build = get_build(
+            build_id=sync_result["build_id"],
+            user_token=user_token,
+            org_id=org_id,
+        )
+        assert build["status"] == "draft", "Build should be draft"
+        assert build["is_main"] is False, "Draft build should not be main"
+
+    finally:
+        delete_git_repository(
+            data_source_id=data_source["id"],
+            repository_id=repository_id,
+            user_token=user_token,
+            org_id=org_id,
+        )
+
+
+@pytest.mark.e2e
+def test_sync_then_deploy_flow(
+    create_user,
+    login_user,
+    whoami,
+    create_data_source,
+    create_git_repository,
+    sync_git_branch,
+    deploy_build,
+    get_main_build,
+    delete_git_repository,
+):
+    """Test full CI/CD flow: sync branch -> deploy to main."""
+    if not TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {TEST_DB_PATH}")
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    data_source = create_data_source(
+        name="CI/CD Flow Test",
+        type="sqlite",
+        config={"database": str(TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    git_payload = {
+        "provider": "github",
+        "repo_url": TEST_GIT_REPO_URL,
+        "branch": "main",
+        "is_active": True,
+    }
+
+    created_repo = create_git_repository(
+        data_source_id=data_source["id"],
+        payload=git_payload,
+        user_token=user_token,
+        org_id=org_id,
+    )
+    repository_id = created_repo["id"]
+
+    try:
+        # Step 1: Sync branch (creates draft build)
+        sync_result = sync_git_branch(
+            repository_id=repository_id,
+            branch="main",
+            user_token=user_token,
+            org_id=org_id,
+        )
+        
+        build_id = sync_result["build_id"]
+        assert sync_result["status"] == "draft", "Synced build should be draft"
+
+        # Step 2: Deploy (promotes to main)
+        deployed = deploy_build(
+            build_id=build_id,
+            user_token=user_token,
+            org_id=org_id,
+        )
+        
+        assert deployed["status"] == "approved", "Deployed build should be approved"
+        assert deployed["is_main"] is True, "Deployed build should be main"
+
+        # Step 3: Verify it's the main build
+        main = get_main_build(user_token=user_token, org_id=org_id)
+        assert main["id"] == build_id, "Main build should be the deployed build"
+
+    finally:
+        delete_git_repository(
+            data_source_id=data_source["id"],
+            repository_id=repository_id,
+            user_token=user_token,
+            org_id=org_id,
+        )

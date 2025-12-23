@@ -1355,6 +1355,103 @@ def test_bulk_load_mode_change_creates_versions(
 
 
 # ============================================================================
+# BUILD DEPLOY TESTS
+# ============================================================================
+
+@pytest.mark.e2e
+def test_deploy_auto_approves_draft(
+    create_user,
+    login_user,
+    whoami,
+    create_global_instruction,
+    get_builds,
+    deploy_build,
+    get_build,
+):
+    """Test that deploy submits and approves draft builds."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    # Create a draft instruction (will create a build)
+    create_global_instruction(
+        text="Draft instruction for deploy test",
+        user_token=user_token,
+        org_id=org_id,
+        status="draft"
+    )
+
+    builds = get_builds(user_token=user_token, org_id=org_id, status="approved")
+    
+    # If we have a build, deploy it
+    if builds["total"] >= 1:
+        build_id = builds["items"][0]["id"]
+        
+        # Deploy (should auto-submit and approve if needed)
+        deployed = deploy_build(
+            build_id=build_id,
+            user_token=user_token,
+            org_id=org_id,
+        )
+        
+        assert deployed["status"] == "approved", \
+            f"Deployed build should be approved, got {deployed['status']}"
+        assert deployed["is_main"] is True, "Deployed build should be main"
+
+
+@pytest.mark.e2e
+def test_deployed_build_becomes_main(
+    create_user,
+    login_user,
+    whoami,
+    create_global_instruction,
+    get_builds,
+    deploy_build,
+    get_main_build,
+):
+    """Test that deployed build becomes the main build."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    # Create first instruction
+    create_global_instruction(
+        text="First instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    # Create second instruction (may create new build)
+    create_global_instruction(
+        text="Second instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    builds = get_builds(user_token=user_token, org_id=org_id)
+    
+    if builds["total"] >= 1:
+        build_to_deploy = builds["items"][0]
+        build_id = build_to_deploy["id"]
+        
+        # Deploy
+        deployed = deploy_build(
+            build_id=build_id,
+            user_token=user_token,
+            org_id=org_id,
+        )
+        
+        assert deployed["is_main"] is True, "Deployed build should be main"
+        
+        # Verify via get_main_build
+        main = get_main_build(user_token=user_token, org_id=org_id)
+        assert main["id"] == build_id, \
+            f"Main build should be the deployed build, got {main['id']}"
+
+
+# ============================================================================
 # BUILD + TEST RUN INTEGRATION TESTS
 # ============================================================================
 
