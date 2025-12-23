@@ -158,7 +158,7 @@ async def push_build(
 # ==================== Status Endpoints ====================
 
 @router.get("/{repo_id}/status", response_model=RepositoryStatusResponse)
-@requires_permission('view_data_sources')
+@requires_permission('view_data_source')
 async def get_repository_status(
     repo_id: str,
     current_user: User = Depends(current_user),

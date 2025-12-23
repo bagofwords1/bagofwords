@@ -872,10 +872,16 @@ class GitService:
             raise HTTPException(status_code=400, detail="No credentials configured for push")
 
     async def _push_branch(self, repository: GitRepository, repo: git.Repo, branch_name: str):
-        """Push a branch to the remote."""
+        """Push a branch to the remote.
+        
+        Uses --force to allow updating existing branches. This is safe because:
+        - Branch names are unique per build (BOW-{build_number})
+        - Re-pushing a build should update the branch with latest changes
+        - These are feature branches, not protected branches
+        """
         if repository.has_access_token:
             # PAT is already embedded in the remote URL from clone
-            repo.git.push('origin', branch_name, '--set-upstream')
+            repo.git.push('origin', branch_name, '--set-upstream', '--force')
         elif repository.has_ssh_key:
             ssh_dir = tempfile.mkdtemp()
             try:
@@ -892,7 +898,7 @@ class GitService:
                 git_env = os.environ.copy()
                 git_env["GIT_SSH_COMMAND"] = f'ssh -i {ssh_key_path} -o StrictHostKeyChecking=no'
 
-                repo.git.push('origin', branch_name, '--set-upstream', env=git_env)
+                repo.git.push('origin', branch_name, '--set-upstream', '--force', env=git_env)
             finally:
                 shutil.rmtree(ssh_dir, ignore_errors=True)
 

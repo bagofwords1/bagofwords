@@ -207,12 +207,12 @@ class InstructionSyncService:
         # Determine load mode from frontmatter or git repository settings
         load_mode = self._get_load_mode_for_resource(resource, git_repo)
         
-        # Parse status from frontmatter (default: 'published')
+        # Parse status from frontmatter (fall back to auto_publish setting)
         frontmatter_status = self._get_frontmatter_value(resource, 'status')
         if frontmatter_status in ('published', 'draft', 'archived'):
             status = frontmatter_status
         else:
-            status = 'published'  # Default to published
+            status = 'published' if auto_publish else 'draft'
         
         # Parse category from frontmatter (default: 'general')
         category = self._get_frontmatter_value(resource, 'category') or 'general'

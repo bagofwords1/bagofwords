@@ -48,6 +48,11 @@ class InstructionBuildSchema(BaseModel):
     approved_at: Optional[UTCDatetime] = None
     rejection_reason: Optional[str] = None
     
+    # Git push info (populated when pushing TO git)
+    git_branch_name: Optional[str] = None
+    git_pr_url: Optional[str] = None
+    git_pushed_at: Optional[UTCDatetime] = None
+    
     # Organization and creator
     organization_id: str
     created_by_user_id: Optional[str] = None
