@@ -69,6 +69,8 @@
                                     </UTooltip>
                                 </div>
                                 <span v-if="build.is_main" class="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded">Active</span>
+                                <span v-else-if="build.status === 'pending_approval'" class="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">Pending</span>
+                                <span v-else-if="build.status === 'rejected'" class="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded">Rejected</span>
                             </div>
                             <div class="text-[10px] text-gray-500 mt-0.5">
                                 {{ formatDate(build.created_at) }}
@@ -115,6 +117,12 @@
                                     <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
                                         Active
                                     </span>
+                                    <span v-else-if="selectedBuild.status === 'pending_approval'" class="text-[10px] px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">
+                                        Pending Approval
+                                    </span>
+                                    <span v-else-if="selectedBuild.status === 'rejected'" class="text-[10px] px-2 py-0.5 bg-red-100 text-red-700 rounded-full">
+                                        Rejected
+                                    </span>
                                     
                                     <!-- Git Status Badge -->
                                     <a 
@@ -145,6 +153,32 @@
                                         @click="pushToGit"
                                     >
                                         Push to Git
+                                    </UButton>
+                                    
+                                    <!-- Approve button - only for pending_approval builds -->
+                                    <UButton
+                                        v-if="selectedBuild.status === 'pending_approval' && canCreateBuilds"
+                                        color="green"
+                                        variant="soft"
+                                        size="xs"
+                                        :icon="approvingBuild ? undefined : 'i-heroicons-check'"
+                                        :loading="approvingBuild"
+                                        @click="approveBuild"
+                                    >
+                                        Approve
+                                    </UButton>
+                                    
+                                    <!-- Reject button - only for pending_approval builds -->
+                                    <UButton
+                                        v-if="selectedBuild.status === 'pending_approval' && canCreateBuilds"
+                                        color="red"
+                                        variant="soft"
+                                        size="xs"
+                                        :icon="rejectingBuild ? undefined : 'i-heroicons-x-mark'"
+                                        :loading="rejectingBuild"
+                                        @click="rejectBuild"
+                                    >
+                                        Reject
                                     </UButton>
                                     
                                     <!-- Rollback button - only show for non-main approved builds with permission -->
@@ -655,6 +689,8 @@ const loadingInstructions = ref(false)
 const loadingDiff = ref(false)
 const rollingBack = ref(false)
 const pushingToGit = ref(false)
+const approvingBuild = ref(false)
+const rejectingBuild = ref(false)
 const builds = ref<Build[]>([])
 const selectedBuild = ref<Build | null>(null)
 const instructions = ref<Instruction[]>([])
@@ -903,6 +939,101 @@ const rollbackToBuild = async () => {
         })
     } finally {
         rollingBack.value = false
+    }
+}
+
+const approveBuild = async () => {
+    if (!selectedBuild.value || approvingBuild.value) return
+    
+    approvingBuild.value = true
+    try {
+        const response = await useMyFetch(`/builds/${selectedBuild.value.id}/approve`, {
+            method: 'POST'
+        })
+        
+        if (response.error.value) {
+            throw new Error((response.error.value as any)?.data?.detail || 'Failed to approve build')
+        }
+        
+        toast.add({
+            title: 'Build approved',
+            description: `Build #${selectedBuild.value.build_number} has been approved`,
+            color: 'green',
+            icon: 'i-heroicons-check-circle'
+        })
+        
+        // Update local state
+        if (selectedBuild.value) {
+            selectedBuild.value.status = 'approved'
+        }
+        
+        // Refresh builds list
+        await fetchBuilds()
+        
+        // Re-select the current build to update the UI
+        const updatedBuild = builds.value.find(b => b.id === selectedBuild.value?.id)
+        if (updatedBuild) {
+            selectedBuild.value = updatedBuild
+        }
+    } catch (e: any) {
+        console.error('Approve failed:', e)
+        toast.add({
+            title: 'Approve failed',
+            description: e.message || 'An error occurred',
+            color: 'red',
+            icon: 'i-heroicons-x-circle'
+        })
+    } finally {
+        approvingBuild.value = false
+    }
+}
+
+const rejectBuild = async () => {
+    if (!selectedBuild.value || rejectingBuild.value) return
+    
+    rejectingBuild.value = true
+    try {
+        const response = await useMyFetch(`/builds/${selectedBuild.value.id}/reject`, {
+            method: 'POST',
+            body: {
+                reason: 'Rejected via Version Explorer'
+            }
+        })
+        
+        if (response.error.value) {
+            throw new Error((response.error.value as any)?.data?.detail || 'Failed to reject build')
+        }
+        
+        toast.add({
+            title: 'Build rejected',
+            description: `Build #${selectedBuild.value.build_number} has been rejected`,
+            color: 'amber',
+            icon: 'i-heroicons-x-circle'
+        })
+        
+        // Update local state
+        if (selectedBuild.value) {
+            selectedBuild.value.status = 'rejected'
+        }
+        
+        // Refresh builds list
+        await fetchBuilds()
+        
+        // Re-select the current build to update the UI
+        const updatedBuild = builds.value.find(b => b.id === selectedBuild.value?.id)
+        if (updatedBuild) {
+            selectedBuild.value = updatedBuild
+        }
+    } catch (e: any) {
+        console.error('Reject failed:', e)
+        toast.add({
+            title: 'Reject failed',
+            description: e.message || 'An error occurred',
+            color: 'red',
+            icon: 'i-heroicons-x-circle'
+        })
+    } finally {
+        rejectingBuild.value = false
     }
 }
 
