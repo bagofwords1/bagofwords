@@ -155,3 +155,93 @@ def get_linked_instructions_count(test_client):
 
     return _get_linked_instructions_count
 
+
+# ==================== Git Write Operations ====================
+
+
+@pytest.fixture
+def sync_git_branch(test_client):
+    """Sync a specific git branch to create a draft build."""
+    def _sync_git_branch(
+        *,
+        repository_id: str,
+        branch: str,
+        user_token: str = None,
+        org_id: str = None,
+    ):
+        headers = _build_headers(user_token, org_id)
+        response = test_client.post(
+            f"/api/git/{repository_id}/sync",
+            json={"branch": branch},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _sync_git_branch
+
+
+@pytest.fixture
+def push_build_to_git(test_client):
+    """Push a build to a new git branch."""
+    def _push_build_to_git(
+        *,
+        repository_id: str,
+        build_id: str,
+        create_pr: bool = False,
+        user_token: str = None,
+        org_id: str = None,
+        expect_success: bool = True,
+    ):
+        headers = _build_headers(user_token, org_id)
+        response = test_client.post(
+            f"/api/git/{repository_id}/push",
+            json={"build_id": build_id, "create_pr": create_pr},
+            headers=headers,
+        )
+        if expect_success:
+            assert response.status_code == 200, response.json()
+        return response
+
+    return _push_build_to_git
+
+
+@pytest.fixture
+def get_git_repo_status(test_client):
+    """Get git repository status and capabilities."""
+    def _get_git_repo_status(
+        *,
+        repository_id: str,
+        user_token: str = None,
+        org_id: str = None,
+    ):
+        headers = _build_headers(user_token, org_id)
+        response = test_client.get(
+            f"/api/git/{repository_id}/status",
+            headers=headers,
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _get_git_repo_status
+
+
+@pytest.fixture
+def deploy_build(test_client):
+    """Deploy a build (submit, approve, promote to main)."""
+    def _deploy_build(
+        *,
+        build_id: str,
+        user_token: str = None,
+        org_id: str = None,
+    ):
+        headers = _build_headers(user_token, org_id)
+        response = test_client.post(
+            f"/api/builds/{build_id}/deploy",
+            headers=headers,
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _deploy_build
+

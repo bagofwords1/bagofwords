@@ -29,9 +29,14 @@ class InstructionBuild(BaseSchema):
     metadata_indexing_job_id = Column(String(36), ForeignKey('metadata_indexing_jobs.id', ondelete='SET NULL'), nullable=True)
     agent_execution_id = Column(String(36), ForeignKey('agent_executions.id'), nullable=True)
     
-    # Git info (populated when source='git')
+    # Git info (populated when source='git' - syncing FROM git)
     commit_sha = Column(String(40), nullable=True)
     branch = Column(String(255), nullable=True)
+    
+    # Git push info (populated when pushing TO git)
+    git_branch_name = Column(String(255), nullable=True)  # e.g., "BOW-42"
+    git_pr_url = Column(String(512), nullable=True)  # PR URL if created
+    git_pushed_at = Column(DateTime, nullable=True)  # When pushed to git
     
     # Test integration
     test_run_id = Column(String(36), ForeignKey('test_runs.id'), nullable=True)
@@ -60,6 +65,7 @@ class InstructionBuild(BaseSchema):
     approved_by_user = relationship("User", foreign_keys=[approved_by_user_id], lazy="selectin")
     metadata_indexing_job = relationship("MetadataIndexingJob", foreign_keys=[metadata_indexing_job_id], lazy="selectin")
     agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="selectin")
+    # test_run relationship removed - we query latest test run per build in service
     
     # Build contents - the instruction versions in this build
     contents = relationship("BuildContent", back_populates="build", lazy="selectin", cascade="all, delete-orphan")
@@ -111,4 +117,5 @@ class InstructionBuild(BaseSchema):
     def can_be_promoted(self) -> bool:
         """Returns True if this build can be promoted to main"""
         return self.is_approved and not self.is_main
+    
 

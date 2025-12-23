@@ -2,6 +2,7 @@ from pydantic import BaseModel
 from typing import Optional, Any, Dict, List, Union
 from datetime import datetime
 from app.schemas.test_expectations import ExpectationsSpec
+from app.schemas.base import UTCDatetime, OptionalUTCDatetime
 
 
 class ModelSummary(BaseModel):
@@ -17,8 +18,8 @@ class TestSuiteSchema(BaseModel):
     organization_id: str
     name: str
     description: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -43,8 +44,8 @@ class TestCaseSchema(BaseModel):
     data_source_ids_json: Optional[List[str]] = None
     # Derived, not persisted: helpful projection for UI fallbacks
     model_summary: Optional[ModelSummary] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True
@@ -71,14 +72,14 @@ class TestRunSchema(BaseModel):
     trigger_reason: Optional[str] = None
     title: Optional[str] = None
     status: str
-    started_at: Optional[datetime] = None
-    finished_at: Optional[datetime] = None
+    started_at: OptionalUTCDatetime = None
+    finished_at: OptionalUTCDatetime = None
     summary_json: Optional[Dict[str, Any]] = None
     # Build system
     build_id: Optional[str] = None
     build_number: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     class Config:
         from_attributes = True

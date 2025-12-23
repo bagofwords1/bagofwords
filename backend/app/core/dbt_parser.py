@@ -294,7 +294,8 @@ class DBTResourceExtractor:
                     self.resources['macros'].append({
                         'name': macro_name,
                         'path': str(macro_file),
-                        'type': 'macro'
+                        'type': 'macro',
+                        'sql_content': content,  # Store raw file content
                     })
             except Exception as e:
                 print(f"Error parsing macro {macro_file}: {e}")

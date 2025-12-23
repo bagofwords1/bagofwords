@@ -90,6 +90,7 @@
                         v-model="selectedBuildId"
                         :builds="availableBuilds"
                         :loading="loadingBuilds"
+                        :git-repo-id="integration?.git_repository?.id || ''"
                         @rollback="handleRollback"
                     />
                 </div>

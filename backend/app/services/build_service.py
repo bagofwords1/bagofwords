@@ -12,6 +12,7 @@ from app.models.build_content import BuildContent
 from app.models.instruction import Instruction
 from app.models.organization import Organization
 from app.models.user import User
+from app.models.eval import TestRun
 
 import logging
 logger = logging.getLogger(__name__)
@@ -196,10 +197,85 @@ class BuildService:
         )
         
         result = await db.execute(query)
-        builds = result.scalars().all()
+        builds = list(result.scalars().all())
+        
+        # Fetch latest test run per build
+        build_ids = [str(b.id) for b in builds]
+        test_runs_by_build = {}
+        
+        if build_ids:
+            # Subquery to get max started_at per build_id
+            latest_run_subq = (
+                select(
+                    TestRun.build_id,
+                    func.max(TestRun.started_at).label('max_started')
+                )
+                .where(TestRun.build_id.in_(build_ids))
+                .group_by(TestRun.build_id)
+                .subquery()
+            )
+            
+            # Query to get the actual test runs
+            runs_query = (
+                select(TestRun)
+                .join(
+                    latest_run_subq,
+                    and_(
+                        TestRun.build_id == latest_run_subq.c.build_id,
+                        TestRun.started_at == latest_run_subq.c.max_started
+                    )
+                )
+            )
+            runs_result = await db.execute(runs_query)
+            runs = runs_result.scalars().all()
+            
+            for run in runs:
+                test_runs_by_build[run.build_id] = run
+        
+        # Enrich builds with test run data
+        enriched_items = []
+        for build in builds:
+            build_dict = {
+                "id": str(build.id),
+                "build_number": build.build_number,
+                "status": build.status,
+                "source": build.source,
+                "is_main": build.is_main,
+                "commit_sha": build.commit_sha,
+                "branch": build.branch,
+                "total_instructions": build.total_instructions,
+                "added_count": build.added_count,
+                "modified_count": build.modified_count,
+                "removed_count": build.removed_count,
+                "created_at": build.created_at,
+                "approved_at": build.approved_at,
+                "git_branch_name": build.git_branch_name,
+                "git_pr_url": build.git_pr_url,
+                "git_pushed_at": build.git_pushed_at,
+                "test_run_id": None,
+                "test_status": None,
+                "test_passed": None,
+                "test_failed": None,
+            }
+            
+            # Add test run data if exists
+            run = test_runs_by_build.get(str(build.id))
+            if run:
+                build_dict["test_run_id"] = str(run.id)
+                summary = run.summary_json or {}
+                passed = summary.get('passed', 0)
+                failed = summary.get('failed', 0)
+                build_dict["test_passed"] = passed
+                build_dict["test_failed"] = failed
+                if run.status in ('success', 'error', 'stopped'):
+                    build_dict["test_status"] = 'passed' if failed == 0 and passed > 0 else ('failed' if failed > 0 else None)
+                elif run.status == 'in_progress':
+                    build_dict["test_status"] = 'pending'
+            
+            enriched_items.append(build_dict)
         
         return {
-            "items": builds,
+            "items": enriched_items,
             "total": total,
             "page": (skip // limit) + 1 if limit > 0 else 1,
             "per_page": limit,

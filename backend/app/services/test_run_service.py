@@ -27,6 +27,15 @@ class TestRunService:
         self.evaluator = TestEvaluationService()
 
     # -------- Helpers --------
+    
+    async def _save_run_summary(self, db: AsyncSession, run: TestRun, results: List[TestResult]) -> None:
+        """Save summary_json with pass/fail counts when a test run completes."""
+        passed = sum(1 for r in results if r.status == 'pass')
+        failed = sum(1 for r in results if r.status in ('fail', 'error'))
+        run.summary_json = {'total': len(results), 'passed': passed, 'failed': failed}
+        db.add(run)
+        await db.commit()
+    
     async def _resolve_cases_inputs(self, db: AsyncSession, organization_id: str, case_ids: Optional[List[str]], suite_id: Optional[str]) -> List[TestCase]:
         if case_ids and len(case_ids) > 0:
             res = await db.execute(select(TestCase).where(TestCase.id.in_([str(c) for c in case_ids])))
@@ -369,6 +378,10 @@ class TestRunService:
                 changed = True
         if changed:
             await db.commit()
+        
+        # Save run summary
+        await self._save_run_summary(db, run, list(results))
+        
         await db.refresh(run)
         return run
 
@@ -1155,6 +1168,10 @@ class TestRunService:
                                 run.status = "stopped"
                             else:
                                 run.status = "success" if all(s not in {"fail", "error"} for s in statuses) else "error"
+                            # Save summary_json with pass/fail counts
+                            passed = sum(1 for r in rows if r.status == 'pass')
+                            failed = sum(1 for r in rows if r.status in ('fail', 'error'))
+                            run.summary_json = {'total': len(rows), 'passed': passed, 'failed': failed}
                             db.add(run)
                             await db.commit()
                         except Exception:

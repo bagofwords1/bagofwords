@@ -1,57 +1,69 @@
 <template>
     <UTooltip :text="tooltip" :popper="{ placement: 'top' }">
-        <USelectMenu
-            :model-value="selectedBuild ?? undefined"
-            @update:model-value="(v: any) => selectedBuild = v ?? null"
-            :options="buildOptions"
-            value-attribute="value"
-            size="xs"
-            :ui="{
-                wrapper: 'relative',
-                trigger: 'inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300',
-                option: { size: 'xs', padding: 'px-2 py-1' }
-            }"
-            :ui-menu="{ width: 'w-56' }"
-        >
-            <template #leading>
+        <UPopover :popper="{ placement: 'bottom-start' }">
+            <UButton
+                size="xs"
+                color="white"
+                variant="solid"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-white border border-gray-200 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-1 focus:ring-gray-300"
+            >
                 <UIcon name="i-heroicons-cube" class="w-4 h-4 text-gray-500" />
-            </template>
-            <template #label>
-                <div class="flex items-center gap-1.5">
-                    <span class="text-gray-700">{{ selectedLabel }}</span>
-                    <!-- Info icon inside the selector - clickable to open diff modal -->
-                    <UIcon 
-                        v-if="modelValue && parentBuildId"
-                        name="i-heroicons-information-circle" 
-                        class="w-3.5 h-3.5 text-gray-400 hover:text-gray-600 cursor-pointer"
-                        @click.stop="openDiffModal"
-                    />
+                <span class="text-gray-700">{{ selectedLabel }}</span>
+                <UIcon 
+                    v-if="modelValue && parentBuildId"
+                    name="i-heroicons-information-circle" 
+                    class="w-3.5 h-3.5 text-gray-400 hover:text-gray-600 cursor-pointer"
+                    @click.stop="openDiffModal"
+                />
+                <UIcon name="i-heroicons-chevron-down" class="w-3.5 h-3.5 text-gray-400" />
+            </UButton>
+            
+            <template #panel="{ close }">
+                <div class="w-56 bg-white rounded-md shadow-lg ring-1 ring-black ring-opacity-5 overflow-hidden">
+                    <!-- Scrollable options area -->
+                    <div class="max-h-48 overflow-y-auto">
+                        <!-- Latest option -->
+                        <div 
+                            class="flex items-center gap-1.5 text-xs w-full px-2 py-1.5 cursor-pointer hover:bg-gray-100"
+                            :class="{ 'bg-gray-50': !modelValue }"
+                            @click="selectBuild(null); close()"
+                        >
+                            <UIcon name="i-heroicons-user" class="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                            <span class="flex-1">Latest</span>
+                            <UIcon v-if="!modelValue" name="i-heroicons-check" class="w-3.5 h-3.5 text-primary-500 shrink-0" />
+                        </div>
+                        
+                        <!-- Build options -->
+                        <div 
+                            v-for="build in limitedBuilds" 
+                            :key="build.value"
+                            class="flex items-center gap-1.5 text-xs w-full px-2 py-1.5 cursor-pointer hover:bg-gray-100"
+                            :class="{ 'bg-gray-50': modelValue === build.value }"
+                            @click="selectBuild(build.value); close()"
+                        >
+                            <UIcon :name="getSourceIcon(build.source)" class="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                            <span class="flex-1">{{ build.buildNumber }}</span>
+                            <UIcon 
+                                v-if="build.value && getParentBuildIdFor(build.value)"
+                                name="i-heroicons-information-circle" 
+                                class="w-3.5 h-3.5 text-gray-400 hover:text-blue-500 shrink-0"
+                                @click.stop="openDiffModalFor(build.value)"
+                            />
+                            <UIcon v-if="modelValue === build.value" name="i-heroicons-check" class="w-3.5 h-3.5 text-primary-500 shrink-0" />
+                        </div>
+                    </div>
+                    
+                    <!-- Frozen footer - always visible -->
+                    <div 
+                        class="flex items-center gap-1.5 text-xs w-full px-2 py-2 cursor-pointer bg-gray-50 border-t border-gray-200 text-blue-600 hover:bg-gray-100"
+                        @click="openExplorer(); close()"
+                    >
+                        <UIcon name="i-heroicons-folder-open" class="w-3.5 h-3.5 shrink-0" />
+                        <span class="flex-1 font-medium">Version Explorer</span>
+                    </div>
                 </div>
             </template>
-            <template #option="{ option }">
-                <!-- Version Explorer option -->
-                <div 
-                    v-if="option.value === '__explorer__'"
-                    class="flex items-center gap-1.5 text-xs w-full border-t border-gray-100 pt-1 -mt-1 text-blue-600"
-                    @click.stop="openExplorer"
-                >
-                    <UIcon name="i-heroicons-folder-open" class="w-3.5 h-3.5 shrink-0" />
-                    <span class="flex-1 font-medium">{{ option.label }}</span>
-                </div>
-                <!-- Regular build option -->
-                <div v-else class="flex items-center gap-1.5 text-xs w-full">
-                    <UIcon :name="getSourceIcon(option.source)" class="w-3.5 h-3.5 text-gray-500 shrink-0" />
-                    <span class="flex-1">{{ option.label }}</span>
-                    <!-- Info icon for builds with parent (not Latest) -->
-                    <UIcon 
-                        v-if="option.value && getParentBuildIdFor(option.value)"
-                        name="i-heroicons-information-circle" 
-                        class="w-3.5 h-3.5 text-gray-400 hover:text-blue-500 shrink-0"
-                        @click.stop="openDiffModalFor(option.value)"
-                    />
-                </div>
-            </template>
-        </USelectMenu>
+        </UPopover>
     </UTooltip>
     
     <!-- Build Explorer Modal -->
@@ -59,6 +71,7 @@
         v-model="isDiffModalOpen"
         :build-id="diffBuildId || ''"
         :compare-to-build-id="diffParentBuildId || ''"
+        :git-repo-id="gitRepoId"
         @rollback="(id: string) => emit('rollback', id)"
     />
 </template>
@@ -85,11 +98,14 @@ const props = withDefaults(defineProps<{
     loading?: boolean
     /** Max builds to show (default 30) */
     maxBuilds?: number
+    /** Git repository ID for push operations */
+    gitRepoId?: string
 }>(), {
     modelValue: null,
     builds: () => [],
     loading: false,
-    maxBuilds: 30
+    maxBuilds: 30,
+    gitRepoId: ''
 })
 
 const emit = defineEmits<{
@@ -100,17 +116,9 @@ const emit = defineEmits<{
 // Diff modal state
 const isDiffModalOpen = ref(false)
 
-const selectedBuild = computed({
-    get: () => props.modelValue,
-    set: (value) => {
-        // Don't actually select the explorer option - it just opens the modal
-        if (value === '__explorer__') {
-            openExplorer()
-            return
-        }
-        emit('update:modelValue', value)
-    }
-})
+const selectBuild = (value: string | null) => {
+    emit('update:modelValue', value)
+}
 
 // Get icon based on source type
 const getSourceIcon = (source?: string, gitProvider?: string): string => {
@@ -132,33 +140,6 @@ const limitedBuilds = computed(() => {
     return props.builds.slice(0, props.maxBuilds)
 })
 
-const buildOptions = computed(() => {
-    const options: BuildOption[] = [
-        { value: null, label: 'Latest', buildNumber: 0, source: 'user' }
-    ]
-    
-    // Add available builds (limited)
-    for (const build of limitedBuilds.value) {
-        options.push({
-            value: build.value,
-            label: String(build.buildNumber),
-            buildNumber: build.buildNumber,
-            status: build.status,
-            createdAt: build.createdAt,
-            source: build.source,
-            gitProvider: build.gitProvider
-        })
-    }
-    
-    // Add Version Explorer option at the end
-    options.push({
-        value: '__explorer__',
-        label: 'Version Explorer',
-        source: 'explorer'
-    })
-    
-    return options
-})
 
 const selectedLabel = computed(() => {
     if (!props.modelValue) return 'Latest'

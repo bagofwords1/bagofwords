@@ -1352,3 +1352,105 @@ def test_bulk_load_mode_change_creates_versions(
         
         if original_version:
             assert new_version != original_version, f"Version should change for instruction {inst['id']}"
+
+
+# ============================================================================
+# BUILD + TEST RUN INTEGRATION TESTS
+# ============================================================================
+
+@pytest.mark.e2e
+def test_list_builds_includes_test_run_fields(
+    create_user,
+    login_user,
+    whoami,
+    create_global_instruction,
+    get_builds,
+):
+    """Test that list_builds response includes test run fields."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    # Create an instruction to have a build
+    create_global_instruction(
+        text="Test instruction",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    builds = get_builds(user_token=user_token, org_id=org_id)
+    
+    assert builds["total"] >= 1, "Should have at least one build"
+    
+    build = builds["items"][0]
+    # These fields should exist (even if null) for frontend compatibility
+    assert "test_run_id" in build, "Build should have test_run_id field"
+    assert "test_status" in build, "Build should have test_status field"
+    assert "test_passed" in build, "Build should have test_passed field"
+    assert "test_failed" in build, "Build should have test_failed field"
+
+
+@pytest.mark.e2e
+def test_list_builds_shows_test_results_after_run(
+    create_user,
+    login_user,
+    whoami,
+    create_global_instruction,
+    create_test_suite,
+    create_test_case,
+    get_main_build,
+    get_builds,
+    test_client,
+):
+    """Test that list_builds shows test results after a test run."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    # Create instruction to have a build
+    create_global_instruction(
+        text="Test instruction for test run",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+
+    main_build = get_main_build(user_token=user_token, org_id=org_id)
+    assert main_build is not None, "Main build should exist"
+
+    # Create a test suite and case
+    suite = create_test_suite(name="Build Test Suite", user_token=user_token, org_id=org_id)
+    case = create_test_case(
+        suite_id=suite["id"],
+        name="Build Test Case",
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Create a test run for this build
+    headers = {
+        "Authorization": f"Bearer {user_token}",
+        "X-Organization-Id": str(org_id),
+    }
+    payload = {
+        "case_ids": [case["id"]],
+        "trigger_reason": "manual",
+        "build_id": main_build["id"],
+    }
+    
+    response = test_client.post("/api/tests/runs", json=payload, headers=headers)
+    
+    # If test run was created successfully, check builds list
+    if response.status_code == 200:
+        run = response.json()
+        
+        # Get builds and check that our build has test run info
+        builds = get_builds(user_token=user_token, org_id=org_id)
+        
+        # Find our build
+        our_build = next((b for b in builds["items"] if b["id"] == main_build["id"]), None)
+        assert our_build is not None, "Our build should be in list"
+        
+        # Test run should be linked (by build_id on the run)
+        assert our_build.get("test_run_id") == run["id"], "Build should show latest test run"

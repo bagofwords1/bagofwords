@@ -384,9 +384,17 @@ Examples:
     <!-- Unlink Confirmation Modal (for save) -->
     <UModal v-model="showUnlinkConfirm" :ui="{ width: 'sm:max-w-md' }">
         <div class="p-4">
-            <p class="text-sm text-gray-700 mb-4">
-                This instruction is synced from git. Your changes will be overwritten on the next sync. Unlink to keep your edits?
-            </p>
+            <div class="flex items-start gap-3 mb-4">
+                <div class="shrink-0 w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                    <Icon name="heroicons:link-slash" class="w-4 h-4 text-amber-600" />
+                </div>
+                <div>
+                    <h3 class="text-sm font-semibold text-gray-900 mb-1">Unlink from Git?</h3>
+                    <p class="text-sm text-gray-600">
+                        This will stop automatic syncing from git. Your local changes will be preserved and can be pushed back to git later via <span class="font-medium">Push to Git</span>.
+                    </p>
+                </div>
+            </div>
             <div class="flex justify-end gap-2">
                 <UButton color="gray" variant="ghost" size="xs" @click="showUnlinkConfirm = false">
                     Cancel
@@ -978,11 +986,23 @@ const doSubmit = async () => {
     }
 }
 
-const confirmUnlinkAndSave = () => {
+const confirmUnlinkAndSave = async () => {
     showUnlinkConfirm.value = false
-    emit('unlink-from-git')
-    // Small delay to let the unlink happen, then submit
-    setTimeout(() => doSubmit(), 100)
+    
+    // Unlink from git first
+    if (props.instruction?.id) {
+        try {
+            await useMyFetch(`/instructions/${props.instruction.id}`, {
+                method: 'PUT',
+                body: { source_sync_enabled: false }
+            })
+        } catch (err) {
+            console.error('Error unlinking from git:', err)
+        }
+    }
+    
+    // Now submit the form with updated content
+    await doSubmit()
 }
 
 const confirmDelete = async () => {
@@ -1010,10 +1030,21 @@ const confirmDeleteGitSynced = async () => {
 
 const confirmUnlinkAndDelete = async () => {
     showDeleteGitConfirm.value = false
-    // Unlink first, then delete
-    emit('unlink-from-git')
-    // Small delay to let the unlink happen, then delete
-    setTimeout(() => doDelete(), 100)
+    
+    // Unlink from git first
+    if (props.instruction?.id) {
+        try {
+            await useMyFetch(`/instructions/${props.instruction.id}`, {
+                method: 'PUT',
+                body: { source_sync_enabled: false }
+            })
+        } catch (err) {
+            console.error('Error unlinking from git:', err)
+        }
+    }
+    
+    // Now delete
+    await doDelete()
 }
 
 const doDelete = async () => {

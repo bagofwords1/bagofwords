@@ -402,8 +402,9 @@ const unlinkFromGit = async () => {
         
         if (data.value) {
             // Update the local form state immediately
+            // DON'T emit instructionSaved here - let the subsequent save do that
+            // This prevents the modal from closing before the save completes
             sharedForm.value.source_sync_enabled = false
-            emit('instructionSaved', data.value)
         }
     } catch (err) {
         console.error('Error unlinking from git:', err)

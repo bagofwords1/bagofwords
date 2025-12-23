@@ -249,3 +249,24 @@ def get_test_run(test_client):
     return _get_test_run
 
 
+@pytest.fixture
+def get_suites_summary(test_client):
+    """Get test suites summary with test counts."""
+    def _get_suites_summary(*, user_token=None, org_id=None):
+        if user_token is None:
+            pytest.fail("User token is required for get_suites_summary")
+        if org_id is None:
+            pytest.fail("Organization ID is required for get_suites_summary")
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.get("/api/tests/suites/summary", headers=headers)
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _get_suites_summary
+
+

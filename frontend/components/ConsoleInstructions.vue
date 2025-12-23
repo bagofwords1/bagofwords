@@ -93,6 +93,7 @@
                     v-model="selectedBuildId"
                     :builds="availableBuilds"
                     :loading="loadingBuilds"
+                    :git-repo-id="gitRepoId"
                     @rollback="handleRollback"
                 />
             </div>
@@ -193,6 +194,7 @@ const showGitRepositoriesModal = ref(false)
 const gitConnectedCount = ref(0)
 const gitLastIndexed = ref<string | null>(null)
 const gitConnectedRepos = ref<{ provider: string; repoName: string }[]>([])
+const gitRepoId = ref<string>('')  // First connected git repo ID for push operations
 
 // Labels
 const allLabels = ref<{ id: string; name: string; color?: string | null }[]>([])
@@ -273,13 +275,14 @@ const fetchGitStatus = async () => {
         if (allDataSources.value.length === 0) return
 
         // Check all data sources for git connection
-        const results: { hasGit: boolean; completedAt: string | null; provider?: string; repoUrl?: string }[] = []
+        const results: { hasGit: boolean; completedAt: string | null; provider?: string; repoUrl?: string; repoId?: string }[] = []
         
         for (const ds of allDataSources.value) {
             let hasGit = false
             let completedAt: string | null = null
             let provider: string | undefined
             let repoUrl: string | undefined
+            let repoId: string | undefined
             
             // Fetch full data source which includes git_repository
             const { data: fullDs } = await useMyFetch(`/data_sources/${ds.id}`, { method: 'GET' })
@@ -287,6 +290,7 @@ const fetchGitStatus = async () => {
                 hasGit = true
                 provider = (fullDs.value as any).git_repository.provider
                 repoUrl = (fullDs.value as any).git_repository.repo_url
+                repoId = (fullDs.value as any).git_repository.id
                 
                 // Only fetch metadata for data sources with git connection
                 const { data: metaData } = await useMyFetch(`/data_sources/${ds.id}/metadata_resources`, { method: 'GET' })
@@ -295,16 +299,21 @@ const fetchGitStatus = async () => {
                 }
             }
             
-            results.push({ hasGit, completedAt, provider, repoUrl })
+            results.push({ hasGit, completedAt, provider, repoUrl, repoId })
         }
 
         let connectedCount = 0
         let latestIndexed: string | null = null
         const repos: { provider: string; repoName: string }[] = []
+        let firstRepoId: string | undefined
 
         for (const result of results) {
             if (result.hasGit) {
                 connectedCount++
+                // Track the first connected git repo for push operations
+                if (!firstRepoId && result.repoId) {
+                    firstRepoId = result.repoId
+                }
                 if (result.completedAt) {
                     if (!latestIndexed || new Date(result.completedAt) > new Date(latestIndexed)) {
                         latestIndexed = result.completedAt
@@ -320,6 +329,7 @@ const fetchGitStatus = async () => {
         gitConnectedCount.value = connectedCount
         gitLastIndexed.value = latestIndexed
         gitConnectedRepos.value = repos
+        gitRepoId.value = firstRepoId || ''
     } catch (e) {
         console.error('Failed to fetch git status:', e)
     }

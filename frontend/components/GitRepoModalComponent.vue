@@ -150,6 +150,28 @@
                             </div>
                         </div>
 
+                        <!-- Capabilities Indicator - always show -->
+                        <div class="mt-3 pt-3 border-t border-gray-200">
+                            <div class="flex items-center gap-3 text-xs">
+                                <div class="flex items-center gap-1" :class="connectedRepo.can_push ? 'text-green-600' : 'text-gray-400'">
+                                    <UIcon :name="connectedRepo.can_push ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-3.5 h-3.5" />
+                                    <span>Push</span>
+                                </div>
+                                <div class="flex items-center gap-1" :class="connectedRepo.can_create_pr ? 'text-green-600' : 'text-gray-400'">
+                                    <UIcon :name="connectedRepo.can_create_pr ? 'i-heroicons-check-circle' : 'i-heroicons-x-circle'" class="w-3.5 h-3.5" />
+                                    <span>Create PR</span>
+                                </div>
+                                <div class="flex items-center gap-1" :class="connectedRepo.has_ssh_key ? 'text-blue-600' : 'text-gray-400'">
+                                    <UIcon name="i-heroicons-key" class="w-3.5 h-3.5" />
+                                    <span>SSH</span>
+                                </div>
+                                <div class="flex items-center gap-1" :class="connectedRepo.has_access_token ? 'text-blue-600' : 'text-gray-400'">
+                                    <UIcon name="i-heroicons-lock-closed" class="w-3.5 h-3.5" />
+                                    <span>PAT</span>
+                                </div>
+                            </div>
+                        </div>
+
                         <div v-if="metadata_resources?.error_message" class="mt-2 text-sm text-red-500">
                             {{ metadata_resources.error_message }}
                         </div>
@@ -178,7 +200,13 @@
                                 <p class="text-sm text-gray-700">Auto-publish</p>
                                 <p class="text-xs text-gray-400">Publish automatically</p>
                             </div>
-                            <UToggle color="blue" v-model="editSettings.autoPublish" size="sm" @change="updateSettings" />
+                            <UToggle 
+                                color="blue" 
+                                v-model="editSettings.autoPublish" 
+                                size="sm" 
+                                :disabled="!canEditSettings"
+                                @change="updateSettings" 
+                            />
                         </div>
 
                         <div>
@@ -191,9 +219,30 @@
                                 size="sm"
                                 class="w-full"
                                 color="blue"
+                                :disabled="!canEditSettings"
                                 :ui="{ option: { base: 'text-sm', active: 'text-sm', inactive: 'text-sm' } }"
                                 @change="updateSettings"
                             />
+                        </div>
+                        
+                        <!-- Write Access Toggle -->
+                        <div class="flex items-center justify-between py-2 border-t border-gray-100 pt-3">
+                            <div>
+                                <p class="text-sm text-gray-700">Enable write access</p>
+                                <p class="text-xs text-gray-400">Allow pushing builds to Git and creating PRs</p>
+                            </div>
+                            <UToggle 
+                                color="blue" 
+                                v-model="editSettings.writeEnabled" 
+                                size="sm" 
+                                :disabled="!canEditSettings"
+                                @change="updateSettings" 
+                            />
+                        </div>
+                        
+                        <!-- Read-only notice for non-admins -->
+                        <div v-if="!canEditSettings" class="text-xs text-gray-400 italic">
+                            Settings are read-only. Contact an admin to make changes.
                         </div>
                     </div>
                 </div>
@@ -251,8 +300,41 @@
                             </div>
                         </div>
 
-                        <!-- SSH Key -->
+                        <!-- Auth Method Toggle -->
                         <div>
+                            <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Authentication</label>
+                            <div class="flex gap-2 mt-2">
+                                <button
+                                    type="button"
+                                    class="flex-1 px-3 py-2 text-sm rounded border transition-colors"
+                                    :class="authMethod === 'ssh' 
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700' 
+                                        : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'"
+                                    @click="authMethod = 'ssh'"
+                                >
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <UIcon name="i-heroicons-key" class="w-4 h-4" />
+                                        <span>SSH Key</span>
+                                    </div>
+                                </button>
+                                <button
+                                    type="button"
+                                    class="flex-1 px-3 py-2 text-sm rounded border transition-colors"
+                                    :class="authMethod === 'pat' 
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700' 
+                                        : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50'"
+                                    @click="authMethod = 'pat'"
+                                >
+                                    <div class="flex items-center justify-center gap-1.5">
+                                        <UIcon name="i-heroicons-lock-closed" class="w-4 h-4" />
+                                        <span>Access Token</span>
+                                    </div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- SSH Key Input -->
+                        <div v-if="authMethod === 'ssh'">
                             <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">SSH Private Key <span class="text-gray-300 font-normal">(optional for public repos)</span></label>
                             <UTextarea
                                 v-model="formData.privateKey"
@@ -263,7 +345,35 @@
                                 class="mt-1.5 w-full font-mono"
                                 :ui="{ base: 'bg-gray-50 text-sm' }"
                             />
+                            <p class="text-xs text-gray-400 mt-1">Used for clone/push via SSH. Cannot create PRs.</p>
                         </div>
+
+                        <!-- PAT Input -->
+                        <div v-if="authMethod === 'pat'" class="space-y-3">
+                            <div>
+                                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Personal Access Token <span class="text-gray-300 font-normal">(optional for public repos)</span></label>
+                                <input 
+                                    v-model="formData.accessToken"
+                                    type="password"
+                                    placeholder="ghp_xxxx or glpat-xxxx"
+                                    class="mt-1.5 border border-gray-200 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500 font-mono"
+                                />
+                                <p class="text-xs text-gray-400 mt-1">Enables clone/push via HTTPS and PR creation.</p>
+                            </div>
+
+                            <!-- Username for Bitbucket Cloud -->
+                            <div v-if="selectedProvider === 'bitbucket' && !formData.customHost">
+                                <label class="text-xs font-medium text-gray-400 uppercase tracking-wider">Bitbucket Username</label>
+                                <input 
+                                    v-model="formData.accessTokenUsername"
+                                    type="text"
+                                    placeholder="your-username"
+                                    class="mt-1.5 border border-gray-200 rounded px-3 py-2 w-full text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                <p class="text-xs text-gray-400 mt-1">Required for Bitbucket Cloud App Passwords.</p>
+                            </div>
+                        </div>
+
                     </div>
 
                     <!-- Connection Status -->
@@ -311,6 +421,15 @@
                                 color="blue"
                                 :ui="{ option: { base: 'text-sm', active: 'text-sm', inactive: 'text-sm' } }"
                             />
+                        </div>
+                        
+                        <!-- Write Access Toggle -->
+                        <div class="flex items-center justify-between py-2 border-t border-gray-100 pt-3">
+                            <div>
+                                <p class="text-sm text-gray-700">Enable write access</p>
+                                <p class="text-xs text-gray-400">Allow pushing builds to Git and creating PRs</p>
+                            </div>
+                            <UToggle color="blue" v-model="formData.writeEnabled" size="sm" />
                         </div>
                     </div>
                 </div>
@@ -445,6 +564,11 @@ interface GitRepository {
     last_commit?: string
     auto_publish?: boolean
     default_load_mode?: string
+    write_enabled?: boolean
+    has_ssh_key?: boolean
+    has_access_token?: boolean
+    can_push?: boolean
+    can_create_pr?: boolean
 }
 
 interface DataSourceWithGit {
@@ -530,9 +654,15 @@ const formData = ref({
     repoUrl: '',
     branch: 'main',
     privateKey: '',
+    accessToken: '',
+    accessTokenUsername: '', // For Bitbucket Cloud App Passwords
     autoPublish: true,
     defaultLoadMode: 'auto',
+    writeEnabled: true,
 })
+
+// Auth method toggle: 'ssh' or 'pat'
+const authMethod = ref<'ssh' | 'pat'>('pat')
 
 const loadModeOptions = [
     { value: 'auto', label: 'Auto - Markdown always, others smart' },
@@ -604,8 +734,13 @@ const displayFileCount = computed(() => {
 // Edit settings for connected repo
 const editSettings = ref({
     autoPublish: false,
-    defaultLoadMode: 'auto'
+    defaultLoadMode: 'auto',
+    writeEnabled: false,
 })
+
+// Permission check - can edit settings if user can create data sources
+import { useCan } from '~/composables/usePermissions'
+const canEditSettings = computed(() => useCan('create_data_source'))
 
 // Watch for connected repo changes
 watch(connectedRepo, (repo) => {
@@ -614,10 +749,12 @@ watch(connectedRepo, (repo) => {
         if (justSaved.value) {
             editSettings.value.autoPublish = formData.value.autoPublish
             editSettings.value.defaultLoadMode = formData.value.defaultLoadMode
+            editSettings.value.writeEnabled = formData.value.writeEnabled
             justSaved.value = false
         } else {
             editSettings.value.autoPublish = repo.auto_publish ?? false
             editSettings.value.defaultLoadMode = repo.default_load_mode ?? 'auto'
+            editSettings.value.writeEnabled = repo.write_enabled ?? false
         }
     }
 }, { immediate: true })
@@ -645,13 +782,17 @@ watch(gitModalOpen, async (open) => {
             currentStep.value = 1
             connectionStatus.value = null
             selectedProvider.value = null
+            authMethod.value = 'pat'
             formData.value = {
                 customHost: '',
                 repoUrl: '',
                 branch: 'main',
                 privateKey: '',
+                accessToken: '',
+                accessTokenUsername: '',
                 autoPublish: true,
                 defaultLoadMode: 'auto',
+                writeEnabled: true,
             }
         }
     } else {
@@ -730,13 +871,17 @@ function selectDataSource(ds: DataSourceWithGit) {
         currentStep.value = 1
         connectionStatus.value = null
         selectedProvider.value = null
+        authMethod.value = 'pat'
         formData.value = {
             customHost: '',
             repoUrl: '',
             branch: 'main',
             privateKey: '',
+            accessToken: '',
+            accessTokenUsername: '',
             autoPublish: true,
             defaultLoadMode: 'auto',
+            writeEnabled: true,
         }
     }
 }
@@ -786,7 +931,9 @@ async function testAndProceed() {
                 custom_host: formData.value.customHost,
                 repo_url: formData.value.repoUrl,
                 branch: formData.value.branch,
-                ssh_key: formData.value.privateKey,
+                ssh_key: authMethod.value === 'ssh' ? formData.value.privateKey : undefined,
+                access_token: authMethod.value === 'pat' ? formData.value.accessToken : undefined,
+                access_token_username: authMethod.value === 'pat' ? formData.value.accessTokenUsername : undefined,
             }
         })
 
@@ -838,9 +985,12 @@ async function saveAndIndex() {
                 custom_host: formData.value.customHost,
                 repo_url: formData.value.repoUrl,
                 branch: formData.value.branch,
-                ssh_key: formData.value.privateKey,
+                ssh_key: authMethod.value === 'ssh' ? formData.value.privateKey : undefined,
+                access_token: authMethod.value === 'pat' ? formData.value.accessToken : undefined,
+                access_token_username: authMethod.value === 'pat' ? formData.value.accessTokenUsername : undefined,
                 auto_publish: formData.value.autoPublish,
                 default_load_mode: formData.value.defaultLoadMode,
+                write_enabled: formData.value.writeEnabled,
             }
         })
 
@@ -872,14 +1022,15 @@ function finishWizard() {
 }
 
 async function updateSettings() {
-    if (!connectedRepo.value?.id) return
+    if (!connectedRepo.value?.id || !canEditSettings.value) return
     
     try {
         await useMyFetch(`/data_sources/${activeDatasourceId.value}/git_repository/${connectedRepo.value.id}`, {
             method: 'PUT',
             body: {
                 auto_publish: editSettings.value.autoPublish,
-                default_load_mode: editSettings.value.defaultLoadMode
+                default_load_mode: editSettings.value.defaultLoadMode,
+                write_enabled: editSettings.value.writeEnabled,
             }
         })
         toast.add({ title: 'Settings updated', color: 'green' })

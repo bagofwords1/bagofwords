@@ -126,12 +126,16 @@ from tests.fixtures.git_repository import (
     delete_git_repository,
     index_git_repository,
     get_linked_instructions_count,
+    sync_git_branch,
+    push_build_to_git,
+    get_git_repo_status,
+    deploy_build,
 )
 from tests.fixtures.instruction import create_instruction, create_global_instruction, get_instructions, get_instruction, update_instruction, delete_instruction, get_instructions_for_data_source, get_instruction_categories, get_instruction_statuses, create_label, list_labels, update_label, delete_label, get_instructions_by_source_type, unlink_instruction_from_git, bulk_update_instructions
 from tests.fixtures.entity import get_entities, get_entity, create_global_entity
 from tests.fixtures.console_metrics import get_console_metrics, get_console_metrics_comparison, get_timeseries_metrics, get_table_usage_metrics, get_top_users_metrics, get_recent_negative_feedback, get_diagnosis_dashboard_metrics, get_agent_execution_summaries, create_test_data_for_console, get_tool_usage_metrics, get_llm_usage_metrics
 from tests.fixtures.mention import get_available_mentions
-from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite, create_test_run, get_test_runs, get_test_run
+from tests.fixtures.eval import create_test_suite, get_test_suites, create_test_case, get_test_cases, get_test_case, get_test_suite, create_test_run, get_test_runs, get_test_run, get_suites_summary
 from tests.fixtures.file import upload_file, upload_csv_file, upload_excel_file, get_files, get_files_by_report, remove_file_from_report
 from tests.fixtures.organization_settings import get_organization_settings, update_organization_settings, upload_organization_icon, delete_organization_icon, get_organization_icon
 from tests.fixtures.api_key import create_api_key, list_api_keys, delete_api_key, api_key_request
@@ -147,6 +151,44 @@ from tests.fixtures.build import (
 )
 
 from main import app
+
+
+# ============================================================================
+# Git Write Credentials
+# ============================================================================
+
+@pytest.fixture
+def git_write_credentials():
+    """Returns git write credentials or None if not configured.
+    
+    Set environment variables:
+    - TEST_GIT_PAT: Personal Access Token for push/PR tests
+    - TEST_GIT_SSH_KEY: SSH key for push tests (alternative to PAT)
+    - TEST_GIT_WRITE_REPO_URL: Writable test repository URL
+    """
+    pat = os.environ.get("TEST_GIT_PAT")
+    ssh_key = os.environ.get("TEST_GIT_SSH_KEY")
+    repo_url = os.environ.get("TEST_GIT_WRITE_REPO_URL")
+    
+    if pat or ssh_key:
+        return {
+            "pat": pat,
+            "ssh_key": ssh_key,
+            "repo_url": repo_url,
+        }
+    return None
+
+
+@pytest.fixture
+def skip_without_git_write(git_write_credentials):
+    """Skip test if git write credentials not configured."""
+    if not git_write_credentials:
+        pytest.skip(
+            "Git write credentials not configured. "
+            "Set TEST_GIT_PAT or TEST_GIT_SSH_KEY env vars to enable."
+        )
+    return git_write_credentials
+
 
 @pytest.fixture(scope="session")
 def db_backend(request):

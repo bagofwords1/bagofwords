@@ -34,8 +34,11 @@ class LookMLResourceExtractor:
         for lkml_file in lookml_files:
             try:
                 with open(lkml_file, 'r') as f:
-                    parsed_lookml = lkml.load(f)
-                self._parse_lookml_content(parsed_lookml, str(lkml_file))
+                    raw_content = f.read()
+                # Re-parse the content for structured extraction
+                import io
+                parsed_lookml = lkml.load(io.StringIO(raw_content))
+                self._parse_lookml_content(parsed_lookml, str(lkml_file), raw_content)
                 
             except Exception as e:
                 logger.error(f"Error parsing LookML file {lkml_file}: {e}")
@@ -44,7 +47,7 @@ class LookMLResourceExtractor:
         self._link_explores_to_models()
         return self.resources, self.columns_by_resource, self.docs_by_resource
 
-    def _parse_lookml_content(self, content, file_path):
+    def _parse_lookml_content(self, content, file_path, raw_content=None):
         """Parses the content of a single LookML file."""
         if not isinstance(content, dict):
             return
@@ -62,19 +65,19 @@ class LookMLResourceExtractor:
                 'label': content.get('label'),
                 'description': content.get('description'),
             }
-            self._extract_model(model_data, file_path)
+            self._extract_model(model_data, file_path, raw_content)
         
         # Also check for explicit models array (less common)
         elif 'models' in content and isinstance(content.get('models'), list):
             for model_data in content['models']:
                 if isinstance(model_data, dict):
-                    self._extract_model(model_data, file_path)
+                    self._extract_model(model_data, file_path, raw_content)
         
         # Check for views (standalone view files)
         if 'views' in content and isinstance(content.get('views'), list):
             for view_data in content['views']:
                 if isinstance(view_data, dict):
-                    self._extract_view(view_data, file_path)
+                    self._extract_view(view_data, file_path, raw_content)
         
         # Check for standalone explores (only if this is NOT a model file)
         if 'explores' in content and isinstance(content.get('explores'), list) and 'connection' not in content:
@@ -83,7 +86,7 @@ class LookMLResourceExtractor:
             # standalone explores without more logic to determine their parent model.
             pass
 
-    def _extract_model(self, model_data, file_path):
+    def _extract_model(self, model_data, file_path, raw_content=None):
         """Extracts information from a LookML model definition."""
         if not isinstance(model_data, dict):
              logger.warning(f"Skipping invalid model definition in {file_path}: {model_data}")
@@ -101,7 +104,8 @@ class LookMLResourceExtractor:
             'raw_data': {k: v for k, v in model_data.items() if k not in ['explores', 'access_grants']}, 
             'depends_on': [], # Placeholder for derived dependencies
             'columns': [], # Will be populated by explores below
-            'description': model_data.get('description') # Check if description exists
+            'description': model_data.get('description'), # Check if description exists
+            'file_content': raw_content,  # Store raw file content
         }
         
         # Extract explores defined within this model and store them as columns
@@ -196,7 +200,7 @@ class LookMLResourceExtractor:
         return join_obj
 
 
-    def _extract_view(self, view_data, file_path):
+    def _extract_view(self, view_data, file_path, raw_content=None):
         """Extracts information from a LookML view definition."""
         if not isinstance(view_data, dict) or 'name' not in view_data:
             logger.warning(f"Skipping invalid view definition in {file_path}: {view_data}")
@@ -220,6 +224,7 @@ class LookMLResourceExtractor:
                              'filter_fields', 'parameters']},
             'depends_on': [], # Dependencies added based on derived tables or extended views
             'columns': [], # Populated by dimensions and measures below
+            'file_content': raw_content,  # Store raw file content
         }
 
         if view_data.get('extends'):

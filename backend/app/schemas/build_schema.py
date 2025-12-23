@@ -76,6 +76,17 @@ class InstructionBuildListSchema(BaseModel):
     created_at: Optional[UTCDatetime] = None
     approved_at: Optional[UTCDatetime] = None
     
+    # Git push info
+    git_branch_name: Optional[str] = None
+    git_pr_url: Optional[str] = None
+    git_pushed_at: Optional[UTCDatetime] = None
+    
+    # Test integration
+    test_run_id: Optional[str] = None
+    test_status: Optional[str] = None
+    test_passed: Optional[int] = None
+    test_failed: Optional[int] = None
+    
     class Config:
         from_attributes = True
 

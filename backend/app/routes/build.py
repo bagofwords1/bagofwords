@@ -395,3 +395,50 @@ async def rollback_to_build(
 
     return InstructionBuildSchema.model_validate(build)
 
+
+@router.post("/{build_id}/deploy", response_model=InstructionBuildSchema)
+@requires_permission('create_builds')
+async def deploy_build(
+    build_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """
+    Deploy a build to main (promote to active/live).
+    
+    This is a convenience endpoint that handles the full deployment flow:
+    - If draft: submit -> approve -> promote
+    - If pending_approval: approve -> promote
+    - If approved: promote
+    
+    Ideal for CI/CD integration after a Git PR is merged.
+    
+    Example:
+    ```
+    curl -X POST "https://api.bagofwords.io/builds/{build_id}/deploy" \\
+         -H "Authorization: Bearer $BOW_API_KEY"
+    ```
+    """
+    build = await build_service.get_build(db, build_id)
+    
+    if not build:
+        raise HTTPException(status_code=404, detail="Build not found")
+    
+    if build.organization_id != organization.id:
+        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
+    
+    # Handle based on current status
+    if build.status == 'draft':
+        build = await build_service.submit_build(db, build_id)
+        build = await build_service.approve_build(db, build_id, current_user.id)
+    elif build.status == 'pending_approval':
+        build = await build_service.approve_build(db, build_id, current_user.id)
+    elif build.status == 'rejected':
+        raise HTTPException(status_code=400, detail="Cannot deploy a rejected build")
+    
+    # Promote to main
+    build = await build_service.promote_build(db, build_id)
+    
+    return InstructionBuildSchema.model_validate(build)
+

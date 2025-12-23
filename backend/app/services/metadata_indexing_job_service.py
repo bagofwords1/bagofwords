@@ -626,9 +626,15 @@ class MetadataIndexingJobService:
         repo_path: str,
         data_source_id: str,
         organization,
-        detected_project_types: List[str] # Add detected_project_types here
+        detected_project_types: List[str],
+        build_id: Optional[str] = None,  # Optional pre-created build to use
     ):
-        """Start indexing a Git repository in the background"""
+        """Start indexing a Git repository in the background
+        
+        Args:
+            build_id: Optional build ID to add instructions to. If not provided,
+                     a new build will be created during indexing.
+        """
         # Call start_indexing first to create the job record synchronously
         job = await self.start_indexing(
             db=db,
@@ -648,6 +654,7 @@ class MetadataIndexingJobService:
                 organization=organization,
                 detected_project_types=detected_project_types,
                 job_id=job.id,
+                build_id=build_id,
             )
             return {
                 "status": "completed",
@@ -663,7 +670,8 @@ class MetadataIndexingJobService:
                 data_source_id=data_source_id,
                 organization=organization,
                 detected_project_types=detected_project_types,
-                job_id=job.id
+                job_id=job.id,
+                build_id=build_id,
             )
         )
 
@@ -678,9 +686,15 @@ class MetadataIndexingJobService:
         data_source_id: str,
         organization,
         detected_project_types: List[str],
-        job_id: str
+        job_id: str,
+        build_id: Optional[str] = None,
     ):
-        """Run the actual indexing job and update repository status when complete"""
+        """Run the actual indexing job and update repository status when complete
+        
+        Args:
+            build_id: Optional pre-created build ID to use. If provided, instructions
+                     will be added to this build instead of creating a new one.
+        """
         job_status = "failed"  # Default status
         job_error_message = None
         all_created_resources = []
@@ -832,23 +846,33 @@ class MetadataIndexingJobService:
                     await db.commit()
                     
                     # === Build System Integration ===
-                    # Create a draft build for this git sync job
+                    # Use pre-created build or create a draft build for this git sync job
                     sync_build = None
                     try:
-                        # Get git repository info for build metadata
-                        git_repo_result = await db.execute(
-                            select(GitRepository).where(GitRepository.id == repository_id)
-                        )
-                        git_repo = git_repo_result.scalar_one_or_none()
+                        if build_id:
+                            # Use pre-created build (from sync_branch flow)
+                            sync_build = await self.build_service.get_build(db, build_id)
+                            if sync_build:
+                                logger.info(f"Job {job_id}: Using pre-created build {build_id}")
+                            else:
+                                logger.warning(f"Job {job_id}: Pre-created build {build_id} not found, creating new one")
                         
-                        sync_build = await self.build_service.get_or_create_draft_build(
-                            db, 
-                            current_org.id, 
-                            source='git',
-                            metadata_indexing_job_id=job_id,
-                            commit_sha=None,  # Could be added if we track commits
-                            branch=git_repo.branch if git_repo else None
-                        )
+                        if not sync_build:
+                            # Get git repository info for build metadata
+                            git_repo_result = await db.execute(
+                                select(GitRepository).where(GitRepository.id == repository_id)
+                            )
+                            git_repo = git_repo_result.scalar_one_or_none()
+                            
+                            sync_build = await self.build_service.get_or_create_draft_build(
+                                db, 
+                                current_org.id, 
+                                source='git',
+                                metadata_indexing_job_id=job_id,
+                                commit_sha=None,  # Could be added if we track commits
+                                branch=git_repo.branch if git_repo else None
+                            )
+                            logger.info(f"Job {job_id}: Created build {sync_build.id} for git sync")
                         
                         # Link the build to the job
                         await db.execute(
@@ -857,9 +881,8 @@ class MetadataIndexingJobService:
                             .values(build_id=sync_build.id)
                         )
                         await db.commit()
-                        logger.info(f"Job {job_id}: Created build {sync_build.id} for git sync")
                     except Exception as build_error:
-                        logger.warning(f"Job {job_id}: Failed to create build: {build_error}")
+                        logger.warning(f"Job {job_id}: Failed to create/get build: {build_error}")
                     
                     synced_count = 0
                     sync_errors = 0
@@ -890,8 +913,8 @@ class MetadataIndexingJobService:
                     
                     # === Finalize Build ===
                     # Auto-finalize the build to make instructions visible in main
-                    # Always finalize if build exists (it may have copied instructions from main)
-                    if sync_build:
+                    # Skip auto-finalize if build_id was pre-provided (user wants to review)
+                    if sync_build and not build_id:
                         try:
                             await self.build_service.submit_build(db, sync_build.id)
                             await self.build_service.approve_build(db, sync_build.id, approved_by_user_id=None)
@@ -899,6 +922,9 @@ class MetadataIndexingJobService:
                             logger.info(f"Job {job_id}: Finalized build {sync_build.id} (synced: {synced_count}, total: {sync_build.total_instructions})")
                         except Exception as finalize_error:
                             logger.warning(f"Job {job_id}: Failed to finalize build {sync_build.id}: {finalize_error}")
+                    elif sync_build and build_id:
+                        # Pre-created build stays in draft for user review
+                        logger.info(f"Job {job_id}: Build {sync_build.id} left in draft status for manual review")
 
                 # All database operations below will use the new session
                 await db.execute(

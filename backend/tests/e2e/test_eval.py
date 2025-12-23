@@ -220,3 +220,65 @@ def test_main_build_available_for_test_runs(
     assert main_build.get("is_main") == True, "Main build should have is_main=True"
 
 
+# ============================================================
+# Suites Summary Tests
+# ============================================================
+
+@pytest.mark.e2e
+def test_suites_summary_returns_tests_count(
+    create_user, login_user, whoami,
+    create_test_suite, create_test_case,
+    get_suites_summary
+):
+    """Verify /tests/suites/summary returns tests_count for each suite."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    # Create a suite with cases
+    suite = create_test_suite(name="Summary Test Suite", user_token=token, org_id=org_id)
+    
+    # Create 3 test cases
+    for i in range(3):
+        create_test_case(
+            suite_id=suite["id"],
+            name=f"Case {i+1}",
+            user_token=token,
+            org_id=org_id,
+        )
+
+    # Get suites summary
+    summary = get_suites_summary(user_token=token, org_id=org_id)
+    
+    assert isinstance(summary, list), "Summary should be a list"
+    
+    # Find our suite
+    our_suite = next((s for s in summary if s["id"] == suite["id"]), None)
+    assert our_suite is not None, "Our suite should be in summary"
+    assert "tests_count" in our_suite, "Suite should have tests_count"
+    assert our_suite["tests_count"] == 3, f"Expected 3 tests, got {our_suite['tests_count']}"
+
+
+@pytest.mark.e2e
+def test_suites_summary_empty_suite_has_zero_count(
+    create_user, login_user, whoami,
+    create_test_suite,
+    get_suites_summary
+):
+    """Verify empty suite has tests_count of 0."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    # Create a suite with no cases
+    suite = create_test_suite(name="Empty Suite", user_token=token, org_id=org_id)
+
+    # Get suites summary
+    summary = get_suites_summary(user_token=token, org_id=org_id)
+    
+    # Find our suite
+    our_suite = next((s for s in summary if s["id"] == suite["id"]), None)
+    assert our_suite is not None, "Our suite should be in summary"
+    assert our_suite["tests_count"] == 0, "Empty suite should have tests_count of 0"
+
+

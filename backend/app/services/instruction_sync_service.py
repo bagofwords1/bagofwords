@@ -204,8 +204,21 @@ class InstructionSyncService:
         if not formatted_text or not formatted_text.strip():
             formatted_text = f"# {resource.name}\n\nType: {resource.resource_type}\nPath: {resource.path or 'N/A'}"
         
-        # Determine load mode from git repository settings
+        # Determine load mode from frontmatter or git repository settings
         load_mode = self._get_load_mode_for_resource(resource, git_repo)
+        
+        # Parse status from frontmatter (default: 'published')
+        frontmatter_status = self._get_frontmatter_value(resource, 'status')
+        if frontmatter_status in ('published', 'draft', 'archived'):
+            status = frontmatter_status
+        else:
+            status = 'published'  # Default to published
+        
+        # Parse category from frontmatter (default: 'general')
+        category = self._get_frontmatter_value(resource, 'category') or 'general'
+        
+        # Derive global_status based on status
+        global_status = 'approved' if status == 'published' else None
         
         # Build structured data for storage
         structured_data = self._build_structured_data(resource)
@@ -225,13 +238,14 @@ class InstructionSyncService:
             title=resource.name,
             source_type='git',
             source_metadata_resource_id=resource.id,
+            source_file_path=resource.path,  # Git file path for write-back
             source_git_commit_sha=commit_sha,
             source_sync_enabled=True,
             load_mode=load_mode,
-            status='published' if auto_publish else 'draft',
+            status=status,
             private_status=None,
-            global_status='approved' if auto_publish else None,
-            category='general',
+            global_status=global_status,
+            category=category,
             structured_data=structured_data,
             formatted_content=formatted_text,
             organization_id=organization.id,
@@ -339,6 +353,17 @@ class InstructionSyncService:
         # Update load mode from frontmatter if present
         git_repo = await self._get_git_repository_for_resource(db, resource)
         existing.load_mode = self._get_load_mode_for_resource(resource, git_repo)
+        
+        # Update status from frontmatter if present
+        frontmatter_status = self._get_frontmatter_value(resource, 'status')
+        if frontmatter_status in ('published', 'draft', 'archived'):
+            existing.status = frontmatter_status
+            existing.global_status = 'approved' if frontmatter_status == 'published' else None
+        
+        # Update category from frontmatter if present
+        frontmatter_category = self._get_frontmatter_value(resource, 'category')
+        if frontmatter_category:
+            existing.category = frontmatter_category
         
         await db.commit()
         await db.refresh(existing, ['data_sources'])
@@ -471,15 +496,21 @@ class InstructionSyncService:
         """Determine the load mode for a resource.
         
         Priority order:
-        1. Frontmatter alwaysApply field (for markdown documents)
+        1. Frontmatter load_mode field (direct value: 'always', 'intelligent', 'never')
+        2. Frontmatter alwaysApply field (legacy alias)
            - alwaysApply: true → 'always'
            - alwaysApply: false → 'intelligent'
-        2. Git repository default_load_mode (if set)
+        3. Git repository default_load_mode (if set)
            - 'auto' mode: markdown → 'always', others → 'intelligent'
            - Other modes are applied directly
-        3. Type-specific default from DEFAULT_LOAD_MODES
+        4. Type-specific default from DEFAULT_LOAD_MODES
         """
-        # Check frontmatter for alwaysApply (highest priority)
+        # Check frontmatter for load_mode (highest priority)
+        load_mode = self._get_frontmatter_value(resource, 'load_mode')
+        if load_mode in ('always', 'intelligent', 'never'):
+            return load_mode
+        
+        # Check frontmatter for alwaysApply (legacy alias)
         always_apply = self._get_frontmatter_value(resource, 'alwaysApply')
         if always_apply is True:
             return 'always'
@@ -644,25 +675,35 @@ class InstructionSyncService:
         }
     
     def _format_resource_as_text(self, resource: MetadataResource) -> str:
-        """Convert a metadata resource to readable text format."""
-        formatters = {
-            'dbt_model': self._format_dbt_model,
-            'dbt_metric': self._format_dbt_metric,
-            'dbt_source': self._format_dbt_source,
-            'dbt_seed': self._format_dbt_seed,
-            'dbt_macro': self._format_dbt_macro,
-            'dbt_test': self._format_dbt_test,
-            'dbt_exposure': self._format_dbt_exposure,
-            'markdown_document': self._format_markdown,
-            'lookml_view': self._format_lookml_view,
-            'lookml_model': self._format_lookml_model,
-            'lookml_explore': self._format_lookml_explore,
-            'tableau_datasource': self._format_tableau_datasource,
-            'dataform_table': self._format_dataform_table,
-        }
+        """
+        Return raw file content for a metadata resource.
         
-        formatter = formatters.get(resource.resource_type, self._format_generic)
-        return formatter(resource)
+        The instruction text should be the gold truth - the exact file content
+        without any formatting, headers, or metadata appended.
+        """
+        # Priority 1: Markdown content (stored in raw_data.content)
+        if resource.raw_data and isinstance(resource.raw_data, dict):
+            if resource.raw_data.get('content'):
+                return resource.raw_data['content']
+            # LookML stores raw file content in file_content
+            if resource.raw_data.get('file_content'):
+                return resource.raw_data['file_content']
+        
+        # Priority 2: SQL content (for dbt models, macros, dataform, etc.)
+        if resource.sql_content:
+            return resource.sql_content
+        
+        # Priority 3: SQLX source snippet (Dataform stores full file here)
+        if resource.raw_data and isinstance(resource.raw_data, dict):
+            if resource.raw_data.get('sqlx_source_snippet'):
+                return resource.raw_data['sqlx_source_snippet']
+        
+        # Priority 4: Description (for YAML-defined resources like metrics)
+        if resource.description:
+            return resource.description
+        
+        # Fallback: empty content indicator
+        return f"# {resource.name}\n\n_No content available_"
     
     def _format_dbt_model(self, resource: MetadataResource) -> str:
         """Format a dbt model as readable text."""
@@ -1105,8 +1146,31 @@ class InstructionSyncService:
         # Extract title from file path
         title = Path(file_path).stem
         
-        # Determine load mode based on file extension and repo settings
-        load_mode = self._get_load_mode_for_file(file_path, git_repo)
+        # Parse frontmatter from file content (for .md files)
+        frontmatter = self._parse_frontmatter_from_content(file_content)
+        
+        # Determine load mode: frontmatter > file extension > repo default
+        load_mode = frontmatter.get('load_mode')
+        if load_mode not in ('always', 'intelligent', 'never'):
+            # Check alwaysApply alias
+            always_apply = frontmatter.get('alwaysApply')
+            if always_apply is True:
+                load_mode = 'always'
+            elif always_apply is False:
+                load_mode = 'intelligent'
+            else:
+                load_mode = self._get_load_mode_for_file(file_path, git_repo)
+        
+        # Parse status from frontmatter (default: 'published')
+        status = frontmatter.get('status')
+        if status not in ('published', 'draft', 'archived'):
+            status = 'published'
+        
+        # Parse category from frontmatter (default: 'general')
+        category = frontmatter.get('category') or 'general'
+        
+        # Derive global_status based on status
+        global_status = 'approved' if status == 'published' else None
         
         instruction = Instruction(
             text=file_content,
@@ -1117,10 +1181,10 @@ class InstructionSyncService:
             source_sync_enabled=True,
             source_git_commit_sha=git_repo.last_indexed_commit_sha,
             load_mode=load_mode,
-            status='published' if git_repo.auto_publish else 'draft',
+            status=status,
             private_status=None,
-            global_status='approved' if git_repo.auto_publish else None,
-            category='general',
+            global_status=global_status,
+            category=category,
             organization_id=organization.id,
             user_id=git_repo.user_id,
             is_seen=True,
@@ -1158,6 +1222,48 @@ class InstructionSyncService:
         if ext in ['.md', '.markdown']:
             return 'always'
         return 'intelligent'
+    
+    def _parse_frontmatter_from_content(self, content: str) -> Dict[str, Any]:
+        """
+        Parse YAML frontmatter from file content.
+        
+        Handles content in the format:
+        ---
+        key: value
+        ---
+        ... body content ...
+        
+        Returns empty dict if no frontmatter found.
+        """
+        import yaml
+        
+        if not content or not content.strip().startswith('---'):
+            return {}
+        
+        try:
+            # Find the closing ---
+            lines = content.split('\n')
+            if len(lines) < 2:
+                return {}
+            
+            # Skip the opening ---
+            end_idx = None
+            for i, line in enumerate(lines[1:], start=1):
+                if line.strip() == '---':
+                    end_idx = i
+                    break
+            
+            if end_idx is None:
+                return {}
+            
+            # Extract and parse frontmatter
+            frontmatter_text = '\n'.join(lines[1:end_idx])
+            frontmatter = yaml.safe_load(frontmatter_text)
+            
+            return frontmatter if isinstance(frontmatter, dict) else {}
+        except Exception as e:
+            logger.warning(f"Failed to parse frontmatter: {e}")
+            return {}
     
     async def rebuild_chunks(
         self,
