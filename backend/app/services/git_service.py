@@ -362,7 +362,8 @@ class GitService:
         db: AsyncSession,
         repository_id: str,
         data_source_id: str,
-        organization: Organization
+        organization: Organization,
+        user_id: Optional[str] = None
     ) -> Dict[str, str]:
         """Delete a Git repository and associated indexing jobs and resources."""
         repository = await self._verify_repository(db, repository_id, data_source_id, organization)
@@ -413,13 +414,18 @@ class GitService:
 
                     if data_source:
                         deletion_build = await build_service.get_or_create_draft_build(
-                            db, data_source.organization_id, source='git', user_id=None
+                            db, data_source.organization_id, source='git', user_id=user_id
                         )
                         for instruction_id in instruction_ids_to_delete:
                             await build_service.remove_from_build(db, deletion_build.id, instruction_id)
+                        
+                        # Set custom title for git repository deletion
+                        deletion_build.title = "Removed git integration"
                         await db.commit()
+                        await db.refresh(deletion_build)
+                        
                         await build_service.submit_build(db, deletion_build.id)
-                        await build_service.approve_build(db, deletion_build.id, approved_by_user_id=None)
+                        await build_service.approve_build(db, deletion_build.id, approved_by_user_id=user_id)
                         await build_service.promote_build(db, deletion_build.id)
                         logger.info(f"Created deletion build {deletion_build.id}")
                 except Exception as build_error:

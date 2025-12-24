@@ -172,6 +172,16 @@
       </div>
       <Transition name="fade">
         <div v-if="expandedSections.has('instructions')" class="ml-4">
+          <!-- Build information -->
+          <div v-if="props.build" class="mb-3 pb-3 border-b border-gray-200">
+            <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-1.5">Build</div>
+            <div class="inline-flex items-center px-2 py-1 rounded-full border text-xs bg-indigo-50 text-indigo-700 border-indigo-200">
+              <span class="font-semibold">#{{ props.build.build_number }}</span>
+              <span v-if="props.build.title" class="ml-1">{{ props.build.title }}</span>
+              <span v-if="props.build.is_main" class="ml-1">(Main)</span>
+            </div>
+          </div>
+          
           <div v-if="instructionsItems.length === 0 && !instructionsText" class="text-xs text-gray-500">No instructions</div>
           
           <!-- Instructions Table -->
@@ -643,8 +653,17 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 
+interface InstructionBuild {
+  id: string
+  build_number: number
+  title?: string
+  is_main: boolean
+  status: string
+}
+
 interface Props {
   contextData: any
+  build?: InstructionBuild
 }
 
 const props = defineProps<Props>()

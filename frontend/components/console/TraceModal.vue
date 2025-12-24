@@ -114,7 +114,10 @@
                                     
                                     <div v-if="traceData?.head_context_snapshot" class="mt-4">
                                         <div class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Context</div>
-                                        <ContextBrowser :context-data="traceData.head_context_snapshot.context_view_json || {}" />
+                                        <ContextBrowser 
+                                            :context-data="traceData.head_context_snapshot.context_view_json || {}" 
+                                            :build="traceData?.build"
+                                        />
                                     </div>
                                 </template>
 
@@ -273,6 +276,14 @@ interface CompletionFeedbackUI {
     created_at: string
 }
 
+interface InstructionBuild {
+    id: string
+    build_number: number
+    title?: string
+    is_main: boolean
+    status: string
+}
+
 interface CompletionBlockV2 {
     id: string
     completion_id: string
@@ -292,6 +303,7 @@ interface AgentExecutionTraceResponse {
     head_prompt_snippet?: string
     head_context_snapshot?: any
     latest_feedback?: CompletionFeedbackUI | null
+    build?: InstructionBuild
 }
 
 interface TraceCompletionData {

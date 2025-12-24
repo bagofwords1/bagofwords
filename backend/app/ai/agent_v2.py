@@ -45,6 +45,7 @@ class AgentV2:
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
                  model=None, small_model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
         self.db = db
+        self.build_id = build_id
         self.organization = organization
         self.organization_settings = organization_settings
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
@@ -540,6 +541,7 @@ class AgentV2:
                 organization_id=str(self.organization.id),
                 user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
                 report_id=str(self.report.id) if self.report else None,
+                build_id=self.build_id,
             )
 
             # Telemetry in background (non-blocking)

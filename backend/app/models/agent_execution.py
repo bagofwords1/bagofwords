@@ -27,6 +27,9 @@ class AgentExecution(BaseSchema):
     token_usage_json = Column(JSON, nullable=True, default=dict)
     error_json = Column(JSON, nullable=True)
     config_json = Column(JSON, nullable=True)
+
+    # Build
+    build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True)
     
     # Version tracking
     bow_version = Column(String, nullable=True, index=True)

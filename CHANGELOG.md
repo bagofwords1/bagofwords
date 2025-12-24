@@ -1,10 +1,12 @@
 # Release Notes
 
-## Version 0.0.283 (December 23, 2025)
+## Version 0.0.284 (December 23, 2025)
 - Git providers: Now support Personal Access Token (PAT) authentication for seamless integration.
 - You can now create pull requests and branches for build (instruction versions) directly from the interface.
 - Each build now includes integration tests and eval runs to ensure greater reliability and code quality.
+- Simplified instruction status life cycle and integrating to buid statuses
 - UI/UX upgrades: Enhanced workflows for adding instructions and reviewing builds, making navigation and use smoother.
+- Code clean ups and tests
 
 ## Version 0.0.282 (December 22, 2025)
 - Launched instruction build/versioning system: every instruction update creates a new version, with point-in-time builds (snapshots), approval workflow, diff, and rollback.

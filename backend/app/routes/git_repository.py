@@ -108,7 +108,8 @@ async def delete_git_repository(
         db,
         repository_id,
         data_source_id,
-        organization
+        organization,
+        user_id=current_user.id
     )
 
 @router.post("/data_sources/{data_source_id}/git_repository/{repository_id}/index")

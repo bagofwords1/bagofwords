@@ -22,6 +22,7 @@ class AgentExecutionSchema(BaseModel):
     error_json: Optional[Dict[str, Any]] = None
     config_json: Optional[Dict[str, Any]] = None
     bow_version: Optional[str] = None
+    build_id: Optional[str] = None
     # AI scoring fields (denormalized from Completion for UI convenience)
     instructions_effectiveness: Optional[int] = None
     context_effectiveness: Optional[int] = None

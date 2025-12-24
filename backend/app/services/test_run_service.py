@@ -655,6 +655,9 @@ class TestRunService:
             model_id=p.get("model_id"),
         )
         completion_data = CompletionCreate(prompt=prompt)
+        # Get build_id from the run
+        run = await self.get_run(db, str(organization.id), current_user, str(result.run_id))
+        build_id = str(run.build_id) if run.build_id else None
         # Delegate to existing streaming method (creates head+system and streams AgentV2)
         return await self.completions.create_completion_stream(
             db=db,
@@ -662,6 +665,7 @@ class TestRunService:
             completion_data=completion_data,
             current_user=current_user,
             organization=organization,
+            build_id=build_id,
         )
 
     # -------- New API: Run-level streaming (start all INIT results and stream status updates) --------
@@ -954,6 +958,8 @@ class TestRunService:
                                     pass
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             _ = getattr(report_obj, "files", [])
+                            # Get build_id from run
+                            build_id = str(run.build_id) if run.build_id else None
                             agent = AgentV2(
                                 db=session,
                                 organization=organization,
@@ -969,6 +975,7 @@ class TestRunService:
                                 step=None,
                                 event_queue=eq,
                                 clients=clients,
+                                build_id=build_id,
                             )
                             await agent.main_execution()
                             # After agent finishes, evaluate assertions and persist TestResult

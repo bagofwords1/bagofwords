@@ -160,6 +160,22 @@ class CompletionService:
             ) if completion.role == "system" and widget else None
         )
 
+    async def _resolve_build_id(self, db: AsyncSession, organization: Organization, build_id: str = None) -> str | None:
+        """Resolve build_id - use provided or default to main build."""
+        if build_id:
+            return build_id
+        
+        from app.models.instruction_build import InstructionBuild
+        main_build_result = await db.execute(
+            select(InstructionBuild).where(
+                InstructionBuild.organization_id == organization.id,
+                InstructionBuild.is_main == True,
+                InstructionBuild.deleted_at == None
+            )
+        )
+        main_build = main_build_result.scalar_one_or_none()
+        return str(main_build.id) if main_build else None
+
     async def estimate_completion_tokens(
         self,
         db: AsyncSession,
@@ -240,6 +256,7 @@ class CompletionService:
             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
             _ = report.files
 
+            resolved_build_id = await self._resolve_build_id(db, organization, build_id)
             agent = AgentV2(
                 db=db,
                 organization=organization,
@@ -254,7 +271,7 @@ class CompletionService:
                 step=step,
                 clients=clients,
                 mode=completion_data.prompt.mode,
-                build_id=build_id,
+                build_id=resolved_build_id,
             )
 
             try:
@@ -405,6 +422,7 @@ class CompletionService:
                 raise HTTPException(status_code=500, detail=f"Failed to save system completion: {str(e)}")
 
             org_settings = await organization.get_settings(db)
+            resolved_build_id = await self._resolve_build_id(db, organization, build_id)
 
             if background:
                 logging.info("CompletionService: Scheduling background agent (non-stream API)")
@@ -442,7 +460,7 @@ class CompletionService:
                                 widget=widget_obj,
                                 step=step_obj,
                                 clients=clients,
-                                build_id=build_id,
+                                build_id=resolved_build_id,
                             )
                             await agent.main_execution()
                         except Exception as e:
@@ -491,7 +509,7 @@ class CompletionService:
                         widget=widget,
                         step=step,
                         clients=clients,
-                        build_id=build_id,
+                        build_id=resolved_build_id,
                     )
                     await agent.main_execution()
 
@@ -1347,6 +1365,7 @@ class CompletionService:
                 logging.error(f"Failed to create mentions for completion {completion.id}: {e}")
 
             org_settings = await organization.get_settings(db)
+            resolved_build_id = await self._resolve_build_id(db, organization, build_id)
 
             # Create event queue for streaming
             event_queue = CompletionEventQueue()
@@ -1397,7 +1416,7 @@ class CompletionService:
                             step=step_obj,
                             event_queue=event_queue,  # Pass event queue for streaming
                             clients=clients,
-                            build_id=build_id,
+                            build_id=resolved_build_id,
                         )
                         
                         # Emit telemetry: stream started

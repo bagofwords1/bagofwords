@@ -44,6 +44,7 @@ from sqlalchemy.orm import aliased
 from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
+from app.models.instruction_build import InstructionBuild
 
 logger = get_logger(__name__)
 
@@ -1411,12 +1412,23 @@ class ConsoleService:
         if head_user_completion:
             ae_payload.user_completion_id = str(head_user_completion.id)
 
+        # Fetch build information if build_id exists
+        build = None
+        if agent_execution.build_id:
+            build_query = select(InstructionBuild).where(
+                InstructionBuild.id == agent_execution.build_id,
+                InstructionBuild.organization_id == organization.id
+            )
+            build_result = await db.execute(build_query)
+            build = build_result.scalar_one_or_none()
+
         return AgentExecutionTraceResponse(
             agent_execution=ae_payload,
             completion_blocks=block_schemas,
             head_prompt_snippet=(head_prompt or '')[:160],
             head_context_snapshot=head_snapshot,
-            latest_feedback=latest_feedback
+            latest_feedback=latest_feedback,
+            build=build
         )
 
     async def get_tool_executions_diagnosis(self, db: AsyncSession, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, page: int = 1, page_size: int = 20) -> dict:
