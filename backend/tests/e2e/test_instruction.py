@@ -27,8 +27,7 @@ whoami):
     assert instruction is not None
     assert instruction["text"] == "A new global rule"
     assert instruction["status"] == "published"
-    assert instruction["private_status"] is None
-    assert instruction["global_status"] == "approved"
+    # Note: private_status and global_status are deprecated - approval workflow is on builds
     
     # Build System: Verify version is created
     fetched = get_instruction(instruction["id"], user_token=user_token, org_id=org_id)

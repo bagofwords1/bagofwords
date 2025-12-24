@@ -70,7 +70,7 @@ class InstructionService:
         build = None,  # Optional: use existing build instead of creating new one
         auto_finalize: bool = True,  # If False, skip auto-finalization (for batching)
     ) -> InstructionSchema:
-        """Create a new instruction following the dual-status matrix"""
+        """Create a new instruction. Approval workflow is handled by builds, not instruction status."""
         
         # Get user permissions for auto-publish check
         user_permissions = await self._get_user_permissions(db, current_user, organization)
@@ -88,24 +88,13 @@ class InstructionService:
         instruction = Instruction(**raw)
         instruction.user_id = current_user.id
         instruction.organization_id = organization.id
-            
-        if force_global:
-            # Global Draft: null, approved, draft (Admin's draft global instruction)
-            instruction.private_status = None
-            instruction.global_status = "approved"
-            instruction.status = instruction_data.status or "draft"  # Use form status
-        else:
-            # Check if this is a suggestion (user wants to suggest for global)
-            if instruction_data.global_status == "suggested":
-                # Suggested: published, suggested, draft
-                instruction.private_status = "published"
-                instruction.global_status = "suggested"
-                instruction.status = "draft"  # Changed from "published" to "draft"
-            else:
-                # Private Published: published, null, published (User's active private instruction)
-                instruction.private_status = "published"
-                instruction.global_status = None
-                instruction.status = "published"  # Always published for private
+        
+        # SIMPLIFIED: All instructions are "published" (content ready)
+        # Approval workflow is handled by builds, not instruction status
+        # - Non-admin: build stays in pending_approval for admin review
+        # - Admin: build auto-approved and promoted to main
+        instruction.status = instruction_data.status or "published"
+        # Leave private_status and global_status as NULL (deprecated)
             
         db.add(instruction)
         await db.commit()
@@ -173,8 +162,6 @@ class InstructionService:
                     "status": instruction.status,
                     "category": getattr(instruction, "category", None),
                     "is_seen": bool(getattr(instruction, "is_seen", False)),
-                    "private_status": getattr(instruction, "private_status", None),
-                    "global_status": getattr(instruction, "global_status", None),
                     "text_words_length": len((instruction.text.split() or [])),
                     "num_data_sources": len(instruction_data.data_source_ids or []),
                     "num_references_total": len(refs),
@@ -620,9 +607,7 @@ class InstructionService:
         update_type = self._determine_update_type(instruction, instruction_data, current_user, user_permissions)
         
         # Handle the update based on type
-        if update_type == "admin_review":
-            await self._handle_admin_review(instruction, instruction_data, current_user)
-        elif update_type == "admin_edit":
+        if update_type == "admin_edit":
             await self._handle_admin_edit(instruction, instruction_data, current_user)
         elif update_type == "owner_edit":
             await self._handle_owner_edit(instruction, instruction_data)
@@ -935,25 +920,10 @@ class InstructionService:
             try:
                 modified = False
                 
-                # Update status with proper handling of dual-status lifecycle
+                # Update status (simplified - no dual-status handling)
                 if bulk_update.status:
                     instruction.status = bulk_update.status
                     modified = True
-                    
-                    if bulk_update.status == 'published':
-                        # Publishing: clear private_status, set global_status to approved
-                        instruction.private_status = None
-                        instruction.global_status = 'approved'
-                        instruction.reviewed_by_user_id = current_user.id
-                        instruction.is_seen = True
-                    elif bulk_update.status == 'archived':
-                        # Archiving: set global_status to rejected
-                        instruction.global_status = 'rejected'
-                        instruction.reviewed_by_user_id = current_user.id
-                    elif bulk_update.status == 'draft':
-                        # Making draft: keep it as a draft (no global approval)
-                        instruction.global_status = None
-                        instruction.private_status = 'draft'
                 
                 # Update load mode
                 if bulk_update.load_mode:
@@ -1147,67 +1117,6 @@ class InstructionService:
         result = await db.execute(query)
         instructions = result.scalars().all()
         return [InstructionSchema.from_orm(instruction) for instruction in instructions]
-    
-    async def suggest_instruction(
-        self, 
-        db: AsyncSession, 
-        instruction_id: str, 
-        current_user: User, 
-        organization: Organization
-    ) -> InstructionSchema:
-        """User promotes their private instruction to suggestion"""
-        
-        instruction = await self._get_instruction_for_user(db, instruction_id, current_user, organization)
-        
-        if not instruction.can_be_suggested:
-            raise HTTPException(status_code=400, detail="Instruction cannot be suggested")
-        
-        # Transition: Private Published -> Suggested
-        # From: published, null, published
-        # To: published, suggested, published
-        instruction.global_status = "suggested"
-        
-        await db.commit()
-        await db.refresh(instruction, ["user", "data_sources", "reviewed_by"])
-        # Telemetry: instruction suggested
-        try:
-            await telemetry.capture(
-                "instruction_suggested",
-                {
-                    "instruction_id": str(instruction.id),
-                    "status": instruction.status,
-                    "private_status": instruction.private_status,
-                    "global_status": instruction.global_status,
-                },
-                user_id=current_user.id if current_user else None,
-                org_id=organization.id if organization else None,
-            )
-        except Exception:
-            pass
-        return InstructionSchema.from_orm(instruction)
-
-    async def withdraw_suggestion(
-        self, 
-        db: AsyncSession, 
-        instruction_id: str, 
-        current_user: User, 
-        organization: Organization
-    ) -> InstructionSchema:
-        """User withdraws their suggestion back to private"""
-        
-        instruction = await self._get_instruction_for_user(db, instruction_id, current_user, organization)
-        
-        if not instruction.can_be_withdrawn:
-            raise HTTPException(status_code=400, detail="Suggestion cannot be withdrawn")
-        
-        # Transition: Suggested -> Private Published
-        # From: published, suggested, published
-        # To: published, null, published
-        instruction.global_status = None
-        
-        await db.commit()
-        await db.refresh(instruction, ["user", "data_sources", "reviewed_by"])
-        return InstructionSchema.from_orm(instruction)
 
     async def _validate_data_sources(
         self, 
@@ -1385,56 +1294,24 @@ class InstructionService:
         return instruction
 
     def _determine_update_type(self, instruction: Instruction, instruction_data: InstructionUpdate, current_user: User, user_permissions: set) -> str:
-        """Determine what type of update this is based on permissions and changes"""
+        """Determine what type of update this is based on permissions and changes.
         
-        # Admin if user has instruction management permission (must be org member)
+        SIMPLIFIED: No more suggestion workflow. Just admin vs owner edits.
+        """
         is_admin = self._is_admin_permissions(user_permissions)
         is_owner = instruction.user_id == current_user.id
-        is_suggested = instruction.global_status == "suggested"
-        has_status_change = instruction_data.status and instruction_data.status != instruction.status
         
-        # Admin reviewing a suggested instruction (approve or reject)
-        if is_admin and is_suggested and has_status_change:
-            if instruction_data.status in ["published", "archived"]:
-                return "admin_review"
-        
-        # Admin editing any instruction (not review)
-        elif is_admin:
+        # Admin editing any instruction
+        if is_admin:
             return "admin_edit"
         
-        # Owner editing their own instruction when not globally approved (suggested or private)
-        elif is_owner and (instruction.global_status != "approved") and user_permissions:
+        # Owner editing their own instruction
+        elif is_owner and user_permissions:
             return "owner_edit"
         
         # No permission
         else:
             return "no_permission"
-
-    async def _handle_admin_review(self, instruction: Instruction, instruction_data: InstructionUpdate, admin_user: User):
-        """Handle admin reviewing a suggested instruction (approve or reject)"""
-        if instruction_data.status == "published":
-            # APPROVAL: Suggested -> Global Published
-            # From: published, suggested, draft
-            # To: null, approved, published
-            instruction.private_status = None
-            instruction.global_status = "approved"
-            instruction.status = "published"
-            instruction.reviewed_by_user_id = admin_user.id
-            
-        elif instruction_data.status == "archived":
-            # REJECTION: Suggested -> Private Archived  
-            # From: published, suggested, draft
-            # To: published, rejected, archived
-            instruction.private_status = "published"  # Keep as private
-            instruction.global_status = "rejected"    # Mark as rejected
-            instruction.status = "archived"           # Archive it
-            instruction.reviewed_by_user_id = admin_user.id
-        
-        # Apply other changes from the form (text, category, etc.)
-        allowed_fields = ['text', 'category', 'is_seen', 'can_user_toggle']
-        for field in allowed_fields:
-            if hasattr(instruction_data, field) and getattr(instruction_data, field) is not None:
-                setattr(instruction, field, getattr(instruction_data, field))
 
     async def _handle_admin_edit(self, instruction: Instruction, instruction_data: InstructionUpdate, admin_user: User):
         """Handle admin editing any instruction (not review)"""
@@ -1495,8 +1372,11 @@ class InstructionService:
         include_archived: bool, 
         include_hidden: bool
     ):
-        """Get condition for viewing others' instructions based on permissions"""
+        """Get condition for viewing others' instructions based on permissions.
         
+        SIMPLIFIED: Visibility is controlled by the build system (whether instruction is in main build).
+        We only filter by status here, not by deprecated private_status/global_status.
+        """
         # Treat instructions with NULL user_id as "others" so system/AI-created drafts are visible
         base = [or_(Instruction.user_id != user_id, Instruction.user_id == None)]
         
@@ -1511,14 +1391,11 @@ class InstructionService:
             return and_(*base)
         
         elif 'view_instructions' in permissions:
-            # Regular user: only published, visible, approved instructions
+            # Regular user: only published, visible instructions
+            # Note: Build system controls actual visibility (whether in main build)
             base.extend([
                 Instruction.status == "published",
                 Instruction.is_seen == True,
-                or_(
-                    Instruction.global_status == "approved",  # Global instructions
-                    and_(Instruction.private_status == "published", Instruction.global_status == None)  # Org-visible private
-                )
             ])
             return and_(*base)
         

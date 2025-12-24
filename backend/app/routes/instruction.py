@@ -14,8 +14,6 @@ from app.schemas.instruction_schema import (
     InstructionSchema,
     InstructionListSchema,
     InstructionStatus,
-    InstructionPrivateStatus,
-    InstructionGlobalStatus,
     InstructionCategory,
     InstructionBulkUpdate,
     InstructionBulkDelete,
@@ -163,20 +161,9 @@ async def bulk_delete_instructions(
     )
 
 
-# SUGGESTION WORKFLOW
-@router.post("/instructions/{instruction_id}/suggest", response_model=InstructionSchema)
-@requires_permission('suggest_instructions')
-async def suggest_instruction(
-    instruction_id: str,
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization)
-):
-    """User promotes their private instruction to suggestion - Private Published -> Suggested"""
-    return await instruction_service.suggest_instruction(db, instruction_id, current_user, organization)
-
+# ENHANCE INSTRUCTION (kept - not part of suggestion workflow)
 @router.post("/instructions/enhance", response_model=str)
-@requires_permission('suggest_instructions')
+@requires_permission('create_private_instructions')
 async def enhance_instruction(
     instruction_data: InstructionCreate,
     current_user: User = Depends(current_user),
@@ -185,39 +172,6 @@ async def enhance_instruction(
 ):
     """Enhance an instruction with AI"""
     return await instruction_service.enhance_instruction(db, instruction_data, organization, current_user)
-
-@router.post("/instructions/{instruction_id}/withdraw", response_model=InstructionSchema)
-@requires_permission('suggest_instructions')
-async def withdraw_suggestion(
-    instruction_id: str,
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization)
-):
-    """User withdraws their suggestion back to private - Suggested -> Private Published"""
-    return await instruction_service.withdraw_suggestion(db, instruction_id, current_user, organization)
-
-@router.post("/instructions/{instruction_id}/approve", response_model=InstructionSchema)
-@requires_permission('review_suggestions')
-async def approve_suggestion(
-    instruction_id: str,
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization)
-):
-    """Admin approves suggestion, making it global - Suggested -> Global Published"""
-    return await instruction_service.approve_suggestion(db, instruction_id, current_user, organization)
-
-@router.post("/instructions/{instruction_id}/reject", response_model=InstructionSchema)
-@requires_permission('review_suggestions')
-async def reject_suggestion(
-    instruction_id: str,
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization)
-):
-    """Admin rejects suggestion, returning it to private - Suggested -> Private Published"""
-    return await instruction_service.reject_suggestion(db, instruction_id, current_user, organization)
 
 @router.get("/instructions/available-references", response_model=List[dict])
 @requires_permission('view_instructions')
@@ -262,18 +216,6 @@ async def get_instruction_categories():
 async def get_instruction_statuses():
     """Get all available instruction statuses"""
     return [status.value for status in InstructionStatus]
-
-@router.get("/instructions/private-statuses", response_model=List[str])
-@requires_permission('view_instructions')
-async def get_instruction_private_statuses():
-    """Get all available private instruction statuses"""
-    return [status.value for status in InstructionPrivateStatus]
-
-@router.get("/instructions/global-statuses", response_model=List[str])
-@requires_permission('view_instructions')
-async def get_instruction_global_statuses():
-    """Get all available global instruction statuses"""
-    return [status.value for status in InstructionGlobalStatus]
 
 
 # LABEL MANAGEMENT

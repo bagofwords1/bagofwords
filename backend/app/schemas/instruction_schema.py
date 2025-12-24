@@ -15,12 +15,15 @@ class InstructionStatus(str, Enum):
     PUBLISHED = "published"
     ARCHIVED = "archived"
 
+# DEPRECATED: These enums are no longer used - approval workflow moved to builds
 class InstructionPrivateStatus(str, Enum):
+    """DEPRECATED: Not used - kept for backward compatibility"""
     DRAFT = "draft"
     PUBLISHED = "published"
     ARCHIVED = "archived"
 
 class InstructionGlobalStatus(str, Enum):
+    """DEPRECATED: Not used - approval workflow moved to builds"""
     SUGGESTED = "suggested"
     APPROVED = "approved"
     REJECTED = "rejected"
@@ -45,19 +48,19 @@ class InstructionLoadMode(str, Enum):
 class InstructionBase(BaseModel):
     text: str
     thumbs_up: int = 0
-    status: str = "published"  # Overall status for visibility
+    status: str = "published"  # Content lifecycle: draft | published | archived
     category: str = "general"
     
-    # Dual-status lifecycle fields
-    private_status: Optional[str] = None    # draft, published, archived (null for global-only)
-    global_status: Optional[str] = None     # null, suggested, approved, rejected
+    # DEPRECATED: Dual-status lifecycle fields (approval workflow moved to builds)
+    private_status: Optional[str] = None    # DEPRECATED - not used
+    global_status: Optional[str] = None     # DEPRECATED - not used
     
     # User experience controls
     is_seen: bool = True          # visible in UI lists
     can_user_toggle: bool = True  # user can enable/disable
     
-    # Audit and relationships
-    reviewed_by_user_id: Optional[str] = None
+    # DEPRECATED: Audit (moved to builds)
+    reviewed_by_user_id: Optional[str] = None  # DEPRECATED - not used
     source_instruction_id: Optional[str] = None
     # If created by AI, the provenance source label (e.g., 'completion')
     ai_source: Optional[str] = None
@@ -153,16 +156,6 @@ class InstructionSchema(InstructionBase):
     class Config:
         from_attributes = True
 
-    # Keep only essential helpers
-    def is_suggested(self) -> bool:
-        return self.global_status == "suggested"
-    
-    def is_global(self) -> bool:
-        return self.global_status == "approved"
-    
-    def is_private(self) -> bool:
-        return self.private_status == "published" and not self.global_status
-    
     def is_git_sourced(self) -> bool:
         return self.source_type == "git"
     
@@ -186,12 +179,12 @@ class InstructionListSchema(BaseModel):
     user: Optional[UserSchema] = None
     organization_id: str
     
-    # Dual-status lifecycle fields
-    private_status: Optional[str] = None
-    global_status: Optional[str] = None
+    # DEPRECATED: Dual-status lifecycle fields (approval workflow moved to builds)
+    private_status: Optional[str] = None  # DEPRECATED - not used
+    global_status: Optional[str] = None   # DEPRECATED - not used
     is_seen: bool
     can_user_toggle: bool
-    reviewed_by_user_id: Optional[str] = None
+    reviewed_by_user_id: Optional[str] = None  # DEPRECATED - not used
     # If created by AI, the provenance source label (e.g., 'completion')
     ai_source: Optional[str] = None
     
@@ -217,18 +210,6 @@ class InstructionListSchema(BaseModel):
         from_attributes = True
 
     @property
-    def instruction_type(self) -> str:
-        """Returns the type of instruction based on status combination"""
-        if self.private_status and not self.global_status:
-            return "private"
-        elif self.private_status and self.global_status == "suggested":
-            return "suggested"
-        elif not self.private_status and self.global_status == "approved":
-            return "global"
-        else:
-            return "unknown"
-    
-    @property
     def display_title(self) -> str:
         """Returns display title, falling back to text snippet"""
         if self.title:
@@ -242,18 +223,6 @@ class InstructionListSchema(BaseModel):
     @property
     def is_synced_with_git(self) -> bool:
         return self.source_type == "git" and self.source_sync_enabled
-
-# Additional schemas for specific operations
-class InstructionSuggestResponse(BaseModel):
-    """Response when suggesting an instruction"""
-    instruction: InstructionSchema
-    message: str = "Instruction suggested for review"
-
-class InstructionReviewResponse(BaseModel):
-    """Response when approving/rejecting a suggestion"""
-    instruction: InstructionSchema
-    message: str
-    reviewed_by: UserSchema
 
 class InstructionStatsSchema(BaseModel):
     """Statistics about instructions"""

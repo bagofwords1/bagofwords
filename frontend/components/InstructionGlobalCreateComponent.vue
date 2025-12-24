@@ -473,10 +473,6 @@ interface InstructionForm {
     text: string
     status: 'draft' | 'published' | 'archived'
     category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
-    
-    // Dual-status lifecycle fields
-    private_status: string | null
-    global_status: string | null
     is_seen: boolean
     can_user_toggle: boolean
     
@@ -530,15 +526,11 @@ const showDeleteGitConfirm = ref(false)
 const originalText = ref('')
 const codeView = ref(false)
 
-// Form data
+// Form data (simplified - approval workflow handled by builds)
 const instructionForm = ref<InstructionForm>({
     text: '',
     status: 'draft',
     category: 'general',
-    
-    // Global instructions: null, approved, draft/published
-    private_status: null,
-    global_status: 'approved',
     is_seen: true,
     can_user_toggle: true,
     load_mode: 'always'
@@ -636,42 +628,24 @@ const filteredMentionableOptions = computed(() => {
     })
 })
 
-// Make status options dynamic based on instruction state
+// Status options (simplified - no more suggestion workflow)
 const statusOptions = computed(() => {
-    const isEditingSuggested = props.instruction && props.instruction.global_status === 'suggested'
-    
-    if (isEditingSuggested) {
-        // For suggested instructions being reviewed by admin
-        return [
-            { label: 'Draft - Pending Approval', value: 'draft' },
-            { label: 'Published - Approve Suggestion', value: 'published' },
-            { label: 'Archived - Reject Suggestion', value: 'archived' }
-        ]
-    } else {
-        // For regular global instructions
-        return [
-            { label: 'Draft', value: 'draft' },
-            { label: 'Published', value: 'published' },
-            { label: 'Archived', value: 'archived' }
-        ]
-    }
+    return [
+        { label: 'Draft', value: 'draft' },
+        { label: 'Published', value: 'published' },
+        { label: 'Archived', value: 'archived' }
+    ]
 })
 
 // Helper function to get the right display text for the currently selected status
 const getCurrentStatusDisplayText = () => {
     const currentStatus = instructionForm.value.status
-    const isEditingSuggested = props.instruction && props.instruction.global_status === 'suggested'
-    
-    if (isEditingSuggested) {
-        const suggestedStatusMap = {
-            draft: 'Draft - Pending Approval',
-            published: 'Published - Approve Suggestion', 
-            archived: 'Archived - Reject Suggestion'
-        }
-        return suggestedStatusMap[currentStatus as keyof typeof suggestedStatusMap] || currentStatus
-    } else {
-        return formatStatus(currentStatus)
+    const statusMap: Record<string, string> = {
+        draft: 'Draft',
+        published: 'Published', 
+        archived: 'Archived'
     }
+    return statusMap[currentStatus] || formatStatus(currentStatus)
 }
 
 const enhanceInstruction = async () => {
@@ -879,8 +853,6 @@ const buildInstructionPayload = () => {
         text: instructionForm.value.text,
         status: instructionForm.value.status,
         category: instructionForm.value.category,
-        private_status: instructionForm.value.private_status,
-        global_status: instructionForm.value.global_status,
         is_seen: instructionForm.value.is_seen,
         can_user_toggle: instructionForm.value.can_user_toggle,
         load_mode: instructionForm.value.load_mode,
@@ -901,10 +873,6 @@ const resetForm = () => {
         text: '',
         status: 'draft',
         category: 'general',
-
-        // Global instructions: null, approved, draft/published
-        private_status: null,
-        global_status: 'approved',
         is_seen: true,
         can_user_toggle: true,
         load_mode: 'always'
@@ -941,12 +909,8 @@ const doSubmit = async () => {
     try {
         const basePayload = buildInstructionPayload()
         const payload: Record<string, any> = {
-            ...basePayload,
-            // Dual-status approach for global instructions
-            private_status: null,
-            global_status: 'approved',
-            // Add flag to indicate this is an admin approval (for suggested instructions)
-            is_admin_approval: isEditing.value && props.instruction?.global_status === 'suggested'
+            ...basePayload
+            // Approval workflow is handled by builds, not instruction status
         }
         
         // If target_build_id is provided, update within that existing build (no new build created)
@@ -1167,10 +1131,6 @@ watch(() => props.instruction, async (newInstruction) => {
             text: newInstruction.text || '',
             status: newInstruction.status || 'draft',
             category: newInstruction.category || 'general',
-
-            // Global instructions: null, approved, draft/published
-            private_status: newInstruction.private_status || null,
-            global_status: newInstruction.global_status || 'approved',
             is_seen: newInstruction.is_seen !== undefined ? newInstruction.is_seen : true,
             can_user_toggle: newInstruction.can_user_toggle !== undefined ? newInstruction.can_user_toggle : true,
             load_mode: newInstruction.load_mode || 'always'

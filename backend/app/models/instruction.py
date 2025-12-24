@@ -30,16 +30,17 @@ class Instruction(BaseSchema):
     # User who created the instruction (always the original creator)
     user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
     
-    # Dual-status lifecycle management
-    private_status = Column(String(50), nullable=True)  # draft, published, archived (null for global-only)
-    global_status = Column(String(50), nullable=True)   # null, suggested, approved, rejected
+    # DEPRECATED: Dual-status lifecycle management (approval workflow moved to builds)
+    # Kept for backward compatibility - will be removed in future migration
+    private_status = Column(String(50), nullable=True)  # DEPRECATED - not used
+    global_status = Column(String(50), nullable=True)   # DEPRECATED - not used
     
     # User experience controls
     is_seen = Column(Boolean, nullable=False, default=True)         # visible in UI lists
     can_user_toggle = Column(Boolean, nullable=False, default=True) # user can enable/disable
     
-    # Audit trail
-    reviewed_by_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)  # which admin reviewed
+    # DEPRECATED: Audit trail (approval tracking moved to builds)
+    reviewed_by_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)  # DEPRECATED - not used
     
     # Legacy field - keeping for potential future use
     source_instruction_id = Column(String(36), ForeignKey('instructions.id'), nullable=True)
@@ -127,56 +128,19 @@ class Instruction(BaseSchema):
         return f"<Instruction {self.category}:{self.text[:50]}...>"
     
     @property
-    def instruction_type(self) -> str:
-        """Returns the type of instruction based on status combination"""
-        if self.private_status and not self.global_status:
-            return "private"
-        elif self.private_status and self.global_status == "suggested":
-            return "suggested"
-        elif not self.private_status and self.global_status == "approved":
-            return "global"
-        else:
-            return "unknown"
-    
-    @property
-    def is_private(self) -> bool:
-        """Returns True if this is a private instruction"""
-        return bool(self.private_status and not self.global_status)
-    
-    @property
-    def is_suggested(self) -> bool:
-        """Returns True if this is a suggested instruction"""
-        return bool(self.private_status and self.global_status == "suggested")
-    
-    @property
-    def is_global(self) -> bool:
-        """Returns True if this is a global instruction"""
-        return bool(not self.private_status and self.global_status == "approved")
-    
-    @property
-    def is_editable_by_user(self) -> bool:
-        """Returns True if the instruction can be edited by the user (only private)"""
-        return self.is_private
-    
-    @property
-    def can_be_suggested(self) -> bool:
-        """Returns True if the instruction can be suggested (only private)"""
-        return self.is_private
-    
-    @property
-    def can_be_withdrawn(self) -> bool:
-        """Returns True if the suggestion can be withdrawn by user"""
-        return self.is_suggested
-    
-    @property
-    def can_be_reviewed(self) -> bool:
-        """Returns True if the instruction can be reviewed by admin"""
-        return self.is_suggested
-    
-    @property
     def is_published(self) -> bool:
         """Returns True if the instruction is published and visible"""
         return self.status == "published"
+    
+    @property
+    def is_draft(self) -> bool:
+        """Returns True if the instruction is in draft status"""
+        return self.status == "draft"
+    
+    @property
+    def is_archived(self) -> bool:
+        """Returns True if the instruction is archived"""
+        return self.status == "archived"
     
     @property
     def is_global_data_sources(self) -> bool:

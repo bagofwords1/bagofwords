@@ -50,12 +50,12 @@
                     <span>View only</span>
                 </div>
 
-                <!-- Suggestion Notice -->
-                <div v-else-if="isSuggestionEffective" class="flex items-center gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
-                    <Icon name="heroicons:light-bulb" class="w-4 h-4 text-amber-600 shrink-0" />
+                <!-- Build Approval Notice (shown to non-admins creating new instructions) -->
+                <div v-else-if="showBuildApprovalNotice" class="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+                    <Icon name="heroicons:clock" class="w-4 h-4 text-blue-600 shrink-0" />
                     <div class="min-w-0">
-                        <span class="text-xs font-medium text-amber-800">Suggestion for Global Instruction</span>
-                        <p class="text-[11px] text-amber-600 mt-0.5">This will be submitted for admin review.</p>
+                        <span class="text-xs font-medium text-blue-800">Pending Build Approval</span>
+                        <p class="text-[11px] text-blue-600 mt-0.5">This instruction will be added to a build for admin review.</p>
                     </div>
                 </div>
 
@@ -349,7 +349,7 @@ Examples:
                             color="blue"
                             :loading="isSubmitting"
                         >
-                            {{ isEditing ? 'Update' : (isSuggestionEffective ? 'Submit Suggestion' : 'Create') }}
+                            {{ isEditing ? 'Update' : 'Create' }}
                         </UButton>
                     </div>
                 </div>
@@ -425,8 +425,10 @@ const availableLabels = ref<InstructionLabel[]>([])
 const selectedLabelIds = ref<string[]>([])
 const codeView = ref(false)
 
-// Determine if this should be treated as a suggestion (non-admins can only suggest)
-const isSuggestionEffective = computed(() => props.isSuggestion || !useCan('create_instructions'))
+// Show build approval notice for non-admins creating new instructions
+// (Non-admin created builds need admin approval before being deployed)
+const isNonAdmin = computed(() => !useCan('create_instructions'))
+const showBuildApprovalNotice = computed(() => !isEditing.value && isNonAdmin.value)
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
@@ -719,15 +721,12 @@ const submitForm = async () => {
     isSubmitting.value = true
     
     try {
+        // SIMPLIFIED: All instructions are "published" (content ready)
+        // Approval workflow is handled by builds, not instruction status
         const payload = {
             text: props.sharedForm.text,
-            status: isSuggestionEffective.value ? 'draft' : 'published',
+            status: 'published',  // Always published - build handles approval
             category: props.sharedForm.category,
-
-            // Dual-status approach
-            private_status: isSuggestionEffective.value ? 'draft' : 'published',
-            global_status: isSuggestionEffective.value ? 'suggested' : null,
-
             is_seen: true,
             can_user_toggle: true,
             load_mode: props.sharedForm.load_mode || 'always',
@@ -757,7 +756,7 @@ const submitForm = async () => {
         if (response.status.value === 'success') {
             toast.add({
                 title: 'Success',
-                description: `${isSuggestionEffective.value ? 'Suggestion' : 'Instruction'} ${isEditing.value ? 'updated' : 'submitted'} successfully`,
+                description: `Instruction ${isEditing.value ? 'updated' : 'created'} successfully`,
                 color: 'green'
             })
             
@@ -769,7 +768,7 @@ const submitForm = async () => {
         console.error('Error saving instruction:', error)
         toast.add({
             title: 'Error',
-            description: `Failed to ${isEditing.value ? 'update' : 'submit'} ${props.isSuggestion ? 'suggestion' : 'instruction'}`,
+            description: `Failed to ${isEditing.value ? 'update' : 'create'} instruction`,
             color: 'red'
         })
     } finally {

@@ -35,13 +35,13 @@ export interface Instruction {
   created_at: string
   updated_at: string
   
-  // Dual-status lifecycle fields
-  private_status?: string | null
-  global_status?: string | null
+  // DEPRECATED: Dual-status lifecycle fields (approval workflow moved to builds)
+  private_status?: string | null   // DEPRECATED - not used
+  global_status?: string | null    // DEPRECATED - not used
   is_seen?: boolean
   can_user_toggle?: boolean
-  reviewed_by_user_id?: string | null
-  reviewed_by?: User | null
+  reviewed_by_user_id?: string | null  // DEPRECATED - not used
+  reviewed_by?: User | null            // DEPRECATED - not used
   labels?: InstructionLabel[]
   
   // Unified Instructions System fields
@@ -66,57 +66,32 @@ export function useInstructionHelpers() {
     return statusMap[status] || status
   }
 
+  // SIMPLIFIED: Status helpers now only use instruction.status
+  // Approval workflow is handled by builds, not instruction status
   const getStatusClass = (instruction: Instruction) => {
-    if (instruction.global_status === 'suggested') {
-      return 'bg-yellow-100 text-yellow-800'
-    } else if (instruction.global_status === 'approved') {
-      return 'bg-green-100 text-green-800'
-    } else if (instruction.global_status === 'rejected') {
-      return 'bg-red-100 text-red-800'
-    } else {
-      const statusClasses: Record<string, string> = {
-        draft: 'bg-yellow-100 text-yellow-800',
-        published: 'bg-green-100 text-green-800',
-        archived: 'bg-gray-100 text-gray-800'
-      }
-      return statusClasses[instruction.status] || 'bg-gray-100 text-gray-800'
+    const statusClasses: Record<string, string> = {
+      draft: 'bg-yellow-100 text-yellow-800',
+      published: 'bg-green-100 text-green-800',
+      archived: 'bg-gray-100 text-gray-800'
     }
+    return statusClasses[instruction.status] || 'bg-gray-100 text-gray-800'
   }
 
   const getStatusIconClass = (instruction: Instruction) => {
-    if (instruction.global_status === 'suggested') {
-      return 'bg-yellow-400'
-    } else if (instruction.global_status === 'approved') {
-      return 'bg-green-400'
-    } else if (instruction.global_status === 'rejected') {
-      return 'bg-red-400'
-    } else {
-      const statusClasses: Record<string, string> = {
-        draft: 'bg-yellow-400',
-        published: 'bg-green-400',
-        archived: 'bg-gray-400'
-      }
-      return statusClasses[instruction.status] || 'bg-gray-400'
+    const statusClasses: Record<string, string> = {
+      draft: 'bg-yellow-400',
+      published: 'bg-green-400',
+      archived: 'bg-gray-400'
     }
+    return statusClasses[instruction.status] || 'bg-gray-400'
   }
 
   const getStatusTooltip = (instruction: Instruction) => {
-    const baseStatus = formatStatus(instruction.status)
-    const subStatus = getSubStatus(instruction)
-    return subStatus ? `${baseStatus} - ${subStatus}` : baseStatus
+    return formatStatus(instruction.status)
   }
 
-  const getSubStatus = (instruction: Instruction) => {
-    if (instruction.global_status === 'suggested') {
-      return 'Pending Review'
-    } else if (instruction.reviewed_by_user_id && instruction.global_status) {
-      const reviewerName = instruction.reviewed_by?.name || 'Admin'
-      if (instruction.global_status === 'approved') {
-        return `Approved by ${reviewerName}`
-      } else if (instruction.global_status === 'rejected') {
-        return `Rejected by ${reviewerName}`
-      }
-    }
+  // DEPRECATED: No longer used - kept for backward compatibility
+  const getSubStatus = (_instruction: Instruction) => {
     return null
   }
 
