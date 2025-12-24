@@ -246,20 +246,27 @@ def _dispose_async_engine():
     """Dispose of the async engine to release all SQLite connections."""
     from app.dependencies import engine
     import asyncio
+    import gc
+    import time
     
     async def _dispose():
         await engine.dispose()
     
-    # Run dispose in event loop
+    # Force garbage collection first to clean up any lingering connections
+    gc.collect()
+    
+    # Run dispose in a fresh event loop
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # If loop is running, create a new one for cleanup
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         loop.run_until_complete(_dispose())
+        loop.close()
     except Exception as e:
         print(f"Warning: Failed to dispose engine: {e}")
+    
+    # Force another GC and small delay to ensure SQLite releases file locks
+    gc.collect()
+    time.sleep(0.1)
 
 
 @pytest.fixture(scope="function", autouse=True)

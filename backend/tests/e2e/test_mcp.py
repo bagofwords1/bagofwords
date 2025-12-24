@@ -3,7 +3,6 @@
 import pytest
 from pathlib import Path
 
-
 # Path to demo database for tests requiring data sources
 CHINOOK_DB_PATH = (Path(__file__).resolve().parent.parent.parent / "demo-datasources" / "chinook.sqlite").resolve()
 
