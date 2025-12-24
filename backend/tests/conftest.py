@@ -3,6 +3,7 @@ import pytest
 import os
 import sys
 import atexit
+import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Generator, AsyncGenerator
 from fastapi.testclient import TestClient
@@ -50,8 +51,8 @@ def _setup_test_database():
         # Register cleanup on exit
         atexit.register(_cleanup_container)
     else:
-        # SQLite - set URL with process ID for isolation
-        os.environ["TEST_DATABASE_URL"] = f"sqlite:///db/test_{os.getpid()}.db"
+        # SQLite - set URL with process ID and UUID for isolation (prevents CI race conditions)
+        os.environ["TEST_DATABASE_URL"] = f"sqlite:///db/test_{os.getpid()}_{uuid.uuid4().hex[:8]}.db"
 
 
 def _cleanup_container():
