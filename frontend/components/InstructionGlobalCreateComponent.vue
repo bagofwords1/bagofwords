@@ -505,6 +505,7 @@ const props = defineProps<{
     analyzing?: boolean
     isGitSourced?: boolean
     isGitSynced?: boolean
+    targetBuildId?: string  // If set, update instruction within this existing build (no new build created)
 }>()
 
 const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git'])
@@ -939,13 +940,21 @@ const doSubmit = async () => {
     
     try {
         const basePayload = buildInstructionPayload()
-        const payload = {
+        const payload: Record<string, any> = {
             ...basePayload,
             // Dual-status approach for global instructions
             private_status: null,
             global_status: 'approved',
             // Add flag to indicate this is an admin approval (for suggested instructions)
             is_admin_approval: isEditing.value && props.instruction?.global_status === 'suggested'
+        }
+        
+        // If target_build_id is provided, update within that existing build (no new build created)
+        if (props.targetBuildId) {
+            payload.target_build_id = props.targetBuildId
+            console.log('[InstructionGlobalCreateComponent] Using target_build_id:', props.targetBuildId)
+        } else {
+            console.log('[InstructionGlobalCreateComponent] No target_build_id, will create new build')
         }
 
         let response

@@ -16,7 +16,7 @@
                     <!-- Header -->
                     <div class="flex items-center justify-between px-5 py-4 border-b shrink-0">
                         <div>
-                            <h1 class="text-lg font-semibold text-gray-900">{{ isEditing ? 'Edit Instruction' : 'New Instruction' }}</h1>
+                            <h1 class="text-lg font-semibold text-gray-900">{{ isReadOnly ? 'View Instruction' : (isEditing ? 'Edit Instruction' : 'New Instruction') }}</h1>
                             <p class="text-sm text-gray-500">Define rules for AI agents</p>
                         </div>
                         <button @click="closeModal" class="text-gray-400 hover:text-gray-600 transition-colors">
@@ -71,7 +71,7 @@
                         <!-- Right: Analysis panel -->
                         <div class="overflow-hidden">
                             <div 
-                                v-if="isAnalyzing && useCan('create_instructions')" 
+                                v-if="isAnalyzing" 
                                 class="h-full border-l border-gray-200 bg-gradient-to-b from-gray-50 to-white flex flex-col"
                             >
                                 <!-- Panel header -->
@@ -221,6 +221,7 @@ const sharedForm = ref<SharedForm>({
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
+const isReadOnly = computed(() => isEditing.value && !useCan('create_instructions'))
 const isGitSourced = computed(() => props.instruction?.source_type === 'git')
 // Use local form state for sync status so UI updates immediately
 const isGitSynced = computed(() => isGitSourced.value && sharedForm.value.source_sync_enabled !== false)
@@ -344,7 +345,6 @@ const closeModal = () => {
 }
 
 const toggleAnalyze = () => {
-    if (!useCan('create_instructions')) return
     isAnalyzing.value = !isAnalyzing.value
 }
 

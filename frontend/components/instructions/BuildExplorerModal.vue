@@ -5,7 +5,7 @@
             <template #header>
                 <div class="flex items-center justify-between">
                     <h3 class="text-base font-semibold text-gray-900">
-                        Version Explorer
+                        {{ suggestionsMode ? 'Pending Review' : 'Version Explorer' }}
                     </h3>
                     <UButton
                         color="gray"
@@ -22,7 +22,7 @@
                 <!-- Left Pane: Builds List -->
                 <div class="w-56 border-r border-gray-200 flex flex-col bg-gray-50/50">
                     <div class="px-3 py-2 border-b border-gray-200 bg-white">
-                        <span class="text-xs font-medium text-gray-600">Builds</span>
+                        <span class="text-xs font-medium text-gray-600">{{ suggestionsMode ? 'Pending' : 'Builds' }}</span>
                     </div>
                     
                     <!-- Loading builds -->
@@ -33,7 +33,7 @@
                     <!-- Builds list -->
                     <div v-else class="flex-1 overflow-y-auto">
                         <div v-if="!builds.length" class="p-3 text-xs text-gray-400 text-center">
-                            No builds found
+                            {{ suggestionsMode ? 'No pending suggestions' : 'No builds found' }}
                         </div>
                         <button
                             v-for="build in builds"
@@ -43,8 +43,8 @@
                             :class="{ 'bg-white border-l-2 border-l-blue-500': selectedBuild?.id === build.id }"
                         >
                             <div class="flex items-center justify-between">
-                                <div class="flex items-center gap-1.5">
-                                    <span class="text-xs font-medium text-gray-800">Build #{{ build.build_number }}</span>
+                                <div class="flex items-center gap-1.5 min-w-0">
+                                    <span class="text-xs font-medium text-gray-800 truncate">{{ build.title || `Build #${build.build_number}` }}</span>
                                     <!-- Git indicator with tooltip -->
                                     <UTooltip 
                                         v-if="build.git_pr_url" 
@@ -68,12 +68,15 @@
                                         <GitBranchIcon class="w-3 h-3 text-gray-400" />
                                     </UTooltip>
                                 </div>
-                                <span v-if="build.is_main" class="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded">Active</span>
-                                <span v-else-if="build.status === 'pending_approval'" class="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">Pending</span>
-                                <span v-else-if="build.status === 'rejected'" class="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded">Rejected</span>
+                                <span v-if="build.is_main" class="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded shrink-0">Active</span>
+                                <span v-else-if="build.status === 'pending_approval'" class="text-[9px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded shrink-0">Pending</span>
+                                <span v-else-if="build.status === 'rejected'" class="text-[9px] px-1.5 py-0.5 bg-red-100 text-red-700 rounded shrink-0">Rejected</span>
                             </div>
-                            <div class="text-[10px] text-gray-500 mt-0.5">
-                                {{ formatDate(build.created_at) }}
+                            <div class="text-[10px] text-gray-500 mt-0.5 flex items-center gap-1.5">
+                                <span>#{{ build.build_number }}</span>
+                                <span>•</span>
+                                <span>{{ formatDate(build.created_at) }}</span>
+                                <span v-if="build.created_by_user_name" class="truncate">• {{ build.created_by_user_name }}</span>
                             </div>
                             <div class="flex items-center justify-between mt-0.5">
                                 <span class="text-[10px] text-gray-400">
@@ -110,8 +113,20 @@
                         <div class="px-4 py-3 border-b border-gray-200 bg-white shrink-0">
                             <div class="flex items-center justify-between">
                                 <div>
-                                    <h4 class="text-sm font-semibold text-gray-900">Build #{{ selectedBuild.build_number }}</h4>
-                                    <p class="text-[10px] text-gray-500 mt-0.5">{{ formatDateTime(selectedBuild.created_at) }}</p>
+                                    <h4 class="text-sm font-semibold text-gray-900">
+                                        {{ selectedBuild.title || `Build #${selectedBuild.build_number}` }}
+                                    </h4>
+                                    <div class="flex items-center gap-2 text-[10px] text-gray-500 mt-0.5">
+                                        <span>#{{ selectedBuild.build_number }} • {{ formatDateTime(selectedBuild.created_at) }}</span>
+                                        <span v-if="selectedBuild.created_by_user_name" class="flex items-center gap-1">
+                                            <UIcon name="i-heroicons-user" class="w-2.5 h-2.5" />
+                                            {{ selectedBuild.created_by_user_name }}
+                                        </span>
+                                        <span v-if="selectedBuild.approved_by_user_name" class="flex items-center gap-1 text-green-600">
+                                            <UIcon name="i-heroicons-check-badge" class="w-2.5 h-2.5" />
+                                            Approved by {{ selectedBuild.approved_by_user_name }}
+                                        </span>
+                                    </div>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
@@ -142,9 +157,9 @@
                                         {{ selectedBuild.git_branch_name }}
                                     </span>
                                     
-                                    <!-- Push to Git button -->
+                                    <!-- Push to Git button - only for non-git-sourced builds -->
                                     <UButton
-                                        v-if="gitRepoId && canCreateBuilds && !selectedBuild.git_pushed_at"
+                                        v-if="gitRepoId && canCreateBuilds && !selectedBuild.git_pushed_at && selectedBuild.source !== 'git'"
                                         color="gray"
                                         variant="soft"
                                         size="xs"
@@ -155,17 +170,17 @@
                                         Push to Git
                                     </UButton>
                                     
-                                    <!-- Approve button - only for pending_approval builds -->
+                                    <!-- Publish button - only for unpublished builds (draft or pending_approval) -->
                                     <UButton
-                                        v-if="selectedBuild.status === 'pending_approval' && canCreateBuilds"
-                                        color="green"
-                                        variant="soft"
+                                        v-if="!selectedBuild.is_main && (selectedBuild.status === 'draft' || selectedBuild.status === 'pending_approval') && canCreateBuilds"
+                                        color="blue"
+                                        variant="solid"
                                         size="xs"
-                                        :icon="approvingBuild ? undefined : 'i-heroicons-check'"
-                                        :loading="approvingBuild"
-                                        @click="approveBuild"
+                                        :icon="publishingBuild ? undefined : 'i-heroicons-rocket-launch'"
+                                        :loading="publishingBuild"
+                                        @click="publishBuild"
                                     >
-                                        Approve
+                                        Publish
                                     </UButton>
                                     
                                     <!-- Reject button - only for pending_approval builds -->
@@ -216,7 +231,7 @@
                                         :name="diffExpanded ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" 
                                         class="w-3 h-3 text-gray-400"
                                     />
-                                    <span class="text-xs font-medium text-gray-700">Changes from Build #{{ diffData.build_a_number }}</span>
+                                    <span class="text-xs font-medium text-gray-700">Changes (from Build #{{ diffData.build_a_number }})</span>
                                 </div>
                                 <div class="flex gap-1.5">
                                     <span v-if="diffData.added_count" class="text-[9px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded">
@@ -239,9 +254,31 @@
                                     <div 
                                         v-for="item in addedItems.slice(0, 5)" 
                                         :key="item.instruction_id"
-                                        class="border-l-2 border-l-green-400 bg-green-50/30 pl-2 py-1 rounded-r text-[10px] text-gray-700"
+                                        class="group flex items-center justify-between border-l-2 border-l-green-400 bg-green-50/30 pl-2 pr-1 py-1 rounded-r"
                                     >
-                                        {{ truncateText(item.title || item.text, 80) }}
+                                        <span class="text-[10px] text-gray-700 truncate flex-1 min-w-0">
+                                            {{ truncateText(item.title || item.text, 70) }}
+                                        </span>
+                                        <div class="flex items-center gap-1 shrink-0">
+                                            <button
+                                                v-if="isBuildEditable"
+                                                @click="openEditInstruction(item)"
+                                                class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                                                title="Edit instruction"
+                                            >
+                                                <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
+                                                Edit
+                                            </button>
+                                            <button
+                                                v-if="isBuildEditable"
+                                                @click="removeChange(item)"
+                                                class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                                                title="Remove this addition"
+                                            >
+                                                <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
+                                                Remove
+                                            </button>
+                                        </div>
                                     </div>
                                     <div v-if="addedItems.length > 5" class="text-[10px] text-gray-400 pl-2">
                                         +{{ addedItems.length - 5 }} more
@@ -254,10 +291,32 @@
                                     <div 
                                         v-for="item in modifiedItems.slice(0, 5)" 
                                         :key="item.instruction_id"
-                                        class="border-l-2 border-l-amber-400 bg-amber-50/30 pl-2 py-1.5 rounded-r"
+                                        class="group border-l-2 border-l-amber-400 bg-amber-50/30 pl-2 pr-1 py-1.5 rounded-r"
                                     >
-                                        <div class="text-[10px] text-gray-700 font-medium">
-                                            {{ truncateText(item.title || item.text, 80) }}
+                                        <div class="flex items-center justify-between">
+                                            <span class="text-[10px] text-gray-700 font-medium truncate flex-1 min-w-0">
+                                                {{ truncateText(item.title || item.text, 70) }}
+                                            </span>
+                                            <div class="flex items-center gap-1 shrink-0">
+                                                <button
+                                                    v-if="isBuildEditable"
+                                                    @click="openEditInstruction(item)"
+                                                    class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                                                    title="Edit instruction"
+                                                >
+                                                    <UIcon name="i-heroicons-pencil" class="w-3 h-3" />
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    v-if="isBuildEditable"
+                                                    @click="removeChange(item)"
+                                                    class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-amber-600 hover:text-amber-700 hover:bg-amber-50 rounded transition-colors"
+                                                    title="Revert this change"
+                                                >
+                                                    <UIcon name="i-heroicons-arrow-uturn-left" class="w-3 h-3" />
+                                                    Revert
+                                                </button>
+                                            </div>
                                         </div>
                                         <!-- Show what changed -->
                                         <div class="flex flex-wrap gap-1 mt-1">
@@ -317,9 +376,20 @@
                                     <div 
                                         v-for="item in removedItems.slice(0, 5)" 
                                         :key="item.instruction_id"
-                                        class="border-l-2 border-l-red-400 bg-red-50/30 pl-2 py-1 rounded-r text-[10px] text-gray-700"
+                                        class="group flex items-center justify-between border-l-2 border-l-red-400 bg-red-50/30 pl-2 pr-1 py-1 rounded-r"
                                     >
-                                        {{ truncateText(item.title || item.text, 80) }}
+                                        <span class="text-[10px] text-gray-700 truncate">
+                                            {{ truncateText(item.title || item.text, 70) }}
+                                        </span>
+                                        <button
+                                            v-if="isBuildEditable"
+                                            @click="removeChange(item)"
+                                            class="flex items-center gap-0.5 px-1.5 py-0.5 text-[9px] font-medium text-green-600 hover:text-green-700 hover:bg-green-50 rounded transition-colors"
+                                            title="Restore this instruction"
+                                        >
+                                            <UIcon name="i-heroicons-arrow-uturn-left" class="w-3 h-3" />
+                                            Restore
+                                        </button>
                                     </div>
                                     <div v-if="removedItems.length > 5" class="text-[10px] text-gray-400 pl-2">
                                         +{{ removedItems.length - 5 }} more
@@ -328,8 +398,8 @@
                             </div>
                         </div>
 
-                        <!-- Evals Section -->
-                        <div v-if="!loadingBuildContent" class="border-b border-gray-100 shrink-0">
+                        <!-- Evals Section - only shown for users with manage_tests permission -->
+                        <div v-if="!loadingBuildContent && canManageTests" class="border-b border-gray-100 shrink-0">
                             <!-- Evals Header -->
                             <button
                                 @click="evalsExpanded = !evalsExpanded"
@@ -561,20 +631,49 @@
             </div>
         </UCard>
     </UModal>
+    
+    <!-- Edit Instruction Modal -->
+    <UModal v-model="showEditInstruction" :ui="{ width: 'sm:max-w-2xl' }">
+        <UCard :ui="{ body: { padding: '' }, header: { padding: 'px-4 py-3' } }">
+            <template #header>
+                <div class="flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-gray-900">Edit Instruction</h3>
+                    <UButton
+                        color="gray"
+                        variant="ghost"
+                        icon="i-heroicons-x-mark"
+                        size="xs"
+                        @click="closeEditInstruction"
+                    />
+                </div>
+            </template>
+            <InstructionGlobalCreateComponent
+                v-if="editingInstruction"
+                :instruction="editingInstruction"
+                :target-build-id="editTargetBuildId"
+                @instructionSaved="onInstructionSaved"
+                @cancel="closeEditInstruction"
+            />
+        </UCard>
+    </UModal>
 </template>
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
+import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 import { useCan } from '~/composables/usePermissions'
 
 interface Build {
     id: string
     build_number: number
+    title?: string  // Auto-generated or user-provided title
     is_main: boolean
     status: string
+    source?: string  // 'user' | 'git' | 'ai'
+    base_build_id?: string  // The build this was forked from (for diff comparison)
     created_at: string
     total_instructions?: number
     added_count?: number
@@ -589,6 +688,11 @@ interface Build {
     // Test summary from linked test run
     test_passed?: number
     test_failed?: number
+    // User info
+    created_by_user_id?: string
+    created_by_user_name?: string
+    approved_by_user_id?: string
+    approved_by_user_name?: string
 }
 
 interface TestSuite {
@@ -640,6 +744,9 @@ interface DiffInstructionItem {
     // References changes
     references_added?: number
     references_removed?: number
+    // Version IDs for editing
+    from_version_id?: string  // Version in parent build (for restore/revert)
+    to_version_id?: string    // Version in current build (for added/modified)
 }
 
 interface BuildDiffDetailedResponse {
@@ -672,12 +779,16 @@ interface Props {
     buildId?: string
     compareToBuildId?: string
     gitRepoId?: string  // Git repository ID for push operations
+    suggestionsMode?: boolean  // Filter to pending_approval builds only
+    userOnly?: boolean  // Only show builds created by current user
 }
 
 const props = defineProps<Props>()
 
 // Computed for template access
 const gitRepoId = computed(() => props.gitRepoId)
+const suggestionsMode = computed(() => props.suggestionsMode)
+const userOnly = computed(() => props.userOnly)
 const emit = defineEmits<{
     'update:modelValue': [value: boolean]
     'rollback': [newBuildId: string]
@@ -689,15 +800,21 @@ const loadingInstructions = ref(false)
 const loadingDiff = ref(false)
 const rollingBack = ref(false)
 const pushingToGit = ref(false)
-const approvingBuild = ref(false)
+const publishingBuild = ref(false)
 const rejectingBuild = ref(false)
 const builds = ref<Build[]>([])
 const selectedBuild = ref<Build | null>(null)
+const mainBuild = ref<Build | null>(null)  // Stored separately for diff comparison
 const instructions = ref<Instruction[]>([])
 const diffData = ref<BuildDiffDetailedResponse | null>(null)
 const diffExpanded = ref(true)
 const instructionsExpanded = ref(false)
 const evalsExpanded = ref(true)
+
+// Edit instruction state
+const showEditInstruction = ref(false)
+const editingInstruction = ref<any>(null)
+const editTargetBuildId = ref<string | null>(null)  // Capture build ID at click time
 
 // Evals state
 const loadingTestSuites = ref(false)
@@ -714,6 +831,7 @@ const toast = useToast()
 
 // Permission check - use computed for reactivity
 const canCreateBuilds = computed(() => useCan('create_builds'))
+const canManageTests = computed(() => useCan('manage_tests'))
 
 // Pagination
 const currentPage = ref(1)
@@ -758,6 +876,11 @@ const hasDiffChanges = computed(() =>
     (diffData.value?.added_count || 0) + 
     (diffData.value?.modified_count || 0) + 
     (diffData.value?.removed_count || 0) > 0
+)
+
+// Build is editable if it's in draft or pending_approval status (not yet published)
+const isBuildEditable = computed(() => 
+    (selectedBuild.value?.status === 'draft' || selectedBuild.value?.status === 'pending_approval') && canCreateBuilds.value
 )
 
 const loadingBuildContent = computed(() => loadingDiff.value || loadingInstructions.value)
@@ -810,7 +933,11 @@ const formatLoadMode = (mode?: string) => {
 const fetchBuilds = async () => {
     loadingBuilds.value = true
     try {
-        const response = await useMyFetch<{ items: Build[], total: number }>('/builds?limit=50')
+        // In suggestions mode, only fetch pending_approval builds
+        // Otherwise fetch all builds for the Version Explorer
+        const statusParam = props.suggestionsMode ? 'pending_approval' : 'all'
+        const createdByParam = props.userOnly ? '&created_by=me' : ''
+        const response = await useMyFetch<{ items: Build[], total: number }>(`/builds?limit=50&status=${statusParam}${createdByParam}`)
         if (response.data.value) {
             builds.value = response.data.value.items || []
         }
@@ -869,14 +996,35 @@ const fetchInstructions = async () => {
     }
 }
 
+const fetchMainBuild = async () => {
+    try {
+        const response = await useMyFetch<Build>('/builds/main')
+        if (response.data.value) {
+            mainBuild.value = response.data.value
+        }
+    } catch (e) {
+        console.error('Failed to fetch main build:', e)
+        mainBuild.value = null
+    }
+}
+
 const fetchDiff = async () => {
     if (!selectedBuild.value) return
     
-    // Find previous build
-    const currentIndex = builds.value.findIndex(b => b.id === selectedBuild.value?.id)
-    const previousBuild = builds.value[currentIndex + 1]
+    // Compare against base_build (what the build was forked from) to show user's actual changes
+    // This prevents showing "removed" items for things added to main after this build was created
+    let compareToBuildId = selectedBuild.value.base_build_id
     
-    if (!previousBuild) {
+    // Fallback to main if no base_build_id (for older builds or main build itself)
+    if (!compareToBuildId) {
+        const mainBuildForDiff = mainBuild.value || builds.value.find(b => b.is_main)
+        if (mainBuildForDiff && mainBuildForDiff.id !== selectedBuild.value.id) {
+            compareToBuildId = mainBuildForDiff.id
+        }
+    }
+    
+    // Don't diff if this IS the main build or no comparison target exists
+    if (!compareToBuildId || compareToBuildId === selectedBuild.value.id) {
         diffData.value = null
         return
     }
@@ -884,7 +1032,7 @@ const fetchDiff = async () => {
     loadingDiff.value = true
     try {
         const response = await useMyFetch<BuildDiffDetailedResponse>(
-            `/builds/${selectedBuild.value.id}/diff/details?compare_to=${previousBuild.id}`
+            `/builds/${selectedBuild.value.id}/diff/details?compare_to=${compareToBuildId}`
         )
         if (response.data.value) {
             diffData.value = response.data.value
@@ -942,49 +1090,44 @@ const rollbackToBuild = async () => {
     }
 }
 
-const approveBuild = async () => {
-    if (!selectedBuild.value || approvingBuild.value) return
+const publishBuild = async () => {
+    if (!selectedBuild.value || publishingBuild.value) return
     
-    approvingBuild.value = true
+    publishingBuild.value = true
     try {
-        const response = await useMyFetch(`/builds/${selectedBuild.value.id}/approve`, {
+        const response = await useMyFetch(`/builds/${selectedBuild.value.id}/publish`, {
             method: 'POST'
         })
         
         if (response.error.value) {
-            throw new Error((response.error.value as any)?.data?.detail || 'Failed to approve build')
+            throw new Error((response.error.value as any)?.data?.detail || 'Failed to publish build')
         }
         
         toast.add({
-            title: 'Build approved',
-            description: `Build #${selectedBuild.value.build_number} has been approved`,
+            title: 'Build published',
+            description: `Build #${selectedBuild.value.build_number} is now live`,
             color: 'green',
-            icon: 'i-heroicons-check-circle'
+            icon: 'i-heroicons-rocket-launch'
         })
-        
-        // Update local state
-        if (selectedBuild.value) {
-            selectedBuild.value.status = 'approved'
-        }
         
         // Refresh builds list
         await fetchBuilds()
         
-        // Re-select the current build to update the UI
-        const updatedBuild = builds.value.find(b => b.id === selectedBuild.value?.id)
-        if (updatedBuild) {
-            selectedBuild.value = updatedBuild
+        // Select the new main build
+        const newMainBuild = builds.value.find(b => b.is_main)
+        if (newMainBuild) {
+            await selectBuild(newMainBuild)
         }
     } catch (e: any) {
-        console.error('Approve failed:', e)
+        console.error('Publish failed:', e)
         toast.add({
-            title: 'Approve failed',
+            title: 'Publish failed',
             description: e.message || 'An error occurred',
             color: 'red',
             icon: 'i-heroicons-x-circle'
         })
     } finally {
-        approvingBuild.value = false
+        publishingBuild.value = false
     }
 }
 
@@ -1035,6 +1178,125 @@ const rejectBuild = async () => {
     } finally {
         rejectingBuild.value = false
     }
+}
+
+const removeChange = async (item: DiffInstructionItem) => {
+    if (!selectedBuild.value || !isBuildEditable.value) return
+    
+    try {
+        if (item.change_type === 'added') {
+            // Remove the added instruction from the build
+            const response = await useMyFetch(`/builds/${selectedBuild.value.id}/contents/${item.instruction_id}`, {
+                method: 'DELETE'
+            })
+            
+            if (response.error.value) {
+                throw new Error((response.error.value as any)?.data?.detail || 'Failed to remove instruction')
+            }
+            
+            toast.add({
+                title: 'Change removed',
+                description: 'Addition reverted',
+                color: 'blue',
+                icon: 'i-heroicons-arrow-uturn-left'
+            })
+        } else if (item.change_type === 'modified' && item.from_version_id) {
+            // Revert to the previous version
+            const response = await useMyFetch(`/builds/${selectedBuild.value.id}/contents/${item.instruction_id}`, {
+                method: 'PUT',
+                body: {
+                    instruction_version_id: item.from_version_id
+                }
+            })
+            
+            if (response.error.value) {
+                throw new Error((response.error.value as any)?.data?.detail || 'Failed to revert change')
+            }
+            
+            toast.add({
+                title: 'Change reverted',
+                description: 'Modification undone',
+                color: 'blue',
+                icon: 'i-heroicons-arrow-uturn-left'
+            })
+        } else if (item.change_type === 'removed' && item.from_version_id) {
+            // Restore the removed instruction
+            const response = await useMyFetch(`/builds/${selectedBuild.value.id}/contents/${item.instruction_id}`, {
+                method: 'PUT',
+                body: {
+                    instruction_version_id: item.from_version_id
+                }
+            })
+            
+            if (response.error.value) {
+                throw new Error((response.error.value as any)?.data?.detail || 'Failed to restore instruction')
+            }
+            
+            toast.add({
+                title: 'Instruction restored',
+                description: 'Removal undone',
+                color: 'green',
+                icon: 'i-heroicons-arrow-uturn-left'
+            })
+        }
+        
+        // Refresh the diff
+        await fetchDiff()
+    } catch (e: any) {
+        console.error('Remove change failed:', e)
+        toast.add({
+            title: 'Failed to remove change',
+            description: e.message || 'An error occurred',
+            color: 'red',
+            icon: 'i-heroicons-x-circle'
+        })
+    }
+}
+
+const openEditInstruction = async (item: DiffInstructionItem) => {
+    try {
+        // Capture build ID at click time (before any async operations)
+        editTargetBuildId.value = selectedBuild.value?.id || null
+        
+        const { data, error } = await useMyFetch<any>(`/instructions/${item.instruction_id}`)
+        if (error.value) {
+            throw new Error((error.value as any)?.data?.detail || 'Failed to load instruction')
+        }
+        editingInstruction.value = data.value
+        showEditInstruction.value = true
+    } catch (e: any) {
+        console.error('Failed to load instruction:', e)
+        editTargetBuildId.value = null  // Clear on error
+        toast.add({
+            title: 'Failed to load instruction',
+            description: e.message || 'An error occurred',
+            color: 'red',
+            icon: 'i-heroicons-x-circle'
+        })
+    }
+}
+
+const closeEditInstruction = () => {
+    showEditInstruction.value = false
+    editingInstruction.value = null
+    editTargetBuildId.value = null
+}
+
+const onInstructionSaved = async () => {
+    closeEditInstruction()
+    
+    // Refresh the diff and instructions to show updated content
+    await Promise.all([
+        fetchDiff(),
+        fetchInstructions()
+    ])
+    
+    toast.add({
+        title: 'Instruction updated',
+        description: 'Build has been updated with the new version',
+        color: 'green',
+        icon: 'i-heroicons-check-circle'
+    })
 }
 
 const pushToGit = async () => {
@@ -1327,11 +1589,20 @@ const stopPolling = () => {
 // Watch for modal opening
 watch(() => props.modelValue, async (newValue) => {
     if (newValue) {
-        // Fetch builds and test suites in parallel
-        await Promise.all([
-            fetchBuilds(),
-            fetchTestSuites()
-        ])
+        // Fetch builds, test suites, and main build (for diff) in parallel
+        const fetches: Promise<void>[] = [fetchBuilds()]
+        
+        // Fetch test suites only if user has manage_tests permission
+        if (canManageTests.value) {
+            fetches.push(fetchTestSuites())
+        }
+        
+        // In suggestions mode, fetch main build separately for diff comparison
+        if (props.suggestionsMode) {
+            fetches.push(fetchMainBuild())
+        }
+        
+        await Promise.all(fetches)
         
         // If a buildId was provided, select it
         if (props.buildId) {
@@ -1347,6 +1618,7 @@ watch(() => props.modelValue, async (newValue) => {
         // Reset state on close
         stopPolling()
         selectedBuild.value = null
+        mainBuild.value = null
         instructions.value = []
         diffData.value = null
         currentPage.value = 1

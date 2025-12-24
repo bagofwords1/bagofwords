@@ -182,13 +182,13 @@ async def get_repository_status(
     return RepositoryStatusResponse(**status)
 
 
-# ==================== Build Deploy Endpoint ====================
+# ==================== Build Publish Endpoint ====================
 # Note: This is an alias endpoint for convenience
-# The primary deploy endpoint is at /builds/{id}/deploy
+# The primary publish endpoint is at /builds/{id}/publish
 
-@router.post("/{repo_id}/deploy/{build_id}")
+@router.post("/{repo_id}/publish/{build_id}")
 @requires_permission('create_builds')
-async def deploy_build_via_git(
+async def publish_build_via_git(
     repo_id: str,
     build_id: str,
     current_user: User = Depends(current_user),
@@ -196,14 +196,14 @@ async def deploy_build_via_git(
     db: AsyncSession = Depends(get_async_db)
 ):
     """
-    Deploy (promote) a build to main.
+    Publish a build to main with auto-merge support.
     
-    This is a convenience alias for POST /builds/{build_id}/deploy.
-    Promotes an approved build to become the active/live build.
+    This is a convenience alias for POST /builds/{build_id}/publish.
+    Publishes a build to become the active/live build.
     
     Example CI/CD usage:
     ```
-    curl -X POST "https://api.bagofwords.io/git/{repo_id}/deploy/{build_id}" \\
+    curl -X POST "https://api.bagofwords.io/git/{repo_id}/publish/{build_id}" \\
          -H "Authorization: Bearer $BOW_API_KEY"
     ```
     """
@@ -219,14 +219,10 @@ async def deploy_build_via_git(
     if build.organization_id != organization.id:
         raise HTTPException(status_code=403, detail="Build does not belong to this organization")
     
-    # If build is still draft, auto-submit and approve for CI/CD convenience
-    if build.status == 'draft':
-        build = await build_service.submit_build(db, build_id)
-        build = await build_service.approve_build(db, build_id, current_user.id)
-    elif build.status == 'pending_approval':
-        build = await build_service.approve_build(db, build_id, current_user.id)
+    if build.status == 'rejected':
+        raise HTTPException(status_code=400, detail="Cannot publish a rejected build")
     
-    build = await build_service.promote_build(db, build_id)
+    result = await build_service.publish_build(db, build_id, current_user.id)
     
-    return InstructionBuildSchema.model_validate(build)
+    return InstructionBuildSchema.model_validate(result["build"])
 

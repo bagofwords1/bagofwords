@@ -1,92 +1,101 @@
 <template>
-    <div class="h-full flex flex-col overflow-hidden">
-        <form @submit.prevent="submitForm" class="flex-1 flex flex-col overflow-hidden">
-            <div class="p-4 flex-1 overflow-y-auto space-y-4">
-            <!-- Git Source Info (above form) -->
-            <div v-if="props.isGitSourced" class="mb-3">
-                <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg border border-gray-200">
-                    <div class="flex items-center gap-2 text-sm min-w-0">
-                        <Icon name="heroicons:code-bracket" class="w-4 h-4 text-gray-500 shrink-0" />
-                        <span class="text-gray-600 truncate font-mono text-xs">
-                            {{ instruction?.structured_data?.path || instruction?.title || 'Git Repository' }}
-                        </span>
-                    </div>
-                    <div class="flex items-center gap-2 shrink-0 ml-2">
+    <div class="flex flex-col h-full">
+        <form @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
+            <!-- Scrollable content area -->
+            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+                
+                <!-- Git Source Info -->
+                <div v-if="props.isGitSourced" class="flex items-center gap-1.5 text-xs text-gray-500">
+                    <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                    <span class="truncate font-mono text-[11px]">
+                        {{ instruction?.structured_data?.path || instruction?.title || 'Git Repository' }}
+                    </span>
+                    <!-- Only show git actions for admins (non-read-only) -->
+                    <template v-if="!isReadOnly">
+                        <span class="text-gray-300">·</span>
                         <UTooltip 
                             v-if="props.isGitSynced"
-                            text="Stop syncing from git. You'll be able to edit manually, but changes from the repository won't update this instruction."
-                            :popper="{ placement: 'bottom' }"
+                            text="Stop syncing from git. You'll be able to edit manually."
+                            :popper="{ placement: 'top' }"
                         >
-                            <UButton 
-                                size="xs" 
-                                variant="ghost" 
-                                color="orange"
+                            <button 
+                                type="button"
+                                class="text-[11px] text-gray-400 hover:text-orange-500 transition-colors"
                                 @click="$emit('unlink-from-git')"
                             >
-                                <Icon name="heroicons:link-slash" class="w-3 h-3 mr-1" />
                                 Unlink
-                            </UButton>
+                            </button>
                         </UTooltip>
                         <template v-else>
-                            <span class="text-xs text-gray-500">Unlinked</span>
+                            <span class="text-[10px] text-gray-400">Unlinked</span>
                             <UTooltip 
-                                text="Resume syncing from git. Your manual edits will be overwritten on next repository sync."
-                                :popper="{ placement: 'bottom' }"
+                                text="Resume syncing from git"
+                                :popper="{ placement: 'top' }"
                             >
-                                <UButton 
-                                    size="xs" 
-                                    variant="ghost" 
-                                    color="blue"
+                                <button 
+                                    type="button"
+                                    class="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
                                     @click="$emit('relink-to-git')"
                                 >
-                                    <Icon name="heroicons:link" class="w-3 h-3 mr-1" />
                                     Relink
-                                </UButton>
+                                </button>
                             </UTooltip>
                         </template>
+                    </template>
+                </div>
+
+                <!-- Read-only Notice -->
+                <div v-if="isReadOnly" class="flex items-center gap-1.5 text-[11px] text-gray-400">
+                    <Icon name="heroicons:eye" class="w-3 h-3" />
+                    <span>View only</span>
+                </div>
+
+                <!-- Suggestion Notice -->
+                <div v-else-if="isSuggestionEffective" class="flex items-center gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-lg">
+                    <Icon name="heroicons:light-bulb" class="w-4 h-4 text-amber-600 shrink-0" />
+                    <div class="min-w-0">
+                        <span class="text-xs font-medium text-amber-800">Suggestion for Global Instruction</span>
+                        <p class="text-[11px] text-amber-600 mt-0.5">This will be submitted for admin review.</p>
                     </div>
                 </div>
-            </div>
 
-            <!-- Show suggestion notice -->
-            <div v-if="isSuggestionEffective" class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
-                <div class="flex items-center">
-                    <Icon name="heroicons:light-bulb" class="w-5 h-5 text-yellow-600 mr-2" />
-                    <span class="text-sm font-medium text-yellow-800">Suggestion for Global Instruction</span>
-                </div>
-                <p class="text-xs text-yellow-600 mt-1">This will be submitted as a suggestion for administrators to review and potentially make available globally.</p>
-            </div>
+                <!-- Hero Textarea / Code Editor -->
+                <div class="border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
+                    <!-- Header with title and code view toggle -->
+                    <div class="flex items-center justify-between px-3 py-1.5 bg-white border-b border-gray-100">
+                        <span class="text-xs font-medium text-gray-500">Instruction</span>
+                        <button 
+                            type="button"
+                            @click="codeView = !codeView"
+                            class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
+                            :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
+                        >
+                            <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
+                        </button>
+                    </div>
+                    
+                    <!-- Normal textarea -->
+                    <textarea 
+                        v-if="!codeView"
+                        :value="sharedForm.text"
+                        @input="updateForm({ text: ($event.target as HTMLTextAreaElement).value })"
+                        placeholder="Describe the instruction for the AI agent...
 
-            <!-- Instruction Text -->
-            <div class="flex flex-col">
-                <div class="flex items-center justify-between mb-2">
-                    <label class="text-sm font-medium text-gray-700">
-                        Instruction <span class="text-red-500">*</span>
-                    </label>
-                    <button 
-                        type="button"
-                        @click="codeView = !codeView"
-                        class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
-                        :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
-                    >
-                        <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
-                    </button>
-                </div>
-                
-                <!-- Normal textarea -->
-                <UTextarea 
-                    v-if="!codeView"
-                    :model-value="sharedForm.text"
-                    @update:model-value="updateForm({ text: $event })"
-                    :rows="4"
-                    placeholder="Enter the instruction text..."
-                    class="w-full"
-                    required
-                />
-                
-                <!-- Code editor (Monaco with white background) -->
-                <ClientOnly v-else>
-                    <div class="border border-gray-300 rounded-md overflow-hidden">
+Examples:
+• When querying revenue, always filter out cancelled orders
+• Use the customers_v2 table instead of the deprecated customers table  
+• Calculate MRR as sum of active subscription amounts"
+                        class="w-full min-h-[210px] text-xs leading-relaxed p-4
+                               border-0 resize-y
+                               focus:ring-0 focus:outline-none
+                               placeholder:text-gray-400
+                               disabled:bg-gray-50 disabled:text-gray-600 disabled:cursor-not-allowed"
+                        :disabled="isReadOnly"
+                        :required="!isReadOnly"
+                    />
+                    
+                    <!-- Code editor (Monaco with white background) -->
+                    <ClientOnly v-else>
                         <MonacoEditor
                             :model-value="sharedForm.text"
                             @update:model-value="updateForm({ text: $event })"
@@ -98,247 +107,250 @@
                                 wordWrap: 'on',
                                 lineNumbers: 'on',
                                 fontSize: 12,
-                                scrollBeyondLastLine: false
+                                scrollBeyondLastLine: false,
+                                readOnly: isReadOnly
                             }"
-                            style="height: 150px"
+                            style="height: 210px"
                         />
+                    </ClientOnly>
+                    
+                    <!-- Action buttons row (hidden in read-only mode) -->
+                    <div v-if="!isReadOnly" class="px-3 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
+                        <button 
+                            type="button"
+                            @click="enhanceInstruction"
+                            :disabled="isEnhancing || !sharedForm.text?.trim()"
+                            class="inline-flex items-center gap-1 px-2.5 py-1 
+                                   bg-white border border-gray-200 rounded-full
+                                   text-xs text-gray-600
+                                   hover:bg-gray-50 hover:border-gray-300
+                                   disabled:opacity-50 disabled:cursor-not-allowed
+                                   transition-all"
+                        >
+                            <Spinner v-if="isEnhancing" class="w-3.5 h-3.5" />
+                            <Icon v-else name="heroicons:sparkles" class="w-3.5 h-3.5 text-purple-500" />
+                            {{ isEnhancing ? 'Enhancing...' : 'Enhance' }}
+                        </button>
+                        <button 
+                            type="button"
+                            @click="$emit('toggle-analyze')"
+                            class="inline-flex items-center gap-1 px-2.5 py-1 
+                                   bg-white border border-gray-200 rounded-full
+                                   text-xs text-gray-500
+                                   hover:bg-gray-50 hover:border-gray-300 hover:text-gray-700
+                                   transition-all"
+                        >
+                            <Icon name="heroicons:chart-bar" class="w-3.5 h-3.5" />
+                            Analyze
+                        </button>
                     </div>
-                </ClientOnly>
-            </div>
+                </div>
 
-            <!-- Data Sources -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    Data Sources
-                </label>
-                <p class="text-xs text-gray-500 mb-2">Select which data sources this instruction applies to. If none selected, applies to all.</p>
-                
-                <USelectMenu 
-                    :model-value="selectedDataSources"
-                    @update:model-value="updateDataSources"
-                    :options="dataSourceOptions" 
-                    option-attribute="name"
-                    value-attribute="id"
-                    multiple
-                    class="w-full"
-                    :ui="{
-                        base: 'border border-gray-300 rounded-md',
-                    }"
-                    :uiMenu="{
-                        base: 'w-full max-h-60 overflow-y-auto',
-                    }"
-                >
-                    <template #label>
-                        <div class="flex items-center flex-wrap gap-1">
-                            <span v-if="isAllDataSourcesSelected" class="flex items-center">
-                                <div class="flex -space-x-1 mr-2">
-                                    <DataSourceIcon 
-                                        v-for="ds in availableDataSources.slice(0, 3)" 
-                                        :key="ds.id" 
-                                        :type="ds.type" 
-                                        class="h-4 w-4 border border-white rounded" 
-                                    />
-                                    <div v-if="availableDataSources.length > 3" 
-                                         class="h-4 w-4 bg-gray-400 text-white text-xs rounded flex items-center justify-center border border-white">
-                                        +{{ availableDataSources.length - 3 }}
-                                    </div>
+                <!-- Horizontal Config Row -->
+                <div class="flex flex-wrap items-center gap-2 p-2.5 bg-gray-50 rounded-lg">
+                    <!-- Category -->
+                    <USelectMenu 
+                        :model-value="sharedForm.category"
+                        @update:model-value="updateForm({ category: $event })"
+                        :options="categoryOptions" 
+                        option-attribute="label" 
+                        value-attribute="value" 
+                        size="xs"
+                        class="min-w-[120px]"
+                        :disabled="isReadOnly"
+                    >
+                        <template #label>
+                            <div class="inline-flex items-center text-xs text-gray-700">
+                                <Icon :name="getCategoryIcon(sharedForm.category)" class="w-3 h-3 mr-1" />
+                                {{ formatCategory(sharedForm.category) }}
+                            </div>
+                        </template>
+                        <template #option="{ option }">
+                            <div class="flex items-center gap-1.5">
+                                <Icon :name="getCategoryIcon(option.value)" class="w-3 h-3" />
+                                <span class="text-xs">{{ option.label }}</span>
+                            </div>
+                        </template>
+                    </USelectMenu>
+
+                    <!-- AI Context Loading -->
+                    <USelectMenu 
+                        :model-value="sharedForm.load_mode"
+                        @update:model-value="updateForm({ load_mode: $event })"
+                        :options="loadModeOptions" 
+                        option-attribute="label" 
+                        value-attribute="value" 
+                        size="xs"
+                        class="w-auto"
+                        :ui-menu="{ width: 'w-60' }"
+                        :disabled="isReadOnly"
+                    >
+                        <template #label>
+                            <div class="inline-flex items-center text-xs text-gray-700">
+                                <Icon :name="getLoadModeIcon(sharedForm.load_mode)" class="w-3 h-3 mr-1" />
+                                {{ getLoadModeLabel(sharedForm.load_mode) }}
+                            </div>
+                        </template>
+                        <template #option="{ option }">
+                            <div class="flex flex-col gap-0.5 py-0.5">
+                                <div class="flex items-center gap-1.5">
+                                    <Icon :name="getLoadModeIcon(option.value)" class="w-3 h-3" />
+                                    <span class="text-xs font-medium">{{ option.label }}</span>
                                 </div>
-                                All Data Sources
-                            </span>
-                            <span v-else-if="selectedDataSources.length === 0" class="text-gray-500">
-                                Select data sources (default: all)
-                            </span>
-                            <div v-else class="flex items-center flex-wrap gap-1">
-                                <span v-for="ds in getSelectedDataSourceObjects" :key="ds.id" 
-                                      class="flex items-center bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                                    <DataSourceIcon :type="ds.type" class="h-3 w-3 mr-1" />
-                                    {{ ds.name }}
+                                <span class="text-[10px] text-gray-500 ml-4">{{ option.description }}</span>
+                            </div>
+                        </template>
+                    </USelectMenu>
+
+                    <!-- Labels (select only, no create) -->
+                    <USelectMenu
+                        :model-value="selectedLabelIds"
+                        @update:modelValue="handleLabelSelectionChange"
+                        :options="availableLabels"
+                        option-attribute="name"
+                        value-attribute="id"
+                        multiple
+                        size="xs"
+                        class="flex-1 min-w-[120px]"
+                        searchable
+                        searchable-placeholder="Search labels..."
+                        :disabled="isReadOnly"
+                    >
+                        <template #label>
+                            <div class="flex items-center flex-wrap gap-1">
+                                <span v-if="selectedLabelObjects.length === 0" class="text-gray-500 text-xs">+ Labels</span>
+                                <span
+                                    v-for="label in selectedLabelObjects.slice(0, 2)"
+                                    :key="label.id"
+                                    class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                                    :style="{ backgroundColor: (label.color || '#94a3b8') + '20', color: '#1F2937' }"
+                                >
+                                    <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
+                                    {{ label.name }}
+                                </span>
+                                <span v-if="selectedLabelObjects.length > 2" class="text-[10px] text-gray-500">
+                                    +{{ selectedLabelObjects.length - 2 }}
                                 </span>
                             </div>
-                        </div>
-                    </template>
+                        </template>
+                        <template #option="{ option }">
+                            <div class="flex items-center w-full py-0.5 gap-1">
+                                <span class="w-2 h-2 rounded-full flex-shrink-0" :style="{ backgroundColor: option.color || '#94a3b8' }"></span>
+                                <div class="min-w-0 flex-1">
+                                    <p class="text-[11px] font-medium text-gray-900 truncate">{{ option.name }}</p>
+                                </div>
+                            </div>
+                        </template>
+                    </USelectMenu>
+                </div>
 
-                    <template #option="{ option }">
-                        <div class="flex items-center justify-between w-full py-2 pr-2">
-                            <div class="flex items-center">
-                                <div v-if="option.id === 'all'" class="flex -space-x-1 mr-2">
-                                    <DataSourceIcon 
-                                        v-for="ds in availableDataSources.slice(0, 3)" 
-                                        :key="ds.id" 
-                                        :type="ds.type" 
-                                        class="h-4 w-4 border border-white rounded" 
-                                    />
-                                    <div v-if="availableDataSources.length > 3" 
-                                         class="h-4 w-4 bg-gray-400 text-white text-xs rounded flex items-center justify-center border border-white">
-                                        +{{ availableDataSources.length - 3 }}
+                <!-- Scope Row -->
+                <div class="flex items-center gap-3">
+                    <span class="text-[11px] text-gray-500 shrink-0">Scope:</span>
+                    
+                    <!-- Data Sources -->
+                    <USelectMenu 
+                        :model-value="selectedDataSources"
+                        @update:model-value="updateDataSources"
+                        :options="dataSourceOptions" 
+                        option-attribute="name"
+                        value-attribute="id"
+                        size="xs"
+                        multiple
+                        class="min-w-[200px]"
+                        :disabled="isReadOnly"
+                    >
+                        <template #label>
+                            <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">All sources</span>
+                            <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">Sources</span>
+                            <span v-else class="text-xs text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
+                        </template>
+                        <template #option="{ option }">
+                            <div class="flex items-center justify-between w-full py-0.5 pr-1">
+                                <div class="flex items-center">
+                                    <div v-if="option.id === 'all'" class="flex -space-x-1 mr-1.5">
+                                        <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 w-3 border border-white rounded" />
                                     </div>
+                                    <DataSourceIcon v-else :type="option.type" class="w-3 h-3 mr-1.5" />
+                                    <span class="text-xs">{{ option.name }}</span>
                                 </div>
-                                <DataSourceIcon v-else :type="option.type" class="w-4 h-4 mr-2" />
-                                <span>{{ option.name }}</span>
+                                <UCheckbox :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(String(option.id))" @update:model-value="handleDataSourceToggle(String(option.id))" @click.stop class="flex-shrink-0 ml-1" />
                             </div>
-                            <UCheckbox 
-                                :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(option.id)"
-                                @update:model-value="handleDataSourceToggle(option.id)"
-                                class="flex-shrink-0"
-                            />
-                        </div>
-                    </template>
-                </USelectMenu>
-            </div>
+                        </template>
+                    </USelectMenu>
 
-            <!-- References -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    References
-                </label>
-                <p class="text-xs text-gray-500 mb-2">Select metadata resources, data source tables, or memories this instruction targets.</p>
-                <USelectMenu
-                    :options="filteredMentionableOptions"
-                    option-attribute="name"
-                    value-attribute="id"
-                    multiple
-                    searchable
-                    searchable-placeholder="Search references..."
-                    :model-value="selectedReferenceIds"
-                    @update:model-value="handleReferencesChange"
-                    class="w-full"
-                    :ui="{ base: 'border border-gray-300 rounded-md' }"
-                    :uiMenu="{ base: 'w-full max-h-60 overflow-y-auto' }"
-                >
-                    <template #label>
-                        <div class="flex items-center flex-wrap gap-1">
-                            <span v-if="selectedReferences.length === 0" class="text-gray-500">Select references</span>
-                            <span v-for="ref in selectedReferences" :key="ref.id" class="flex items-center bg-gray-100 text-gray-800 text-xs px-2 py-1 rounded">
-                                <UIcon :name="getRefIcon(ref.type)" class="w-3 h-3 mr-1" />
-                                {{ ref.name }}
-                            </span>
-                        </div>
-                    </template>
-                    <template #option="{ option }">
-                        <div class="flex items-center justify-between w-full py-2 pr-2">
-                            <div class="flex items-center gap-2">
-                                <UIcon :name="getRefIcon(option.type)" class="w-4 h-4" />
-                                <div class="flex flex-col">
-                                    <span class="text-sm">{{ option.name }}</span>
-                                    <span class="text-xs text-gray-500">{{ option.type }}</span>
+                    <!-- Tables -->
+                    <USelectMenu
+                        :options="filteredMentionableOptions"
+                        option-attribute="name"
+                        value-attribute="id"
+                        size="xs"
+                        multiple
+                        searchable
+                        searchable-placeholder="Search tables..."
+                        :model-value="selectedReferenceIds"
+                        @update:model-value="handleReferencesChange"
+                        class="min-w-[200px]"
+                        :disabled="isReadOnly"
+                    >
+                        <template #label>
+                            <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">Tables</span>
+                            <span v-else class="text-xs text-gray-700">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
+                        </template>
+                        <template #option="{ option }">
+                            <div class="w-full py-0.5">
+                                <div class="flex items-center gap-1.5">
+                                    <UCheckbox :model-value="selectedReferenceIds.includes(String(option.id))" @update:model-value="toggleReference(String(option.id))" @click.stop @mousedown.stop class="flex-shrink-0" />
+                                    <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 text-gray-500 flex-shrink-0" />
+                                    <span class="text-xs font-medium text-gray-900 truncate">{{ option.name }}</span>
+                                </div>
+                                <div class="flex items-center gap-1.5 ml-6">
+                                    <DataSourceIcon :type="option.data_source_type" class="w-2.5 h-2.5 flex-shrink-0" />
+                                    <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
                                 </div>
                             </div>
-                            <UCheckbox :model-value="selectedReferenceIds.includes(option.id)" />
-                        </div>
-                    </template>
-                </USelectMenu>
-            </div>
-
-            <!-- Load Mode -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    AI Context Loading
-                </label>
-                <div class="flex items-center gap-2">
-                    <UButton 
-                        size="sm" 
-                        :variant="sharedForm.load_mode === 'always' ? 'solid' : 'outline'" 
-                        :color="sharedForm.load_mode === 'always' ? 'blue' : 'gray'"
-                        @click="updateForm({ load_mode: 'always' })"
-                    >
-                        Always
-                    </UButton>
-                    <UButton 
-                        size="sm" 
-                        :variant="sharedForm.load_mode === 'intelligent' ? 'solid' : 'outline'" 
-                        :color="sharedForm.load_mode === 'intelligent' ? 'purple' : 'gray'"
-                        @click="updateForm({ load_mode: 'intelligent' })"
-                    >
-                        Smart
-                    </UButton>
-                    <UButton 
-                        size="sm" 
-                        :variant="sharedForm.load_mode === 'disabled' ? 'solid' : 'outline'" 
-                        :color="sharedForm.load_mode === 'disabled' ? 'gray' : 'gray'"
-                        @click="updateForm({ load_mode: 'disabled' })"
-                    >
-                        Disabled
-                    </UButton>
+                        </template>
+                    </USelectMenu>
                 </div>
-                <p class="text-xs text-gray-500 mt-1">
-                    <span v-if="sharedForm.load_mode === 'always'">Always included in AI context</span>
-                    <span v-else-if="sharedForm.load_mode === 'intelligent'">Included when relevant to the query</span>
-                    <span v-else>Never included in AI context</span>
-                </p>
-            </div>
-
-            <!-- Category -->
-            <div class="flex flex-col">
-                <label class="text-sm font-medium text-gray-700 mb-2">
-                    Category <span class="text-red-500">*</span>
-                </label>
-                <USelectMenu 
-                    :model-value="sharedForm.category"
-                    @update:model-value="updateForm({ category: $event })"
-                    :options="categoryOptions" 
-                    option-attribute="label"
-                    value-attribute="value"
-                    class="w-full"
-                    required
-                >
-                    <UButton color="gray" class="flex-1 justify-start">
-                        <Icon :name="getCategoryIcon(sharedForm.category)" class="w-4 h-4 mr-2" />
-                        {{ formatCategory(sharedForm.category) }}
-                    </UButton>
-
-                    <template #option="{ option }">
-                        <div class="flex items-center gap-2">
-                            <Icon :name="getCategoryIcon(option.value)" class="w-4 h-4" />
-                            <span>{{ option.label }}</span>
-                        </div>
-                    </template>
-                </USelectMenu>
-            </div>
-
-            <!-- Review Section for Suggestions -->
-            <div v-if="isSuggestionEffective" class="border border-gray-200 rounded-lg p-4 hidden">
-                <h3 class="text-sm font-medium text-gray-700 mb-3">Review Settings</h3>
-                
-                <div class="flex items-center justify-between">
-                    <div>
-                        <label class="text-sm font-medium text-gray-700">Request Admin Review</label>
-                        <p class="text-xs text-gray-500">Submit this suggestion for administrator review to potentially make it globally available</p>
-                    </div>
-                    <UToggle 
-                        v-model="needsReview"
-                    />
-                </div>
-            </div>
 
             </div>
-
+            
             <!-- Form Actions (fixed at bottom) -->
-            <div class="shrink-0 bg-white border-t p-4">
-                <div class="flex justify-between items-center">
+            <div class="shrink-0 bg-white border-t px-5 py-3">
+                <!-- Read-only mode: only show close button -->
+                <div v-if="isReadOnly" class="flex justify-end">
+                    <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
+                        Close
+                    </UButton>
+                </div>
+                
+                <!-- Edit mode: show full action buttons -->
+                <div v-else class="flex justify-between items-center">
                     <!-- Delete button (only show when editing) -->
                     <UButton 
                         v-if="isEditing"
-                        label="Delete Instruction" 
+                        size="xs"
                         color="red" 
-                        variant="soft" 
+                        variant="ghost" 
                         @click="confirmDelete"
                         :loading="isDeleting"
-                    />
+                    >
+                        <Icon name="heroicons:trash" class="w-3.5 h-3.5 mr-1" />
+                        Delete
+                    </UButton>
                     
-                    <div class="flex space-x-2" :class="{ 'ml-auto': !isEditing }">
-                        <UButton 
-                            label="Cancel" 
-                            color="gray" 
-                            variant="soft" 
-                            @click="$emit('cancel')" 
-                        />
+                    <div class="flex gap-2" :class="{ 'ml-auto': !isEditing }">
+                        <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
+                            Cancel
+                        </UButton>
                         <UButton 
                             type="submit" 
-                            :label="isEditing ? 'Update Instruction' : (isSuggestionEffective ? 'Submit Suggestion' : 'Create Instruction')"  
+                            size="xs" 
                             color="blue"
-                            class="!text-white"
                             :loading="isSubmitting"
-                        />
+                        >
+                            {{ isEditing ? 'Update' : (isSuggestionEffective ? 'Submit Suggestion' : 'Create') }}
+                        </UButton>
                     </div>
                 </div>
             </div>
@@ -348,6 +360,7 @@
 
 <script setup lang="ts">
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 
 // Define interfaces
@@ -372,11 +385,19 @@ interface SharedForm {
     load_mode: 'always' | 'intelligent' | 'disabled'
 }
 
+interface InstructionLabel {
+    id: string
+    name: string
+    color?: string | null
+}
+
 interface MentionableItem {
     id: string
     type: 'metadata_resource' | 'datasource_table' | 'memory'
     name: string
     data_source_id?: string
+    data_source_type?: string
+    data_source_name?: string
     column_name?: string | null
 }
 
@@ -390,25 +411,28 @@ const props = defineProps<{
     isGitSynced?: boolean
 }>()
 
-const emit = defineEmits(['instructionSaved', 'cancel', 'updateForm', 'updateDataSources', 'unlink-from-git', 'relink-to-git'])
+const emit = defineEmits(['instructionSaved', 'cancel', 'updateForm', 'updateDataSources', 'unlink-from-git', 'relink-to-git', 'toggle-analyze'])
 
 // Reactive state
 const toast = useToast()
 const isSubmitting = ref(false)
 const isDeleting = ref(false)
+const isEnhancing = ref(false)
 const availableDataSources = ref<DataSource[]>([])
 const mentionableOptions = ref<MentionableItem[]>([])
 const selectedReferences = ref<MentionableItem[]>([])
+const availableLabels = ref<InstructionLabel[]>([])
+const selectedLabelIds = ref<string[]>([])
 const codeView = ref(false)
 
 // Determine if this should be treated as a suggestion (non-admins can only suggest)
 const isSuggestionEffective = computed(() => props.isSuggestion || !useCan('create_instructions'))
 
-// Review toggle for suggestions - defaults to true for suggestions
-const needsReview = ref(isSuggestionEffective.value || false)
-
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
+
+// Read-only mode: non-admin users viewing an existing instruction
+const isReadOnly = computed(() => isEditing.value && !useCan('create_instructions'))
 
 const dataSourceOptions = computed(() => {
     const allOption = {
@@ -418,49 +442,6 @@ const dataSourceOptions = computed(() => {
     }
     return [allOption, ...availableDataSources.value]
 })
-const selectedReferenceIds = computed(() => selectedReferences.value.map(r => r.id))
-
-// Filter mentionable options based on selected data sources
-const filteredMentionableOptions = computed(() => {
-    // If all data sources are selected (or none selected), show all references
-    if (isAllDataSourcesSelected.value) {
-        return mentionableOptions.value
-    }
-    
-    // Otherwise, filter by selected data sources
-    return mentionableOptions.value.filter(option => {
-        // Memory type references are not tied to data sources
-        if (option.type === 'memory') {
-            return true
-        }
-        
-        // For metadata_resource and datasource_table, check data_source_id
-        if (option.data_source_id) {
-            return selectedDataSources.value.includes(option.data_source_id)
-        }
-        
-        // If no data_source_id, include it (fallback)
-        return true
-    })
-})
-
-const getRefIcon = (type: string) => {
-    if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
-    if (type === 'datasource_table') return 'i-heroicons-table-cells'
-    if (type === 'memory') return 'i-heroicons-book-open'
-    return 'i-heroicons-circle'
-}
-
-const handleReferencesChange = (ids: string[]) => {
-    const idSet = new Set(ids)
-    selectedReferences.value = filteredMentionableOptions.value.filter(m => idSet.has(m.id))
-}
-
-// Validate references when data sources change
-const validateSelectedReferences = () => {
-    const validReferenceIds = new Set(filteredMentionableOptions.value.map(m => m.id))
-    selectedReferences.value = selectedReferences.value.filter(ref => validReferenceIds.has(ref.id))
-}
 
 const isAllDataSourcesSelected = computed(() => {
     return props.selectedDataSources.includes('all') || props.selectedDataSources.length === 0
@@ -469,6 +450,56 @@ const isAllDataSourcesSelected = computed(() => {
 const getSelectedDataSourceObjects = computed(() => {
     return availableDataSources.value.filter(ds => props.selectedDataSources.includes(ds.id))
 })
+
+const selectedReferenceIds = computed(() => selectedReferences.value.map(r => r.id))
+
+const selectedLabelObjects = computed(() => {
+    return availableLabels.value.filter(l => selectedLabelIds.value.includes(l.id))
+})
+
+// Filter mentionable options based on selected data sources
+const filteredMentionableOptions = computed(() => {
+    if (isAllDataSourcesSelected.value) {
+        return mentionableOptions.value
+    }
+    
+    return mentionableOptions.value.filter(option => {
+        if (option.type === 'memory') {
+            return true
+        }
+        
+        if (option.data_source_id) {
+            return props.selectedDataSources.includes(option.data_source_id)
+        }
+        
+        return true
+    })
+})
+
+// Load mode options for dropdown
+const loadModeOptions = [
+    { value: 'always' as const, label: 'Always', description: 'Always included in AI context' },
+    { value: 'intelligent' as const, label: 'Smart', description: 'Included only when relevant to the query' },
+    { value: 'disabled' as const, label: 'Disabled', description: 'Never included in AI context' }
+]
+
+const getLoadModeIcon = (mode: string) => {
+    const icons: Record<string, string> = {
+        always: 'heroicons:bolt',
+        intelligent: 'heroicons:sparkles',
+        disabled: 'heroicons:x-circle'
+    }
+    return icons[mode] || 'heroicons:bolt'
+}
+
+const getLoadModeLabel = (mode: string) => {
+    const labels: Record<string, string> = {
+        always: 'Always',
+        intelligent: 'Smart',
+        disabled: 'Disabled'
+    }
+    return labels[mode] || mode
+}
 
 // Options for dropdowns
 const categoryOptions = [
@@ -489,6 +520,33 @@ const updateDataSources = (dataSources: string[]) => {
     emit('updateDataSources', dataSources)
 }
 
+const enhanceInstruction = async () => {
+    if (isEnhancing.value || !props.sharedForm.text?.trim()) return
+    
+    isEnhancing.value = true
+    
+    try {
+        const response = await useMyFetch('/instructions/enhance', {
+            method: 'POST',
+            body: { text: props.sharedForm.text }
+        })
+        if (response.status.value === 'success') {
+            updateForm({ text: response.data.value as string })
+        } else {
+            throw new Error('Enhance failed')
+        }
+    } catch (error) {
+        console.error('Error enhancing instruction:', error)
+        toast.add({
+            title: 'Error',
+            description: 'Failed to enhance instruction',
+            color: 'red'
+        })
+    } finally {
+        isEnhancing.value = false
+    }
+}
+
 // Data source methods
 const fetchDataSources = async () => {
     try {
@@ -503,62 +561,6 @@ const fetchDataSources = async () => {
         }
     } catch (err) {
         console.error('Error fetching data sources:', err)
-    }
-}
-
-const fetchAvailableReferences = async () => {
-    try {
-        const { data, error } = await useMyFetch<MentionableItem[]>('/instructions/available-references', { method: 'GET' })
-        if (!error.value && data.value) {
-            mentionableOptions.value = data.value
-        }
-    } catch (err) {
-        console.error('Error fetching available references:', err)
-    }
-}
-
-// Full instruction data (fetched separately to get references)
-const fullInstruction = ref<any>(null)
-
-const fetchFullInstruction = async () => {
-    if (!props.instruction?.id) return
-    
-    try {
-        const { data, error } = await useMyFetch<any>(`/instructions/${props.instruction.id}`, { method: 'GET' })
-        if (!error.value && data.value) {
-            fullInstruction.value = data.value
-        }
-    } catch (err) {
-        console.error('Error fetching full instruction:', err)
-    }
-}
-
-const initReferencesFromInstruction = () => {
-    // Use fullInstruction if available (has references), fallback to props.instruction
-    const instruction = fullInstruction.value || props.instruction
-    
-    if (instruction && Array.isArray(instruction.references)) {
-        const map: Record<string, MentionableItem> = {}
-        for (const m of mentionableOptions.value) map[m.id] = m
-        
-        // Use a Set to deduplicate by object_id
-        const seenObjectIds = new Set<string>()
-        const preselected: MentionableItem[] = []
-        
-        for (const r of instruction.references) {
-            // Skip duplicates
-            if (seenObjectIds.has(r.object_id)) continue
-            seenObjectIds.add(r.object_id)
-            
-            const existing = map[r.object_id]
-            if (existing) {
-                preselected.push({ ...existing, column_name: r.column_name || null })
-            } else {
-                // Fallback if not in options yet
-                preselected.push({ id: r.object_id, type: r.object_type, name: r.display_text || r.object_type, column_name: r.column_name || null })
-            }
-        }
-        selectedReferences.value = preselected
     }
 }
 
@@ -609,6 +611,107 @@ const getCategoryIcon = (category: string) => {
     return categoryIcons[category as keyof typeof categoryIcons] || 'heroicons:document-text'
 }
 
+const getRefIcon = (type: string) => {
+    if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
+    if (type === 'datasource_table') return 'i-heroicons-table-cells'
+    if (type === 'memory') return 'i-heroicons-book-open'
+    return 'i-heroicons-circle'
+}
+
+const handleReferencesChange = (ids: string[]) => {
+    const idSet = new Set(ids)
+    selectedReferences.value = filteredMentionableOptions.value.filter(m => idSet.has(m.id))
+}
+
+const toggleReference = (id: string) => {
+    const currentIds = new Set(selectedReferenceIds.value.map(String))
+    if (currentIds.has(id)) {
+        currentIds.delete(id)
+    } else {
+        currentIds.add(id)
+    }
+    handleReferencesChange(Array.from(currentIds))
+}
+
+const validateSelectedReferences = () => {
+    const validReferenceIds = new Set(filteredMentionableOptions.value.map(m => m.id))
+    selectedReferences.value = selectedReferences.value.filter(ref => validReferenceIds.has(ref.id))
+}
+
+const fetchLabels = async () => {
+    try {
+        const { data, error } = await useMyFetch<InstructionLabel[]>('/instructions/labels', { method: 'GET' })
+        if (!error.value && Array.isArray(data.value)) {
+            availableLabels.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching labels:', err)
+    }
+}
+
+const handleLabelSelectionChange = (ids: string[]) => {
+    selectedLabelIds.value = (ids || []).filter(id => id)
+}
+
+const fetchAvailableReferences = async () => {
+    try {
+        const { data, error } = await useMyFetch<MentionableItem[]>('/instructions/available-references', { method: 'GET' })
+        if (!error.value && data.value) {
+            mentionableOptions.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching available references:', err)
+    }
+}
+
+// Full instruction data (fetched separately to get references)
+const fullInstruction = ref<any>(null)
+
+const fetchFullInstruction = async () => {
+    if (!props.instruction?.id) return
+    
+    try {
+        const { data, error } = await useMyFetch<any>(`/instructions/${props.instruction.id}`, { method: 'GET' })
+        if (!error.value && data.value) {
+            fullInstruction.value = data.value
+        }
+    } catch (err) {
+        console.error('Error fetching full instruction:', err)
+    }
+}
+
+const initReferencesFromInstruction = () => {
+    const instruction = fullInstruction.value || props.instruction
+    
+    if (instruction && Array.isArray(instruction.references)) {
+        const map: Record<string, MentionableItem> = {}
+        for (const m of mentionableOptions.value) map[m.id] = m
+        
+        const seenObjectIds = new Set<string>()
+        const preselected: MentionableItem[] = []
+        
+        for (const r of instruction.references) {
+            if (seenObjectIds.has(r.object_id)) continue
+            seenObjectIds.add(r.object_id)
+            
+            const existing = map[r.object_id]
+            if (existing) {
+                preselected.push({ ...existing, column_name: r.column_name || null })
+            } else {
+                preselected.push({ id: r.object_id, type: r.object_type, name: r.display_text || r.object_type, column_name: r.column_name || null })
+            }
+        }
+        selectedReferences.value = preselected
+    }
+}
+
+const initLabelsFromInstruction = () => {
+    const instruction = fullInstruction.value || props.instruction
+    if (instruction && Array.isArray(instruction.labels)) {
+        selectedLabelIds.value = instruction.labels.map((l: any) => l.id)
+    }
+}
+
 // Event handlers
 const submitForm = async () => {
     if (isSubmitting.value) return
@@ -616,9 +719,6 @@ const submitForm = async () => {
     isSubmitting.value = true
     
     try {
-        console.log('Submitting form with shared form:', props.sharedForm)
-        console.log('Selected data sources:', props.selectedDataSources)
-        
         const payload = {
             text: props.sharedForm.text,
             status: isSuggestionEffective.value ? 'draft' : 'published',
@@ -632,6 +732,7 @@ const submitForm = async () => {
             can_user_toggle: true,
             load_mode: props.sharedForm.load_mode || 'always',
             data_source_ids: isAllDataSourcesSelected.value ? [] : props.selectedDataSources,
+            label_ids: selectedLabelIds.value,
             references: selectedReferences.value.map(r => ({
                 object_type: r.type,
                 object_id: r.id,
@@ -640,22 +741,18 @@ const submitForm = async () => {
             }))
         }
 
-        console.log('Payload:', payload)
-
         let response
         if (isEditing.value) {
-            response = await useMyFetch(`/api/instructions/${props.instruction.id}`, {
+            response = await useMyFetch(`/instructions/${props.instruction.id}`, {
                 method: 'PUT',
                 body: payload
             })
         } else {
-            response = await useMyFetch('/api/instructions', {
+            response = await useMyFetch('/instructions', {
                 method: 'POST',
                 body: payload
             })
         }
-
-        console.log('Response:', response)
 
         if (response.status.value === 'success') {
             toast.add({
@@ -684,7 +781,7 @@ const confirmDelete = async () => {
     if (!props.instruction?.id) return
     
     const confirmed = window.confirm(
-        `Are you sure you want to delete the instruction "${props.instruction.text.substring(0, 50)}${props.instruction.text.length > 50 ? '...' : ''}"?`
+        `Are you sure you want to delete this instruction?`
     )
     
     if (!confirmed) return
@@ -692,7 +789,7 @@ const confirmDelete = async () => {
     isDeleting.value = true
     
     try {
-        const response = await useMyFetch(`/api/instructions/${props.instruction.id}`, {
+        const response = await useMyFetch(`/instructions/${props.instruction.id}`, {
             method: 'DELETE'
         })
         
@@ -719,25 +816,20 @@ const confirmDelete = async () => {
     }
 }
 
-// Watch for suggestion status changes
-watch(isSuggestionEffective, (newValue) => {
-    if (newValue) {
-        needsReview.value = true
-    }
-}, { immediate: true })
-
 // Lifecycle
 onMounted(async () => {
     fetchDataSources()
-    // Fetch full instruction first (to get references), then available references, then init
+    fetchLabels()
     await fetchFullInstruction()
     await fetchAvailableReferences()
     initReferencesFromInstruction()
+    initLabelsFromInstruction()
 })
 
 watch(() => props.instruction, async () => {
     await fetchFullInstruction()
     initReferencesFromInstruction()
+    initLabelsFromInstruction()
 })
 
 // Validate references when data sources change

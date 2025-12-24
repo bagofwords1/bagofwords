@@ -18,6 +18,7 @@ from app.schemas.instruction_schema import (
     InstructionGlobalStatus,
     InstructionCategory,
     InstructionBulkUpdate,
+    InstructionBulkDelete,
     InstructionBulkResponse
 )
 from app.models.instruction import Instruction
@@ -144,6 +145,21 @@ async def bulk_update_instructions(
     """Bulk update multiple instructions (admin only)"""
     return await instruction_service.bulk_update_instructions(
         db, bulk_update, current_user, organization
+    )
+
+
+# BULK DELETE
+@router.delete("/instructions/bulk", response_model=InstructionBulkResponse)
+@requires_permission('delete_instructions')
+async def bulk_delete_instructions(
+    bulk_delete: InstructionBulkDelete,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Bulk delete multiple instructions (admin only)"""
+    return await instruction_service.bulk_delete_instructions(
+        db, bulk_delete.ids, current_user, organization
     )
 
 

@@ -36,6 +36,9 @@ def upgrade() -> None:
     
     # Add new columns to instruction_builds table for Git push tracking
     with op.batch_alter_table('instruction_builds', schema=None) as batch_op:
+        # Auto-generated or user-provided title (e.g., "Added 2 instructions")
+        batch_op.add_column(sa.Column('title', sa.String(length=255), nullable=True))
+        
         # Branch name when pushing to Git (e.g., "BOW-42")
         batch_op.add_column(sa.Column('git_branch_name', sa.String(length=255), nullable=True))
         
@@ -45,13 +48,18 @@ def upgrade() -> None:
         # Timestamp when pushed to Git
         batch_op.add_column(sa.Column('git_pushed_at', sa.DateTime(), nullable=True))
 
+        # Base build for auto-merge (tracks what build this was forked from)
+        batch_op.add_column(sa.Column('base_build_id', sa.String(length=36), nullable=True))
+
 
 def downgrade() -> None:
     # Remove columns from instruction_builds
     with op.batch_alter_table('instruction_builds', schema=None) as batch_op:
+        batch_op.drop_column('base_build_id')
         batch_op.drop_column('git_pushed_at')
         batch_op.drop_column('git_pr_url')
         batch_op.drop_column('git_branch_name')
+        batch_op.drop_column('title')
     
     # Remove columns from git_repositories
     with op.batch_alter_table('git_repositories', schema=None) as batch_op:

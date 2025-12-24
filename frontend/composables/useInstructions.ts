@@ -345,6 +345,73 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
   const bulkAddLabel = (labelId: string) => bulkUpdate({ add_label_ids: [labelId] })
   const bulkRemoveLabel = (labelId: string) => bulkUpdate({ remove_label_ids: [labelId] })
 
+  // Bulk delete
+  const bulkDelete = async () => {
+    isBulkUpdating.value = true
+    try {
+      // If selectAllMode is 'all', fetch all matching IDs first
+      let idsToDelete: string[] = []
+      
+      if (selectAllMode.value === 'all') {
+        // Fetch all IDs matching current filters
+        const queryParams: Record<string, any> = {
+          skip: 0,
+          limit: 10000,
+          include_own: true,
+          include_drafts: true,
+          include_archived: filters.status === 'archived'
+        }
+        if (resolvedDataSourceId.value) queryParams.data_source_id = resolvedDataSourceId.value
+        if (filters.status) queryParams.status = filters.status
+        if (filters.categories.length) queryParams.categories = filters.categories.join(',')
+        if (filters.sourceTypes.length) queryParams.source_types = filters.sourceTypes.join(',')
+        if (filters.loadModes.length) queryParams.load_modes = filters.loadModes.join(',')
+        if (filters.labelIds.length) queryParams.label_ids = filters.labelIds.join(',')
+        if (filters.search?.trim()) queryParams.search = filters.search.trim()
+
+        const { data } = await useMyFetch<PaginatedResponse>('/api/instructions', {
+          method: 'GET',
+          query: queryParams
+        })
+        idsToDelete = (data.value?.items || []).map((i: Instruction) => i.id)
+      } else {
+        idsToDelete = Array.from(selectedIds.value)
+      }
+
+      if (idsToDelete.length === 0) {
+        toast.add({ title: 'No instructions selected', color: 'yellow' })
+        return
+      }
+
+      const { data, error: deleteError } = await useMyFetch('/api/instructions/bulk', {
+        method: 'DELETE',
+        body: { ids: idsToDelete }
+      })
+
+      if (deleteError.value) {
+        throw new Error(deleteError.value.message || 'Bulk delete failed')
+      }
+
+      const result = data.value as { updated_count: number; message: string }
+      toast.add({ 
+        title: 'Success', 
+        description: result?.message || `Deleted ${result?.updated_count} instructions`,
+        color: 'green'
+      })
+
+      clearSelection()
+      await fetchInstructions()
+      
+      if (onBulkSuccess) {
+        await onBulkSuccess()
+      }
+    } catch (err: any) {
+      toast.add({ title: 'Error', description: err.message, color: 'red' })
+    } finally {
+      isBulkUpdating.value = false
+    }
+  }
+
   // Watch for dataSourceId changes
   watch(resolvedDataSourceId, () => {
     currentPage.value = 1
@@ -408,6 +475,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     bulkSetLoadIntelligent,
     bulkSetLoadDisabled,
     bulkAddLabel,
-    bulkRemoveLabel
+    bulkRemoveLabel,
+    bulkDelete
   }
 }

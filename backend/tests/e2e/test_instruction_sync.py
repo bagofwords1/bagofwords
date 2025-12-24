@@ -1300,3 +1300,179 @@ def test_bulk_archive_instructions(
         user_token=user_token,
         org_id=org_id,
     )
+
+
+# ============================================================================
+# BULK DELETE TESTS
+# ============================================================================
+
+@pytest.mark.e2e
+def test_bulk_delete_instructions(
+    create_user,
+    login_user,
+    whoami,
+    create_data_source,
+    create_git_repository,
+    index_git_repository,
+    get_instructions_by_source_type,
+    get_instruction,
+    bulk_delete_instructions,
+    get_builds,
+    get_main_build,
+    delete_git_repository,
+):
+    """Test bulk deleting instructions creates a build and marks instructions as deleted."""
+    if not TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {TEST_DB_PATH}")
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    data_source = create_data_source(
+        name="Bulk Delete Test",
+        type="sqlite",
+        config={"database": str(TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Create git repo with auto_publish=True to get published instructions
+    git_payload = {
+        "provider": "github",
+        "repo_url": TEST_GIT_REPO_URL,
+        "branch": "main",
+        "is_active": True,
+        "auto_publish": True,
+    }
+
+    created_repo = create_git_repository(
+        data_source_id=data_source["id"],
+        payload=git_payload,
+        user_token=user_token,
+        org_id=org_id,
+    )
+    repository_id = created_repo["id"]
+
+    # Index the repository
+    index_git_repository(
+        data_source_id=data_source["id"],
+        repository_id=repository_id,
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Get instructions - fixture returns items directly
+    instructions = get_instructions_by_source_type(
+        source_types=["git", "dbt", "markdown"],
+        user_token=user_token,
+        org_id=org_id,
+        data_source_id=data_source["id"],
+    )
+    
+    assert len(instructions) >= 2, "Need at least 2 instructions for bulk delete test"
+
+    # Get build count before bulk delete
+    builds_before = get_builds(user_token=user_token, org_id=org_id)
+    count_before = builds_before["total"]
+
+    # Bulk delete 2 instructions
+    instruction_ids = [inst["id"] for inst in instructions[:2]]
+    result = bulk_delete_instructions(
+        ids=instruction_ids,
+        user_token=user_token,
+        org_id=org_id,
+    )
+    
+    assert result["updated_count"] == 2, f"Expected 2 deleted, got {result['updated_count']}"
+    assert len(result.get("failed_ids", [])) == 0, "Expected no failures"
+
+    # Build System: Verify a build was created for bulk delete
+    builds_after = get_builds(user_token=user_token, org_id=org_id)
+    new_builds = builds_after["total"] - count_before
+    assert new_builds >= 1, f"Bulk delete should create at least 1 build, created {new_builds}"
+
+    # Verify the main build is updated (delete build should be auto-promoted)
+    main_build = get_main_build(user_token=user_token, org_id=org_id)
+    assert main_build is not None, "Main build should exist after bulk delete"
+    assert main_build["status"] == "approved", "Main build should be approved"
+
+    # Verify instructions are no longer returned (soft-deleted)
+    remaining = get_instructions_by_source_type(
+        source_types=["git", "dbt", "markdown"],
+        user_token=user_token,
+        org_id=org_id,
+        data_source_id=data_source["id"],
+    )
+    remaining_ids = [inst["id"] for inst in remaining]
+    for deleted_id in instruction_ids:
+        assert deleted_id not in remaining_ids, f"Deleted instruction {deleted_id} should not be returned"
+
+    # Cleanup
+    delete_git_repository(
+        data_source_id=data_source["id"],
+        repository_id=repository_id,
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+
+@pytest.mark.e2e
+def test_rollback_restores_deleted_instructions(
+    create_user,
+    login_user,
+    whoami,
+    create_global_instruction,
+    get_instruction,
+    delete_instruction,
+    get_builds,
+    get_main_build,
+    rollback_build,
+):
+    """Test that rolling back to a previous build restores soft-deleted instructions."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    # Create an instruction and get the build
+    instruction = create_global_instruction(
+        text="Instruction to delete and restore",
+        user_token=user_token,
+        org_id=org_id,
+        status="published"
+    )
+    instruction_id = instruction["id"]
+
+    # Get the main build before delete
+    main_build_before = get_main_build(user_token=user_token, org_id=org_id)
+    assert main_build_before is not None, "Main build should exist after instruction creation"
+    build_before_delete_id = main_build_before["id"]
+
+    # Delete the instruction
+    delete_result = delete_instruction(
+        instruction_id=instruction_id,
+        user_token=user_token,
+        org_id=org_id
+    )
+    assert delete_result["message"] == "Instruction deleted successfully"
+
+    # Rollback to the build before delete
+    rollback_result = rollback_build(
+        build_id=build_before_delete_id,
+        user_token=user_token,
+        org_id=org_id
+    )
+    
+    assert rollback_result is not None, "Rollback should return a build"
+    assert rollback_result.get("is_main") is True, "Rolled back build should be main"
+
+    # Verify the instruction is restored
+    restored = get_instruction(
+        instruction_id=instruction_id,
+        user_token=user_token,
+        org_id=org_id
+    )
+    assert restored is not None, "Instruction should be restored after rollback"
+    assert restored["id"] == instruction_id
+    assert restored["text"] == "Instruction to delete and restore"

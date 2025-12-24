@@ -227,9 +227,9 @@ def get_git_repo_status(test_client):
 
 
 @pytest.fixture
-def deploy_build(test_client):
-    """Deploy a build (submit, approve, promote to main)."""
-    def _deploy_build(
+def publish_build(test_client):
+    """Publish a build (auto-approves and promotes to main with auto-merge)."""
+    def _publish_build(
         *,
         build_id: str,
         user_token: str = None,
@@ -237,11 +237,11 @@ def deploy_build(test_client):
     ):
         headers = _build_headers(user_token, org_id)
         response = test_client.post(
-            f"/api/builds/{build_id}/deploy",
+            f"/api/builds/{build_id}/publish",
             headers=headers,
         )
         assert response.status_code == 200, response.json()
         return response.json()
 
-    return _deploy_build
+    return _publish_build
 

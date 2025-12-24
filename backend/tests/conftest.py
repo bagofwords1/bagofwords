@@ -129,7 +129,7 @@ from tests.fixtures.git_repository import (
     sync_git_branch,
     push_build_to_git,
     get_git_repo_status,
-    deploy_build,
+    publish_build,
 )
 from tests.fixtures.instruction import create_instruction, create_global_instruction, get_instructions, get_instruction, update_instruction, delete_instruction, get_instructions_for_data_source, get_instruction_categories, get_instruction_statuses, create_label, list_labels, update_label, delete_label, get_instructions_by_source_type, unlink_instruction_from_git, bulk_update_instructions
 from tests.fixtures.entity import get_entities, get_entity, create_global_entity

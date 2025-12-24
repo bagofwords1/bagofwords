@@ -33,13 +33,24 @@ async def list_builds(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     status: Optional[str] = Query(None, description="Filter by status: draft | pending_approval | approved | rejected (defaults to approved)"),
+    created_by: Optional[str] = Query(None, description="Filter by creator: 'me' for current user's builds only"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """List all builds for the organization. Defaults to approved builds only."""
-    # Default to approved status if not specified
-    effective_status = status if status is not None else 'approved'
+    """List all builds for the organization. Defaults to approved builds only.
+    
+    Use status=all to get builds of all statuses.
+    Use created_by=me to filter to current user's builds only.
+    """
+    # Default to approved status if not specified; 'all' means no filtering
+    if status == 'all':
+        effective_status = None
+    else:
+        effective_status = status if status is not None else 'approved'
+    
+    # Handle created_by filter
+    created_by_user_id = current_user.id if created_by == 'me' else None
     
     result = await build_service.list_builds(
         db=db,
@@ -47,6 +58,7 @@ async def list_builds(
         status=effective_status,
         skip=skip,
         limit=limit,
+        created_by_user_id=created_by_user_id,
     )
     
     # Convert to list schemas
@@ -189,28 +201,6 @@ async def submit_build(
     return InstructionBuildSchema.model_validate(build)
 
 
-@router.post("/{build_id}/approve", response_model=InstructionBuildSchema)
-@requires_permission('create_builds')
-async def approve_build(
-    build_id: str,
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization)
-):
-    """Approve a pending build. Transitions: pending_approval -> approved."""
-    build = await build_service.get_build(db, build_id)
-    
-    if not build:
-        raise HTTPException(status_code=404, detail="Build not found")
-    
-    if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
-    
-    build = await build_service.approve_build(db, build_id, current_user.id)
-    
-    return InstructionBuildSchema.model_validate(build)
-
-
 @router.post("/{build_id}/reject", response_model=InstructionBuildSchema)
 @requires_permission('create_builds')
 async def reject_build(
@@ -230,28 +220,6 @@ async def reject_build(
         raise HTTPException(status_code=403, detail="Build does not belong to this organization")
     
     build = await build_service.reject_build(db, build_id, current_user.id, reject_data.reason)
-    
-    return InstructionBuildSchema.model_validate(build)
-
-
-@router.post("/{build_id}/promote", response_model=InstructionBuildSchema)
-@requires_permission('create_builds')
-async def promote_build(
-    build_id: str,
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    organization: Organization = Depends(get_current_organization)
-):
-    """Promote an approved build to main (is_main=True). Sets previous main build to is_main=False."""
-    build = await build_service.get_build(db, build_id)
-    
-    if not build:
-        raise HTTPException(status_code=404, detail="Build not found")
-    
-    if build.organization_id != organization.id:
-        raise HTTPException(status_code=403, detail="Build does not belong to this organization")
-    
-    build = await build_service.promote_build(db, build_id)
     
     return InstructionBuildSchema.model_validate(build)
 
@@ -396,27 +364,28 @@ async def rollback_to_build(
     return InstructionBuildSchema.model_validate(build)
 
 
-@router.post("/{build_id}/deploy", response_model=InstructionBuildSchema)
+@router.post("/{build_id}/publish", response_model=InstructionBuildSchema)
 @requires_permission('create_builds')
-async def deploy_build(
+async def publish_build(
     build_id: str,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """
-    Deploy a build to main (promote to active/live).
+    Publish a build to main with auto-merge support.
     
-    This is a convenience endpoint that handles the full deployment flow:
-    - If draft: submit -> approve -> promote
-    - If pending_approval: approve -> promote
-    - If approved: promote
+    This is the single action to make a build live:
+    - Auto-approves if draft/pending
+    - If the build is based on current main: simple promote
+    - If the build is stale (main changed since creation): auto-merge user's changes
+    - User's changes always win for the same instruction (last-modified-wins)
     
     Ideal for CI/CD integration after a Git PR is merged.
     
     Example:
     ```
-    curl -X POST "https://api.bagofwords.io/builds/{build_id}/deploy" \\
+    curl -X POST "https://api.bagofwords.io/builds/{build_id}/publish" \\
          -H "Authorization: Bearer $BOW_API_KEY"
     ```
     """
@@ -428,17 +397,13 @@ async def deploy_build(
     if build.organization_id != organization.id:
         raise HTTPException(status_code=403, detail="Build does not belong to this organization")
     
-    # Handle based on current status
-    if build.status == 'draft':
-        build = await build_service.submit_build(db, build_id)
-        build = await build_service.approve_build(db, build_id, current_user.id)
-    elif build.status == 'pending_approval':
-        build = await build_service.approve_build(db, build_id, current_user.id)
-    elif build.status == 'rejected':
-        raise HTTPException(status_code=400, detail="Cannot deploy a rejected build")
+    if build.status == 'rejected':
+        raise HTTPException(status_code=400, detail="Cannot publish a rejected build")
     
-    # Promote to main
-    build = await build_service.promote_build(db, build_id)
+    if build.status == 'approved':
+        raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
     
-    return InstructionBuildSchema.model_validate(build)
+    result = await build_service.publish_build(db, build_id, current_user.id)
+    
+    return InstructionBuildSchema.model_validate(result["build"])
 

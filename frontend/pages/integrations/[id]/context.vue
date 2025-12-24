@@ -88,7 +88,6 @@
                     <BuildVersionSelector
                         v-if="canViewBuilds"
                         v-model="selectedBuildId"
-                        :builds="availableBuilds"
                         :loading="loadingBuilds"
                         :git-repo-id="integration?.git_repository?.id || ''"
                         @rollback="handleRollback"
@@ -306,7 +305,8 @@ async function fetchBuilds() {
         status: build.status,
         createdAt: build.created_at,
         source: build.source,
-        gitProvider: build.git_provider
+        gitProvider: build.git_provider,
+        isMain: build.is_main
       }))
     }
   } catch (e) {

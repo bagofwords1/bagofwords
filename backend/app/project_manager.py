@@ -722,6 +722,7 @@ class ProjectManager:
                 trigger_reason=trigger_reason,
                 ai_source=ai_source,
                 organization_id=str(organization.id),
+                source_type='ai',  # Mark as AI-generated
             )
             db.add(instruction)
             await db.commit()

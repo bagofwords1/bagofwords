@@ -18,6 +18,40 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _generate_build_title(
+    source: str,
+    added: int = 0,
+    modified: int = 0,
+    removed: int = 0,
+    branch: Optional[str] = None,
+) -> str:
+    """Generate a human-readable title for the build based on changes."""
+    parts = []
+    
+    if added > 0:
+        parts.append(f"Added {added}")
+    if modified > 0:
+        parts.append(f"Modified {modified}")
+    if removed > 0:
+        parts.append(f"Removed {removed}")
+    
+    if parts:
+        total = added + modified + removed
+        title = ", ".join(parts) + " instruction" + ("s" if total != 1 else "")
+    else:
+        title = "Empty build"
+    
+    # Add source context
+    if source == 'git' and branch:
+        title = f"[{branch}] {title}"
+    elif source == 'rollback':
+        title = f"Rollback: {title}"
+    elif source == 'merge':
+        title = f"Merged: {title}"
+    
+    return title
+
+
 class BuildService:
     """
     Service for managing InstructionBuild lifecycle.
@@ -82,12 +116,14 @@ class BuildService:
             try:
                 main_build = await self.get_main_build(db, org_id)
                 if main_build:
+                    # Track base for auto-merge on deploy
+                    build.base_build_id = main_build.id
                     logger.debug(f"Copying contents from main build {main_build.id} to {build.id}")
                     copied = await self._copy_build_contents(db, main_build.id, build.id)
                     logger.info(f"Copied {copied} instructions from main build to build {build.id}")
-                    if copied > 0:
-                        # Refresh build to get updated total_instructions
-                        await db.refresh(build)
+                    # Commit base_build_id and copied contents, then refresh
+                    await db.commit()
+                    await db.refresh(build)
                 else:
                     logger.debug(f"No main build found for org {org_id}, starting with empty build")
             except Exception as e:
@@ -169,6 +205,7 @@ class BuildService:
         status: Optional[str] = None,
         skip: int = 0,
         limit: int = 50,
+        created_by_user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """List builds for an organization with optional status filter."""
         # Base conditions
@@ -180,6 +217,9 @@ class BuildService:
         if status:
             conditions.append(InstructionBuild.status == status)
         
+        if created_by_user_id:
+            conditions.append(InstructionBuild.created_by_user_id == created_by_user_id)
+        
         # Count total
         count_query = select(func.count()).select_from(
             select(InstructionBuild).where(and_(*conditions)).subquery()
@@ -187,9 +227,13 @@ class BuildService:
         total_result = await db.execute(count_query)
         total = total_result.scalar() or 0
         
-        # Fetch builds
+        # Fetch builds with user relationships
         query = (
             select(InstructionBuild)
+            .options(
+                selectinload(InstructionBuild.created_by_user),
+                selectinload(InstructionBuild.approved_by_user),
+            )
             .where(and_(*conditions))
             .order_by(InstructionBuild.build_number.desc())
             .offset(skip)
@@ -232,15 +276,26 @@ class BuildService:
             for run in runs:
                 test_runs_by_build[run.build_id] = run
         
-        # Enrich builds with test run data
+        # Enrich builds with test run data and user info
         enriched_items = []
         for build in builds:
+            # Get user names from relationships
+            created_by_name = None
+            if build.created_by_user:
+                created_by_name = getattr(build.created_by_user, 'full_name', None) or getattr(build.created_by_user, 'name', None)
+            
+            approved_by_name = None
+            if build.approved_by_user:
+                approved_by_name = getattr(build.approved_by_user, 'full_name', None) or getattr(build.approved_by_user, 'name', None)
+            
             build_dict = {
                 "id": str(build.id),
                 "build_number": build.build_number,
+                "title": build.title,
                 "status": build.status,
                 "source": build.source,
                 "is_main": build.is_main,
+                "base_build_id": build.base_build_id,
                 "commit_sha": build.commit_sha,
                 "branch": build.branch,
                 "total_instructions": build.total_instructions,
@@ -252,6 +307,10 @@ class BuildService:
                 "git_branch_name": build.git_branch_name,
                 "git_pr_url": build.git_pr_url,
                 "git_pushed_at": build.git_pushed_at,
+                "created_by_user_id": build.created_by_user_id,
+                "created_by_user_name": created_by_name,
+                "approved_by_user_id": build.approved_by_user_id,
+                "approved_by_user_name": approved_by_name,
                 "test_run_id": None,
                 "test_status": None,
                 "test_passed": None,
@@ -351,7 +410,7 @@ class BuildService:
             raise HTTPException(status_code=404, detail="Build not found")
         
         if not build.can_be_edited:
-            raise HTTPException(status_code=400, detail="Build is not editable (not in draft status)")
+            raise HTTPException(status_code=400, detail="Build is not editable (must be draft or pending_approval)")
         
         # Check if instruction already exists in build
         existing = await db.execute(
@@ -369,6 +428,14 @@ class BuildService:
             if existing_content.instruction_version_id != version_id:
                 existing_content.instruction_version_id = version_id
                 build.modified_count += 1
+                # Auto-generate title based on updated stats
+                build.title = _generate_build_title(
+                    source=build.source,
+                    added=build.added_count,
+                    modified=build.modified_count,
+                    removed=build.removed_count,
+                    branch=build.branch,
+                )
             await db.commit()
             await db.refresh(existing_content)
             return existing_content
@@ -382,6 +449,14 @@ class BuildService:
             db.add(content)
             build.total_instructions += 1
             build.added_count += 1
+            # Auto-generate title based on updated stats
+            build.title = _generate_build_title(
+                source=build.source,
+                added=build.added_count,
+                modified=build.modified_count,
+                removed=build.removed_count,
+                branch=build.branch,
+            )
             await db.commit()
             await db.refresh(content)
             return content
@@ -401,7 +476,7 @@ class BuildService:
             raise HTTPException(status_code=404, detail="Build not found")
         
         if not build.can_be_edited:
-            raise HTTPException(status_code=400, detail="Build is not editable (not in draft status)")
+            raise HTTPException(status_code=400, detail="Build is not editable (must be draft or pending_approval)")
         
         result = await db.execute(
             select(BuildContent).where(
@@ -419,6 +494,14 @@ class BuildService:
         await db.delete(content)
         build.total_instructions = max(0, build.total_instructions - 1)
         build.removed_count += 1
+        # Auto-generate title based on updated stats
+        build.title = _generate_build_title(
+            source=build.source,
+            added=build.added_count,
+            modified=build.modified_count,
+            removed=build.removed_count,
+            branch=build.branch,
+        )
         await db.commit()
         return True
     
@@ -583,6 +666,91 @@ class BuildService:
         await db.refresh(build)
         return build
     
+    async def publish_build(
+        self,
+        db: AsyncSession,
+        build_id: str,
+        user_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Publish a build with auto-merge support.
+        
+        This is the single action to make a build live:
+        - Auto-approves if draft/pending
+        - Fresh build (base == current main): simple promote
+        - Stale build (main changed): auto-merge user's changes onto main
+        - Uses last-modified-wins: user's changes overwrite main's for same instruction
+        """
+        build = await self.get_build(db, build_id)
+        if not build:
+            raise HTTPException(status_code=404, detail="Build not found")
+        
+        if build.status == 'rejected':
+            raise HTTPException(status_code=400, detail="Cannot publish a rejected build")
+        
+        if build.status == 'approved':
+            raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
+        
+        # Auto-approve if needed (reusing existing methods)
+        if build.status == 'draft':
+            build = await self.submit_build(db, build_id)
+        if build.status == 'pending_approval':
+            build = await self.approve_build(db, build_id, user_id)
+        
+        current_main = await self.get_main_build(db, build.organization_id)
+        
+        # Case 1: Fresh build or no main - simple promote
+        if not current_main or not build.base_build_id or build.base_build_id == current_main.id:
+            promoted = await self.promote_build(db, build_id)
+            return {"build": promoted, "merged": False}
+        
+        # Case 2: Stale build - compute diff and merge
+        user_diff = await self.diff_builds(db, build.base_build_id, build_id)
+        
+        # Get source build contents for added instructions (need version_ids)
+        source_contents = await self.get_build_contents(db, build_id)
+        source_map = {c.instruction_id: c for c in source_contents}
+        
+        # Race condition check
+        fresh_main = await self.get_main_build(db, build.organization_id)
+        if fresh_main and current_main and fresh_main.id != current_main.id:
+            raise HTTPException(status_code=409, detail="Main build changed during deploy, please retry")
+        
+        # Create merged build from current main (reuses create_build with copy_from_main)
+        merged = await self.create_build(
+            db, 
+            org_id=current_main.organization_id, 
+            source='merge', 
+            user_id=user_id,
+            copy_from_main=True,
+        )
+        
+        # Apply user's additions
+        for instruction_id in user_diff['added']:
+            content = source_map.get(instruction_id)
+            if content:
+                await self.add_to_build(db, merged.id, instruction_id, content.instruction_version_id)
+        
+        # Apply user's modifications (overwrites main's versions)
+        for mod in user_diff['modified']:
+            await self.add_to_build(db, merged.id, mod['instruction_id'], mod['to_version_id'])
+        
+        # Apply user's removals
+        for instruction_id in user_diff['removed']:
+            await self.remove_from_build(db, merged.id, instruction_id)
+        
+        # Finalize merged build
+        merged.status = 'approved'
+        merged.approved_by_user_id = user_id
+        merged.approved_at = datetime.utcnow()
+        await db.commit()
+        
+        promoted = await self.promote_build(db, merged.id)
+        
+        logger.info(f"Deployed build {build_id} via auto-merge: +{user_diff['added_count']} ~{user_diff['modified_count']} -{user_diff['removed_count']}")
+        
+        return {"build": promoted, "merged": True}
+    
     # ==================== Diff ====================
     
     async def diff_builds(
@@ -694,6 +862,7 @@ class BuildService:
                 "source_type": instruction.source_type if instruction else None,
                 "status": version.status if version else (instruction.status if instruction else None),
                 "load_mode": version.load_mode if version else (instruction.load_mode if instruction else None),
+                "to_version_id": content.instruction_version_id,
                 "to_version_number": version.version_number if version else None,
             })
         
@@ -719,6 +888,7 @@ class BuildService:
                 "source_type": instruction.source_type if instruction else None,
                 "status": version.status if version else (instruction.status if instruction else None),
                 "load_mode": version.load_mode if version else (instruction.load_mode if instruction else None),
+                "from_version_id": content.instruction_version_id,
                 "from_version_number": version.version_number if version else None,
             })
         
@@ -787,6 +957,8 @@ class BuildService:
                     "changed_fields": changed_fields if changed_fields else None,
                     "references_added": references_added if references_added else None,
                     "references_removed": references_removed if references_removed else None,
+                    "from_version_id": content_a.instruction_version_id,
+                    "to_version_id": content_b.instruction_version_id,
                     "from_version_number": version_a.version_number if version_a else None,
                     "to_version_number": version_b.version_number if version_b else None,
                 })
@@ -840,6 +1012,27 @@ class BuildService:
                 status_code=400, 
                 detail=f"Can only rollback to approved builds (current status: {target_build.status})"
             )
+        
+        # === Restore soft-deleted instructions that are in the target build ===
+        # This makes delete reversible via rollback
+        target_contents = await self.get_build_contents(db, target_build_id)
+        instruction_ids_to_restore = [c.instruction_id for c in target_contents]
+        
+        if instruction_ids_to_restore:
+            # Clear deleted_at for any instructions in the target build that were soft-deleted
+            result = await db.execute(
+                sql_update(Instruction)
+                .where(
+                    and_(
+                        Instruction.id.in_(instruction_ids_to_restore),
+                        Instruction.deleted_at != None
+                    )
+                )
+                .values(deleted_at=None)
+            )
+            restored_count = result.rowcount
+            if restored_count > 0:
+                logger.info(f"Rollback: restored {restored_count} soft-deleted instructions")
         
         # Create a new build with source='rollback' (don't copy from main)
         new_build = await self.create_build(
@@ -896,4 +1089,31 @@ class BuildService:
         await db.commit()
         await db.refresh(build)
         return build
+    
+    async def update_build_title(
+        self,
+        db: AsyncSession,
+        build_id: str,
+        title: Optional[str] = None,
+    ) -> None:
+        """
+        Update build title. If title is None, auto-generate from stats.
+        Called after changes to keep the title in sync.
+        """
+        build = await self.get_build(db, build_id)
+        if not build:
+            return
+        
+        if title:
+            build.title = title
+        else:
+            build.title = _generate_build_title(
+                source=build.source,
+                added=build.added_count,
+                modified=build.modified_count,
+                removed=build.removed_count,
+                branch=build.branch,
+            )
+        
+        await db.commit()
 

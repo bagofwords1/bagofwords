@@ -7,8 +7,9 @@
                 <p class="mt-2 text-gray-500">Create and manage your instructions</p>
             </div>
             <div class="flex items-center gap-2 mt-1">
-                <!-- AI Suggestions button -->
+                <!-- AI Suggestions button - only for users who can modify settings -->
                 <UButton
+                    v-if="canModifySettings"
                     :variant="learningEnabled ? 'soft' : 'ghost'"
                     color="gray"
                     size="xs"
@@ -22,6 +23,17 @@
                     </span>
                     AI Suggestions
                 </UButton>
+
+                <!-- Pending Review button -->
+                <UChip :text="pendingSuggestionCount" size="xl" :show="pendingSuggestionCount > 0">
+                    <UButton
+                        color="white"
+                        size="xs"
+                        @click="showSuggestionsModal = true"
+                    >
+                        Pending Review
+                    </UButton>
+                </UChip>
 
                 <!-- Add Instruction button -->
                 <UButton
@@ -63,6 +75,7 @@
             <!-- Right: Bulk actions + Git -->
             <div class="flex items-center gap-3 shrink-0">
                 <InstructionsBulkBar
+                    v-if="canUpdateInstructions"
                     :selected-count="inst.selectedCount.value"
                     :select-all-mode="inst.selectAllMode.value"
                     :total="inst.total.value"
@@ -77,6 +90,7 @@
                     @load-disabled="inst.bulkSetLoadDisabled"
                     @add-label="inst.bulkAddLabel"
                     @remove-label="inst.bulkRemoveLabel"
+                    @delete="handleBulkDelete"
                 />
 
                 <!-- Git Repositories button -->
@@ -91,7 +105,6 @@
                 <BuildVersionSelector
                     v-if="canViewBuilds"
                     v-model="selectedBuildId"
-                    :builds="availableBuilds"
                     :loading="loadingBuilds"
                     :git-repo-id="gitRepoId"
                     @rollback="handleRollback"
@@ -104,7 +117,7 @@
             <InstructionsTable
                 :instructions="inst.instructions.value"
                 :loading="inst.isLoading.value || inst.isBulkUpdating.value"
-                :selectable="true"
+                :selectable="canUpdateInstructions"
                 :selected-ids="inst.selectedIds.value"
                 :is-all-page-selected="inst.isAllPageSelected.value"
                 :is-some-selected="inst.isSomeSelected.value"
@@ -148,6 +161,14 @@
             v-model="showGitRepositoriesModal"
             @changed="handleGitChanged"
         />
+
+        <BuildExplorerModal
+            v-model="showSuggestionsModal"
+            :suggestions-mode="true"
+            :user-only="!canApproveSuggestions"
+            :git-repo-id="gitRepoId"
+            @rollback="handleSuggestionsRollback"
+        />
     </div>
 </template>
 
@@ -156,6 +177,7 @@ import InstructionModalComponent from '~/components/InstructionModalComponent.vu
 import InstructionLabelsManagerModal from '~/components/InstructionLabelsManagerModal.vue'
 import InstructionLearningSettingsModal from '~/components/InstructionLearningSettingsModal.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
+import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue'
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import InstructionsFilterBar from '~/components/instructions/InstructionsFilterBar.vue'
 import InstructionsBulkBar from '~/components/instructions/InstructionsBulkBar.vue'
@@ -189,6 +211,8 @@ const editingInstruction = ref<Instruction | null>(null)
 const showLabelsManagerModal = ref(false)
 const showLearningSettingsModal = ref(false)
 const showGitRepositoriesModal = ref(false)
+const showSuggestionsModal = ref(false)
+const pendingSuggestionCount = ref(0)
 
 // Git connection status
 const gitConnectedCount = ref(0)
@@ -212,12 +236,15 @@ const learningSettings = ref<{ enabled: boolean; sensitivity: number; conditions
 
 // Build version selection
 const selectedBuildId = ref<string | null>(null)
-const availableBuilds = ref<{ value: string; label: string; buildNumber: number; status: string; createdAt: string; source: string }[]>([])
+const availableBuilds = ref<{ value: string; label: string; buildNumber: number; status: string; createdAt: string; source: string; isMain?: boolean }[]>([])
 const loadingBuilds = ref(false)
 
 // Computed
 const canCreate = computed(() => useCan('create_instructions'))
+const canUpdateInstructions = computed(() => useCan('update_instructions'))
 const canViewBuilds = computed(() => useCan('view_builds'))
+const canApproveSuggestions = computed(() => useCan('create_builds'))
+const canModifySettings = computed(() => useCan('modify_settings'))
 const addButtonLabel = computed(() => canCreate.value ? 'Add Instruction' : 'Suggest')
 
 const hasGitConnections = computed(() => gitConnectedCount.value > 0)
@@ -370,6 +397,18 @@ const handleLabelsChanged = () => {
     inst.refresh()
 }
 
+const handleBulkDelete = async () => {
+    // Show confirmation before deleting
+    const count = inst.selectedCount.value
+    const confirmed = window.confirm(
+        `Are you sure you want to delete ${count} instruction${count !== 1 ? 's' : ''}? This action cannot be undone.`
+    )
+    
+    if (confirmed) {
+        await inst.bulkDelete()
+    }
+}
+
 const openLearningSettingsModal = () => {
     showLearningSettingsModal.value = true
 }
@@ -411,7 +450,8 @@ const fetchBuilds = async () => {
                 status: build.status,
                 createdAt: build.created_at,
                 source: build.source,
-                gitProvider: build.git_provider
+                gitProvider: build.git_provider,
+                isMain: build.is_main
             }))
         }
     } catch (e) {
@@ -429,6 +469,26 @@ const handleRollback = async (newBuildId: string) => {
     selectedBuildId.value = null // Reset to main/latest
     // Refresh instructions
     inst.refresh()
+}
+
+// Handle rollback from suggestions modal
+const handleSuggestionsRollback = async (newBuildId: string) => {
+    await handleRollback(newBuildId)
+    // Refresh pending count since a suggestion was published
+    fetchPendingSuggestionCount()
+}
+
+// Fetch count of pending suggestions
+const fetchPendingSuggestionCount = async () => {
+    try {
+        const { data } = await useMyFetch<{ items: any[]; total: number }>('/builds', {
+            method: 'GET',
+            query: { status: 'pending_approval', limit: 1 }
+        })
+        pendingSuggestionCount.value = data.value?.total || 0
+    } catch (e) {
+        console.error('Failed to fetch pending suggestion count:', e)
+    }
 }
 
 // Watch for build selection changes
@@ -453,5 +513,6 @@ onMounted(async () => {
     fetchGitStatus()
     fetchAvailableSourceTypes()
     fetchBuilds()
+    fetchPendingSuggestionCount()
 })
 </script>

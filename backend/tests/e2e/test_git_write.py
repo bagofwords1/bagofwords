@@ -679,7 +679,7 @@ def test_deploy_promotes_to_main(
     create_global_instruction,
     get_builds,
     get_build,
-    deploy_build,
+    publish_build,
     get_main_build,
 ):
     """Test that deploy promotes a build to is_main=True."""
@@ -710,7 +710,7 @@ def test_deploy_promotes_to_main(
         assert main["status"] == "approved", "Main build should be approved"
     else:
         # Deploy
-        deployed = deploy_build(
+        deployed = publish_build(
             build_id=build_id,
             user_token=user_token,
             org_id=org_id,
@@ -732,7 +732,7 @@ def test_deploy_auto_submits_draft(
     create_data_source,
     create_git_repository,
     sync_git_branch,
-    deploy_build,
+    publish_build,
     get_build,
     delete_git_repository,
 ):
@@ -784,7 +784,7 @@ def test_deploy_auto_submits_draft(
         assert build_before["status"] == "draft", "Build should start as draft"
 
         # Deploy (should auto-submit and approve)
-        deployed = deploy_build(
+        deployed = publish_build(
             build_id=build_id,
             user_token=user_token,
             org_id=org_id,
@@ -1081,7 +1081,7 @@ def test_cicd_flow_sync_branch_test_deploy(
     sync_git_branch,
     create_test_suite,
     create_test_case,
-    deploy_build,
+    publish_build,
     get_build,
     get_main_build,
     delete_git_repository,
@@ -1190,7 +1190,7 @@ def test_cicd_flow_sync_branch_test_deploy(
         # STEP 3: CD - Promote build to main (after tests pass)
         # ============================================================
         # In real CI/CD, this would be a separate GitHub Action after merge
-        deployed = deploy_build(
+        deployed = publish_build(
             build_id=build_id,
             user_token=user_token,
             org_id=org_id,

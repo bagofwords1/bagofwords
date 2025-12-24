@@ -1071,7 +1071,7 @@ def test_sync_then_deploy_flow(
     create_data_source,
     create_git_repository,
     sync_git_branch,
-    deploy_build,
+    publish_build,
     get_main_build,
     delete_git_repository,
 ):
@@ -1120,7 +1120,7 @@ def test_sync_then_deploy_flow(
         assert sync_result["status"] == "draft", "Synced build should be draft"
 
         # Step 2: Deploy (promotes to main)
-        deployed = deploy_build(
+        deployed = publish_build(
             build_id=build_id,
             user_token=user_token,
             org_id=org_id,

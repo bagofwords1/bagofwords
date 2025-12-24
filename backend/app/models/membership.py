@@ -46,9 +46,8 @@ MEMBER_PERMISSIONS = {
     'view_entities',
     'refresh_entities',
     'suggest_entities',
-    'withdraw_entities'
-
-
+    'withdraw_entities',
+    'view_builds'  # Allow members to see builds (their pending suggestions)
 }
 
 ADMIN_PERMISSIONS = {

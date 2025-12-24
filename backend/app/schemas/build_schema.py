@@ -21,9 +21,11 @@ class InstructionBuildSchema(BaseModel):
     """Full schema for InstructionBuild."""
     id: str
     build_number: int
+    title: Optional[str] = None  # Auto-generated or user-provided title
     status: str  # draft | pending_approval | approved | rejected
     source: str  # user | git | ai
     is_main: bool
+    base_build_id: Optional[str] = None  # For auto-merge on deploy
     
     # Trigger links
     metadata_indexing_job_id: Optional[str] = None
@@ -69,9 +71,11 @@ class InstructionBuildListSchema(BaseModel):
     """Schema for build list item (lighter version)."""
     id: str
     build_number: int
+    title: Optional[str] = None  # Auto-generated or user-provided title
     status: str
     source: str
     is_main: bool
+    base_build_id: Optional[str] = None  # For auto-merge on deploy
     commit_sha: Optional[str] = None
     branch: Optional[str] = None
     total_instructions: int = 0
@@ -91,6 +95,12 @@ class InstructionBuildListSchema(BaseModel):
     test_status: Optional[str] = None
     test_passed: Optional[int] = None
     test_failed: Optional[int] = None
+    
+    # User info
+    created_by_user_id: Optional[str] = None
+    created_by_user_name: Optional[str] = None
+    approved_by_user_id: Optional[str] = None
+    approved_by_user_name: Optional[str] = None
     
     class Config:
         from_attributes = True

@@ -107,6 +107,9 @@ class InstructionUpdate(BaseModel):
     title: Optional[str] = None
     source_sync_enabled: Optional[bool] = None  # Set to False to unlink from git
 
+    # Build targeting - if set, update within this existing build instead of creating new one
+    target_build_id: Optional[str] = None
+
 
 class InstructionBulkUpdate(BaseModel):
     """Schema for bulk updating multiple instructions"""
@@ -116,6 +119,11 @@ class InstructionBulkUpdate(BaseModel):
     load_mode: Optional[str] = None  # 'always' | 'intelligent' | 'disabled'
     add_label_ids: Optional[List[str]] = None  # Labels to add
     remove_label_ids: Optional[List[str]] = None  # Labels to remove
+
+
+class InstructionBulkDelete(BaseModel):
+    """Schema for bulk deleting multiple instructions"""
+    ids: List[str]  # List of instruction IDs to delete
 
 
 class InstructionBulkResponse(BaseModel):

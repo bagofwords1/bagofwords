@@ -72,6 +72,9 @@ class InstructionService:
     ) -> InstructionSchema:
         """Create a new instruction following the dual-status matrix"""
         
+        # Get user permissions for auto-publish check
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+        
         # Validate data sources if provided
         if instruction_data.data_source_ids:
             await self._validate_data_sources(db, instruction_data.data_source_ids, organization)
@@ -153,7 +156,7 @@ class InstructionService:
             
             # Auto-finalize unless explicitly disabled (for batching scenarios)
             if auto_finalize:
-                await self._auto_finalize_build(db, target_build, current_user)
+                await self._auto_finalize_build(db, target_build, current_user, user_permissions)
             
             logger.info(f"Created version {version.id} for instruction {instruction.id}, added to build {target_build.id}")
         except Exception as e:
@@ -676,23 +679,38 @@ class InstructionService:
                 # Update instruction's current version
                 instruction_with_rels.current_version_id = version.id
                 
-                # Get or create a draft build for user changes
-                build = await self.build_service.get_or_create_draft_build(
-                    db, organization.id, source='user', user_id=current_user.id
-                )
+                # Check if we're targeting an existing build (editing within BuildExplorerModal)
+                target_build_id = getattr(instruction_data, 'target_build_id', None)
                 
-                # Add the version to the build
-                await self.build_service.add_to_build(
-                    db, build.id, instruction_with_rels.id, version.id
-                )
-                
-                await db.commit()
-                
-                # Always auto-finalize to keep main build in sync
-                # All instructions (including draft/suggested) are in main for UI display
-                await self._auto_finalize_build(db, build, current_user)
-                
-                logger.info(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
+                if target_build_id:
+                    # Use the specified target build - don't create new one or auto-finalize
+                    target_build = await self.build_service.get_build(db, target_build_id)
+                    if target_build and target_build.can_be_edited:
+                        await self.build_service.add_to_build(
+                            db, target_build.id, instruction_with_rels.id, version.id
+                        )
+                        await db.commit()
+                        logger.info(f"Created version {version.id} for instruction {instruction.id}, added to existing build {target_build.id}")
+                    else:
+                        logger.warning(f"Target build {target_build_id} not found or not editable, skipping build update")
+                else:
+                    # Default behavior: Get or create a draft build for user changes
+                    build = await self.build_service.get_or_create_draft_build(
+                        db, organization.id, source='user', user_id=current_user.id
+                    )
+                    
+                    # Add the version to the build
+                    await self.build_service.add_to_build(
+                        db, build.id, instruction_with_rels.id, version.id
+                    )
+                    
+                    await db.commit()
+                    
+                    # Always auto-finalize to keep main build in sync
+                    # All instructions (including draft/suggested) are in main for UI display
+                    await self._auto_finalize_build(db, build, current_user, user_permissions)
+                    
+                    logger.info(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
         except Exception as e:
             logger.warning(f"Failed to create version for updated instruction {instruction.id}: {e}")
             # Don't fail the update if versioning fails
@@ -757,9 +775,12 @@ class InstructionService:
         db: AsyncSession,
         instruction_id: str,
         organization: Organization,
-        current_user: User
+        current_user: User,
     ) -> bool:
         """Delete an instruction (soft delete)"""
+        
+        # Get user permissions for auto-publish check
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
 
         result = await db.execute(
             select(Instruction).where(
@@ -792,7 +813,13 @@ class InstructionService:
             await db.commit()
             
             # Auto-finalize to reflect deletion in main build
-            await self._auto_finalize_build(db, build, current_user)
+            await self._auto_finalize_build(db, build, current_user, user_permissions)
+            
+            # Auto-promote delete builds since the delete already took effect via deleted_at
+            await db.refresh(build)
+            if build.status == 'approved' and not build.is_main:
+                await self.build_service.promote_build(db, build.id)
+                logger.info(f"Auto-promoted delete build {build.id} to main")
             
             logger.info(f"Removed instruction {instruction_id} from build {build.id}")
         except Exception as e:
@@ -833,11 +860,14 @@ class InstructionService:
         db: AsyncSession,
         bulk_update,  # InstructionBulkUpdate
         current_user: User,
-        organization: Organization
+        organization: Organization,
     ) -> dict:
         """Bulk update multiple instructions (admin only)"""
         from app.schemas.instruction_schema import InstructionBulkResponse
         from app.models.instruction_label import InstructionLabel
+        
+        # Get user permissions for auto-publish check
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
         
         updated_count = 0
         failed_ids = []
@@ -985,7 +1015,7 @@ class InstructionService:
                 await db.commit()
                 
                 # Finalize the build
-                await self._auto_finalize_build(db, bulk_build, current_user)
+                await self._auto_finalize_build(db, bulk_build, current_user, user_permissions)
                 logger.info(f"Finalized bulk update build {bulk_build.id} with {len(modified_instructions)} instructions")
             except Exception as version_error:
                 logger.warning(f"Failed to create versions for bulk update: {version_error}")
@@ -994,6 +1024,90 @@ class InstructionService:
             updated_count=updated_count,
             failed_ids=failed_ids,
             message=f"Successfully updated {updated_count} instructions"
+        )
+
+    async def bulk_delete_instructions(
+        self,
+        db: AsyncSession,
+        instruction_ids: List[str],
+        current_user: User,
+        organization: Organization,
+    ) -> dict:
+        """Bulk delete multiple instructions (soft delete) with a single build"""
+        from app.schemas.instruction_schema import InstructionBulkResponse
+        
+        # Get user permissions for auto-publish check
+        user_permissions = await self._get_user_permissions(db, current_user, organization)
+        
+        deleted_count = 0
+        failed_ids = []
+        
+        # Fetch all instructions by IDs
+        result = await db.execute(
+            select(Instruction)
+            .where(
+                and_(
+                    Instruction.id.in_(instruction_ids),
+                    Instruction.organization_id == organization.id,
+                    Instruction.deleted_at == None
+                )
+            )
+        )
+        instructions = result.scalars().all()
+        
+        # Track which IDs were not found
+        found_ids = {str(inst.id) for inst in instructions}
+        for req_id in instruction_ids:
+            if req_id not in found_ids:
+                failed_ids.append(req_id)
+        
+        # === Build System Integration ===
+        # Create a single build for all bulk deletions
+        bulk_build = None
+        try:
+            bulk_build = await self.build_service.get_or_create_draft_build(
+                db, organization.id, source='user', user_id=current_user.id
+            )
+            logger.debug(f"Created bulk delete build {bulk_build.id}")
+        except Exception as build_error:
+            logger.warning(f"Failed to create bulk delete build: {build_error}")
+        
+        # Apply soft deletes
+        for instruction in instructions:
+            try:
+                instruction.deleted_at = datetime.utcnow()
+                
+                # Remove from build if we have one
+                if bulk_build:
+                    try:
+                        await self.build_service.remove_from_build(db, bulk_build.id, str(instruction.id))
+                    except Exception as e:
+                        logger.warning(f"Failed to remove instruction {instruction.id} from build: {e}")
+                
+                deleted_count += 1
+            except Exception as e:
+                failed_ids.append(str(instruction.id))
+                logger.warning(f"Failed to delete instruction {instruction.id}: {e}")
+        
+        await db.commit()
+        
+        # Finalize and promote the build (delete is immediate, so build should reflect that)
+        if bulk_build:
+            try:
+                await self._auto_finalize_build(db, bulk_build, current_user, user_permissions)
+                
+                # Auto-promote delete builds since the delete already took effect via deleted_at
+                await db.refresh(bulk_build)
+                if bulk_build.status == 'approved' and not bulk_build.is_main:
+                    await self.build_service.promote_build(db, bulk_build.id)
+                    logger.info(f"Auto-promoted bulk delete build {bulk_build.id} to main")
+            except Exception as finalize_error:
+                logger.warning(f"Failed to finalize/promote bulk delete build: {finalize_error}")
+        
+        return InstructionBulkResponse(
+            updated_count=deleted_count,
+            failed_ids=failed_ids,
+            message=f"Successfully deleted {deleted_count} instructions"
         )
     
     async def get_instructions_for_data_source(
@@ -1869,12 +1983,16 @@ class InstructionService:
         self, 
         db: AsyncSession, 
         build, 
-        current_user: User
+        current_user: User,
+        user_permissions: set,
     ) -> None:
         """
-        Auto-finalize a build by submitting and approving it immediately.
-        This makes the build system invisible to regular users - only draft/suggested
-        instructions accumulate in builds for admin review.
+        Auto-finalize a build based on user permissions.
+        
+        - Admins: approve only (makes build ready, but doesn't auto-promote)
+        - Non-admins: submit for approval only (admin must review)
+        
+        Note: Promoting to main requires explicit action (Publish/Deploy button)
         """
         from app.models.instruction_build import InstructionBuild
         
@@ -1883,16 +2001,21 @@ class InstructionService:
             if build.status != 'draft':
                 return
             
-            # Submit the build
+            # Submit the build for approval
             await self.build_service.submit_build(db, build.id)
             
-            # Auto-approve and promote to main
-            await self.build_service.approve_build(
-                db, build.id, approved_by_user_id=current_user.id
-            )
-            await self.build_service.promote_build(db, build.id)
+            # Check if user is admin
+            is_admin = self._is_admin_permissions(user_permissions)
             
-            logger.info(f"Auto-finalized build {build.id} (published instruction)")
+            if is_admin:
+                # Admin: auto-approve but DON'T promote - requires explicit publish action
+                await self.build_service.approve_build(
+                    db, build.id, approved_by_user_id=current_user.id
+                )
+                logger.info(f"Auto-approved build {build.id} (admin, ready to publish)")
+            else:
+                # Non-admin: leave in pending_approval for admin review
+                logger.info(f"Build {build.id} submitted for admin approval (non-admin user)")
         except Exception as e:
             logger.warning(f"Failed to auto-finalize build {build.id}: {e}")
             # Don't fail the instruction operation if auto-finalize fails

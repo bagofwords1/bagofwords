@@ -316,17 +316,16 @@ class AgentV2:
                             pass
                     
                     # === Finalize Build ===
-                    # Auto-finalize the AI build after all suggestions are created
+                    # Submit the AI build for admin approval (don't auto-publish)
                     if ai_build and len(drafts) > 0:
                         try:
                             from app.services.build_service import BuildService
                             build_service = BuildService()
                             await build_service.submit_build(self.db, ai_build.id)
-                            await build_service.approve_build(self.db, ai_build.id, approved_by_user_id=None)
-                            await build_service.promote_build(self.db, ai_build.id)
-                            logger.info(f"Finalized AI build {ai_build.id} with {len(drafts)} instructions")
+                            # AI-created builds require admin review - don't auto-approve or promote
+                            logger.info(f"Submitted AI build {ai_build.id} for approval with {len(drafts)} instructions")
                         except Exception as finalize_error:
-                            logger.warning(f"Failed to finalize AI build: {finalize_error}")
+                            logger.warning(f"Failed to submit AI build for approval: {finalize_error}")
 
                     try:
                         seq_si_f = await self.project_manager.next_seq(self.db, self.current_execution)

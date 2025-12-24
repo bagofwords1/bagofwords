@@ -16,6 +16,9 @@ class InstructionBuild(BaseSchema):
     # Auto-incrementing build number per organization (1, 2, 3...)
     build_number = Column(Integer, nullable=False, index=True)
     
+    # Auto-generated or user-provided title (e.g., "Added 2 instructions")
+    title = Column(String(255), nullable=True)
+    
     # Lifecycle status: draft | pending_approval | approved | rejected
     status = Column(String(20), nullable=False, default='draft')
     
@@ -24,6 +27,9 @@ class InstructionBuild(BaseSchema):
     
     # Only ONE build per organization can have is_main=True
     is_main = Column(Boolean, default=False, nullable=False, index=True)
+    
+    # Base build this was forked from (for auto-merge on deploy)
+    base_build_id = Column(String(36), ForeignKey('instruction_builds.id'), nullable=True)
     
     # Trigger links - one populated based on source
     metadata_indexing_job_id = Column(String(36), ForeignKey('metadata_indexing_jobs.id', ondelete='SET NULL'), nullable=True)
@@ -67,6 +73,10 @@ class InstructionBuild(BaseSchema):
     agent_execution = relationship("AgentExecution", foreign_keys=[agent_execution_id], lazy="selectin")
     # test_run relationship removed - we query latest test run per build in service
     
+    # Base build for auto-merge
+    base_build = relationship("InstructionBuild", remote_side="InstructionBuild.id", 
+                              foreign_keys=[base_build_id], lazy="selectin")
+    
     # Build contents - the instruction versions in this build
     contents = relationship("BuildContent", back_populates="build", lazy="selectin", cascade="all, delete-orphan")
     
@@ -100,8 +110,8 @@ class InstructionBuild(BaseSchema):
     
     @property
     def can_be_edited(self) -> bool:
-        """Returns True if build contents can still be modified (only drafts)"""
-        return self.is_draft
+        """Returns True if build contents can still be modified (drafts and pending_approval)"""
+        return self.is_draft or self.is_pending
     
     @property
     def can_be_submitted(self) -> bool:

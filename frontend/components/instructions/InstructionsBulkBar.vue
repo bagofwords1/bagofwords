@@ -41,10 +41,13 @@
             <template #item="{ item }">
                 <div 
                     class="flex items-center gap-2 text-xs w-full"
-                    :class="{ 
-                        'opacity-70 cursor-default': item.disabled,
-                        'font-medium text-gray-800 uppercase text-[10px] tracking-wide': item.header
-                    }"
+                    :class="[
+                        { 
+                            'opacity-70 cursor-default': item.disabled,
+                            'font-medium text-gray-800 uppercase text-[10px] tracking-wide': item.header
+                        },
+                        item.class
+                    ]"
                 >
                     <UIcon v-if="item.icon && !item.header" :name="item.icon" class="w-3.5 h-3.5 shrink-0" />
                     <UIcon v-if="item.isLabel" name="i-heroicons-tag" class="w-3 h-3 shrink-0" />
@@ -87,6 +90,7 @@ const emit = defineEmits<{
     'load-disabled': []
     'add-label': [labelId: string]
     'remove-label': [labelId: string]
+    'delete': []
 }>()
 
 const menuItems = computed(() => {
@@ -98,6 +102,7 @@ const menuItems = computed(() => {
         { label: 'Publish', icon: 'i-heroicons-check', click: () => emit('publish') },
         { label: 'Draft', icon: 'i-heroicons-pencil', click: () => emit('make-draft') },
         { label: 'Archive', icon: 'i-heroicons-archive-box', click: () => emit('archive') },
+        { label: 'Delete', icon: 'i-heroicons-trash', click: () => emit('delete'), class: 'text-red-600' },
     ])
     
     // Load mode section

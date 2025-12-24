@@ -484,3 +484,35 @@ def bulk_update_instructions(test_client):
         return response.json()
     
     return _bulk_update_instructions
+
+
+@pytest.fixture
+def bulk_delete_instructions(test_client):
+    """Bulk delete multiple instructions"""
+    def _bulk_delete_instructions(
+        ids,
+        user_token=None,
+        org_id=None,
+    ):
+        if user_token is None:
+            pytest.fail("User token is required for bulk_delete_instructions")
+        if org_id is None:
+            pytest.fail("Organization ID is required for bulk_delete_instructions")
+        
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id)
+        }
+
+        payload = {"ids": ids}
+        
+        response = test_client.delete(
+            "/api/instructions/bulk",
+            json=payload,
+            headers=headers
+        )
+        
+        assert response.status_code == 200, response.json()
+        return response.json()
+    
+    return _bulk_delete_instructions
