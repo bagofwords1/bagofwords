@@ -400,7 +400,7 @@ async def publish_build(
     if build.status == 'rejected':
         raise HTTPException(status_code=400, detail="Cannot publish a rejected build")
     
-    if build.status == 'approved':
+    if build.is_main:
         raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
     
     result = await build_service.publish_build(db, build_id, current_user.id)

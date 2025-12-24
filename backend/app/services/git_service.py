@@ -789,7 +789,9 @@ class GitService:
             
             # Check if there are changes to commit
             if repo.is_dirty() or repo.untracked_files:
-                commit_message = f"BOW Build #{build.build_number}"
+                commit_message = f"BOW #{build.build_number}"
+                if build.title:
+                    commit_message += f": {build.title}"
                 repo.index.commit(commit_message)
                 
                 # Push the branch
@@ -801,11 +803,16 @@ class GitService:
                 
                 pr_url = None
                 if create_pr and repository.can_create_pr:
+                    # Include build title in PR if available
+                    pr_title = f"BOW #{build.build_number}"
+                    if build.title:
+                        pr_title += f": {build.title}"
+                    
                     pr_url = await self.create_pr(
                         repository=repository,
                         source_branch=branch_name,
                         target_branch=repository.branch or "main",
-                        title=f"BOW Build #{build.build_number}",
+                        title=pr_title,
                         description=f"Automated PR from Bag of Words build #{build.build_number}",
                     )
                     build.git_pr_url = pr_url

@@ -2008,11 +2008,16 @@ class InstructionService:
             is_admin = self._is_admin_permissions(user_permissions)
             
             if is_admin:
-                # Admin: auto-approve but DON'T promote - requires explicit publish action
+                # Admin: auto-approve and auto-promote to main
                 await self.build_service.approve_build(
                     db, build.id, approved_by_user_id=current_user.id
                 )
-                logger.info(f"Auto-approved build {build.id} (admin, ready to publish)")
+                await db.refresh(build)
+                if not build.is_main:
+                    await self.build_service.promote_build(db, build.id)
+                    logger.info(f"Auto-approved and promoted build {build.id} to main")
+                else:
+                    logger.info(f"Auto-approved build {build.id} (already main)")
             else:
                 # Non-admin: leave in pending_approval for admin review
                 logger.info(f"Build {build.id} submitted for admin approval (non-admin user)")

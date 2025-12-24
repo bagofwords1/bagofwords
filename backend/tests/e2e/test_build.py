@@ -1926,9 +1926,22 @@ def test_pending_approval_build_can_be_edited(
     assert build_after_submit["status"] == "pending_approval", \
         f"Build should be pending_approval, got {build_after_submit['status']}"
     
+    # Get the instruction's current version ID for the add request
+    instruction_response = test_client.get(
+        f"/api/instructions/{instruction['id']}",
+        headers=headers
+    )
+    instruction_data = instruction_response.json()
+    version_id = instruction_data.get("current_version_id")
+    
+    if not version_id:
+        pytest.skip("Instruction has no current_version_id")
+    
     # Try to add content to pending_approval build - should succeed
-    add_response = test_client.post(
+    # Note: endpoint is PUT with instruction_version_id in body
+    add_response = test_client.put(
         f"/api/builds/{build_id}/contents/{instruction['id']}",
+        json={"instruction_version_id": version_id},
         headers=headers
     )
     
