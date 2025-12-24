@@ -501,12 +501,15 @@ def bulk_delete_instructions(test_client):
         
         headers = {
             "Authorization": f"Bearer {user_token}",
-            "X-Organization-Id": str(org_id)
+            "X-Organization-Id": str(org_id),
+            "Content-Type": "application/json"
         }
 
         payload = {"ids": ids}
         
-        response = test_client.delete(
+        # TestClient.delete() doesn't accept json parameter, use request() instead
+        response = test_client.request(
+            "DELETE",
             "/api/instructions/bulk",
             json=payload,
             headers=headers
