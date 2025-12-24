@@ -24,7 +24,6 @@ class Widget(BaseSchema):
     # Use string reference to avoid circular import issues
     steps = relationship("Step", back_populates="widget", lazy="selectin")
     completions = relationship("Completion", back_populates="widget")
-    memories = relationship("Memory", back_populates="widget")
 
 
 def after_update_widget(mapper, connection, target):

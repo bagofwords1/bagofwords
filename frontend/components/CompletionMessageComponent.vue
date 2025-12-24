@@ -128,11 +128,6 @@
                                                 (selected)
                                             </span>
                                         </button>
-                                        <button @click="openSaveMemoryPopup(localCompletion)" class="text-xs">
-                                            <Icon name="heroicons-bookmark" />
-                                            Save
-                                        </button>
-
     
                                     </div>
                                 </div>
@@ -165,22 +160,6 @@
                     <!-- Add Apply to Excel button -->
 
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Add Save Memory Popup -->
-    <div v-if="showSaveMemoryPopup"
-        class="z-[1000] fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-        <div class="bg-white p-4 rounded-lg shadow-lg">
-            <h2 class="text-lg font-bold mb-4">Save Memory</h2>
-            <input v-model="memoryTitle" placeholder="Title" class="w-full mb-2 p-2 border rounded">
-            <textarea v-model="memoryDescription" placeholder="Description" class="w-full mb-2 p-2 border rounded"
-                rows="3"></textarea>
-            <div class="flex justify-end text-xs">
-                <button @click="cancelSaveMemory" class="mr-2 px-4 py-2 bg-gray-200 rounded">Cancel</button>
-                <button @click="saveMemory(localCompletion)"
-                    class="px-4 py-2 bg-blue-500 text-white rounded">Save</button>
             </div>
         </div>
     </div>
@@ -308,10 +287,6 @@ const localCompletion = computed(() => ({
     ...props.completion,
 }));
 
-const showSaveMemoryPopup = ref(false);
-const memoryTitle = ref('');
-const memoryDescription = ref('');
-
 const reasoningCollapsed = ref(false);
 
 // Add this with your other watchers
@@ -323,18 +298,6 @@ watch(() => localCompletion.value?.completion?.content, (newContent) => {
         reasoningCollapsed.value = false;
     }
 }, { immediate: true });
-
-const openSaveMemoryPopup = (completion: any) => {
-    showSaveMemoryPopup.value = true;
-    memoryTitle.value = completion.widget?.title || '';
-    memoryDescription.value = '';
-}
-
-const cancelSaveMemory = () => {
-    showSaveMemoryPopup.value = false;
-    memoryTitle.value = '';
-    memoryDescription.value = '';
-}
 
 const downloadStepCSV = async (stepId, widgetTitle, stepSlug) => {
     if (!stepId) return;
@@ -432,40 +395,6 @@ const getPlan = async (completionId: string) => {
     } catch (error) {
         console.error('Error fetching plans:', error);
         throw error;
-    }
-}
-
-const saveMemory = async (completion: any) => {
-    try {
-        const response = await useMyFetch('/api/memories', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                title: memoryTitle.value,
-                description: memoryDescription.value,
-                step_id: completion.step.id,
-                report_id: completion.report_id,
-                widget_id: completion.widget.id
-            }),
-        }).then(response => {
-            if (response.status.value === 'success') {
-                console.log('Memory saved successfully');
-                showSaveMemoryPopup.value = false;
-                memoryTitle.value = '';
-                memoryDescription.value = '';
-            } else {
-                console.error('Failed to save memory');
-            }
-        });
-
-        console.log('Memory saved successfully');
-        showSaveMemoryPopup.value = false;
-        memoryTitle.value = '';
-        memoryDescription.value = '';
-    } catch (error) {
-        console.error('Error saving memory:', error);
     }
 }
 

@@ -9,14 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .context_specs import (
     ContextMetadata, ContextSnapshot, ContextBuildSpec,
     ContextObjectsSnapshot,
-    SchemaContextConfig, MessageContextConfig, MemoryContextConfig,
+    SchemaContextConfig, MessageContextConfig, 
     WidgetContextConfig, InstructionContextConfig, CodeContextConfig,
     ResourceContextConfig
 )
 from .builders.schema_context_builder import SchemaContextBuilder
 from .builders.files_context_builder import FilesContextBuilder
 from .builders.message_context_builder import MessageContextBuilder
-from .builders.memory_context_builder import MemoryContextBuilder
 from .builders.widget_context_builder import WidgetContextBuilder
 from .builders.query_context_builder import QueryContextBuilder
 from .builders.instruction_context_builder import InstructionContextBuilder
@@ -136,7 +135,6 @@ class ContextHub:
         # New builders (port from agent.py)
         self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user)
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
-        self.memory_builder = MemoryContextBuilder(self.db, self.organization, self.user, self.head_completion)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)
         self.mention_builder = MentionContextBuilder(self.db, self.organization, self.report, self.head_completion)
@@ -222,18 +220,6 @@ class ContextHub:
             )
             self.metadata.messages_count = len(context.messages_context.split('\n'))
             section_sizes['messages'] = _section_token_length(context.messages_context or '')
-        
-        if spec.include_memories:
-            # Use new config or fallback to legacy parameters
-            memory_config = spec.memory_config
-            if not memory_config:
-                memory_config = MemoryContextConfig(max_memories=spec.max_memories or 10)
-            
-            context.memories_context = await self.memory_builder.build_context(
-                max_memories=memory_config.max_memories
-            )
-            self.metadata.memories_count = len(context.memories_context.split('\n'))
-            section_sizes['memories'] = _section_token_length(context.memories_context or '')
         
         if spec.include_widgets:
             # Use new config or fallback to legacy parameters
@@ -630,9 +616,6 @@ class ContextHub:
         if context.widgets_context:
             parts.append(f"<widgets>\n{context.widgets_context}\n</widgets>")
         
-        if context.memories_context:
-            parts.append(f"<memories>\n{context.memories_context}\n</memories>")
-        
         if context.instructions_context:
             parts.append(f"<instructions>\n{context.instructions_context}\n</instructions>")
         
@@ -669,11 +652,6 @@ class ContextHub:
         if context.widgets_context:
             parts.append("=== WIDGETS ===")
             parts.append(context.widgets_context)
-            parts.append("")
-        
-        if context.memories_context:
-            parts.append("=== MEMORIES ===")
-            parts.append(context.memories_context)
             parts.append("")
         
         if context.instructions_context:

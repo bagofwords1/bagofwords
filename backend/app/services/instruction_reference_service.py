@@ -6,7 +6,6 @@ from sqlalchemy import and_, delete
 from app.models.instruction_reference import InstructionReference
 from app.models.metadata_resource import MetadataResource
 from app.models.datasource_table import DataSourceTable
-from app.models.memory import Memory
 from app.models.organization import Organization
 
 from app.schemas.instruction_reference_schema import (
@@ -37,9 +36,6 @@ class InstructionReferenceService:
                 elif item.object_type == "datasource_table":
                     from app.schemas.datasource_table_schema import DataSourceTableSchema
                     item_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
-                elif item.object_type == "memory":
-                    from app.schemas.memory_schema import MemorySchema
-                    item_data["object"] = MemorySchema.from_orm(referenced_obj).model_dump()
             
             populated_items.append(InstructionReferenceSchema(**item_data))
         
@@ -127,15 +123,6 @@ class InstructionReferenceService:
                 raise ValueError(f"datasource_table {ref.object_id} does not belong to the selected data sources")
             
             return obj
-                
-        elif ref.object_type == "memory":
-            q = select(Memory).where(Memory.id == ref.object_id)
-            res = await db.execute(q)
-            obj = res.scalar_one_or_none()
-            if not obj:
-                raise ValueError("memory not found")
-            # Memory is not tied to data sources, so no additional validation needed
-            return obj
         else:
             raise ValueError("unsupported object_type")
     
@@ -148,10 +135,6 @@ class InstructionReferenceService:
                 return res.scalar_one_or_none()
             elif object_type == "datasource_table":
                 q = select(DataSourceTable).where(DataSourceTable.id == object_id)
-                res = await db.execute(q)
-                return res.scalar_one_or_none()
-            elif object_type == "memory":
-                q = select(Memory).where(Memory.id == object_id)
                 res = await db.execute(q)
                 return res.scalar_one_or_none()
         except Exception:

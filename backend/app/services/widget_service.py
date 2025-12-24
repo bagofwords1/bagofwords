@@ -9,7 +9,6 @@ from app.models.step import Step
 import uuid
 from fastapi import HTTPException
 from pydantic import ValidationError
-from app.ai.agent import Agent
 from sqlalchemy import select
 import pandas as pd
 import io
@@ -35,7 +34,6 @@ class WidgetService:
         del widget_data.new_message
 
         widget = Widget(report_id=report.id, **widget_data.dict())
-        self._set_widget_title(db, widget, prompt=new_message)
         self._set_widget_slug(db, widget)
         self._set_widget_as_published(db, widget)
 
@@ -154,9 +152,6 @@ class WidgetService:
             logging.error(f"Error during CSV export: {str(e)}")
             raise
 
-    async def _set_widget_title(self, db: AsyncSession, widget: Widget, prompt: str):
-        agent = Agent()
-        widget.title = agent.create_title_from_prompt(prompt)
 
     async def _set_widget_slug(self, db: AsyncSession, widget: Widget):
         title_slug = widget.title.replace(" ", "-").lower()

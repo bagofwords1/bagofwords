@@ -31,8 +31,6 @@ class Step(BaseSchema):
     query_id = Column(String(36), ForeignKey('queries.id'), nullable=True)
     query = relationship("Query", back_populates="steps", foreign_keys=[query_id], lazy="selectin")
     completions = relationship("Completion", back_populates="step")
-
-    memories = relationship("Memory", back_populates="step")
     
     # Bidirectional relationship: Step can see which Entity was created from it
     # This uses Entity.source_step_id as the foreign key (no FK on this side)

@@ -84,8 +84,6 @@ class CreateAndExecuteCodeTool(Tool):
         context_view = runtime_ctx.get("context_view")
         schemas_section = getattr(context_view.static, "schemas", None) if context_view else None
         schemas = schemas_section.render() if schemas_section else ""
-        # Leave these as empty unless you add object sections for them in view
-        memories_context = ""
         messages_section = getattr(context_view.warm, "messages", None) if context_view else None
         messages_context = messages_section.render() if messages_section else ""
         
@@ -96,7 +94,7 @@ class CreateAndExecuteCodeTool(Tool):
             ds_clients=runtime_ctx.get("ds_clients", {}),
             excel_files=runtime_ctx.get("excel_files", []),
             code_and_error_messages=[],
-            memories=memories_context,
+            memories="",
             previous_messages=messages_context,
             retries=0,
             prev_data_model_code_pair=None,

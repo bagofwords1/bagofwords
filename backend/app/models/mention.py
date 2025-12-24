@@ -3,14 +3,12 @@ from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 import enum
 from app.models.file import File
-from app.models.memory import Memory
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
 from app.models.entity import Entity
 
 class MentionType(enum.Enum):
     FILE = "FILE"
-    MEMORY = "MEMORY"
     DATA_SOURCE = "DATA_SOURCE"
     TABLE = "TABLE"
     ENTITY = "ENTITY"
@@ -31,8 +29,6 @@ class Mention(BaseSchema):
 async def object(self):
     if self.type == MentionType.FILE:
         return await File.get(self.object_id)
-    elif self.type == MentionType.MEMORY:
-        return await Memory.get(self.object_id)
     elif self.type == MentionType.DATA_SOURCE:
         return await DataSource.get(self.object_id)
     elif self.type == MentionType.TABLE:

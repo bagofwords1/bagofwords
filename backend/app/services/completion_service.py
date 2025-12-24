@@ -37,7 +37,6 @@ from app.services.step_service import StepService
 from app.services.widget_service import WidgetService
 from app.services.report_service import ReportService
 from app.services.mention_service import MentionService
-from app.services.memory_service import MemoryService
 from app.services.data_source_service import DataSourceService
 
 from app.websocket_manager import websocket_manager
@@ -117,7 +116,6 @@ class CompletionService:
         self.step_service = StepService()
         self.widget_service = WidgetService()
         self.report_service = ReportService()
-        self.memory_service = MemoryService()
         self.mention_service = MentionService()
         self.llm_service = LLMService()
         self.data_source_service = DataSourceService()

@@ -26,7 +26,6 @@ from app.models.report_data_source_association import report_data_source_associa
 from app.models.sheet_schema import SheetSchema
 from app.models.prompt import Prompt
 from app.models.plan import Plan
-from app.models.memory import Memory
 from app.models.mention import Mention
 from app.models.file_tag import FileTag
 from app.models.text_widget import TextWidget

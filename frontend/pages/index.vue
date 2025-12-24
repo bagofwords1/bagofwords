@@ -199,7 +199,6 @@ const showOnboardingBanner = computed(() => {
 
 const menuItems = ref([
   [{ label: 'Reports', icon: 'i-heroicons-document-chart-bar', to: '/reports' }],
-  [{ label: 'Memory', icon: 'i-heroicons-cube', to: '/memory' }],
   [{ label: 'Integrations', icon: 'i-heroicons-circle-stack', to: '/integrations' }],
   [{ label: (currentUser.value as any)?.name, icon: 'i-heroicons-user'},
   { label: organization.value.name, icon: 'i-heroicons-building-office'  }

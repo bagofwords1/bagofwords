@@ -489,7 +489,7 @@ interface InstructionLabel {
 
 interface MentionableItem {
     id: string
-    type: 'metadata_resource' | 'datasource_table' | 'memory'
+    type: 'metadata_resource' | 'datasource_table'
     name: string
     data_source_id?: string
     column_name?: string | null
@@ -613,11 +613,6 @@ const filteredMentionableOptions = computed(() => {
     
     // Otherwise, filter by selected data sources
     return mentionableOptions.value.filter(option => {
-        // Memory type references are not tied to data sources
-        if (option.type === 'memory') {
-            return true
-        }
-        
         // For metadata_resource and datasource_table, check data_source_id
         if (option.data_source_id) {
             return selectedDataSources.value.includes(option.data_source_id)
@@ -767,7 +762,6 @@ const getCategoryIcon = (category: string) => {
 const getRefIcon = (type: string) => {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
-    if (type === 'memory') return 'i-heroicons-book-open'
     return 'i-heroicons-circle'
 }
 

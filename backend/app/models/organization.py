@@ -21,7 +21,6 @@ class Organization(BaseSchema):
     users = relationship("User", secondary="memberships", back_populates="organizations", overlaps="memberships")
     files = relationship("File", back_populates="organization")
     data_sources = relationship("DataSource", back_populates="organization")
-    memories = relationship("Memory", back_populates="organization")
     llm_providers = relationship("LLMProvider", back_populates="organization")
     llm_models = relationship("LLMModel", back_populates="organization")
     git_repositories = relationship("GitRepository", back_populates="organization")
@@ -106,5 +105,4 @@ class Organization(BaseSchema):
         return settings
 
 from app.models.membership import Membership
-from app.models.memory import Memory
 from app.models.organization_settings import OrganizationSettings

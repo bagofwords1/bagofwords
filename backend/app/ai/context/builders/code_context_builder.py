@@ -12,7 +12,6 @@ from app.models.user import User
 from app.models.step import Step
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
-from app.services.data_source_service import DataSourceService
 from app.ai.context.sections.code_section import CodeSection
 
 
@@ -21,7 +20,6 @@ class CodeContextBuilder:
         self.db = db
         self.organization = organization
         self.current_user = current_user
-        self._ds_service = DataSourceService()
 
     async def build(
         self,
@@ -387,7 +385,10 @@ class CodeContextBuilder:
         return float(inter) / float(union)
 
     async def _get_access_and_time(self, time_window_days: Optional[int]) -> Tuple[Set[str], Optional[datetime], datetime]:
-        allowed_ds = await self._ds_service.get_active_data_sources(
+        # Lazy import to avoid circular dependency
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        allowed_ds = await ds_service.get_active_data_sources(
             db=self.db,
             organization=self.organization,
             current_user=self.current_user,

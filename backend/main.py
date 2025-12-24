@@ -48,7 +48,6 @@ from app.routes import (
     organization,
     data_source,
     demo_data_source,
-    memory,
     text_widget,
     user_profile,
     llm,
@@ -176,7 +175,6 @@ app.include_router(completion_feedback.router, prefix="/api")
 app.include_router(file.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(text_widget.router, prefix="/api")
-app.include_router(memory.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
 app.include_router(git_repository.router, prefix="/api")
 app.include_router(git.router, prefix="/api")

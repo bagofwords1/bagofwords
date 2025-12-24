@@ -10,7 +10,6 @@ import pandas as pd
 import numpy as np
 from sqlalchemy.orm import selectinload
 
-from app.ai.agent import Agent
 from app.ai.prompt_formatters import TableFormatter
 from app.models.completion import Completion
 from sqlalchemy.ext.asyncio import AsyncSession

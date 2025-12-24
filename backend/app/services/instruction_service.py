@@ -15,7 +15,6 @@ from app.models.data_source import DataSource
 from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
 from app.models.metadata_resource import MetadataResource
 from app.models.datasource_table import DataSourceTable
-from app.models.memory import Memory
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.instruction_label import InstructionLabel
@@ -1838,11 +1837,6 @@ class InstructionService:
                             ref_data["data_source_name"] = ds_info.name
                             ref_data["data_source_type"] = ds_info.type
                             ref_data["data_source_id"] = referenced_obj.datasource_id
-                            
-                    elif ref.object_type == "memory":
-                        from app.schemas.memory_schema import MemorySchema
-                        ref_data["object"] = MemorySchema.from_orm(referenced_obj).model_dump()
-                        # Memories don't have data sources, so no additional info needed
                 else:
                     logger.warning(f"Referenced object not found: type={ref.object_type}, id={ref.object_id}")
                 

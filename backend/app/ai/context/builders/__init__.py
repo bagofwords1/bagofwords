@@ -3,7 +3,6 @@ Context builders package.
 """
 from .schema_context_builder import SchemaContextBuilder
 from .message_context_builder import MessageContextBuilder
-from .memory_context_builder import MemoryContextBuilder
 from .widget_context_builder import WidgetContextBuilder
 from .instruction_context_builder import InstructionContextBuilder
 from .code_context_builder import CodeContextBuilder
@@ -14,7 +13,6 @@ from .mention_context_builder import MentionContextBuilder
 __all__ = [
     "SchemaContextBuilder", 
     "MessageContextBuilder",
-    "MemoryContextBuilder",
     "WidgetContextBuilder",
     "InstructionContextBuilder",
     "CodeContextBuilder",

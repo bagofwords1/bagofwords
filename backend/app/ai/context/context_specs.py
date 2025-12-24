@@ -61,7 +61,6 @@ class ContextSnapshot(BaseModel):
     # Core context sections
     schemas_excerpt: str = ""
     messages_context: str = ""
-    memories_context: str = ""
     widgets_context: str = ""
     queries_context: str = ""
     instructions_context: str = ""
@@ -131,13 +130,6 @@ class MessageContextConfig(BaseModel):
     role_filter: Optional[List[str]] = None
 
 
-class MemoryContextConfig(BaseModel):
-    """Configuration for memory context building."""
-    
-    # MemoryContextBuilder.build_context() parameters
-    max_memories: int = 10
-
-
 class WidgetContextConfig(BaseModel):
     """Configuration for widget context building."""
     
@@ -186,7 +178,6 @@ class ContextBuildSpec(BaseModel):
     # Core sections (what to include)
     include_schemas: bool = True
     include_messages: bool = True
-    include_memories: bool = True
     include_widgets: bool = True
     include_instructions: bool = True
     include_entities: bool = True
@@ -198,7 +189,6 @@ class ContextBuildSpec(BaseModel):
     schema_config: Optional[SchemaContextConfig] = None
     instruction_config: Optional[InstructionContextConfig] = None
     message_config: Optional[MessageContextConfig] = None
-    memory_config: Optional[MemoryContextConfig] = None
     widget_config: Optional[WidgetContextConfig] = None
     resource_config: Optional[ResourceContextConfig] = None
     entities_config: Optional[EntitiesContextConfig] = None
@@ -217,7 +207,6 @@ class ContextBuildSpec(BaseModel):
     message_role_filter: Optional[List[str]] = None
     widget_status_filter: Optional[List[str]] = None
     max_messages: Optional[int] = None
-    max_memories: Optional[int] = None
     max_widgets: Optional[int] = None
     
     def model_post_init(self, __context) -> None:
@@ -234,11 +223,6 @@ class ContextBuildSpec(BaseModel):
             self.message_config.max_messages = self.max_messages
         elif self.max_messages and not self.message_config:
             self.message_config = MessageContextConfig(max_messages=self.max_messages)
-            
-        if self.max_memories and self.memory_config:
-            self.memory_config.max_memories = self.max_memories
-        elif self.max_memories and not self.memory_config:
-            self.memory_config = MemoryContextConfig(max_memories=self.max_memories)
             
         if self.max_widgets and self.widget_config:
             self.widget_config.max_widgets = self.max_widgets

@@ -393,7 +393,7 @@ interface InstructionLabel {
 
 interface MentionableItem {
     id: string
-    type: 'metadata_resource' | 'datasource_table' | 'memory'
+    type: 'metadata_resource' | 'datasource_table'
     name: string
     data_source_id?: string
     data_source_type?: string
@@ -466,10 +466,6 @@ const filteredMentionableOptions = computed(() => {
     }
     
     return mentionableOptions.value.filter(option => {
-        if (option.type === 'memory') {
-            return true
-        }
-        
         if (option.data_source_id) {
             return props.selectedDataSources.includes(option.data_source_id)
         }
@@ -616,7 +612,6 @@ const getCategoryIcon = (category: string) => {
 const getRefIcon = (type: string) => {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
-    if (type === 'memory') return 'i-heroicons-book-open'
     return 'i-heroicons-circle'
 }
 
