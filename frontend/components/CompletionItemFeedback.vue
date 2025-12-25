@@ -83,6 +83,13 @@ interface UserFeedback {
   updated_at: string;
 }
 
+interface FeedbackResponse {
+  id: string;
+  direction: number;
+  should_suggest_instructions?: boolean;
+  [key: string]: any;
+}
+
 const props = defineProps<{
   completion: {
     id: string;
@@ -91,6 +98,11 @@ const props = defineProps<{
   feedbackScore: number;
   // Pre-loaded user feedback from completions API (avoids N+1 API calls)
   initialUserFeedback?: UserFeedback | null;
+}>();
+
+const emit = defineEmits<{
+  suggestionsLoading: [];
+  suggestionsReceived: [suggestions: any[]];
 }>();
 
 const isLoading = ref(false);
@@ -190,6 +202,8 @@ const submitNegativeFeedback = async () => {
 
     if (response.status.value !== 'success') throw new Error('Failed to submit feedback');
 
+    const feedbackData = response.data.value as FeedbackResponse;
+
     // Close modal and refresh feedback summary
     showNegativeFeedbackModal.value = false;
     await fetchFeedbackSummary();
@@ -201,6 +215,11 @@ const submitNegativeFeedback = async () => {
       color: 'green',
       timeout: 3000
     });
+
+    // If backend signals we should generate instruction suggestions, do it now
+    if (feedbackData?.should_suggest_instructions) {
+      await triggerSuggestionGeneration();
+    }
   } catch (err) {
     const toast = useToast();
     toast.add({
@@ -212,6 +231,30 @@ const submitNegativeFeedback = async () => {
     });
   } finally {
     isSubmittingNegativeFeedback.value = false;
+  }
+};
+
+const triggerSuggestionGeneration = async () => {
+  try {
+    // Emit loading state to parent
+    emit('suggestionsLoading');
+    
+    // Call the suggest-instructions endpoint
+    const response = await useMyFetch(`/api/completions/${props.completion.id}/feedback/suggest-instructions`, {
+      method: 'POST'
+    });
+    
+    if (response.status.value === 'success' && response.data.value) {
+      const suggestions = response.data.value as any[];
+      emit('suggestionsReceived', suggestions);
+    } else {
+      // No suggestions or error - emit empty array to clear loading state
+      emit('suggestionsReceived', []);
+    }
+  } catch (err) {
+    console.error('Failed to generate instruction suggestions:', err);
+    // Emit empty array to clear loading state
+    emit('suggestionsReceived', []);
   }
 };
 </script> 

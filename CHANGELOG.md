@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.285 (December 25, 2025)
+- Auto suggest instructions if user provided negative feedback to an answer
+
 ## Version 0.0.284 (December 23, 2025)
 - Git providers: Now support Personal Access Token (PAT) authentication for seamless integration.
 - You can now create pull requests and branches for build (instruction versions) directly from the interface.

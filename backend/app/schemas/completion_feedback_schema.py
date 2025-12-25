@@ -42,6 +42,8 @@ class CompletionFeedbackSchema(CompletionFeedbackBase):
     reviewed_by: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    # Signals to frontend whether to call the suggest-instructions endpoint
+    should_suggest_instructions: bool = False
 
     class Config:
         from_attributes = True

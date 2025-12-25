@@ -52,6 +52,34 @@ class TriggerCondition:
     def to_dict(self) -> Dict[str, str]:
         return {"name": self.name, "hint": self.hint}
 
+    @staticmethod
+    def create_feedback_condition(feedback_direction: int, feedback_message: Optional[str] = None) -> Dict[str, str]:
+        """Create a trigger condition for feedback-based suggestion generation.
+        
+        Args:
+            feedback_direction: 1 for positive, -1 for negative feedback
+            feedback_message: Optional message from the user explaining their feedback
+            
+        Returns:
+            A condition dict with 'name' and 'hint' keys
+        """
+        if feedback_direction == -1:
+            hint = (
+                "Negative feedback flow: The user downvoted this response, indicating something went wrong. "
+                f"User feedback message: {feedback_message or 'No message provided'}. "
+                "Identify what failed or was incorrect. Propose instructions that would help "
+                "avoid similar issues in the future (e.g., data interpretation, formatting, filtering, "
+                "calculations, or terminology)."
+            )
+        else:
+            hint = (
+                "Positive feedback flow: The user upvoted this response, indicating it was helpful. "
+                f"User feedback message: {feedback_message or 'No message provided'}. "
+                "Identify patterns, definitions, or approaches that worked well and could be "
+                "codified as reusable instructions for future similar queries."
+            )
+        return {"name": "feedback_triggered", "hint": hint}
+
 
 class InstructionTriggerEvaluator:
     """Evaluates whether to trigger instruction suggestions based on conversation history.

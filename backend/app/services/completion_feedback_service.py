@@ -1,4 +1,5 @@
 from typing import List, Optional
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, update
 from fastapi import HTTPException
@@ -7,6 +8,7 @@ from app.models.completion_feedback import CompletionFeedback
 from app.models.completion import Completion
 from app.models.user import User
 from app.models.organization import Organization
+from app.models.report import Report
 from app.schemas.completion_feedback_schema import (
     CompletionFeedbackCreate, 
     CompletionFeedbackUpdate, 
@@ -24,6 +26,8 @@ from app.models.table_usage_event import TableUsageEvent
 from app.models.agent_execution import AgentExecution
 from app.models.context_snapshot import ContextSnapshot
 from app.core.telemetry import telemetry
+
+logger = logging.getLogger(__name__)
 
 
 class CompletionFeedbackService:
@@ -252,6 +256,18 @@ class CompletionFeedbackService:
         existing_result = await db.execute(existing_feedback_stmt)
         existing_feedback = existing_result.scalar_one_or_none()
         
+        # Determine if we should signal frontend to call suggest-instructions endpoint
+        should_suggest = False
+        if feedback_data.direction == -1:
+            try:
+                from app.services.organization_settings_service import OrganizationSettingsService
+                settings_service = OrganizationSettingsService()
+                org_settings = await settings_service.get_settings(db, organization, user)
+                config = org_settings.get_config("suggest_instructions")
+                should_suggest = config is None or config.value is not False
+            except Exception:
+                should_suggest = True  # Default to true if we can't check settings
+        
         if existing_feedback:
             # Update existing feedback
             existing_feedback.direction = feedback_data.direction
@@ -281,7 +297,9 @@ class CompletionFeedbackService:
                 await self._emit_instruction_feedback(db, organization, completion, existing_feedback, user)
             except Exception:
                 pass
-            return CompletionFeedbackSchema.from_orm(existing_feedback)
+            result = CompletionFeedbackSchema.from_orm(existing_feedback)
+            result.should_suggest_instructions = should_suggest
+            return result
         else:
             # Create new feedback
             feedback = CompletionFeedback(
@@ -318,7 +336,9 @@ class CompletionFeedbackService:
             except Exception:
                 pass
 
-            return CompletionFeedbackSchema.from_orm(feedback)
+            result = CompletionFeedbackSchema.from_orm(feedback)
+            result.should_suggest_instructions = should_suggest
+            return result
     
     async def get_feedback_summary(
         self, 
@@ -427,3 +447,144 @@ class CompletionFeedbackService:
         feedbacks = feedbacks_result.scalars().all()
         
         return [CompletionFeedbackSchema.from_orm(feedback) for feedback in feedbacks]
+
+    async def generate_suggestions_from_feedback(
+        self,
+        db: AsyncSession,
+        completion_id: str,
+        user: User,
+        organization: Organization
+    ) -> List[dict]:
+        """Generate instruction suggestions based on completion context and user feedback.
+        
+        This is called after negative feedback to suggest instructions that could
+        help prevent similar issues in the future.
+        """
+        try:
+            # Import here to avoid circular imports
+            from app.services.organization_settings_service import OrganizationSettingsService
+            from app.ai.agents.suggest_instructions import SuggestInstructions
+            from app.ai.agents.suggest_instructions.trigger import TriggerCondition
+            from app.ai.context import ContextHub
+            from app.project_manager import ProjectManager
+            
+            # Get organization settings
+            settings_service = OrganizationSettingsService()
+            org_settings = await settings_service.get_settings(db, organization, user)
+            
+            # Check if suggest_instructions is enabled (gate)
+            config = org_settings.get_config("suggest_instructions")
+            if config and config.value is False:
+                return []
+            
+            # Load the completion
+            completion_stmt = select(Completion).where(
+                Completion.id == completion_id,
+                Completion.report.has(organization_id=organization.id)
+            )
+            completion_result = await db.execute(completion_stmt)
+            completion = completion_result.scalar_one_or_none()
+            if not completion:
+                return []
+            
+            # Get the user's most recent feedback for this completion
+            feedback_stmt = select(CompletionFeedback).where(
+                CompletionFeedback.completion_id == completion_id,
+                CompletionFeedback.user_id == user.id,
+                CompletionFeedback.organization_id == organization.id
+            ).order_by(CompletionFeedback.updated_at.desc())
+            feedback_result = await db.execute(feedback_stmt)
+            feedback = feedback_result.scalar_one_or_none()
+            
+            if not feedback or feedback.direction != -1:
+                # Only generate suggestions for negative feedback
+                return []
+            
+            # Find AgentExecution for this completion
+            ae_stmt = select(AgentExecution).where(
+                AgentExecution.completion_id == str(completion.id)
+            )
+            ae_result = await db.execute(ae_stmt)
+            agent_execution = ae_result.scalar_one_or_none()
+            
+            if not agent_execution:
+                logger.warning(f"No agent execution found for completion {completion_id}")
+                return []
+            
+            # Load the report for context
+            report = await db.get(Report, completion.report_id)
+            if not report:
+                return []
+            
+            # Build minimal context from the completion's context
+            context_hub = ContextHub(
+                db=db,
+                organization=organization,
+                report=report,
+                data_sources=getattr(report, 'data_sources', []) or [],
+                user=user,
+                head_completion=completion,
+                widget=None,
+                organization_settings=org_settings,
+                build_id=getattr(agent_execution, 'build_id', None)
+            )
+            
+            # Prime and refresh context
+            await context_hub.prime_static()
+            await context_hub.refresh_warm()
+            context_view = context_hub.get_view()
+            
+            # Create the feedback trigger condition
+            feedback_condition = TriggerCondition.create_feedback_condition(
+                feedback_direction=feedback.direction,
+                feedback_message=feedback.message
+            )
+            
+            # Initialize SuggestInstructions agent
+            from app.services.llm_service import LLMService
+            llm_service = LLMService()
+            small_model = await llm_service.get_default_model(db, organization, user, is_small=True)
+            suggest_agent = SuggestInstructions(model=small_model)
+            
+            # Generate suggestions
+            suggestions = []
+            project_manager = ProjectManager()
+            
+            async for draft in suggest_agent.stream_suggestions(
+                context_view=context_view,
+                context_hub=context_hub,
+                conditions=[feedback_condition]
+            ):
+                # Create the instruction in the database
+                try:
+                    inst = await project_manager.create_instruction_from_draft(
+                        db,
+                        organization,
+                        text=draft.get("text", ""),
+                        category=draft.get("category", "general"),
+                        agent_execution_id=str(agent_execution.id),
+                        trigger_reason="feedback_triggered",
+                        ai_source="feedback",
+                        user_id=str(user.id) if user else None,
+                        build=None  # No build for feedback-triggered suggestions
+                    )
+                    suggestions.append({
+                        "id": str(inst.id),
+                        "text": inst.text,
+                        "category": inst.category,
+                        "status": inst.status,
+                        "private_status": inst.private_status,
+                        "global_status": inst.global_status,
+                        "is_seen": inst.is_seen,
+                        "can_user_toggle": inst.can_user_toggle,
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to create instruction from draft: {e}")
+                    continue
+            
+            logger.info(f"Generated {len(suggestions)} suggestions from feedback for completion {completion_id}")
+            return suggestions
+            
+        except Exception as e:
+            logger.error(f"Error generating suggestions from feedback: {e}")
+            return []

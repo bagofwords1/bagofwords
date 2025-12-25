@@ -48,6 +48,24 @@ async def get_feedback_summary(
     )
 
 
+@router.post("/completions/{completion_id}/feedback/suggest-instructions")
+@requires_permission('create_completion_feedback')
+async def suggest_instructions_from_feedback(
+    completion_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+) -> List[dict]:
+    """Generate instruction suggestions based on completion context and user feedback.
+    
+    This endpoint is called after negative feedback is submitted to generate
+    helpful instructions that could prevent similar issues in the future.
+    """
+    return await feedback_service.generate_suggestions_from_feedback(
+        db, completion_id, current_user, organization
+    )
+
+
 @router.get("/completions/{completion_id}/feedback")
 @requires_permission('create_completion_feedback')
 async def get_completion_feedbacks(

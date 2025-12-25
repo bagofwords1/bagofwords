@@ -182,7 +182,13 @@
 									<!-- Show status messages for stopped/error completions -->
 									<div class="mt-2" v-if="isRealCompletion(m) && m.status === 'success'">
 										<div class="flex items-center space-x-2">
-											<CompletionItemFeedback :completion="{ id: (m.system_completion_id || m.id) }" :feedbackScore="m.feedback_score || 0" :initialUserFeedback="m.user_feedback" />
+											<CompletionItemFeedback 
+												:completion="{ id: (m.system_completion_id || m.id) }" 
+												:feedbackScore="m.feedback_score || 0" 
+												:initialUserFeedback="m.user_feedback"
+												@suggestionsLoading="() => handleSuggestionsLoading(m)"
+												@suggestionsReceived="(suggestions) => handleSuggestionsReceived(m, suggestions)"
+											/>
 
 											<!-- Debug button -->
 											<button
@@ -196,14 +202,14 @@
 										</div>
 									</div>
 
-									<!-- Instruction Suggestions (below thumbs) -->
-									<div v-if="m.instruction_suggestions && m.instruction_suggestions.length > 0" class="mt-3">
+									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
+									<div v-if="(m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading" class="mt-3">
 										<InstructionSuggestions 
 											:tool-execution="{ 
 												id: `suggestions-${m.id}`, 
 												tool_name: 'suggest_instructions',
-												status: 'success',
-												result_json: { drafts: m.instruction_suggestions }
+												status: m.instruction_suggestions_loading ? 'running' : 'success',
+												result_json: { drafts: m.instruction_suggestions || [] }
 											}"
 										/>
 									</div>
@@ -400,6 +406,8 @@ interface ChatMessage {
 	error?: any
 	// Instruction suggestions generated during this completion
 	instruction_suggestions?: Array<{ text: string; category: string }>
+	// Loading state for feedback-triggered suggestions
+	instruction_suggestions_loading?: boolean
 }
 
 const route = useRoute()
@@ -1714,6 +1722,22 @@ function openTraceModal(completionId: string) {
 function handleExampleClick(starter: string) {
 	if (starter) {
 		onSubmitCompletion({ text: starter, mentions: [] });
+	}
+}
+
+// Handlers for feedback-triggered instruction suggestions
+function handleSuggestionsLoading(message: ChatMessage) {
+	message.instruction_suggestions_loading = true
+}
+
+function handleSuggestionsReceived(message: ChatMessage, suggestions: any[]) {
+	message.instruction_suggestions_loading = false
+	if (suggestions && suggestions.length > 0) {
+		// Append new suggestions to existing ones (if any)
+		if (!message.instruction_suggestions) {
+			message.instruction_suggestions = []
+		}
+		message.instruction_suggestions.push(...suggestions)
 	}
 }
 
