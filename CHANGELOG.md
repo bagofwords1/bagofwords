@@ -1,7 +1,8 @@
 # Release Notes
 
-## Version 0.0.285 (December 25, 2025)
+## Version 0.0.286 (December 25, 2025)
 - Auto suggest instructions if user provided negative feedback to an answer
+- Improve auto-detect uvicorn workers
 
 ## Version 0.0.284 (December 23, 2025)
 - Git providers: Now support Personal Access Token (PAT) authentication for seamless integration.
