@@ -61,7 +61,16 @@
                                         value-attribute="value"
                                         size="xs"
                                         class="text-xs w-full md:w-56"
-                                    />
+                                        :ui="{ option: { base: 'text-xs py-1.5' } }"
+                                    >
+                                        <template #option="{ option }">
+                                            <div v-if="option.value === '__manage__'" class="flex items-center gap-1.5 text-xs text-gray-500 border-t border-gray-100 -mx-2 px-2 pt-2 -mb-0.5">
+                                                <Icon name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
+                                                {{ option.label }}
+                                            </div>
+                                            <span v-else class="text-xs truncate">{{ option.label }}</span>
+                                        </template>
+                                    </USelectMenu>
                                     <!-- Search -->
                                     <input
                                         v-model="searchTerm"
@@ -155,7 +164,16 @@
                                       value-attribute="value"
                                       size="xs"
                                       class="text-xs w-full md:w-48"
-                                    />
+                                      :ui="{ option: { base: 'text-xs py-1.5' } }"
+                                    >
+                                        <template #option="{ option }">
+                                            <div v-if="option.value === '__manage__'" class="flex items-center gap-1.5 text-xs text-gray-500 border-t border-gray-100 -mx-2 px-2 pt-2 -mb-0.5">
+                                                <Icon name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
+                                                {{ option.label }}
+                                            </div>
+                                            <span v-else class="text-xs truncate">{{ option.label }}</span>
+                                        </template>
+                                    </USelectMenu>
                                     <USelectMenu
                                       v-model="runCaseFilter"
                                       :options="runCaseOptions"

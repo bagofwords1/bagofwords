@@ -92,3 +92,63 @@ class MCPCreateDataOutput(BaseModel):
     data_preview: Optional[Dict[str, Any]] = None
     error_message: Optional[str] = None
     url: Optional[str] = Field(default=None, description="Link to view the report. Always share this with the user.")
+
+
+# === list_instructions ===
+
+class MCPListInstructionsInput(BaseModel):
+    """Input for list_instructions MCP tool."""
+    status: Optional[str] = Field(default=None, description="Filter by status: draft, published, archived")
+    category: Optional[str] = Field(default=None, description="Filter by category: code_gen, data_modeling, general, dashboard, visualization")
+    search: Optional[str] = Field(default=None, description="Search text in instruction title and content")
+    limit: int = Field(default=20, ge=1, le=100, description="Maximum number of results to return")
+
+
+class MCPInstructionItem(BaseModel):
+    """Single instruction item in list response."""
+    id: str
+    title: Optional[str] = None
+    text: str
+    category: str
+    status: str
+    load_mode: str
+    source_type: str
+
+
+class MCPListInstructionsOutput(BaseModel):
+    """Output for list_instructions MCP tool."""
+    instructions: List[MCPInstructionItem]
+    total: int
+
+
+# === create_instruction ===
+
+class MCPCreateInstructionInput(BaseModel):
+    """Input for create_instruction MCP tool."""
+    text: str = Field(..., description="The instruction content that guides AI behavior")
+    title: Optional[str] = Field(default=None, description="Optional title for the instruction")
+    category: str = Field(default="general", description="Category: code_gen, data_modeling, general, dashboard, visualization")
+    load_mode: str = Field(default="always", description="When to include in AI context: always, intelligent, disabled")
+    data_source_ids: Optional[List[str]] = Field(default=None, description="Specific data source IDs this applies to. Empty/null means all data sources.")
+
+
+class MCPCreateInstructionOutput(BaseModel):
+    """Output for create_instruction MCP tool."""
+    success: bool
+    instruction_id: Optional[str] = None
+    build_status: Optional[str] = Field(default=None, description="Build status: approved (live) or pending_approval (needs admin review)")
+    requires_approval: bool = Field(default=False, description="True if instruction needs admin approval before going live")
+    error_message: Optional[str] = None
+
+
+# === delete_instruction ===
+
+class MCPDeleteInstructionInput(BaseModel):
+    """Input for delete_instruction MCP tool."""
+    instruction_id: str = Field(..., description="ID of the instruction to delete")
+
+
+class MCPDeleteInstructionOutput(BaseModel):
+    """Output for delete_instruction MCP tool."""
+    success: bool
+    error_message: Optional[str] = None

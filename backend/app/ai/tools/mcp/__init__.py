@@ -8,12 +8,21 @@ from .create_report import CreateReportTool
 from .get_context import GetContextTool
 from .inspect_data import InspectDataMCPTool
 from .create_data import CreateDataMCPTool
+from .instructions import (
+    ListInstructionsMCPTool,
+    CreateInstructionMCPTool,
+    DeleteInstructionMCPTool,
+)
 
 MCP_TOOLS = {
     "create_report": CreateReportTool,
     "get_context": GetContextTool,
     "inspect_data": InspectDataMCPTool,
     "create_data": CreateDataMCPTool,
+    # Instruction management tools
+    "list_instructions": ListInstructionsMCPTool,
+    "create_instruction": CreateInstructionMCPTool,
+    "delete_instruction": DeleteInstructionMCPTool,
 }
 
 

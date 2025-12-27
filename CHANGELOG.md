@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.287 (December 26, 2025)
+- UI improvements: eval, build ID
+- Added modal to manage test suites
+- Added new MCP tools: list, create, and delete instructions
+
 ## Version 0.0.286 (December 25, 2025)
 - Auto suggest instructions if user provided negative feedback to an answer
 - Improve auto-detect uvicorn workers

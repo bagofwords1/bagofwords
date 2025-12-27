@@ -131,10 +131,11 @@
                                         <span>Build ID:</span>
                                         <button 
                                             @click="copyBuildId"
-                                            class="font-mono text-gray-500 hover:text-blue-600 hover:underline cursor-pointer transition-colors"
+                                            class="flex items-center gap-1 font-mono text-gray-500 hover:text-gray-900 cursor-pointer transition-colors"
                                             title="Click to copy"
                                         >
                                             {{ selectedBuild.id }}
+                                            <UIcon name="i-heroicons-clipboard-document" class="w-3 h-3" />
                                         </button>
                                     </div>
                                 </div>

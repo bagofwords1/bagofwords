@@ -51,3 +51,4 @@ def downgrade() -> None:
     op.create_index(op.f('ix_memories_id'), 'memories', ['id'], unique=True)
 
 
+
