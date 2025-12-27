@@ -267,39 +267,16 @@
             </template>
         </UCard>
     </UModal>
-    <!-- Create Suite small modal (teleported to body to avoid nested modal close issues) -->
+    <!-- Create Suite Modal -->
     <Teleport to="body">
-        <UModal v-model="showCreateSuiteModal" :ui="{ width: 'sm:max-w-md' }" :prevent-close="true">
-            <UCard>
-                <template #header>
-                    <div class="flex items-center justify-between">
-                        <h3 class="text-base font-semibold text-gray-900">Create Suite</h3>
-                        <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="showCreateSuiteModal = false" />
-                    </div>
-                </template>
-                <div class="space-y-2">
-                    <label class="text-xs text-gray-600">Name</label>
-                    <input
-                        v-model="createSuiteName"
-                        type="text"
-                        placeholder="Suite name"
-                        class="border border-gray-300 rounded px-2 py-1 text-xs w-full"
-                    />
-                </div>
-                <template #footer>
-                    <div class="flex items-center justify-end gap-2">
-                        <UButton color="gray" variant="soft" @click="showCreateSuiteModal = false">Cancel</UButton>
-                        <UButton :loading="createSuiteLoading" class="!bg-blue-500 !text-white" @click="createSuite">Create</UButton>
-                    </div>
-                </template>
-            </UCard>
-        </UModal>
+        <CreateSuiteModal v-model="showCreateSuiteModal" @created="onSuiteCreatedFromModal" />
     </Teleport>
 </template>
 
 <script setup lang="ts">
 import TestPromptBox from '~/components/monitoring/TestPromptBox.vue'
 import LLMProviderIcon from '~/components/LLMProviderIcon.vue'
+import CreateSuiteModal from '~/components/monitoring/CreateSuiteModal.vue'
 
 const props = defineProps<{ modelValue: boolean, suiteId: string, caseId?: string }>()
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void; (e: 'created', payload: any): void }>()
@@ -319,8 +296,6 @@ const suiteOptions = computed(() => {
   return [...base, { label: 'Create New Suite…', value: '__create__' }]
 })
 const showCreateSuiteModal = ref(false)
-const createSuiteName = ref('')
-const createSuiteLoading = ref(false)
 // Build selection for test runs
 interface BuildItem { id: string; build_number: number; source?: string; is_main?: boolean }
 const builds = ref<BuildItem[]>([])
@@ -556,36 +531,15 @@ function onSuiteMenuChanged() {
   if (selectedSuiteIdLocal.value === '__create__') {
     // reset selection and open create modal
     selectedSuiteIdLocal.value = props.suiteId || ''
-    createSuiteName.value = ''
     showCreateSuiteModal.value = true
   }
 }
 
-async function createSuite() {
-  if (createSuiteLoading.value) return
-  const name = (createSuiteName.value || '').trim()
-  if (name.length === 0) return
-  createSuiteLoading.value = true
-  try {
-    const res: any = await useMyFetch('/api/tests/suites', {
-      method: 'POST',
-      body: { name }
-    })
-    if (res?.error?.value) throw res.error.value
-    const suite = res?.data?.value as any
-    if (suite?.id) {
-      // update list and select
-      const exists = (suites.value || []).some(s => s.id === suite.id)
-      if (!exists) suites.value = [...suites.value, { id: suite.id, name: suite.name }]
-      selectedSuiteIdLocal.value = suite.id
-      showCreateSuiteModal.value = false
-      createSuiteName.value = ''
-    }
-  } catch (e) {
-    // silent fail; could add toast later
-  } finally {
-    createSuiteLoading.value = false
-  }
+function onSuiteCreatedFromModal(suite: { id: string; name: string }) {
+  // Update list and select the newly created suite
+  const exists = (suites.value || []).some(s => s.id === suite.id)
+  if (!exists) suites.value = [...suites.value, { id: suite.id, name: suite.name }]
+  selectedSuiteIdLocal.value = suite.id
 }
 
 const defaultMatcherFor = (field: FieldDescriptor): Matcher => {

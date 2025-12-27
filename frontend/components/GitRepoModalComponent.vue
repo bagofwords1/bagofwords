@@ -149,6 +149,23 @@
                                 <p class="font-medium text-gray-700">{{ resourceCount }}</p>
                             </div>
                         </div>
+                        
+                        <!-- Repository ID -->
+                        <div class="mt-3 pt-3 border-t border-gray-200">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <p class="text-gray-400 text-sm flex-shrink-0">Git Repo ID</p>
+                                    <p class="font-mono text-xs text-gray-600 truncate">{{ connectedRepo.id }}</p>
+                                </div>
+                                <UButton 
+                                    icon="i-heroicons-clipboard-document" 
+                                    color="gray" 
+                                    variant="ghost" 
+                                    size="xs"
+                                    @click="copyRepoId"
+                                />
+                            </div>
+                        </div>
 
                         <!-- Capabilities Indicator - always show -->
                         <div class="mt-3 pt-3 border-t border-gray-200">
@@ -916,6 +933,17 @@ function formatDate(dateStr: string) {
         hour: '2-digit',
         minute: '2-digit'
     })
+}
+
+async function copyRepoId() {
+    if (!connectedRepo.value?.id) return
+    
+    try {
+        await navigator.clipboard.writeText(connectedRepo.value.id)
+        toast.add({ title: 'Repository ID copied', color: 'green' })
+    } catch (error) {
+        toast.add({ title: 'Failed to copy', color: 'red' })
+    }
 }
 
 async function testAndProceed() {

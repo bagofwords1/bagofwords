@@ -240,6 +240,7 @@
     </div>
     <Teleport to="body">
         <AddTestCaseModal v-model="showAddCase" :suite-id="selectedSuiteId" :case-id="selectedCaseId" @created="onCaseCreated" @updated="onCaseUpdated" />
+        <ManageSuitesModal v-model="showManageSuites" @suite-created="onManageSuiteCreated" @suite-deleted="onManageSuiteDeleted" />
     </Teleport>
 </template>
 
@@ -277,7 +278,7 @@ const suitesOrdered = ref<TestSuiteItem[]>([])
 const suiteFilterOptions = computed(() => {
     const opts = [{ label: 'All suites', value: 'all' }]
     const entries = (suitesOrdered.value || []).map(s => ({ label: s.name, value: s.id }))
-    return [...opts, ...entries]
+    return [...opts, ...entries, { label: 'Manage Test Suites…', value: '__manage__' }]
 })
 
 const showAddCase = ref(false)
@@ -287,7 +288,9 @@ const router = useRouter()
 const activeTab = ref<'tests' | 'runs'>('tests')
 // Components
 import AddTestCaseModal from '~/components/monitoring/AddTestCaseModal.vue'
+import ManageSuitesModal from '~/components/monitoring/ManageSuitesModal.vue'
 const toast = useToast()
+const showManageSuites = ref(false)
 
 const derivedStatus = (s?: string | null) => {
     if (!s) return '—'
@@ -684,6 +687,29 @@ function onCaseUpdated(c: any) {
     selectedCaseId.value = ''
 }
 
+function onManageSuiteCreated(suite: { id: string; name: string }) {
+    // Add to local lists
+    const exists = (suitesOrdered.value || []).some(s => s.id === suite.id)
+    if (!exists) {
+        suitesOrdered.value = [...suitesOrdered.value, { id: suite.id, name: suite.name }]
+        suitesById.value = { ...suitesById.value, [suite.id]: suite.name }
+    }
+}
+
+function onManageSuiteDeleted(suiteId: string) {
+    // Remove from local lists
+    suitesOrdered.value = suitesOrdered.value.filter(s => s.id !== suiteId)
+    const copy = { ...suitesById.value }
+    delete copy[suiteId]
+    suitesById.value = copy
+    // Remove tests belonging to this suite from local view
+    tests.value = tests.value.filter(t => t.suite_id !== suiteId)
+    // Reset filter if it was set to the deleted suite
+    if (suiteFilter.value === suiteId) {
+        suiteFilter.value = 'all'
+    }
+}
+
 interface TestRunRow {
     id: string
     suite_name: string
@@ -786,9 +812,22 @@ onMounted(async () => {
     }
 })
 
+// Handle suite filter changes including "Manage Test Suites" option
+let _prevSuiteFilter = 'all'
+watch(suiteFilter, (newVal) => {
+    if (newVal === '__manage__') {
+        // Revert to previous value and open manage modal
+        suiteFilter.value = _prevSuiteFilter
+        showManageSuites.value = true
+        return
+    }
+    _prevSuiteFilter = newVal
+})
+
 // Re-fetch when filters change (debounced search)
 let _searchTimer: any = null
 watch([suiteFilter, searchTerm], () => {
+    if (suiteFilter.value === '__manage__') return // skip refetch for manage option
     if (_searchTimer) clearTimeout(_searchTimer)
     _searchTimer = setTimeout(() => {
         testsPage.value = 1
@@ -802,9 +841,22 @@ watch(testsLimit, () => {
     loadCases()
 })
 
+// Handle runSuiteFilter changes including "Manage Test Suites" option
+let _prevRunSuiteFilter = 'all'
+watch(runSuiteFilter, (newVal) => {
+    if (newVal === '__manage__') {
+        // Revert to previous value and open manage modal
+        runSuiteFilter.value = _prevRunSuiteFilter
+        showManageSuites.value = true
+        return
+    }
+    _prevRunSuiteFilter = newVal
+})
+
 // Re-fetch runs when run filters change (debounced)
 let _runTimer: any = null
 watch([runSuiteFilter, runCaseFilter, runSearchTerm], () => {
+    if (runSuiteFilter.value === '__manage__') return // skip refetch for manage option
     if (_runTimer) clearTimeout(_runTimer)
     _runTimer = setTimeout(() => {
         runsPage.value = 1

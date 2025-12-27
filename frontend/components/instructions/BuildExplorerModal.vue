@@ -127,6 +127,16 @@
                                             Approved by {{ selectedBuild.approved_by_user_name }}
                                         </span>
                                     </div>
+                                    <div class="flex items-center gap-1.5 text-[10px] text-gray-400 mt-0.5">
+                                        <span>Build ID:</span>
+                                        <button 
+                                            @click="copyBuildId"
+                                            class="font-mono text-gray-500 hover:text-blue-600 hover:underline cursor-pointer transition-colors"
+                                            title="Click to copy"
+                                        >
+                                            {{ selectedBuild.id }}
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <span v-if="selectedBuild.is_main" class="text-[10px] px-2 py-0.5 bg-green-100 text-green-700 rounded-full">
@@ -1393,6 +1403,17 @@ const formatDateTime = (dateStr: string) => {
         })
     } catch {
         return dateStr
+    }
+}
+
+const copyBuildId = async () => {
+    if (!selectedBuild.value?.id) return
+    
+    try {
+        await navigator.clipboard.writeText(selectedBuild.value.id)
+        toast.add({ title: 'Build ID copied', color: 'green' })
+    } catch (error) {
+        toast.add({ title: 'Failed to copy', color: 'red' })
     }
 }
 
