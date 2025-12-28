@@ -1,11 +1,44 @@
 """MCP API schemas - request/response models for MCP endpoints."""
 
+from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 
 # Reuse existing schemas
 from app.ai.tools.schemas.create_widget import TablesBySource
 from app.ai.tools.schemas.inspect_data import InspectDataOutput as BaseInspectDataOutput
+
+if TYPE_CHECKING:
+    from app.ai.context import ContextHub
+    from app.schemas.settings import OrganizationSettings
+    from app.models.llm_model import LLMModel
+
+
+@dataclass
+class MCPRichContext:
+    """Rich context prepared for MCP tool execution.
+    
+    Contains all the context needed for code generation: schemas, instructions,
+    resources, data source clients, and discovered tables.
+    """
+    # Core objects
+    context_hub: "ContextHub"
+    ds_clients: Dict[str, Any]
+    org_settings: "OrganizationSettings"
+    model: Optional["LLMModel"]
+    
+    # Discovered/resolved tables
+    tables_by_source: List[Dict[str, Any]] = field(default_factory=list)
+    
+    # Rendered context strings (ready for prompt inclusion)
+    schemas_excerpt: str = ""
+    instructions_text: str = ""
+    resources_text: str = ""
+    files_text: str = ""
+    
+    # Data source connection status
+    connected_sources: List[str] = field(default_factory=list)
+    failed_sources: List[str] = field(default_factory=list)
 
 
 class MCPToolSchema(BaseModel):

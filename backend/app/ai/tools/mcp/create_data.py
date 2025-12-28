@@ -1,14 +1,13 @@
 """MCP Tool: create_data - Generate data visualizations with Query/Step/Visualization persistence."""
 
-import re
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
-from app.ai.context import ContextHub
+from app.ai.tools.mcp.context import build_rich_context
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.schemas.codegen import CodeGenRequest
@@ -18,7 +17,6 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.report import Report
 from app.services.report_service import ReportService
-from app.services.data_source_service import DataSourceService
 from app.project_manager import ProjectManager
 from app.schemas.mcp import MCPCreateDataInput, MCPCreateDataOutput
 from app.dependencies import async_session_maker
@@ -45,32 +43,6 @@ class CreateDataMCPTool(MCPTool):
     def input_schema(self) -> Dict[str, Any]:
         return MCPCreateDataInput.model_json_schema()
     
-    async def _discover_tables(
-        self,
-        schema_builder,
-        prompt: str,
-        top_k: int = 5,
-    ) -> List[Dict[str, Any]]:
-        """Auto-discover relevant tables from user prompt using keyword extraction."""
-        tokens = [t.lower() for t in re.findall(r"[a-zA-Z0-9_]{3,}", prompt)]
-        keywords = list(dict.fromkeys(tokens))[:5]
-        name_patterns = [f"(?i){re.escape(k)}" for k in keywords] if keywords else None
-        
-        ctx = await schema_builder.build(
-            with_stats=True,
-            name_patterns=name_patterns,
-            top_k=top_k,
-        )
-        
-        tables_by_source = []
-        for ds in ctx.data_sources:
-            if ds.tables:
-                tables_by_source.append({
-                    "data_source_id": str(ds.info.id),
-                    "tables": [t.name for t in ds.tables]
-                })
-        return tables_by_source
-    
     async def execute(
         self, 
         args: Dict[str, Any], 
@@ -83,7 +55,6 @@ class CreateDataMCPTool(MCPTool):
         input_data = MCPCreateDataInput(**args)
         
         report_service = ReportService()
-        ds_service = DataSourceService()
         project_manager = ProjectManager()
         
         # Get or create MCP platform first (for external_platform_id)
@@ -91,7 +62,6 @@ class CreateDataMCPTool(MCPTool):
         
         # Load report (report_id is now required)
         report = await report_service.get_report(db, input_data.report_id, user, organization)
-        data_sources = report.data_sources
         
         # Update report with external_platform_id if not set (direct DB update)
         if not report.external_platform:
@@ -102,17 +72,23 @@ class CreateDataMCPTool(MCPTool):
             )
             await db.flush()
         
-        # Create tracking context (ReportSchema has .id so this works)
+        # Create tracking context
         tracking = await self._create_tracking_context(
             db, user, organization, report, self.name, args
         )
         
-        # Get organization settings
-        org_settings = await organization.get_settings(db)
+        # Build rich context (shared context preparation)
+        rich_ctx = await build_rich_context(
+            db=db,
+            user=user,
+            organization=organization,
+            report=report,
+            prompt=input_data.prompt,
+            explicit_tables=input_data.tables,
+        )
         
-        # Get default model
-        model = await organization.get_default_llm_model(db)
-        if not model:
+        # Check if we have a model
+        if not rich_ctx.model:
             await self._finish_tracking(
                 db, tracking, success=False,
                 summary="No default LLM model configured for this organization."
@@ -123,15 +99,8 @@ class CreateDataMCPTool(MCPTool):
                 error_message="No default LLM model configured for this organization.",
             ).model_dump()
         
-        # Build data source clients
-        ds_clients = {}
-        for ds in data_sources:
-            try:
-                ds_clients[ds.name] = await ds_service.construct_client(db, ds, user)
-            except Exception:
-                pass
-        
-        if not ds_clients:
+        # Check if we have connected data sources
+        if not rich_ctx.ds_clients:
             await self._finish_tracking(
                 db, tracking, success=False,
                 summary="No data sources could be connected."
@@ -142,80 +111,35 @@ class CreateDataMCPTool(MCPTool):
                 error_message="No data sources could be connected.",
             ).model_dump()
         
-        # Create ContextHub for schema building
-        context_hub = ContextHub(
-            db=db,
-            organization=organization,
-            report=report,
-            data_sources=data_sources,
-            user=user,
-        )
-        
-        # Auto-discover tables if not provided
-        tables_by_source = None
-        if input_data.tables:
-            tables_by_source = [
-                {"data_source_id": t.data_source_id, "tables": t.tables}
-                for t in input_data.tables
-            ]
-        else:
-            tables_by_source = await self._discover_tables(
-                context_hub.schema_builder,
-                input_data.prompt,
-                top_k=5,
-            )
-        
-        # Build schemas excerpt
-        schemas_excerpt = ""
-        if tables_by_source:
-            try:
-                all_resolved_names = []
-                ds_ids = []
-                for group in tables_by_source:
-                    if group.get("data_source_id"):
-                        ds_ids.append(group["data_source_id"])
-                    all_resolved_names.extend(group.get("tables", []))
-                
-                ds_scope = list(set(ds_ids)) if ds_ids else None
-                name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
-                
-                ctx = await context_hub.schema_builder.build(
-                    with_stats=True,
-                    data_source_ids=ds_scope,
-                    name_patterns=name_patterns,
-                )
-                schemas_excerpt = ctx.render_combined(top_k_per_ds=10, index_limit=0, include_index=False)
-            except Exception:
-                schemas_excerpt = ""
-        
-        # Build codegen context
+        # Build codegen context using the rich context
         runtime_ctx = {
-            "settings": org_settings,
-            "context_hub": context_hub,
-            "ds_clients": ds_clients,
+            "settings": rich_ctx.org_settings,
+            "context_hub": rich_ctx.context_hub,
+            "ds_clients": rich_ctx.ds_clients,
             "excel_files": [],
+            "context_view": rich_ctx.context_hub.get_view(),
         }
         
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
             user_prompt=input_data.prompt,
             interpreted_prompt=input_data.prompt,
-            schemas_excerpt=schemas_excerpt,
-            tables_by_source=tables_by_source,
+            schemas_excerpt=rich_ctx.schemas_excerpt,
+            tables_by_source=rich_ctx.tables_by_source,
         )
         
         # Setup Coder and Executor
         coder = Coder(
-            model=model,
-            organization_settings=org_settings,
-            context_hub=context_hub,
+            model=rich_ctx.model,
+            organization_settings=rich_ctx.org_settings,
+            context_hub=rich_ctx.context_hub,
             usage_session_maker=async_session_maker,
         )
         
         streamer = StreamingCodeExecutor(
-            organization_settings=org_settings,
+            organization_settings=rich_ctx.org_settings,
             logger=None,
-            context_hub=context_hub,
+            context_hub=rich_ctx.context_hub,
         )
         
         # Validator function
@@ -232,7 +156,7 @@ class CreateDataMCPTool(MCPTool):
         
         async for e in streamer.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=codegen_context, retries=2),
-            ds_clients=ds_clients,
+            ds_clients=rich_ctx.ds_clients,
             excel_files=[],
             code_generator_fn=coder.generate_code,
             validator_fn=_validator_fn,
