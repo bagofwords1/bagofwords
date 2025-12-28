@@ -16,7 +16,7 @@
                     <!-- Header -->
                     <div class="flex items-center justify-between px-5 py-4 border-b shrink-0">
                         <div>
-                            <h1 class="text-lg font-semibold text-gray-900">{{ isReadOnly ? 'View Instruction' : (isEditing ? 'Edit Instruction' : 'New Instruction') }}</h1>
+                            <h1 class="text-lg font-semibold text-gray-900">{{ modalTitle }}</h1>
                             <p class="text-sm text-gray-500">Define rules for AI agents</p>
                         </div>
                         <button @click="closeModal" class="text-gray-400 hover:text-gray-600 transition-colors">
@@ -49,6 +49,7 @@
                                 @toggle-analyze="toggleAnalyze"
                                 @unlink-from-git="unlinkFromGit"
                                 @relink-to-git="relinkToGit"
+                                @view-mode-changed="handleViewModeChanged"
                             />
                             <InstructionPrivateCreateComponent 
                                 v-else
@@ -219,9 +220,20 @@ const sharedForm = ref<SharedForm>({
     title: null
 })
 
+// View mode state (controlled by child component)
+const isInViewMode = ref(true)
+
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
 const isReadOnly = computed(() => isEditing.value && !useCan('create_instructions'))
+
+// Modal title based on current state
+const modalTitle = computed(() => {
+    if (!isEditing.value) return 'New Instruction'
+    if (isReadOnly.value) return 'View Instruction'
+    // When editing: show "View Instruction" in view mode, "Edit Instruction" in edit mode
+    return isInViewMode.value ? 'Instruction' : 'Edit Instruction'
+})
 const isGitSourced = computed(() => props.instruction?.source_type === 'git')
 // Use local form state for sync status so UI updates immediately
 const isGitSynced = computed(() => isGitSourced.value && sharedForm.value.source_sync_enabled !== false)
@@ -384,6 +396,10 @@ const handleLabelsUpdated = () => {
     // For now, the modal handles its own refresh
 }
 
+const handleViewModeChanged = (isViewMode: boolean) => {
+    isInViewMode.value = isViewMode
+}
+
 const unlinkFromGit = async () => {
     if (!props.instruction?.id) return
     
@@ -465,6 +481,8 @@ watch(() => props.instruction, (newInstruction) => {
 // Reset the form state only when the modal is closed.
 watch(instructionModalOpen, (isOpen) => {
     if (isOpen) {
+        // Reset view mode state when modal opens
+        isInViewMode.value = true
         if (useCan('create_instructions')) {
             //isAnalyzing.value = true
             //refreshAnalysis()
@@ -472,6 +490,7 @@ watch(instructionModalOpen, (isOpen) => {
     } else {
         resetForm()
         isAnalyzing.value = false
+        isInViewMode.value = true
     }
 })
 

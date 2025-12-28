@@ -287,13 +287,16 @@ def test_mcp_tools_list(
     assert "tools" in data["result"]
 
     tools = data["result"]["tools"]
-    assert len(tools) == 4
+    assert len(tools) == 7
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
     assert "get_context" in tool_names
     assert "inspect_data" in tool_names
     assert "create_data" in tool_names
+    assert "list_instructions" in tool_names
+    assert "create_instruction" in tool_names
+    assert "delete_instruction" in tool_names
 
     # Verify each tool has required fields
     for tool in tools:
@@ -401,13 +404,16 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 4
+    assert len(tools) == 7
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
     assert "get_context" in tool_names
     assert "inspect_data" in tool_names
     assert "create_data" in tool_names
+    assert "list_instructions" in tool_names
+    assert "create_instruction" in tool_names
+    assert "delete_instruction" in tool_names
 
 
 # ============================================================================

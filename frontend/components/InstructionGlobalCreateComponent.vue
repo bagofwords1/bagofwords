@@ -1,59 +1,209 @@
 <template>
     <div class="flex flex-col h-full">
-        <form @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
+        <!-- VIEW MODE: Read-only display for existing instructions -->
+        <div v-if="isEditing && isViewMode" class="flex-1 flex flex-col min-h-0">
             <!-- Scrollable content area -->
             <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-                
-                <!-- Git Source Info -->
-                <div v-if="props.isGitSourced" class="flex items-center gap-1.5 text-xs text-gray-500">
-                    <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
-                    <span class="truncate font-mono text-[11px]">
-                        {{ instruction?.structured_data?.path || instruction?.title || 'Git Repository' }}
-                    </span>
-                    <span class="text-gray-300">·</span>
-                    <UTooltip 
-                        v-if="props.isGitSynced"
-                        text="Stop syncing from git. You'll be able to edit manually."
-                        :popper="{ placement: 'top' }"
-                    >
-                        <button 
-                            type="button"
-                            class="text-[11px] text-gray-400 hover:text-orange-500 transition-colors"
-                            @click="$emit('unlink-from-git')"
-                        >
-                            Unlink
-                        </button>
-                    </UTooltip>
-                    <template v-else>
-                        <span class="text-[10px] text-gray-400">Unlinked</span>
-                        <UTooltip 
-                            text="Resume syncing from git"
-                            :popper="{ placement: 'top' }"
-                        >
-                            <button 
-                                type="button"
-                                class="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
-                                @click="$emit('relink-to-git')"
-                            >
-                                Relink
-                            </button>
-                        </UTooltip>
-                    </template>
+
+                <!-- Content Display -->
+                <div class="border border-gray-200 rounded-xl overflow-hidden bg-white">
+                    <!-- Header with file path and git sync status -->
+                    <div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                            <span v-if="filePath" class="text-xs font-mono text-gray-600 truncate">{{ filePath }}</span>
+                            <span v-else class="text-xs font-medium text-gray-500">Content</span>
+                        </div>
+                        <div v-if="props.isGitSourced" class="flex items-center gap-2 shrink-0">
+                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded">
+                                <GitBranchIcon class="w-3 h-3" />
+                                Synced
+                            </span>
+                            <span v-else class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Unlinked</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Markdown rendered content (for .md files or non-git-linked) -->
+                    <div v-if="shouldRenderAsMarkdown" class="p-4 markdown-wrapper">
+                        <MDC :value="instructionForm.text || ''" class="markdown-content" />
+                    </div>
+                    
+                    <!-- Code block for other file types -->
+                    <div v-else class="p-4 bg-gray-50">
+                        <pre class="text-xs leading-relaxed font-mono text-gray-800 whitespace-pre-wrap overflow-x-auto"><code>{{ instructionForm.text }}</code></pre>
+                    </div>
                 </div>
+
+                <!-- Metadata Display (read-only) -->
+                <div class="flex flex-wrap items-center gap-3 text-xs">
+                    <!-- Status -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-400">Status:</span>
+                        <span :class="getStatusClass(instructionForm.status)" class="inline-flex px-2 py-0.5 text-[11px] font-medium rounded-full">
+                            {{ getCurrentStatusDisplayText() }}
+                        </span>
+                    </div>
+                    
+                    <!-- Category -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-400">Category:</span>
+                        <div class="inline-flex items-center text-gray-700">
+                            <Icon :name="getCategoryIcon(instructionForm.category)" class="w-3 h-3 mr-1" />
+                            {{ formatCategory(instructionForm.category) }}
+                        </div>
+                    </div>
+
+                    <!-- Load Mode -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-400">Loading:</span>
+                        <div class="inline-flex items-center text-gray-700">
+                            <Icon :name="getLoadModeIcon(instructionForm.load_mode)" class="w-3 h-3 mr-1" />
+                            {{ getLoadModeLabel(instructionForm.load_mode) }}
+                        </div>
+                    </div>
+
+                    <!-- Visibility -->
+                    <div class="flex items-center gap-1.5">
+                        <Icon :name="instructionForm.is_seen ? 'heroicons:eye' : 'heroicons:eye-slash'" class="w-3 h-3 text-gray-400" />
+                        <span class="text-gray-600">{{ instructionForm.is_seen ? 'Visible' : 'Hidden' }}</span>
+                    </div>
+                </div>
+
+                <!-- Labels (read-only) -->
+                <div v-if="selectedLabelObjects.length > 0" class="flex items-center gap-2">
+                    <span class="text-[11px] text-gray-400">Labels:</span>
+                    <div class="flex flex-wrap gap-1">
+                        <span
+                            v-for="label in selectedLabelObjects"
+                            :key="label.id"
+                            class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px]"
+                            :style="{ backgroundColor: (label.color || '#94a3b8') + '20', color: '#1F2937' }"
+                        >
+                            <span class="w-1.5 h-1.5 rounded-full" :style="{ backgroundColor: label.color || '#94a3b8' }"></span>
+                            {{ label.name }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Scope (read-only) -->
+                <div class="flex flex-wrap items-center gap-4 text-xs">
+                    <!-- Data Sources -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-400">Sources:</span>
+                        <span v-if="isAllDataSourcesSelected" class="text-gray-700">All sources</span>
+                        <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex items-center gap-1">
+                            <div class="flex -space-x-1">
+                                <DataSourceIcon 
+                                    v-for="ds in getSelectedDataSourceObjects.slice(0, 3)" 
+                                    :key="ds.id" 
+                                    :type="ds.type" 
+                                    class="h-4 w-4 border border-white rounded" 
+                                />
+                            </div>
+                            <span class="text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
+                        </div>
+                        <span v-else class="text-gray-400">None</span>
+                    </div>
+
+                    <!-- Tables -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-400">Tables:</span>
+                        <span v-if="selectedReferences.length === 0" class="text-gray-400">None</span>
+                        <span v-else class="text-gray-700">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
+                    </div>
+                </div>
+
+            </div>
+            
+            <!-- View Mode Actions (fixed at bottom) -->
+            <div class="shrink-0 bg-white border-t px-5 py-3">
+                <div class="flex justify-between items-center">
+                    <UButton 
+                        size="xs"
+                        color="red" 
+                        variant="ghost" 
+                        @click="confirmDelete"
+                        :loading="isDeleting"
+                    >
+                        <Icon name="heroicons:trash" class="w-3.5 h-3.5 mr-1" />
+                        Delete
+                    </UButton>
+                    
+                    <div class="flex gap-2">
+                        <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
+                            Close
+                        </UButton>
+                        <UButton 
+                            size="xs" 
+                            color="blue"
+                            @click="isViewMode = false"
+                        >
+                            <Icon name="heroicons:pencil" class="w-3.5 h-3.5 mr-1" />
+                            Edit
+                        </UButton>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- EDIT MODE: Form for creating/editing instructions -->
+        <form v-else @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
+            <!-- Scrollable content area -->
+            <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
                 <!-- Hero Textarea / Code Editor -->
                 <div class="border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
-                    <!-- Header with title and code view toggle -->
+                    <!-- Header with file path, git sync status, and code view toggle -->
                     <div class="flex items-center justify-between px-3 py-1.5 bg-white border-b border-gray-100">
-                        <span class="text-xs font-medium text-gray-500">Instruction</span>
-                        <button 
-                            type="button"
-                            @click="codeView = !codeView"
-                            class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
-                            :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
-                        >
-                            <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
-                        </button>
+                        <div class="flex items-center gap-2 min-w-0">
+                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                            <span v-if="filePath" class="text-xs font-mono text-gray-600 truncate">{{ filePath }}</span>
+                            <span v-else class="text-xs font-medium text-gray-500">Instruction</span>
+                        </div>
+                        <div class="flex items-center gap-2 shrink-0">
+                            <!-- Git sync status and actions -->
+                            <template v-if="props.isGitSourced">
+                                <UTooltip 
+                                    v-if="props.isGitSynced"
+                                    text="Stop syncing from git. You'll be able to edit manually."
+                                    :popper="{ placement: 'top' }"
+                                >
+                                    <button 
+                                        type="button"
+                                        class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded hover:bg-green-100 transition-colors"
+                                        @click="$emit('unlink-from-git')"
+                                    >
+                                        <GitBranchIcon class="w-3 h-3" />
+                                        Synced
+                                        <Icon name="heroicons:x-mark" class="w-3 h-3" />
+                                    </button>
+                                </UTooltip>
+                                <template v-else>
+                                    <span class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Unlinked</span>
+                                    <UTooltip 
+                                        text="Resume syncing from git"
+                                        :popper="{ placement: 'top' }"
+                                    >
+                                        <button 
+                                            type="button"
+                                            class="text-[10px] text-blue-500 hover:text-blue-600 transition-colors"
+                                            @click="$emit('relink-to-git')"
+                                        >
+                                            Relink
+                                        </button>
+                                    </UTooltip>
+                                </template>
+                            </template>
+                            <!-- Code view toggle -->
+                            <button 
+                                type="button"
+                                @click="codeView = !codeView"
+                                class="text-gray-400 hover:text-gray-600 p-1 rounded transition-colors"
+                                :title="codeView ? 'Switch to text editor' : 'Switch to code editor'"
+                            >
+                                <Icon :name="codeView ? 'heroicons:document-text' : 'heroicons:code-bracket'" class="w-4 h-4" />
+                            </button>
+                        </div>
                     </div>
                     
                     <!-- Normal textarea -->
@@ -357,7 +507,10 @@ Examples:
                     </UButton>
                     
                     <div class="flex gap-2" :class="{ 'ml-auto': !isEditing }">
-                        <UButton color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
+                        <UButton v-if="isEditing" color="gray" variant="ghost" size="xs" @click="cancelEdit">
+                            Cancel
+                        </UButton>
+                        <UButton v-else color="gray" variant="ghost" size="xs" @click="$emit('cancel')">
                             Cancel
                         </UButton>
                         <UButton 
@@ -461,6 +614,7 @@ Examples:
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
+import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 
 // Define interfaces
 interface DataSource {
@@ -504,7 +658,7 @@ const props = defineProps<{
     targetBuildId?: string  // If set, update instruction within this existing build (no new build created)
 }>()
 
-const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git'])
+const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'update-form', 'unlink-from-git', 'relink-to-git', 'view-mode-changed'])
 
 // Reactive state
 const toast = useToast()
@@ -525,6 +679,7 @@ const showDeleteConfirm = ref(false)
 const showDeleteGitConfirm = ref(false)
 const originalText = ref('')
 const codeView = ref(false)
+const isViewMode = ref(true)  // Start in view mode for existing instructions
 
 // Form data (simplified - approval workflow handled by builds)
 const instructionForm = ref<InstructionForm>({
@@ -538,6 +693,28 @@ const instructionForm = ref<InstructionForm>({
 
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
+
+// Get file path from instruction (git path or title)
+const filePath = computed(() => {
+    return props.instruction?.structured_data?.path || props.instruction?.title || null
+})
+
+// Get file extension from git path or title
+const fileExtension = computed(() => {
+    const path = filePath.value || ''
+    const match = path.match(/\.([^.]+)$/)
+    return match ? match[1].toLowerCase() : null
+})
+
+// Determine if content should be rendered as markdown
+const shouldRenderAsMarkdown = computed(() => {
+    // Render as markdown if:
+    // 1. It's a .md file
+    // 2. OR it's not git-linked (manually created instruction)
+    if (fileExtension.value === 'md') return true
+    if (!props.isGitSourced) return true
+    return false
+})
 
 const dataSourceOptions = computed(() => {
     const allOption = {
@@ -876,12 +1053,31 @@ const resetForm = () => {
     selectedLabelIds.value = []
     isSubmitting.value = false
     originalText.value = ''
+    isViewMode.value = false  // New instructions start in edit mode
     emit('update-form', { label_ids: [] })
 }
 
 const hasTextChanged = computed(() => {
     return instructionForm.value.text !== originalText.value
 })
+
+// Cancel edit and return to view mode (restore original values)
+const cancelEdit = () => {
+    // Restore form to original instruction values
+    if (props.instruction) {
+        instructionForm.value = {
+            text: props.instruction.text || '',
+            status: props.instruction.status || 'draft',
+            category: props.instruction.category || 'general',
+            is_seen: props.instruction.is_seen !== undefined ? props.instruction.is_seen : true,
+            can_user_toggle: props.instruction.can_user_toggle !== undefined ? props.instruction.can_user_toggle : true,
+            load_mode: props.instruction.load_mode || 'always'
+        }
+        selectedDataSources.value = props.instruction.data_sources?.map((ds: DataSource) => ds.id) || []
+        selectedLabelIds.value = props.instruction.labels?.map((label: InstructionLabel) => label.id) || []
+    }
+    isViewMode.value = true
+}
 
 const submitForm = async () => {
     if (isSubmitting.value) return
@@ -1135,11 +1331,16 @@ watch(() => props.instruction, async (newInstruction) => {
         selectedLabelIds.value = newInstruction.labels?.map((label: InstructionLabel) => label.id) || []
         emit('update-form', { label_ids: selectedLabelIds.value })
         
+        // Start in view mode for existing instructions
+        isViewMode.value = true
+        
         // Fetch full instruction to get references, then init
         await fetchFullInstruction()
         initReferencesFromInstruction()
     } else {
         fullInstruction.value = null
+        // Start in edit mode for new instructions
+        isViewMode.value = false
         resetForm()
     }
 }, { immediate: true })
@@ -1154,4 +1355,89 @@ watch(showLabelModal, (isOpen) => {
         editingLabel.value = null
     }
 })
+
+// Emit view mode changes so parent can update the modal title
+watch(isViewMode, (newVal) => {
+    emit('view-mode-changed', newVal)
+}, { immediate: true })
 </script>
+
+<style scoped>
+/* Markdown wrapper styles for instruction content */
+.markdown-wrapper :deep(.markdown-content) {
+    @apply leading-relaxed text-sm text-gray-800;
+
+    p {
+        margin-bottom: 1em;
+    }
+    p:last-child {
+        margin-bottom: 0;
+    }
+
+    :where(h1, h2, h3, h4, h5, h6) {
+        @apply font-semibold mb-3 mt-4 text-gray-900;
+    }
+
+    h1 { @apply text-xl; }
+    h2 { @apply text-lg; }
+    h3 { @apply text-base; }
+    h4 { @apply text-sm; }
+
+    /* Prevent anchor links inside headings from looking like links - needs high specificity */
+    h1 a, h2 a, h3 a, h4 a, h5 a, h6 a {
+        color: inherit !important;
+        text-decoration: none !important;
+    }
+
+    ul, ol { @apply pl-5 mb-3; }
+    ul { @apply list-disc; }
+    ol { @apply list-decimal; }
+    li { @apply mb-1; }
+
+    /* Code blocks (fenced with ```) */
+    pre {
+        @apply bg-gray-50 p-3 rounded-lg mb-3 overflow-x-auto text-xs;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    pre code {
+        background: none;
+        padding: 0;
+        border-radius: 0;
+        font-size: 12px;
+        line-height: 1.5;
+        display: block;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    /* Inline code (single backticks) */
+    code {
+        @apply bg-gray-100 px-1.5 py-0.5 rounded font-mono text-xs;
+        color: #374151;
+    }
+    
+    /* Regular links - but not inside headings */
+    a { 
+        @apply text-blue-600 hover:text-blue-800 underline;
+    }
+    
+    blockquote { 
+        @apply border-l-4 border-gray-200 pl-4 italic my-3 text-gray-600; 
+    }
+    
+    table { @apply w-full border-collapse mb-3; }
+    table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; }
+    
+    hr {
+        @apply my-4 border-gray-200;
+    }
+
+    strong {
+        @apply font-semibold;
+    }
+
+    em {
+        @apply italic;
+    }
+}
+</style>
