@@ -12,7 +12,6 @@ from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
 from app.ai.schemas.codegen import CodeGenRequest
 from app.ai.prompt_formatters import build_codegen_context
-from app.ai.tools.implementations.create_data import build_view_from_data_model
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.report import Report
@@ -198,19 +197,11 @@ class CreateDataMCPTool(MCPTool):
         # Determine title
         title = input_data.title or f"Query: {input_data.prompt[:50]}"
         
-        # Determine visualization type
-        viz_type = input_data.visualization_type or "table"
-        
-        # Build view from data model
-        data_model = {"type": viz_type, "series": []}
-        available_columns = [c.get("field") for c in formatted.get("columns", []) if c.get("field")]
-        view_schema = build_view_from_data_model(
-            data_model, 
-            title=title, 
-            palette_theme="default",
-            available_columns=available_columns
-        )
-        view_payload = view_schema.model_dump(exclude_none=True) if view_schema else {"version": "v2", "view": {"type": viz_type}}
+        # Always use table view - chart types require series data we don't have here
+        from app.schemas.view_schema import TableView, ViewSchema as VS
+        data_model = {"type": "table", "series": []}
+        view = TableView(title=title)
+        view_payload = VS(view=view).model_dump(exclude_none=True)
         
         # Create Query (pass org/user IDs since report is a schema, not ORM model)
         query = await project_manager.create_query_v2(
