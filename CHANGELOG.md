@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.287 (December 26, 2025)
+## Version 0.0.288 (December 26, 2025)
 - UI improvements: eval, build ID
 - Added modal to manage test suites
 - Added new MCP tools: list, create, and delete instructions
