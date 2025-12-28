@@ -31,8 +31,7 @@ class GetContextTool(MCPTool):
     
     name = "get_context"
     description = (
-        "Get available data sources, tables, and metadata resources. "
-        "Use to understand what data is available before creating data (create_data, inspect_data) unless you already have the right context."
+        "Get available data sources, tables, and metadata resources. Useful for searching or explaining metadata. "
         "Optionally filter by regex patterns."
     )
     
