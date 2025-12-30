@@ -72,7 +72,8 @@ async def get_instructions(
     include_archived: bool = Query(False), 
     include_hidden: bool = Query(False),
     user_id: Optional[str] = Query(None),
-    data_source_id: Optional[str] = Query(None, description="Filter by data source id"),
+    data_source_id: Optional[str] = Query(None, description="Filter by single data source/domain id (deprecated, use data_source_ids)"),
+    data_source_ids: Optional[str] = Query(None, description="Comma-separated domain IDs to filter by"),
     source_types: Optional[str] = Query(None, description="Comma-separated source types: dbt, markdown, user, ai"),
     load_mode: Optional[str] = Query(None, description="Single load mode filter (deprecated, use load_modes)"),
     load_modes: Optional[str] = Query(None, description="Comma-separated load modes: always, intelligent, disabled"),
@@ -112,6 +113,13 @@ async def get_instructions(
     elif load_mode:
         parsed_load_modes = [load_mode]
     
+    # Parse data_source_ids from comma-separated string (prefer multi, fall back to single)
+    parsed_data_source_ids = None
+    if data_source_ids:
+        parsed_data_source_ids = [ds_id.strip() for ds_id in data_source_ids.split(',') if ds_id.strip()]
+    elif data_source_id:
+        parsed_data_source_ids = [data_source_id]
+    
     return await instruction_service.get_instructions(
         db, organization, current_user,
         skip=skip, limit=limit,
@@ -122,7 +130,7 @@ async def get_instructions(
         include_archived=include_archived,
         include_hidden=include_hidden,
         user_id=user_id,
-        data_source_id=data_source_id,
+        data_source_ids=parsed_data_source_ids,
         source_types=parsed_source_types,
         load_modes=parsed_load_modes,
         label_ids=parsed_label_ids,

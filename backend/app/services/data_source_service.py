@@ -1913,3 +1913,313 @@ class DataSourceService:
         # System path: canonical tables
         return await data_source.prompt_schema(db=db, with_stats=False)
 
+    # ==================== Domain-Connection Architecture Methods ====================
+
+    async def create_domain_with_connection(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        data_source_create: DataSourceCreate,
+    ):
+        """
+        Create a DataSource (Domain) along with its Connection.
+        This is the new architecture method that creates both in a single transaction.
+        Maintains backward compatibility with existing create_data_source.
+        """
+        from app.services.connection_service import ConnectionService
+        from app.models.connection import Connection
+        from app.models.domain_connection import domain_connection
+        
+        connection_service = ConnectionService()
+        data_source_dict = data_source_create.dict()
+        
+        # Extract connection-specific fields
+        ds_type = data_source_dict.get("type")
+        config = data_source_dict.pop("config", {})
+        credentials = data_source_dict.pop("credentials", {})
+        auth_policy = data_source_dict.get("auth_policy", "system_only")
+        allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
+        
+        # Extract domain-specific fields
+        name = data_source_dict.get("name")
+        is_public = data_source_dict.get("is_public", False)
+        member_user_ids = data_source_dict.pop("member_user_ids", [])
+        generate_summary = data_source_dict.pop("generate_summary", False)
+        generate_conversation_starters = data_source_dict.pop("generate_conversation_starters", False)
+        generate_ai_rules = data_source_dict.pop("generate_ai_rules", False)
+        use_llm_sync = data_source_dict.pop("use_llm_sync", False)
+        
+        # Create the Connection first
+        connection = await connection_service.create_connection(
+            db=db,
+            organization=organization,
+            current_user=current_user,
+            name=name,
+            type=ds_type,
+            config=config,
+            credentials=credentials,
+            auth_policy=auth_policy,
+            allowed_user_auth_modes=allowed_user_auth_modes,
+        )
+        
+        # Create the DataSource (Domain)
+        new_data_source = DataSource(
+            name=name,
+            type=ds_type,  # Keep for backward compatibility during migration
+            config=json.dumps(config),  # Keep for backward compatibility
+            organization_id=organization.id,
+            is_public=is_public,
+            use_llm_sync=use_llm_sync,
+            auth_policy=auth_policy,
+            owner_user_id=current_user.id,
+        )
+        
+        if credentials:
+            new_data_source.encrypt_credentials(credentials)
+        
+        db.add(new_data_source)
+        await db.flush()
+        
+        # Link domain to connection via junction table
+        await db.execute(
+            domain_connection.insert().values(
+                data_source_id=new_data_source.id,
+                connection_id=connection.id
+            )
+        )
+        
+        await db.commit()
+        await db.refresh(new_data_source)
+        
+        # Create memberships
+        await self._create_memberships(db, new_data_source, [current_user.id])
+        if member_user_ids and not is_public:
+            additional_user_ids = [uid for uid in member_user_ids if uid != current_user.id]
+            if additional_user_ids:
+                await self._create_memberships(db, new_data_source, additional_user_ids)
+        
+        # Sync domain tables from connection tables
+        await self.sync_domain_tables_from_connection(db, new_data_source, connection)
+        
+        # Generate AI content if requested
+        if auth_policy == "system_only":
+            if generate_summary:
+                response = await self.generate_data_source_items(db=db, item="summary", data_source_id=new_data_source.id, organization=organization, current_user=current_user)
+                new_data_source.description = response.get("summary")
+            if generate_conversation_starters:
+                response = await self.generate_data_source_items(db=db, item="conversation_starters", data_source_id=new_data_source.id, organization=organization, current_user=current_user)
+                new_data_source.conversation_starters = response.get("conversation_starters")
+            await db.commit()
+            await db.refresh(new_data_source)
+        
+        # Reload with relationships
+        stmt = (
+            select(DataSource)
+            .options(
+                selectinload(DataSource.data_source_memberships),
+                selectinload(DataSource.connections)
+            )
+            .where(DataSource.id == new_data_source.id)
+        )
+        result = await db.execute(stmt)
+        return result.scalar_one()
+
+    async def add_connection_to_domain(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        connection_id: str,
+        organization: Organization,
+        current_user: User,
+        sync_tables: bool = True,
+    ):
+        """
+        Add a connection to an existing domain (M:N relationship).
+        """
+        from app.models.connection import Connection
+        from app.models.domain_connection import domain_connection
+        
+        # Verify domain exists
+        data_source = await db.execute(
+            select(DataSource).filter(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id
+            )
+        )
+        data_source = data_source.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Domain not found")
+        
+        # Verify connection exists
+        connection = await db.execute(
+            select(Connection).filter(
+                Connection.id == connection_id,
+                Connection.organization_id == organization.id
+            )
+        )
+        connection = connection.scalar_one_or_none()
+        if not connection:
+            raise HTTPException(status_code=404, detail="Connection not found")
+        
+        # Check if already linked
+        existing = await db.execute(
+            domain_connection.select().where(
+                domain_connection.c.data_source_id == data_source_id,
+                domain_connection.c.connection_id == connection_id
+            )
+        )
+        if existing.first():
+            raise HTTPException(status_code=400, detail="Connection already linked to this domain")
+        
+        # Create link
+        await db.execute(
+            domain_connection.insert().values(
+                data_source_id=data_source_id,
+                connection_id=connection_id
+            )
+        )
+        await db.commit()
+        
+        # Sync domain tables from this connection
+        if sync_tables:
+            await self.sync_domain_tables_from_connection(db, data_source, connection)
+        
+        return {"message": "Connection added to domain"}
+
+    async def remove_connection_from_domain(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        connection_id: str,
+        organization: Organization,
+        current_user: User,
+    ):
+        """
+        Remove a connection from a domain.
+        """
+        from app.models.domain_connection import domain_connection
+        
+        # Verify domain exists
+        data_source = await db.execute(
+            select(DataSource).options(selectinload(DataSource.connections)).filter(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id
+            )
+        )
+        data_source = data_source.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Domain not found")
+        
+        # Check if this is the last connection
+        if len(data_source.connections) <= 1:
+            raise HTTPException(status_code=400, detail="Cannot remove the last connection from a domain")
+        
+        # Remove link
+        await db.execute(
+            domain_connection.delete().where(
+                domain_connection.c.data_source_id == data_source_id,
+                domain_connection.c.connection_id == connection_id
+            )
+        )
+        
+        # Remove domain tables that reference this connection's tables
+        from app.models.connection_table import ConnectionTable
+        await db.execute(
+            delete(DataSourceTable).where(
+                DataSourceTable.datasource_id == data_source_id,
+                DataSourceTable.connection_table_id.in_(
+                    select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
+                )
+            )
+        )
+        
+        await db.commit()
+        return {"message": "Connection removed from domain"}
+
+    async def sync_domain_tables_from_connection(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        connection,
+        activate_all: bool = True,
+    ):
+        """
+        Create DataSourceTable (DomainTable) entries from ConnectionTable entries.
+        Links domain tables to connection tables for schema access.
+        """
+        from app.models.connection_table import ConnectionTable
+        
+        # Get connection tables
+        conn_tables = await db.execute(
+            select(ConnectionTable).filter(ConnectionTable.connection_id == connection.id)
+        )
+        conn_tables = conn_tables.scalars().all()
+        
+        if not conn_tables:
+            return
+        
+        # Get existing domain tables
+        existing = await db.execute(
+            select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source.id)
+        )
+        existing_by_name = {t.name: t for t in existing.scalars().all()}
+        
+        MAX_ACTIVE = 500
+        total_tables = len(conn_tables)
+        should_activate = activate_all and total_tables <= MAX_ACTIVE
+        
+        for conn_table in conn_tables:
+            if conn_table.name in existing_by_name:
+                # Update existing
+                domain_table = existing_by_name[conn_table.name]
+                domain_table.connection_table_id = conn_table.id
+            else:
+                # Create new domain table linked to connection table
+                domain_table = DataSourceTable(
+                    name=conn_table.name,
+                    datasource_id=data_source.id,
+                    connection_table_id=conn_table.id,
+                    is_active=should_activate,
+                    # Copy legacy fields for backward compatibility
+                    columns=conn_table.columns,
+                    pks=conn_table.pks,
+                    fks=conn_table.fks,
+                    no_rows=conn_table.no_rows,
+                    metadata_json=conn_table.metadata_json,
+                    centrality_score=conn_table.centrality_score,
+                    richness=conn_table.richness,
+                    degree_in=conn_table.degree_in,
+                    degree_out=conn_table.degree_out,
+                    entity_like=conn_table.entity_like,
+                    metrics_computed_at=conn_table.metrics_computed_at,
+                )
+                db.add(domain_table)
+        
+        await db.commit()
+        
+        # If too many tables, use smart selection
+        if activate_all and total_tables > MAX_ACTIVE:
+            await self._select_active_tables_sql(db, str(data_source.id), MAX_ACTIVE)
+
+    async def get_domain_connections(
+        self,
+        db: AsyncSession,
+        data_source_id: str,
+        organization: Organization,
+    ):
+        """Get all connections linked to a domain."""
+        data_source = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .filter(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id
+            )
+        )
+        data_source = data_source.scalar_one_or_none()
+        if not data_source:
+            raise HTTPException(status_code=404, detail="Domain not found")
+        
+        return data_source.connections
+

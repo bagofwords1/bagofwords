@@ -334,3 +334,66 @@ async def remove_data_source_member(
     current_user: User = Depends(current_user)
 ):
     return await data_source_service.remove_data_source_member(db, data_source_id, user_id, organization, current_user)
+
+
+# ==================== Domain-Connection Routes ====================
+
+@router.get("/data_sources/{data_source_id}/connections")
+@requires_permission('update_data_source', model=DataSource)
+async def get_domain_connections(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Get all connections linked to a domain."""
+    connections = await data_source_service.get_domain_connections(db, data_source_id, organization)
+    return [
+        {
+            "id": str(conn.id),
+            "name": conn.name,
+            "type": conn.type,
+            "is_active": conn.is_active,
+        }
+        for conn in connections
+    ]
+
+
+@router.post("/data_sources/{data_source_id}/connections/{connection_id}")
+@requires_permission('update_data_source', model=DataSource)
+async def add_connection_to_domain(
+    data_source_id: str,
+    connection_id: str,
+    sync_tables: bool = True,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Add a connection to a domain (M:N relationship)."""
+    return await data_source_service.add_connection_to_domain(
+        db=db,
+        data_source_id=data_source_id,
+        connection_id=connection_id,
+        organization=organization,
+        current_user=current_user,
+        sync_tables=sync_tables,
+    )
+
+
+@router.delete("/data_sources/{data_source_id}/connections/{connection_id}")
+@requires_permission('update_data_source', model=DataSource)
+async def remove_connection_from_domain(
+    data_source_id: str,
+    connection_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user)
+):
+    """Remove a connection from a domain."""
+    return await data_source_service.remove_connection_from_domain(
+        db=db,
+        data_source_id=data_source_id,
+        connection_id=connection_id,
+        organization=organization,
+        current_user=current_user,
+    )

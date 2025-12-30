@@ -57,16 +57,17 @@
                 :status="inst.filters.status"
                 :load-modes="inst.filters.loadModes"
                 :categories="inst.filters.categories"
-                :data-source-id="inst.filters.dataSourceId"
+                :data-source-ids="inst.filters.dataSourceIds"
                 :label-ids="labelFilter"
                 :labels="allLabels"
                 :data-sources="allDataSources"
+                :hide-domain-filter="true"
                 @update:search="inst.debouncedSearch"
                 @update:source-types="v => inst.setFilter('sourceTypes', v)"
                 @update:status="v => inst.setFilter('status', v)"
                 @update:load-modes="v => inst.setFilter('loadModes', v)"
                 @update:categories="v => inst.setFilter('categories', v)"
-                @update:data-source-id="v => inst.setFilter('dataSourceId', v)"
+                @update:data-source-ids="v => inst.setFilter('dataSourceIds', v)"
                 @update:label-ids="handleLabelFilterChange"
                 @label-created="fetchLabels"
                 @reset="resetAllFilters"
@@ -185,6 +186,7 @@ import GitConnectionButton from '~/components/instructions/GitConnectionButton.v
 import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useInstructions } from '~/composables/useInstructions'
+import { useDomain } from '~/composables/useDomain'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 
 // Props
@@ -194,14 +196,18 @@ withDefaults(defineProps<{
     showHeader: false
 })
 
+// Domain filtering
+const { selectedDomains } = useDomain()
+
 // Wrapper for fetchBuilds to avoid hoisting issues
 const refreshBuilds = () => fetchBuilds()
 
-// Instructions composable with URL persistence
+// Instructions composable with URL persistence and domain filtering
 const inst = useInstructions({
     autoFetch: true,
     pageSize: 25,
     persistFiltersInUrl: true,
+    dataSourceIds: selectedDomains,  // Pass selected domains for filtering
     onBulkSuccess: refreshBuilds  // Refresh builds list after bulk updates
 })
 

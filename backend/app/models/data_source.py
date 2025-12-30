@@ -4,6 +4,7 @@ from app.models.base import BaseSchema
 from sqlalchemy import ForeignKey
 from app.models.user import User
 from app.models.organization import Organization
+from app.models.domain_connection import domain_connection
 from importlib import import_module
 from cryptography.fernet import Fernet
 from app.settings.config import settings
@@ -111,7 +112,23 @@ class DataSource(BaseSchema):
         lazy="selectin"
     )
     
+    # M:N relationship to Connection
+    connections = relationship(
+        "Connection",
+        secondary=domain_connection,
+        back_populates="data_sources",
+        lazy="selectin"
+    )
+    
     def get_client(self):
+        """
+        Get database client. Uses first connection if available, otherwise falls back to legacy fields.
+        """
+        # Use connection if available (new architecture)
+        if self.connections:
+            return self.connections[0].get_client()
+        
+        # Legacy: use fields on DataSource directly
         try:
             module_name = f"app.data_sources.clients.{self.type.lower()}_client"
             # Capitalize the first letter of each word without changing the rest of the word's case
@@ -144,10 +161,17 @@ class DataSource(BaseSchema):
             raise ValueError(f"Unable to load data source client for {self.type}: {str(e)}")
     
     def get_credentials(self):
+        """
+        Get decrypted credentials. Uses first connection if available.
+        """
+        # Use connection if available (new architecture)
+        if self.connections:
+            return self.connections[0].get_credentials()
+        
+        # Legacy: use fields on DataSource directly
         if self.auth_policy == "system_only":
             return self.decrypt_credentials()
         elif self.auth_policy == "user_required":
-            #return self.user_data_source_credentials.decrypt_credentials()
             return None
         else:
             raise ValueError(f"Invalid auth policy: {self.auth_policy}")

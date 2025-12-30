@@ -413,7 +413,7 @@ class InstructionService:
         include_archived: bool = False,
         include_hidden: bool = False,
         user_id: Optional[str] = None,
-        data_source_id: Optional[str] = None,
+        data_source_ids: Optional[List[str]] = None,
         source_types: Optional[List[str]] = None,
         load_modes: Optional[List[str]] = None,
         label_ids: Optional[List[str]] = None,
@@ -453,7 +453,7 @@ class InstructionService:
         # Execute query with new filters
         return await self._execute_instructions_query(
             db, organization, conditions, status, categories, skip, limit,
-            data_source_id, source_types, load_modes, label_ids, search,
+            data_source_ids, source_types, load_modes, label_ids, search,
             build_id=build_id
         )
 
@@ -1415,7 +1415,7 @@ class InstructionService:
         categories: Optional[List[str]], 
         skip: int, 
         limit: int,
-        data_source_id: Optional[str] = None,
+        data_source_ids: Optional[List[str]] = None,
         source_types: Optional[List[str]] = None,
         load_modes: Optional[List[str]] = None,
         label_ids: Optional[List[str]] = None,
@@ -1472,8 +1472,9 @@ class InstructionService:
             filter_conditions.append(Instruction.status == status)
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
-        if data_source_id:
-            filter_conditions.append(Instruction.data_sources.any(DataSource.id == data_source_id))
+        if data_source_ids:
+            # Filter by any of the specified domain IDs (OR logic)
+            filter_conditions.append(Instruction.data_sources.any(DataSource.id.in_(data_source_ids)))
         if source_types:
             # Build source type filter conditions
             # source_types can contain: 'user', 'ai', 'git', 'dbt', 'markdown', etc.
