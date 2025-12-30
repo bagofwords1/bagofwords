@@ -100,7 +100,10 @@ class ConnectionService:
         """Get a connection by ID."""
         result = await db.execute(
             select(Connection)
-            .options(selectinload(Connection.connection_tables))
+            .options(
+                selectinload(Connection.connection_tables),
+                selectinload(Connection.data_sources),
+            )
             .filter(
                 Connection.id == connection_id,
                 Connection.organization_id == organization.id
@@ -119,9 +122,15 @@ class ConnectionService:
         organization: Organization,
     ) -> List[Connection]:
         """Get all connections for an organization."""
+        from sqlalchemy.orm import selectinload
+        from app.models.data_source import DataSource
         result = await db.execute(
             select(Connection)
             .filter(Connection.organization_id == organization.id)
+            .options(
+                selectinload(Connection.connection_tables),
+                selectinload(Connection.data_sources).selectinload(DataSource.tables),
+            )
             .order_by(Connection.name)
         )
         return result.scalars().all()

@@ -84,7 +84,7 @@ class CreateReportTool(MCPTool):
             "title": report.title,
             "url": f"{base_url}/reports/{report.id}",
             "data_sources": [
-                {"id": str(ds.id), "name": ds.name, "type": ds.type}
+                {"id": str(ds.id), "name": ds.name, "type": ds.connections[0].type if ds.connections else None}
                 for ds in data_sources
             ],
         }

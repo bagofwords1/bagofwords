@@ -375,188 +375,21 @@
 
   <McpModal v-model="showMcpModal" />
 
-  <!-- Domain hover flyout (teleported so it never gets clipped by popovers) -->
-  <Teleport to="body">
-    <Transition
-      enter-active-class="transition-all duration-150 ease-out"
-      enter-from-class="opacity-0 translate-y-1"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition-all duration-100 ease-in"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 translate-y-1"
-    >
-      <div
-        v-if="flyout.visible && hoveredDomainId"
-        class="fixed z-[2000]"
-        :style="{ top: `${flyout.top}px`, left: `${flyout.left}px` }"
-        @mouseenter="onFlyoutEnter"
-        @mouseleave="onFlyoutLeave"
-      >
-        <div class="w-[400px] bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
-          <div class="px-4 py-3 border-b border-gray-100">
-            <div class="text-sm font-semibold text-gray-900 truncate">
-              {{ hoveredDomainDetails?.name || 'Loading…' }}
-            </div>
-            <div class="text-xs text-gray-400">Domain</div>
-          </div>
-
-          <!-- Tabs (underline / border-bottom style like Settings) -->
-          <div class="border-b border-gray-200 px-4">
-            <nav class="-mb-px flex space-x-6">
-              <button
-                @click="flyoutTab = 'overview'"
-                :class="[
-                  flyoutTab === 'overview'
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-                  'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
-                ]"
-              >
-                Overview
-              </button>
-              <button
-                @click="flyoutTab = 'tables'"
-                :class="[
-                  flyoutTab === 'tables'
-                    ? 'border-indigo-500 text-indigo-600'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-                  'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
-                ]"
-              >
-                Tables
-              </button>
-            </nav>
-          </div>
-
-          <div class="p-4">
-            <div v-if="loadingDomainDetails" class="flex items-center justify-center py-8">
-              <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
-            </div>
-
-            <template v-else>
-              <!-- Overview tab -->
-              <div v-if="flyoutTab === 'overview'" class="space-y-4">
-                <!-- Description (no title) -->
-                <div v-if="hoveredDomainDetails?.description" class="text-xs text-gray-600 leading-relaxed">
-                  {{ hoveredDomainDetails.description }}
-                </div>
-
-                <!-- Sample Questions -->
-                <div v-if="hoveredDomainDetails?.conversation_starters?.length">
-                  <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-2">Sample Questions</div>
-                  <div class="space-y-1.5">
-                    <div
-                      v-for="(starter, idx) in hoveredDomainDetails.conversation_starters.slice(0, 6)"
-                      :key="idx"
-                      class="bg-gray-50 border border-gray-100 text-gray-700 text-xs px-3 py-2 rounded-lg"
-                    >
-                      {{ starter.split('\n')[0] }}
-                    </div>
-                    <div
-                      v-if="hoveredDomainDetails.conversation_starters.length > 6"
-                      class="text-[11px] text-gray-400"
-                    >
-                      +{{ hoveredDomainDetails.conversation_starters.length - 6 }} more
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  v-if="!hoveredDomainDetails?.description && !hoveredDomainDetails?.conversation_starters?.length"
-                  class="text-xs text-gray-400 italic py-6 text-center"
-                >
-                  No details available
-                </div>
-              </div>
-
-              <!-- Tables tab -->
-              <div v-else-if="flyoutTab === 'tables'">
-                <div v-if="tablesLoading" class="flex items-center justify-center py-10">
-                  <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
-                </div>
-
-                <div v-else-if="tablesError" class="text-xs text-gray-500">
-                  {{ tablesError }}
-                </div>
-
-                <div v-else>
-                  <div class="flex items-center justify-between mb-2">
-                    <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold">Tables</div>
-                    <div class="text-[11px] text-gray-400">{{ tablesCount }}</div>
-                  </div>
-
-                  <div v-if="tablesCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
-                    No tables found
-                  </div>
-
-                  <div v-else>
-                    <!-- List view (like MentionInput) -->
-                    <div v-if="!selectedTable" class="border border-gray-200 rounded-lg overflow-hidden">
-                      <div class="max-h-[320px] overflow-auto">
-                        <button
-                          v-for="t in tablesResources"
-                          :key="t.id || t.name"
-                          @click="selectTable(t)"
-                          class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
-                        >
-                          <span class="truncate flex-1 text-gray-800 font-medium">{{ t.name }}</span>
-                          <span v-if="t.columns?.length" class="text-[11px] text-gray-400 flex-shrink-0">{{ t.columns.length }} cols</span>
-                        </button>
-                      </div>
-                      <div v-if="tablesResources.length === 0" class="px-3 py-3 text-xs text-gray-400">No tables.</div>
-                    </div>
-
-                    <!-- Detail view (columns) -->
-                    <div v-else class="space-y-2">
-                      <div class="flex items-center justify-between">
-                        <button
-                          @click="selectedTable = null"
-                          class="text-[11px] text-gray-500 hover:text-gray-700"
-                        >
-                          ← Back
-                        </button>
-                        <div class="text-[11px] text-gray-400">Columns</div>
-                      </div>
-
-                      <div class="text-sm font-semibold text-gray-900 truncate">{{ selectedTable.name }}</div>
-
-                      <div class="flex flex-wrap gap-1 max-h-[240px] overflow-auto border border-gray-200 rounded-lg p-2">
-                        <span
-                          v-for="(col, idx) in (selectedTable.columns || [])"
-                          :key="idx"
-                          class="px-1.5 py-0.5 bg-white rounded border text-[11px] text-gray-700"
-                        >
-                          {{ typeof col === 'string' ? col : (col as any).name }}
-                          <span v-if="typeof col === 'object' && (col as any).dtype" class="text-gray-400 ml-1">({{ (col as any).dtype }})</span>
-                        </span>
-                        <span v-if="!(selectedTable.columns || []).length" class="text-[12px] text-gray-400">No columns.</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="mt-4 flex justify-end">
-                <a
-                  v-if="hoveredDomainId"
-                  :href="`/integrations/${hoveredDomainId}`"
-                  class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline"
-                >
-                  Open data source →
-                </a>
-              </div>
-            </template>
-          </div>
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+  <!-- Domain hover flyout -->
+  <DomainFlyout
+    :domain-id="hoveredDomainId"
+    :visible="flyout.visible"
+    :position="{ top: flyout.top, left: flyout.left }"
+    @enter="onFlyoutEnter"
+    @leave="onFlyoutLeave"
+  />
 </template>
 
 <script setup lang="ts">
   import Spinner from '~/components/Spinner.vue'
   import McpIcon from '~/components/icons/McpIcon.vue'
   import McpModal from '~/components/McpModal.vue'
+  import DomainFlyout from '~/components/DomainFlyout.vue'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
@@ -577,25 +410,8 @@
 
   // Domain hover preview
   const hoveredDomainId = ref<string | null>(null)
-  const hoveredDomainDetails = ref<any>(null)
-  const loadingDomainDetails = ref(false)
-  const domainDetailsCache = ref<Record<string, any>>({})
   const flyout = reactive({ visible: false, top: 0, left: 0 })
   let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
-  const flyoutTab = ref<'overview' | 'tables'>('overview')
-
-  // Tables tab state (data source schema)
-  const tablesCache = ref<Record<string, any[]>>({})
-  const tablesLoading = ref(false)
-  const tablesError = ref<string | null>(null)
-  const selectedTable = ref<any | null>(null)
-
-  const tablesResources = computed<any[]>(() => {
-    const id = hoveredDomainId.value
-    if (!id) return []
-    return tablesCache.value[id] || []
-  })
-  const tablesCount = computed(() => tablesResources.value.length)
 
   const showFlyoutAtEvent = (evt: MouseEvent) => {
     const el = evt.currentTarget as HTMLElement | null
@@ -606,46 +422,19 @@
     // Clamp to viewport height to avoid going off-screen.
     const desiredLeft = rect.right + 12
     const desiredTop = rect.top - 8
-    const maxTop = window.innerHeight - 520 // flyout approx height
+    const maxTop = window.innerHeight - 820 // flyout approx height
     flyout.left = Math.max(12, desiredLeft)
     flyout.top = Math.max(12, Math.min(desiredTop, maxTop))
     flyout.visible = true
   }
 
-  const onDomainHover = async (domainId: string, evt: MouseEvent) => {
+  const onDomainHover = (domainId: string, evt: MouseEvent) => {
     if (flyoutHideTimer) {
       clearTimeout(flyoutHideTimer)
       flyoutHideTimer = null
     }
     if (typeof window !== 'undefined') showFlyoutAtEvent(evt)
     hoveredDomainId.value = domainId
-    flyoutTab.value = 'overview'
-    tablesError.value = null
-    selectedTable.value = null
-    
-    // Check cache first
-    if (domainDetailsCache.value[domainId]) {
-      hoveredDomainDetails.value = domainDetailsCache.value[domainId]
-      return
-    }
-
-    hoveredDomainDetails.value = null
-    loadingDomainDetails.value = true
-
-    try {
-      const { data, error } = await useMyFetch(`/data_sources/${domainId}`, { method: 'GET' })
-      if (!error?.value && data?.value) {
-        domainDetailsCache.value[domainId] = data.value
-        // Only set if still hovering this domain
-        if (hoveredDomainId.value === domainId) {
-          hoveredDomainDetails.value = data.value
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load domain details:', e)
-    } finally {
-      loadingDomainDetails.value = false
-    }
   }
 
   const onDomainHoverLeave = () => {
@@ -654,7 +443,6 @@
     flyoutHideTimer = setTimeout(() => {
       flyout.visible = false
       hoveredDomainId.value = null
-      hoveredDomainDetails.value = null
     }, 120)
   }
 
@@ -668,40 +456,6 @@
 
   const onFlyoutLeave = () => {
     onDomainHoverLeave()
-  }
-
-  const fetchTablesForDomain = async (domainId: string) => {
-    if (!domainId) return
-    if (tablesCache.value[domainId]) return
-    tablesLoading.value = true
-    tablesError.value = null
-    try {
-      const { data, error } = await useMyFetch(`/data_sources/${domainId}/schema`, { method: 'GET' })
-      if (error?.value) {
-        tablesError.value = 'Failed to load tables'
-        return
-      }
-      const payload: any = (data as any)?.value
-      const tables = Array.isArray(payload) ? payload : []
-      // Respect is_active if present; otherwise keep all
-      const filtered = tables.filter((t: any) => t?.is_active !== false)
-      tablesCache.value[domainId] = filtered
-    } catch (e) {
-      tablesError.value = 'Failed to load tables'
-    } finally {
-      tablesLoading.value = false
-    }
-  }
-
-  watch(flyoutTab, async (tab) => {
-    if (tab !== 'tables') return
-    const id = hoveredDomainId.value
-    if (!id) return
-    await fetchTablesForDomain(id)
-  })
-
-  const selectTable = (t: any) => {
-    selectedTable.value = t
   }
 
   

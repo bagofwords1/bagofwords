@@ -1,25 +1,14 @@
-from sqlalchemy import Column, String, UUID, Boolean, Enum, JSON, DateTime, Text, select, UniqueConstraint
-from sqlalchemy.orm import relationship
-from app.models.base import BaseSchema
+from sqlalchemy import Column, String, Boolean, DateTime, Text, select, UniqueConstraint, JSON
+from sqlalchemy.orm import relationship, selectinload, object_session
 from sqlalchemy import ForeignKey
-from app.models.user import User
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import List
+
+from app.models.base import BaseSchema
 from app.models.organization import Organization
 from app.models.domain_connection import domain_connection
-from importlib import import_module
-from cryptography.fernet import Fernet
-from app.settings.config import settings
-import json
-from typing import List
 from app.models.datasource_table import DataSourceTable
-from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.ai.prompt_formatters import Table, TableColumn
-from sqlalchemy.orm import selectinload
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import object_session
-
-
-from app.schemas.data_source_registry import resolve_client_class
 
 
 class DataSource(BaseSchema):
@@ -29,14 +18,11 @@ class DataSource(BaseSchema):
     )
 
     name = Column(String, nullable=False)
-    type = Column(String, nullable=False)
-    config = Column(JSON, nullable=False)  # Stores the JSON config
-    credentials = Column(Text, nullable=True)  # Stores the credentials
+    # Connection-related fields have been moved to the Connection model
+    # type, config, credentials, auth_policy, allowed_user_auth_modes are now on Connection
     last_synced_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     is_public = Column(Boolean, nullable=False, default=True)
-    auth_policy = Column(String, nullable=False, default="system_only") # system_only, user_required
-    allowed_user_auth_modes = Column(JSON, nullable=True, default=None)
 
     # When true, the system may run LLM onboarding synchronously (onboarding flow only)
     owner_user_id = Column(String(36), ForeignKey('users.id'), nullable=True)
@@ -122,67 +108,19 @@ class DataSource(BaseSchema):
     
     def get_client(self):
         """
-        Get database client. Uses first connection if available, otherwise falls back to legacy fields.
+        Get database client from the first associated connection.
         """
-        # Use connection if available (new architecture)
-        if self.connections:
-            return self.connections[0].get_client()
-        
-        # Legacy: use fields on DataSource directly
-        try:
-            module_name = f"app.data_sources.clients.{self.type.lower()}_client"
-            # Capitalize the first letter of each word without changing the rest of the word's case
-            title = "".join(word[:1].upper() + word[1:] for word in self.type.split("_"))
-            class_name = f"{title}Client"
-            
-            module = import_module(module_name)
-            ClientClass = getattr(module, class_name)
-            
-            # Parse config if it's a string
-            config = json.loads(self.config) if isinstance(self.config, str) else self.config
-            client_params = config.copy()
-            
-            # Only decrypt and merge credentials if they exist
-            if self.credentials:
-                decrypted_credentials = self.decrypt_credentials()
-                client_params.update(decrypted_credentials)
-            if "auth_type" in client_params.keys():
-                del client_params["auth_type"]
-            if "demo_id" in client_params.keys():
-                del client_params["demo_id"]
-            # Debug logging
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.info(f"Client params for {self.type}")
-            
-            # Initialize client with parameters
-            return ClientClass(**client_params)
-        except (ImportError, AttributeError) as e:
-            raise ValueError(f"Unable to load data source client for {self.type}: {str(e)}")
+        if not self.connections:
+            raise ValueError(f"Data source '{self.name}' has no associated connections.")
+        return self.connections[0].get_client()
     
     def get_credentials(self):
         """
-        Get decrypted credentials. Uses first connection if available.
+        Get decrypted credentials from the first associated connection.
         """
-        # Use connection if available (new architecture)
-        if self.connections:
-            return self.connections[0].get_credentials()
-        
-        # Legacy: use fields on DataSource directly
-        if self.auth_policy == "system_only":
-            return self.decrypt_credentials()
-        elif self.auth_policy == "user_required":
-            return None
-        else:
-            raise ValueError(f"Invalid auth policy: {self.auth_policy}")
-        
-    def encrypt_credentials(self, credentials: dict):
-        fernet = Fernet(settings.bow_config.encryption_key)
-        self.credentials = fernet.encrypt(json.dumps(credentials).encode()).decode()
-
-    def decrypt_credentials(self) -> dict:
-        fernet = Fernet(settings.bow_config.encryption_key)
-        return json.loads(fernet.decrypt(self.credentials.encode()).decode())
+        if not self.connections:
+            return {}
+        return self.connections[0].get_credentials()
 
     async def get_schemas(self, db: AsyncSession = None, include_inactive: bool = False, with_stats: bool = False, organization: Organization | None = None, top_k: int | None = None) -> List[Table]:
         """

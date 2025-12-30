@@ -4,10 +4,6 @@
             <div v-if="loading" class="text-xs text-gray-500 text-center">Loading…</div>
             <div v-else class="md:w-2/3 ">
                 <div class="flex items-center gap-2">
-                    <DataSourceIcon :type="displayDataSource?.type" class="h-6" />
-                    <div class="text-2xl font-semibold text-gray-900">{{ displayDataSource?.name }}</div>
-                </div>
-                <div class="mt-5 flex items-center gap-2">
                     <div class="text-xs uppercase tracking-wide text-gray-400">Description</div>
                     <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">Edit</button>
                 </div>

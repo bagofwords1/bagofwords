@@ -36,6 +36,8 @@ class ConnectionUpdate(BaseModel):
     config: Optional[dict] = None
     credentials: Optional[dict] = None
     is_active: Optional[bool] = None
+    auth_policy: Optional[str] = None  # system_only, user_required
+    allowed_user_auth_modes: Optional[list] = None
 
 
 class ConnectionSchema(BaseModel):
@@ -48,6 +50,25 @@ class ConnectionSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     domain_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class ConnectionDetailSchema(BaseModel):
+    """Extended schema for editing - includes config but not credentials (never sent back)."""
+    id: str
+    name: str
+    type: str
+    is_active: bool
+    auth_policy: str
+    allowed_user_auth_modes: Optional[list] = None
+    config: dict  # Non-sensitive connection parameters
+    last_synced_at: Optional[str] = None
+    organization_id: str
+    table_count: int = 0
+    domain_count: int = 0
+    has_credentials: bool = False  # Whether system credentials are set
 
     class Config:
         from_attributes = True
@@ -84,6 +105,14 @@ async def list_connections(
     
     result = []
     for conn in connections:
+        # Count tables from associated data sources (domains) since tables are stored there
+        # For now with 1:1 domain-connection, sum tables from all domains using this connection
+        table_count = 0
+        if conn.data_sources:
+            for ds in conn.data_sources:
+                if hasattr(ds, 'tables') and ds.tables:
+                    table_count += len([t for t in ds.tables if t.is_active])
+        
         result.append(ConnectionSchema(
             id=str(conn.id),
             name=conn.name,
@@ -92,7 +121,7 @@ async def list_connections(
             auth_policy=conn.auth_policy,
             last_synced_at=conn.last_synced_at.isoformat() if conn.last_synced_at else None,
             organization_id=str(conn.organization_id),
-            table_count=len(conn.connection_tables) if conn.connection_tables else 0,
+            table_count=table_count,
             domain_count=len(conn.data_sources) if conn.data_sources else 0,
         ))
     return result
@@ -132,7 +161,7 @@ async def create_connection(
     )
 
 
-@router.get("/{connection_id}", response_model=ConnectionSchema)
+@router.get("/{connection_id}", response_model=ConnectionDetailSchema)
 @requires_permission('update_data_source')  # Admin-only
 async def get_connection(
     connection_id: str,
@@ -140,19 +169,31 @@ async def get_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Get connection details."""
+    """Get connection details including config for editing."""
     connection = await connection_service.get_connection(db, connection_id, organization)
     
-    return ConnectionSchema(
+    # Parse config if it's a string
+    import json
+    config = connection.config
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except:
+            config = {}
+    
+    return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
         type=connection.type,
         is_active=connection.is_active,
         auth_policy=connection.auth_policy,
+        allowed_user_auth_modes=connection.allowed_user_auth_modes,
+        config=config or {},
         last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
         organization_id=str(connection.organization_id),
         table_count=len(connection.connection_tables) if connection.connection_tables else 0,
         domain_count=len(connection.data_sources) if connection.data_sources else 0,
+        has_credentials=bool(connection.credentials),
     )
 
 

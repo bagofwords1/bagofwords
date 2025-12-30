@@ -267,13 +267,44 @@ def upgrade() -> None:
         raise e
     finally:
         session.close()
+    
+    # 7. Drop legacy columns from data_sources (data is now in connections)
+    with op.batch_alter_table('data_sources', schema=None) as batch_op:
+        batch_op.drop_column('type')
+        batch_op.drop_column('config')
+        batch_op.drop_column('credentials')
+        batch_op.drop_column('auth_policy')
+        batch_op.drop_column('allowed_user_auth_modes')
 
 
 def downgrade() -> None:
+    # First, recreate legacy columns on data_sources
+    with op.batch_alter_table('data_sources', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('type', sa.String(), nullable=True))
+        batch_op.add_column(sa.Column('config', sa.JSON(), nullable=True))
+        batch_op.add_column(sa.Column('credentials', sa.Text(), nullable=True))
+        batch_op.add_column(sa.Column('auth_policy', sa.String(), nullable=True))
+        batch_op.add_column(sa.Column('allowed_user_auth_modes', sa.JSON(), nullable=True))
+    
     bind = op.get_bind()
     session = Session(bind=bind)
     
     try:
+        # Restore data from connections back to data_sources
+        session.execute(
+            sa.text("""
+                UPDATE data_sources
+                SET type = c.type, 
+                    config = c.config, 
+                    credentials = c.credentials,
+                    auth_policy = c.auth_policy, 
+                    allowed_user_auth_modes = c.allowed_user_auth_modes
+                FROM connections c
+                JOIN domain_connection dc ON dc.connection_id = c.id
+                WHERE dc.data_source_id = data_sources.id
+            """)
+        )
+        
         # Clear connection_table_id links from datasource_tables
         session.execute(
             sa.text("UPDATE datasource_tables SET connection_table_id = NULL")

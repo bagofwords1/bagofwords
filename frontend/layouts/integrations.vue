@@ -4,10 +4,16 @@
             <div class="w-full max-w-7xl px-4 pl-0 py-2">
                 <div>
                     <div class="flex items-start justify-between">
-                        <h1 class="text-lg font-semibold flex items-center">
-                            <DataSourceIcon v-if="integration" :type="integration?.type" class="h-6 mr-2" />
-                            <span>{{ integration?.name || 'Integration' }}</span>
-                        </h1>
+                        <div>
+                            <h1 class="text-lg font-semibold">
+                                {{ integration?.name || 'Domain' }}
+                            </h1>
+                            <div v-if="!isLoading && integration" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                                <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
+                                <DataSourceIcon :type="connectionType" class="h-4 w-4" />
+                                <span>{{ connectionName }}</span>
+                            </div>
+                        </div>
                         <div class="flex items-center gap-2">
                             <span v-if="isLoading" class="px-2 py-0.5 rounded text-xs border bg-gray-50 text-gray-700 border-gray-200 flex items-center gap-1">
                                 <Spinner />
@@ -79,6 +85,14 @@ const integration = ref<any>(null)
 const isDisconnecting = ref(false)
 const isLoading = ref(true)
 const connection = computed(() => String(integration.value?.user_status?.connection || '').toLowerCase())
+
+// Connection info for display
+const connectionType = computed(() => integration.value?.connection?.type || integration.value?.type)
+const connectionName = computed(() => integration.value?.connection?.name || integration.value?.name || 'No connection')
+const isConnected = computed(() => {
+    const c = connection.value
+    return c === 'success'
+})
 const connectionLabel = computed(() => {
     const c = connection.value
     if (c === 'success') return 'Connected'

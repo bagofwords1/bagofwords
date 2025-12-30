@@ -7,7 +7,7 @@
 
       <div class="mb-4">
         <h1 class="text-base font-semibold flex items-center">
-            <DataSourceIcon :type="ds?.type" class="w-4 mr-2" />
+            <DataSourceIcon :type="connectionType" class="w-4 mr-2" />
             Connect {{ ds?.name }}</h1>
         <p class="mt-1 text-xs text-gray-500">Provide your credentials to enable access for you.</p>
       </div>
@@ -59,6 +59,9 @@ const open = computed({
 })
 
 const ds = computed(() => props.dataSource)
+// Use nested connection type (Option A architecture)
+const connectionType = computed(() => ds.value?.connection?.type || ds.value?.type)
+const connectionId = computed(() => ds.value?.connection?.id)
 const authMode = ref<string>('')
 const form = ref<{ auth_mode: string, credentials: Record<string, any>, is_primary?: boolean }>({ auth_mode: '', credentials: {}, is_primary: true })
 const authOptions = ref<{ label: string, value: string }[]>([])
@@ -81,13 +84,13 @@ const credentialFields = computed(() => {
 })
 
 watch(open, async (val) => {
-  if (val && ds.value?.type) {
+  if (val && connectionType.value) {
     await loadFields()
   }
 })
 
 async function loadFields() {
-  const { data } = await useMyFetch(`/data_sources/${ds.value.type}/fields`, { method: 'GET', query: { auth_policy: 'user_required' } })
+  const { data } = await useMyFetch(`/data_sources/${connectionType.value}/fields`, { method: 'GET', query: { auth_policy: 'user_required' } })
   const payload = data.value as any
   const byAuth = (payload?.credentials_by_auth) || {}
   fieldsByAuth.value = byAuth

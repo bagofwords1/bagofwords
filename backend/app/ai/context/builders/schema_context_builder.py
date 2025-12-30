@@ -284,7 +284,7 @@ class SchemaContextBuilder:
                     info=DataSourceSummarySchema(
                         id=str(ds.id),
                         name=ds.name,
-                        type=ds.type,
+                        type=ds.connections[0].type if ds.connections else None,
                         # Prefer the richer human-written description when available; fallback to context
                         context=(getattr(ds, 'description', None) or getattr(ds, 'context', None)),
                     ),

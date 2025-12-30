@@ -1664,6 +1664,9 @@ class InstructionService:
         queries_to_union = []
         
         # Metadata Resources query with data source info
+        from app.models.connection import Connection
+        from app.models.domain_connection import domain_connection
+        
         if "metadata_resource" in wanted:
             mr_query = (
                 select(
@@ -1672,14 +1675,12 @@ class InstructionService:
                     MetadataResource.name.label('name'),
                     MetadataResource.data_source_id.label('data_source_id'),
                     DataSource.name.label('data_source_name'),
-                    DataSource.type.label('data_source_type')
+                    Connection.type.label('data_source_type')
                 )
-                .select_from(
-                    MetadataResource.__table__.join(
-                        DataSource.__table__, 
-                        MetadataResource.data_source_id == DataSource.id
-                    )
-                )
+                .select_from(MetadataResource)
+                .join(DataSource, MetadataResource.data_source_id == DataSource.id)
+                .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+                .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                 .filter(MetadataResource.data_source_id.in_(data_source_access_subquery))
             )
             
@@ -1698,14 +1699,12 @@ class InstructionService:
                     
                     DataSourceTable.datasource_id.label('data_source_id'),
                     DataSource.name.label('data_source_name'),
-                    DataSource.type.label('data_source_type')
+                    Connection.type.label('data_source_type')
                 )
-                .select_from(
-                    DataSourceTable.__table__.join(
-                        DataSource.__table__, 
-                        DataSourceTable.datasource_id == DataSource.id
-                    )
-                )
+                .select_from(DataSourceTable)
+                .join(DataSource, DataSourceTable.datasource_id == DataSource.id)
+                .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+                .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                 .filter(DataSourceTable.is_active == True)
                 .filter(DataSourceTable.datasource_id.in_(data_source_access_subquery))
             )
@@ -1814,8 +1813,13 @@ class InstructionService:
                         ref_data["object"] = MetadataResourceSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for metadata resources
+                        from app.models.connection import Connection
+                        from app.models.domain_connection import domain_connection
                         ds_result = await db.execute(
-                            select(DataSource.name, DataSource.type)
+                            select(DataSource.name, Connection.type)
+                            .select_from(DataSource)
+                            .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+                            .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                             .where(DataSource.id == referenced_obj.data_source_id)
                         )
                         ds_info = ds_result.first()
@@ -1829,8 +1833,13 @@ class InstructionService:
                         ref_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for datasource tables
+                        from app.models.connection import Connection
+                        from app.models.domain_connection import domain_connection
                         ds_result = await db.execute(
-                            select(DataSource.name, DataSource.type)
+                            select(DataSource.name, Connection.type)
+                            .select_from(DataSource)
+                            .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+                            .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                             .where(DataSource.id == referenced_obj.datasource_id)
                         )
                         ds_info = ds_result.first()
