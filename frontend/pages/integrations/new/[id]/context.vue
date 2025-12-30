@@ -174,9 +174,12 @@ async function fetchInstructions() {
   try {
     const params: any = { limit: 100 }
     if (dsId.value) params.data_source_id = dsId.value
-    const { data, error } = await useMyFetch<any[]>('/instructions', { method: 'GET', query: params })
+    const { data, error } = await useMyFetch<any>('/instructions', { method: 'GET', query: params })
     if (!error.value && data.value) {
-      suggestedInstructions.value = data.value
+      // Handle paginated response format: { items: [...], total: ... }
+      const responseData = data.value
+      const instructions = responseData.items || responseData || []
+      suggestedInstructions.value = Array.isArray(instructions) ? instructions : []
       const map: Record<string, 'approved' | 'removed'> = {}
       for (const inst of suggestedInstructions.value) {
         const gs = (inst as any).global_status
