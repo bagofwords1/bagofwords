@@ -98,13 +98,23 @@
 import Spinner from '@/components/Spinner.vue'
 function selectProvider(ds: any) {
   selectedType.value = String(ds?.type || '')
-  if (!name.value) {
-    const title = ds?.title || ds?.type || ''
-    name.value = title ? `My ${title}` : ''
-  }
   handleTypeChange()
 }
-const props = defineProps<{ mode?: 'onboarding'|'create'|'edit', initialType?: string, dataSourceId?: string, connectionId?: string, initialValues?: any, showTestButton?: boolean, showLLMToggle?: boolean, allowNameEdit?: boolean, forceShowSystemCredentials?: boolean, showRequireUserAuthToggle?: boolean, initialRequireUserAuth?: boolean, hideHeader?: boolean }>()
+const props = defineProps<{
+  mode?: 'onboarding'|'create'|'edit',
+  initialType?: string,
+  initialName?: string,
+  dataSourceId?: string,
+  connectionId?: string,
+  initialValues?: any,
+  showTestButton?: boolean,
+  showLLMToggle?: boolean,
+  allowNameEdit?: boolean,
+  forceShowSystemCredentials?: boolean,
+  showRequireUserAuthToggle?: boolean,
+  initialRequireUserAuth?: boolean,
+  hideHeader?: boolean
+}>()
 const emit = defineEmits<{ (e: 'submitted', payload: any): void; (e: 'success', dataSource: any): void; (e: 'change:type', type: string): void; (e: 'change:auth', authType: string | null): void }>()
 
 const toast = useToast()
@@ -112,7 +122,7 @@ const route = useRoute()
 
 const available_ds = ref<any[]>([])
 const selectedType = ref<string>(String(props.initialType || (typeof route.query.type === 'string' ? route.query.type : '')))
-const name = ref('')
+const name = ref(String(props.initialName || ''))
 const fields = ref<any>({ config: null, credentials: null, auth: null, credentials_by_auth: null })
 const formData = reactive<{ config: Record<string, any>; credentials: Record<string, any> }>({ config: {}, credentials: {} })
 const selectedAuth = ref<string | undefined>(undefined)
@@ -203,11 +213,6 @@ async function fetchFields() {
     initFormDefaults(preserveOnNextFetch.value)
     preserveOnNextFetch.value = false
     emit('change:type', selectedType.value)
-    // Ensure a friendly default name on initial load if none set
-    if (!name.value) {
-      const title = selectedTitle.value || selectedType.value || ''
-      name.value = title ? `My ${title}` : ''
-    }
     // hydrate initial values in edit mode (skip if user just toggled auth policy)
     if (isEditMode.value && props.initialValues && !shouldSkipHydration) {
       try {
@@ -268,10 +273,6 @@ function initFormDefaults(preserveExisting: boolean = false) {
 function handleTypeChange() {
   fields.value = { config: null, credentials: null, auth: null, credentials_by_auth: null }
   selectedAuth.value = undefined
-  if (!name.value) {
-    const title = selectedTitle.value || selectedType.value || ''
-    name.value = title ? `My ${title}` : ''
-  }
   fetchFields()
 }
 
@@ -409,6 +410,19 @@ watch(require_user_auth, (val) => {
   preserveOnNextFetch.value = true
   fetchFields()
 })
+
+watch(
+  () => props.initialName,
+  (val) => {
+    const next = String(val || '')
+    if (!next) return
+    // If the name isn't editable externally, keep it in sync with the parent.
+    // If it is editable, only initialize when empty to avoid clobbering user edits.
+    if (props.allowNameEdit === false || !name.value) {
+      name.value = next
+    }
+  }
+)
 
 onMounted(() => { fetchAvailable() })
 </script>

@@ -60,8 +60,21 @@ class ConnectionService:
                     detail=validation_result.get("message", "Connection validation failed")
                 )
 
+        # Auto-generate connection name as type-NUMBER if not provided or generic
+        connection_name = name
+        if not name or name.strip() == "" or name.lower().startswith("my "):
+            from sqlalchemy import func as sql_func
+            count_result = await db.execute(
+                select(sql_func.count(Connection.id)).filter(
+                    Connection.organization_id == organization.id,
+                    Connection.type == type
+                )
+            )
+            existing_count = count_result.scalar() or 0
+            connection_name = f"{type}-{existing_count + 1}"
+
         connection = Connection(
-            name=name,
+            name=connection_name,
             type=type,
             config=json.dumps(config) if isinstance(config, dict) else config,
             auth_policy=auth_policy,

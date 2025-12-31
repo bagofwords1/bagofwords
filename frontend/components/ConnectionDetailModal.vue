@@ -56,12 +56,24 @@
           <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
           {{ testing ? 'Testing...' : 'Refresh' }}
         </button>
+        <!-- Full Edit button (admin with update_data_source permission) -->
         <button 
+          v-if="canUpdateDataSource"
           @click="openEdit"
           class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
         >
           <UIcon name="heroicons-pencil" class="w-3.5 h-3.5" />
           Edit
+        </button>
+        
+        <!-- Connect button (user auth required, no admin permission) -->
+        <button 
+          v-else-if="requiresUserAuth"
+          @click="openCredentialsModal"
+          class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+        >
+          <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
+          Connect
         </button>
       </div>
 
@@ -106,11 +118,20 @@
       />
     </UCard>
   </UModal>
+
+  <!-- User Credentials Modal (for users without update permission but require auth) -->
+  <UserDataSourceCredentialsModal
+    v-model="showCredentialsModal"
+    :dataSource="connection"
+    @saved="handleCredentialsSaved"
+  />
 </template>
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import { useCan } from '~/composables/usePermissions'
 
 const props = defineProps<{
   modelValue: boolean
@@ -132,6 +153,11 @@ const testResult = ref<{ success: boolean; message: string } | null>(null)
 const showEditModal = ref(false)
 const loadingDetails = ref(false)
 const connectionDetails = ref<any>(null)
+const showCredentialsModal = ref(false)
+
+// Permission and auth checks
+const canUpdateDataSource = useCan('update_data_source')
+const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
 
 const isConnected = computed(() => {
   // Check multiple possible status fields
@@ -218,6 +244,15 @@ async function openEdit() {
 function handleEditSuccess() {
   showEditModal.value = false
   connectionDetails.value = null
+  emit('updated')
+}
+
+function openCredentialsModal() {
+  isOpen.value = false
+  showCredentialsModal.value = true
+}
+
+function handleCredentialsSaved() {
   emit('updated')
 }
 

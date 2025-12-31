@@ -20,25 +20,20 @@
 const props = withDefaults(defineProps<{ 
   current: 'connect' | 'schema' | 'context', 
   dsId?: string,
-  mode?: 'connection' | 'domain'  // 'connection' = new connection flow, 'domain' = new domain from existing connection
+  // mode is kept for backward compatibility, but the wizard now routes through /data/new for all creation flows.
+  mode?: 'connection' | 'domain'
 }>(), {
   mode: 'connection'
 })
 const router = useRouter()
 
-const connectionSteps = [
-  { key: 'connect', label: 'Connect Data Source' },
+const steps = [
+  { key: 'connect', label: 'Connection' },
   { key: 'schema', label: 'Select Tables' },
   { key: 'context', label: 'Set Context' },
 ] as const
 
-const domainSteps = [
-  { key: 'connect', label: 'Select Connection' },
-  { key: 'schema', label: 'Select Tables' },
-  { key: 'context', label: 'Set Context' },
-] as const
-
-const activeSteps = computed(() => props.mode === 'domain' ? domainSteps : connectionSteps)
+const activeSteps = computed(() => steps)
 
 function circleClass(key: string) {
   if (isDone(key)) return 'bg-green-100 text-green-600'
@@ -66,7 +61,7 @@ function canClick(key: string) {
 
 function go(key: string) {
   if (!canClick(key)) return
-  const basePath = props.mode === 'domain' ? '/domains/new' : '/data/new'
+  const basePath = '/data/new'
   if (key === 'schema' && props.dsId) return router.push(`${basePath}/${props.dsId}/schema`)
   if (key === 'context' && props.dsId) return router.push(`${basePath}/${props.dsId}/context`)
 }

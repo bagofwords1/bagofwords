@@ -188,9 +188,20 @@ class DataSourceService:
             ds_type = data_source_dict.pop("type", None)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
             
+            # Auto-generate connection name as type-NUMBER (e.g., postgresql-1)
+            from sqlalchemy import func as sql_func
+            count_result = await db.execute(
+                select(sql_func.count(Connection.id)).filter(
+                    Connection.organization_id == organization.id,
+                    Connection.type == ds_type
+                )
+            )
+            existing_count = count_result.scalar() or 0
+            connection_name = f"{ds_type}-{existing_count + 1}"
+            
             # Create the Connection
             new_connection = Connection(
-                name=data_source_dict["name"],  # Use same name for connection
+                name=connection_name,
                 type=ds_type,
                 config=json.dumps(config) if config else "{}",
                 organization_id=str(organization.id),
@@ -1921,7 +1932,7 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
         
-        schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False)
+        schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
         return schemas
     
     async def get_metadata_resources(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):

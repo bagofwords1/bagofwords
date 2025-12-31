@@ -17,13 +17,13 @@
                     <p class="mt-2 text-gray-400 text-center text-xs">Manage your connections and domains</p>
                 </div>
 
-                <!-- My Domains Section (only show if has connections) -->
-                <div v-if="connections.length > 0" class="mb-8">
+                <!-- My Domains Section (show if has domains OR user can create) -->
+                <div v-if="allDomains.length > 0 || (connections.length > 0 && canCreateDataSource)" class="mb-8">
                     <div class="flex items-center justify-between mb-1">
                         <h2 class="text-sm font-medium text-gray-700">Domains</h2>
                         <UButton 
-                            v-if="canCreateDataSource()"
-                            @click="navigateTo('/domains/new')"
+                            v-if="canCreateDataSource"
+                            @click="navigateTo('/data/new')"
                             color="blue"
                             size="xs"
                         >
@@ -37,39 +37,50 @@
 
                     <!-- Domains grid - 3 columns -->
                     <div v-if="allDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <NuxtLink 
+                        <div 
                             v-for="ds in allDomains" 
                             :key="ds.id"
-                            :to="`/data/${ds.id}`" 
                             class="block p-4 rounded-xl border border-gray-100 bg-white hover:border-gray-200 hover:shadow-sm transition-all group"
                         >
-                            <!-- Card header -->
-                            <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
+                            <NuxtLink :to="`/data/${ds.id}`" class="block">
+                                <!-- Card header -->
+                                <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
+                                
+                                <!-- Metadata with icon -->
+                                <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
+                                    <DataSourceIcon class="h-3.5 w-3.5" :type="getConnectionType(ds)" />
+                                    <span>{{ getConnectionName(ds) }}</span>
+                                    <span class="text-gray-300">·</span>
+                                    <span>{{ getTableCount(ds) }} tables</span>
+                                </div>
+                                
+                                <!-- Description (2 lines max) -->
+                                <p v-if="ds.description" class="text-xs text-gray-500 leading-relaxed line-clamp-2">
+                                    {{ ds.description }}
+                                </p>
+                                <p v-else class="text-xs text-gray-300 italic">
+                                    No description
+                                </p>
+                            </NuxtLink>
                             
-                            <!-- Metadata with icon -->
-                            <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
-                                <DataSourceIcon class="h-3.5 w-3.5" :type="getConnectionType(ds)" />
-                                <span>{{ getConnectionName(ds) }}</span>
-                                <span class="text-gray-300">·</span>
-                                <span>{{ getTableCount(ds) }} tables</span>
-                            </div>
-                            
-                            <!-- Description (2 lines max) -->
-                            <p v-if="ds.description" class="text-xs text-gray-500 leading-relaxed line-clamp-2">
-                                {{ ds.description }}
-                            </p>
-                            <p v-else class="text-xs text-gray-300 italic">
-                                No description
-                            </p>
-                        </NuxtLink>
+                            <!-- Connect button for user auth required but not connected -->
+                            <button 
+                                v-if="needsUserConnection(ds)"
+                                @click.stop="openCredentialsModal(ds)"
+                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                            >
+                                <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
+                                Connect
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Empty domains state (has connections but no domains) -->
                     <div v-else class="py-8 text-center border border-dashed border-gray-200 rounded-xl">
                         <p class="text-xs text-gray-400 mb-3">No domains yet</p>
                         <UButton 
-                            v-if="canCreateDataSource()"
-                            @click="navigateTo('/domains/new')"
+                            v-if="canCreateDataSource"
+                            @click="navigateTo('/data/new')"
                             color="blue"
                             variant="soft"
                             size="xs"
@@ -80,13 +91,13 @@
                     </div>
                 </div>
 
-                <!-- Connections Section (only show if has connections) -->
-                <div v-if="connections.length > 0" class="mb-8">
+                <!-- Connections Section (only show if has connections AND user can update) -->
+                <div v-if="connections.length > 0 && canUpdateDataSource" class="mb-8">
                     <div class="flex items-center justify-between mb-1">
                         <h2 class="text-sm font-medium text-gray-700">Connections</h2>
                         <UButton 
-                            v-if="canCreateDataSource()"
-                            @click="navigateTo('/data/new')"
+                            v-if="canCreateDataSource"
+                            @click="navigateTo('/data/new?mode=new_connection')"
                             color="blue"
                             size="xs"
                         >
@@ -113,7 +124,7 @@
                     </div>
 
                     <!-- Sample Databases (only when has connections) -->
-                    <div v-if="uninstalledDemos.length > 0 && canCreateDataSource()" class="mt-6">
+                    <div v-if="uninstalledDemos.length > 0 && canCreateDataSource" class="mt-6">
                         <h2 class="text-sm font-medium text-gray-700 mb-1">Try a sample</h2>
                         <p class="text-xs text-gray-400 mb-3">Explore with pre-loaded demo databases</p>
                         <div class="flex flex-wrap gap-2">
@@ -133,12 +144,19 @@
                     </div>
                 </div>
 
-                <!-- Empty State: Show DataSourceGrid when no connections -->
-                <div v-else-if="canCreateDataSource()" class="mb-8">
+                <!-- Empty State: Show DataSourceGrid when no connections (admin) -->
+                <div v-else-if="canCreateDataSource" class="mb-8">
                     <DataSourceGrid 
                         @select="handleDataSourceSelect"
                         @demo-installed="handleDemoInstalled"
                     />
+                </div>
+
+                <!-- Empty State for view-only users -->
+                <div v-else-if="canViewDataSource" class="mb-8 py-12 text-center">
+                    <UIcon name="heroicons-circle-stack" class="w-12 h-12 mx-auto text-gray-300 mb-4" />
+                    <h3 class="text-sm font-medium text-gray-700 mb-2">No data sources available</h3>
+                    <p class="text-xs text-gray-400">Contact your administrator to get access to data sources.</p>
                 </div>
 
             </div>
@@ -162,6 +180,7 @@ import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentia
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import DataSourceGrid from '~/components/datasources/DataSourceGrid.vue'
 import Spinner from '~/components/Spinner.vue'
+import { useCan } from '~/composables/usePermissions'
 
 const { organization } = useOrganization()
 const { isExcel } = useExcel()
@@ -181,6 +200,10 @@ const selectedConnection = ref<any>(null)
 const showCredsModal = ref(false)
 const selectedDs = ref<any>(null)
 
+// Permission checks
+const canViewDataSource = computed(() => useCan('view_data_source'))
+const canUpdateDataSource = computed(() => useCan('update_data_source'))
+
 const loading = computed(() => loadingConnected.value || loadingDemos.value || loadingConnections.value)
 
 // All domains (both connected and those needing setup)
@@ -199,6 +222,24 @@ function getConnectionName(ds: any): string {
 
 function getTableCount(ds: any): number {
     return ds.connection?.table_count || ds.tables?.length || 0
+}
+
+// Check if domain requires user auth
+function requiresUserAuth(ds: any): boolean {
+    return ds.auth_policy === 'user_required' || ds.connection?.auth_policy === 'user_required'
+}
+
+// Check if user needs to connect (user_required but not connected yet)
+function needsUserConnection(ds: any): boolean {
+    if (!requiresUserAuth(ds)) return false
+    const userStatus = ds.user_status?.connection || ds.connection?.user_status?.connection
+    return userStatus !== 'success'
+}
+
+// Open credentials modal for a domain
+function openCredentialsModal(ds: any) {
+    selectedDs.value = ds
+    showCredsModal.value = true
 }
 
 // Check if connection is healthy - uses domain data to derive status
@@ -294,13 +335,7 @@ async function refreshData() {
     ])
 }
 
-function canCreateDataSource(): boolean {
-    try {
-        return typeof useCan === 'function' ? useCan('create_data_source') : true
-    } catch (e) {
-        return true
-    }
-}
+const canCreateDataSource = computed(() => useCan('create_data_source'))
 
 function handleDataSourceSelect(ds: any) {
     // Navigate to the new connection form with the selected type
