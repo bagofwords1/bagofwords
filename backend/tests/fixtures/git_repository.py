@@ -14,16 +14,20 @@ def _build_headers(user_token: str, org_id: str):
 
 @pytest.fixture
 def test_git_repository_connection(test_client):
+    """Test Git repository connection (org-level)."""
     def _test_git_repository_connection(
         *,
-        data_source_id: str,
         payload: dict,
         user_token: str = None,
         org_id: str = None,
+        data_source_id: str = None,  # Optional: for backwards compat
     ):
         headers = _build_headers(user_token, org_id)
+        # Add data_source_id to payload if provided
+        if data_source_id:
+            payload = {**payload, "data_source_id": data_source_id}
         response = test_client.post(
-            f"/api/data_sources/{data_source_id}/git_repository/test",
+            "/api/git/repositories/test",
             json=payload,
             headers=headers,
         )
@@ -35,16 +39,20 @@ def test_git_repository_connection(test_client):
 
 @pytest.fixture
 def create_git_repository(test_client):
+    """Create a Git repository (org-level)."""
     def _create_git_repository(
         *,
-        data_source_id: str,
         payload: dict,
         user_token: str = None,
         org_id: str = None,
+        data_source_id: str = None,  # Optional: for backwards compat
     ):
         headers = _build_headers(user_token, org_id)
+        # Add data_source_id to payload if provided
+        if data_source_id:
+            payload = {**payload, "data_source_id": data_source_id}
         response = test_client.post(
-            f"/api/data_sources/{data_source_id}/git_repository",
+            "/api/git/repositories",
             json=payload,
             headers=headers,
         )
@@ -55,37 +63,38 @@ def create_git_repository(test_client):
 
 
 @pytest.fixture
-def get_git_repository(test_client):
-    def _get_git_repository(
+def list_git_repositories(test_client):
+    """List all Git repositories for the organization."""
+    def _list_git_repositories(
         *,
-        data_source_id: str,
         user_token: str = None,
         org_id: str = None,
     ):
         headers = _build_headers(user_token, org_id)
         response = test_client.get(
-            f"/api/data_sources/{data_source_id}/git_repository",
+            "/api/git/repositories",
             headers=headers,
         )
         assert response.status_code == 200, response.json()
         return response.json()
 
-    return _get_git_repository
+    return _list_git_repositories
 
 
 @pytest.fixture
 def update_git_repository(test_client):
+    """Update a Git repository (org-level)."""
     def _update_git_repository(
         *,
-        data_source_id: str,
         repository_id: str,
         payload: dict,
         user_token: str = None,
         org_id: str = None,
+        data_source_id: str = None,  # Ignored, kept for backwards compat
     ):
         headers = _build_headers(user_token, org_id)
         response = test_client.put(
-            f"/api/data_sources/{data_source_id}/git_repository/{repository_id}",
+            f"/api/git/repositories/{repository_id}",
             json=payload,
             headers=headers,
         )
@@ -97,16 +106,17 @@ def update_git_repository(test_client):
 
 @pytest.fixture
 def delete_git_repository(test_client):
+    """Delete a Git repository (org-level)."""
     def _delete_git_repository(
         *,
-        data_source_id: str,
         repository_id: str,
         user_token: str = None,
         org_id: str = None,
+        data_source_id: str = None,  # Ignored, kept for backwards compat
     ):
         headers = _build_headers(user_token, org_id)
         response = test_client.delete(
-            f"/api/data_sources/{data_source_id}/git_repository/{repository_id}",
+            f"/api/git/repositories/{repository_id}",
             headers=headers,
         )
         assert response.status_code == 200, response.json()
@@ -117,16 +127,17 @@ def delete_git_repository(test_client):
 
 @pytest.fixture
 def index_git_repository(test_client):
+    """Trigger indexing of a Git repository (org-level)."""
     def _index_git_repository(
         *,
-        data_source_id: str,
         repository_id: str,
         user_token: str = None,
         org_id: str = None,
+        data_source_id: str = None,  # Ignored, kept for backwards compat
     ):
         headers = _build_headers(user_token, org_id)
         response = test_client.post(
-            f"/api/data_sources/{data_source_id}/git_repository/{repository_id}/index",
+            f"/api/git/{repository_id}/index",
             headers=headers,
         )
         assert response.status_code == 200, response.json()
@@ -137,23 +148,43 @@ def index_git_repository(test_client):
 
 @pytest.fixture
 def get_linked_instructions_count(test_client):
-    """Get count of instructions linked to a git repository"""
+    """Get count of instructions linked to a git repository (org-level)."""
     def _get_linked_instructions_count(
         *,
-        data_source_id: str,
         repository_id: str,
         user_token: str = None,
         org_id: str = None,
+        data_source_id: str = None,  # Ignored, kept for backwards compat
     ):
         headers = _build_headers(user_token, org_id)
         response = test_client.get(
-            f"/api/data_sources/{data_source_id}/git_repository/{repository_id}/linked_instructions_count",
+            f"/api/git/repositories/{repository_id}/linked_instructions_count",
             headers=headers,
         )
         assert response.status_code == 200, response.json()
         return response.json()
 
     return _get_linked_instructions_count
+
+
+@pytest.fixture
+def get_git_repository_job_status(test_client):
+    """Get indexing job status for a Git repository (org-level)."""
+    def _get_git_repository_job_status(
+        *,
+        repository_id: str,
+        user_token: str = None,
+        org_id: str = None,
+    ):
+        headers = _build_headers(user_token, org_id)
+        response = test_client.get(
+            f"/api/git/{repository_id}/job_status",
+            headers=headers,
+        )
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _get_git_repository_job_status
 
 
 # ==================== Git Write Operations ====================

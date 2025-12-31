@@ -677,11 +677,10 @@ class GitService:
         self,
         db: AsyncSession,
         repository_id: str,
-        data_source_id: str,
         organization: Organization
     ) -> Dict[str, Any]:
         """Get current indexing job status with progress percentage."""
-        await self._verify_repository(db, repository_id, data_source_id, organization)
+        await self._verify_repository(db, repository_id, organization)
 
         result = await db.execute(
             select(MetadataIndexingJob)
