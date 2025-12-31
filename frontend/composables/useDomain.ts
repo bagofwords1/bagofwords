@@ -69,6 +69,10 @@ export function useDomain() {
   // Computed: get the current domain name (for display)
   const currentDomainName = computed(() => {
     if (selectedDomains.value.length === 0) {
+      // If only one domain exists, show its name instead of "All Domains"
+      if (domains.value.length === 1) {
+        return domains.value[0].name
+      }
       return 'All Domains'
     }
     if (selectedDomains.value.length === 1) {

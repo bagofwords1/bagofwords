@@ -135,10 +135,10 @@ class DataSourceService:
         if data_source_dict['name'] == '':
             raise HTTPException(status_code=400, detail="Data source name is required")
         
-        # Extract special flags
-        generate_summary = data_source_dict.pop("generate_summary")
-        generate_conversation_starters = data_source_dict.pop("generate_conversation_starters")
-        generate_ai_rules = data_source_dict.pop("generate_ai_rules")
+        # Remove legacy generation flags (generation now deferred to llm_sync after table selection)
+        data_source_dict.pop("generate_summary", None)
+        data_source_dict.pop("generate_conversation_starters", None)
+        data_source_dict.pop("generate_ai_rules", None)
         
         # Extract credentials, config, and membership info
         credentials = data_source_dict.pop("credentials", None)
@@ -264,18 +264,11 @@ class DataSourceService:
             if additional_user_ids:
                 await self._create_memberships(db, new_data_source, additional_user_ids)
 
-        # Save tables and generate items (validation already passed above)
+        # Save tables (validation already passed above)
+        # Note: Description, conversation starters, and instructions are generated
+        # later via llm_sync (after user selects tables) to use the correct schema
         if auth_policy == "system_only":
             await self.save_or_update_tables(db=db, data_source=new_data_source, organization=organization, should_set_active=True)
-
-            if generate_summary:
-                response = await self.generate_data_source_items(db=db, item="summary", data_source_id=new_data_source.id, organization=organization, current_user=current_user)
-                new_data_source.description = response["summary"]
-            if generate_conversation_starters:
-                response = await self.generate_data_source_items(db=db, item="conversation_starters", data_source_id=new_data_source.id, organization=organization, current_user=current_user)
-                new_data_source.conversation_starters = response["conversation_starters"]
-            if generate_ai_rules:
-                pass
             await db.commit()
             await db.refresh(new_data_source)
 

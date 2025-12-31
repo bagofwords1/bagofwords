@@ -101,7 +101,8 @@
     </UPopover>
 
     <!-- Domain hover flyout (teleported so it never gets clipped by popovers) -->
-    <Teleport to="body">
+    <!-- NOTE: teleport into Nuxt root to preserve Nuxt context (needed for MDC rendering) -->
+    <Teleport to="#__nuxt">
       <Transition
         enter-active-class="transition-all duration-150 ease-out"
         enter-from-class="opacity-0 translate-y-1"
@@ -220,9 +221,12 @@
               <template v-else>
                 <!-- Overview tab -->
                 <div v-if="flyoutTab === 'overview'" class="space-y-4">
-                  <!-- Description (no title) -->
-                  <div v-if="hoveredDomainDetails?.description" class="text-xs text-gray-600 leading-relaxed">
-                    {{ hoveredDomainDetails.description }}
+                  <!-- Description rendered as Markdown -->
+                  <div
+                    v-if="hoveredDomainDetails?.description"
+                    class="domain-selector-flyout-markdown text-xs text-gray-600 leading-relaxed max-h-[320px] overflow-auto pr-1"
+                  >
+                    <MDC :value="hoveredDomainDetails.description" class="markdown-content" />
                   </div>
 
                   <!-- Sample Questions -->
@@ -497,7 +501,7 @@ const showFlyoutAtEvent = (evt: MouseEvent) => {
   // Clamp to viewport height to avoid going off-screen.
   const desiredLeft = rect.right + 12
   const desiredTop = rect.top - 8
-  const maxTop = window.innerHeight - 520 // flyout approx height
+  const maxTop = window.innerHeight - 720 // flyout approx height
   flyout.left = Math.max(12, desiredLeft)
   flyout.top = Math.max(12, Math.min(desiredTop, maxTop))
   flyout.visible = true
@@ -679,4 +683,33 @@ const selectTable = (t: any) => {
   selectedTable.value = t
 }
 </script>
+
+<style lang="postcss">
+/* Not scoped: flyout is teleported */
+.domain-selector-flyout-markdown .markdown-content {
+  @apply leading-relaxed;
+  font-size: 12px;
+
+  :where(h1, h2, h3, h4, h5, h6) {
+    @apply font-bold mb-2 mt-3;
+  }
+
+  h1 { @apply text-base; }
+  h2 { @apply text-sm; }
+  h3 { @apply text-xs; }
+
+  ul, ol { @apply pl-4 mb-2; }
+  ul { @apply list-disc; }
+  ol { @apply list-decimal; }
+  li { @apply mb-1; }
+
+  pre { @apply bg-gray-50 p-2 rounded-lg mb-2 overflow-x-auto text-[11px]; }
+  code { @apply bg-gray-50 px-1 py-0.5 rounded text-[11px] font-mono; }
+  a { @apply text-blue-600 hover:text-blue-800 underline; }
+  blockquote { @apply border-l-4 border-gray-200 pl-3 italic my-2; }
+  table { @apply w-full border-collapse mb-2; }
+  table th, table td { @apply border border-gray-200 p-1 text-[11px] bg-white; }
+  p { @apply mb-2; }
+}
+</style>
 
