@@ -418,7 +418,8 @@ class InstructionService:
         load_modes: Optional[List[str]] = None,
         label_ids: Optional[List[str]] = None,
         search: Optional[str] = None,
-        build_id: Optional[str] = None
+        build_id: Optional[str] = None,
+        include_global: bool = True
     ) -> dict:
         """Get instructions with clean permission-based filtering. Returns paginated response.
         
@@ -454,7 +455,8 @@ class InstructionService:
         return await self._execute_instructions_query(
             db, organization, conditions, status, categories, skip, limit,
             data_source_ids, source_types, load_modes, label_ids, search,
-            build_id=build_id
+            build_id=build_id,
+            include_global=include_global
         )
 
     async def get_available_source_types(
@@ -1420,7 +1422,8 @@ class InstructionService:
         load_modes: Optional[List[str]] = None,
         label_ids: Optional[List[str]] = None,
         search: Optional[str] = None,
-        build_id: Optional[str] = None
+        build_id: Optional[str] = None,
+        include_global: bool = True
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
         
@@ -1473,8 +1476,17 @@ class InstructionService:
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
         if data_source_ids:
-            # Filter by any of the specified domain IDs (OR logic)
-            filter_conditions.append(Instruction.data_sources.any(DataSource.id.in_(data_source_ids)))
+            if include_global:
+                # Filter by specified domain IDs OR global (no data sources assigned)
+                filter_conditions.append(
+                    or_(
+                        Instruction.data_sources.any(DataSource.id.in_(data_source_ids)),
+                        ~Instruction.data_sources.any()  # Include global instructions
+                    )
+                )
+            else:
+                # Filter by any of the specified domain IDs only
+                filter_conditions.append(Instruction.data_sources.any(DataSource.id.in_(data_source_ids)))
         if source_types:
             # Build source type filter conditions
             # source_types can contain: 'user', 'ai', 'git', 'dbt', 'markdown', etc.

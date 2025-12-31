@@ -199,6 +199,7 @@ async function fetchFields() {
     // set default auth
     const authMeta = fields.value?.auth
     if (authMeta && !selectedAuth.value) selectedAuth.value = authMeta.default || undefined
+    const shouldSkipHydration = preserveOnNextFetch.value
     initFormDefaults(preserveOnNextFetch.value)
     preserveOnNextFetch.value = false
     emit('change:type', selectedType.value)
@@ -207,8 +208,8 @@ async function fetchFields() {
       const title = selectedTitle.value || selectedType.value || ''
       name.value = title ? `My ${title}` : ''
     }
-    // hydrate initial values in edit mode
-    if (isEditMode.value && props.initialValues) {
+    // hydrate initial values in edit mode (skip if user just toggled auth policy)
+    if (isEditMode.value && props.initialValues && !shouldSkipHydration) {
       try {
         const iv = props.initialValues || {}
         name.value = iv.name || name.value

@@ -51,7 +51,6 @@ from app.routes import (
     text_widget,
     user_profile,
     llm,
-    git_repository,
     git,
     organization_settings,
     branding,
@@ -177,7 +176,6 @@ app.include_router(file.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(text_widget.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
-app.include_router(git_repository.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")

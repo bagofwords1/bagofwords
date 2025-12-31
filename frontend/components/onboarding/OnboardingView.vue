@@ -294,9 +294,9 @@ function goToCurrentStep() {
     case 'llm_configured':
       return router.push('/settings/models')
     case 'data_source_created':
-      return router.push('/integrations')
+      return router.push('/data')
     case 'schema_selected':
-      return router.push('/integrations')
+      return router.push('/data')
     case 'instructions_added':
       return router.push('/instructions')
     default:

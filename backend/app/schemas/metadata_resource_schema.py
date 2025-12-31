@@ -30,8 +30,9 @@ class MetadataResourceSchema(BaseModel):
     is_active: bool = True
     last_synced_at: OptionalUTCDatetime = None
     
-    # The data source this resource belongs to
-    data_source_id: str
+    # The data source this resource belongs to (optional for org-level git repos)
+    data_source_id: Optional[str] = None
+    organization_id: Optional[str] = None
     
     created_at: OptionalUTCDatetime = None
     updated_at: OptionalUTCDatetime = None
@@ -54,7 +55,8 @@ class MetadataResourceCreate(BaseModel):
     columns: Optional[List[Dict[str, Any]]] = None
     depends_on: Optional[List[str]] = None
     is_active: bool = True
-    data_source_id: str
+    data_source_id: Optional[str] = None  # Optional for org-level git repos
+    organization_id: Optional[str] = None  # For org-level git repos
     metadata_indexing_job_id: Optional[str] = None
 
 

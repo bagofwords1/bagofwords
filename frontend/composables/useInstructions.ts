@@ -22,6 +22,7 @@ export interface InstructionFilters {
   dataSourceId: string | null  // Single ID (deprecated, for backward compat)
   dataSourceIds: string[]  // Multiple domain IDs
   buildId: string | null
+  includeGlobal: boolean  // Include global instructions when filtering by data sources
 }
 
 export interface PaginatedResponse {
@@ -68,7 +69,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     labelIds: [],
     dataSourceId: null,
     dataSourceIds: [],
-    buildId: null
+    buildId: null,
+    includeGlobal: true  // Default to including global instructions
   })
 
   // Selection state
@@ -173,6 +175,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
       if (filters.labelIds.length) queryParams.label_ids = filters.labelIds.join(',')
       if (filters.search?.trim()) queryParams.search = filters.search.trim()
       if (filters.buildId) queryParams.build_id = filters.buildId
+      // Include global instructions flag (default true on backend, only pass if false)
+      if (!filters.includeGlobal) queryParams.include_global = false
 
       const { data, error: fetchError } = await useMyFetch<PaginatedResponse>('/api/instructions', {
         method: 'GET',

@@ -206,11 +206,20 @@ const handleGitChanged = () => {
 }
 
 // Methods
-const openModal = async () => {
+const openModal = async (dataSourceIds?: string[]) => {
     instructionsListModal.value = true
     await fetchDataSources()
     fetchAvailableSourceTypes()
     fetchGitStatus()
+    
+    // Set data source filter if provided (filters to selected + global instructions)
+    if (dataSourceIds && dataSourceIds.length > 0) {
+        inst.filters.dataSourceIds = dataSourceIds
+    } else {
+        // Clear filter to show all
+        inst.filters.dataSourceIds = []
+    }
+    
     inst.fetchInstructions()
 }
 

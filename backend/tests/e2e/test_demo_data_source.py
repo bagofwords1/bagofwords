@@ -300,3 +300,59 @@ def test_demo_creates_instructions(
         user_token=user_token,
         org_id=org_id,
     )
+
+
+@pytest.mark.e2e
+def test_demo_creates_connection(
+    install_demo_data_source,
+    get_connections,
+    get_data_sources,
+    delete_data_source,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Test that installing a demo creates both domain and connection."""
+    if not CHINOOK_DB_PATH.exists():
+        pytest.skip(f"Chinook demo database missing at {CHINOOK_DB_PATH}")
+
+    # Setup user and organization
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    # Install chinook demo
+    result = install_demo_data_source(
+        demo_id="chinook",
+        user_token=user_token,
+        org_id=org_id,
+    )
+    assert result["success"] is True
+    data_source_id = result["data_source_id"]
+
+    # Verify connection was created
+    connections = get_connections(user_token=user_token, org_id=org_id)
+    assert isinstance(connections, list)
+    assert len(connections) >= 1
+
+    # Find connection associated with this demo (should have matching name or type)
+    chinook_connection = None
+    for conn in connections:
+        if conn["type"] == "sqlite" and "Chinook" in conn["name"]:
+            chinook_connection = conn
+            break
+
+    assert chinook_connection is not None, "Connection for Chinook demo should exist"
+    assert chinook_connection["domain_count"] >= 1
+
+    # Verify domain has connection info in response
+    domains = get_data_sources(user_token=user_token, org_id=org_id)
+    our_domain = next((d for d in domains if d["id"] == data_source_id), None)
+    assert our_domain is not None
+
+    # Cleanup
+    delete_data_source(
+        data_source_id=data_source_id,
+        user_token=user_token,
+        org_id=org_id,
+    )

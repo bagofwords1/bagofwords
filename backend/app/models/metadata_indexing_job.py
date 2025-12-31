@@ -26,7 +26,7 @@ class MetadataIndexingJob(BaseSchema):
     __tablename__ = "metadata_indexing_jobs"
 
     # Basic information
-    data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=False)
+    data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=True)  # Optional - jobs can be org-wide
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False)
     git_repository_id = Column(String(36), ForeignKey("git_repositories.id"), nullable=True)
 

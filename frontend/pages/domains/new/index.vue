@@ -16,12 +16,12 @@
       <div v-else-if="connections.length === 0" class="text-center py-12">
         <UIcon name="heroicons-server-stack" class="h-12 w-12 text-gray-300 mx-auto mb-3" />
         <p class="text-gray-500 mb-4">No connections available</p>
-        <UButton color="primary" @click="navigateTo('/integrations/new')">
+        <UButton color="primary" @click="navigateTo('/data/new')">
           Add Connection First
         </UButton>
         <div class="mt-6 text-center">
-          <NuxtLink to="/integrations" class="text-sm text-gray-500 hover:text-gray-700">
-            ← Back to Integrations
+          <NuxtLink to="/data" class="text-sm text-gray-500 hover:text-gray-700">
+            ← Back to Data
           </NuxtLink>
         </div>
       </div>
@@ -84,7 +84,7 @@
           <!-- LLM Toggle -->
           <div class="flex items-center gap-2 mb-4">
             <UToggle v-model="useLlmSync" :disabled="creating" size="xs" color="blue" />
-            <span class="text-xs text-gray-700">Use LLM to learn data source</span>
+            <span class="text-xs text-gray-700">Use LLM to learn domain</span>
           </div>
 
           <!-- Error Message -->
@@ -94,11 +94,12 @@
 
           <!-- Actions -->
           <div class="flex justify-between items-center pt-4 border-t border-gray-100">
-            <NuxtLink to="/integrations" class="text-sm text-gray-500 hover:text-gray-700">
+            <NuxtLink to="/data" class="text-sm text-gray-500 hover:text-gray-700">
               ← Cancel
             </NuxtLink>
             <UButton 
-              color="primary" 
+              color="blue"
+              size="xs" 
               :loading="creating"
               :disabled="!canSubmit"
               @click="createDomain"
@@ -197,7 +198,7 @@ async function createDomain() {
       // Navigate to schema selection step
       navigateTo(`/domains/new/${result.id}/schema`)
     } else {
-      navigateTo('/integrations')
+      navigateTo('/data')
     }
   } catch (err: any) {
     errorMessage.value = err?.message || 'An error occurred'

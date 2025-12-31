@@ -10,7 +10,7 @@
                             </h1>
                             <div v-if="!isLoading && integration" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
                                 <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
-                                <DataSourceIcon :type="connectionType" class="h-4 w-4" />
+                                <DataSourceIcon :type="connectionType" class="h-4" />
                                 <span>{{ connectionName }}</span>
                             </div>
                         </div>
@@ -18,9 +18,6 @@
                             <span v-if="isLoading" class="px-2 py-0.5 rounded text-xs border bg-gray-50 text-gray-700 border-gray-200 flex items-center gap-1">
                                 <Spinner />
                                 Loading
-                            </span>
-                            <span v-else-if="connectionLabel" :class="['px-2 py-0.5 rounded text-xs border flex items-center gap-1', connectionClass]">
-                                <span>{{ connectionLabel }}</span>
                             </span>
                         </div>
                     </div>
@@ -54,8 +51,9 @@
 </template>
 
 <script setup lang="ts">
+import Spinner from '~/components/Spinner.vue'
+
 const route = useRoute()
-const toast = useToast()
 
 const id = computed(() => String(route.params.id || ''))
 
@@ -68,21 +66,20 @@ const tabs = [
 ]
 
 function tabTo(tabName: string) {
-    if (!id.value) return '/integrations'
-    if (tabName === '') return `/integrations/${id.value}`
-    return `/integrations/${id.value}/${tabName}`
+    if (!id.value) return '/data'
+    if (tabName === '') return `/data/${id.value}`
+    return `/data/${id.value}/${tabName}`
 }
 
 function isTabActive(tabName: string) {
     const path = route.path
     if (tabName === '') {
-        return path === `/integrations/${id.value}` || path === `/integrations/${id.value}/`
+        return path === `/data/${id.value}` || path === `/data/${id.value}/`
     }
-    return path === `/integrations/${id.value}/${tabName}`
+    return path === `/data/${id.value}/${tabName}`
 }
 
 const integration = ref<any>(null)
-const isDisconnecting = ref(false)
 const isLoading = ref(true)
 const connection = computed(() => String(integration.value?.user_status?.connection || '').toLowerCase())
 
@@ -93,21 +90,6 @@ const isConnected = computed(() => {
     const c = connection.value
     return c === 'success'
 })
-const connectionLabel = computed(() => {
-    const c = connection.value
-    if (c === 'success') return 'Connected'
-    if (c === 'not_connected') return 'Not connected'
-    if (c === 'offline') return 'Offline'
-    if (c === 'unknown' || !c) return integration.value?.is_active ? 'Active' : 'Inactive'
-    return 'Unknown'
-})
-const connectionClass = computed(() => {
-    const c = connection.value
-    if (c === 'success') return 'bg-green-50 text-green-700 border-green-200'
-    if (c === 'not_connected' || c === 'offline') return 'bg-red-50 text-red-700 border-red-200'
-    return 'bg-gray-50 text-gray-700 border-gray-200'
-})
-// Disconnect control removed per requirements
 
 async function fetchIntegration() {
     if (!id.value) return
@@ -135,7 +117,10 @@ async function fetchIntegration() {
     isLoading.value = false
 }
 
-
+// Provide integration data to child pages
+provide('integration', integration)
+provide('fetchIntegration', fetchIntegration)
+provide('isLoading', isLoading)
 
 watch(id, () => {
     fetchIntegration()

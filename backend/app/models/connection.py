@@ -22,6 +22,10 @@ class Connection(BaseSchema):
     is_active = Column(Boolean, nullable=False, default=True)
     last_synced_at = Column(DateTime, nullable=True)
     
+    # Connection test cache - stores last test result to avoid repeated slow tests
+    last_connection_status = Column(String, nullable=True)  # "success", "not_connected", "offline"
+    last_connection_checked_at = Column(DateTime, nullable=True)
+    
     # Authentication policy
     auth_policy = Column(String, nullable=False, default="system_only")  # system_only, user_required
     allowed_user_auth_modes = Column(JSON, nullable=True, default=None)

@@ -49,6 +49,8 @@ ADMIN_PERMISSIONS = {
     'create_data_source',
     'delete_data_source',
     'update_data_source',
+    'manage_connections',
+    'view_connections',
     'view_settings',
     'modify_settings',
     'add_organization_members',

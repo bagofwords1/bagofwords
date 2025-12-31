@@ -49,6 +49,7 @@
       <div class="w-full md:w-4/5 mx-auto mt-10 rounded-lg relative z-10">
           <PromptBoxV2 
               :textareaContent="textareaContent"
+              :initialSelectedDataSources="selectedDataSources"
               @update:modelValue="handlePromptUpdate"
           />
       </div>
@@ -86,7 +87,7 @@
       </div>
 
         <div 
-        @click="router.push('/integrations')" 
+        @click="router.push('/data')" 
         class="flex hidden cursor-pointer flex-col text-sm w-full text-left mt-4 p-2 bg-white rounded-md border border-gray-200 hover:shadow-md hover:border-blue-300">
             <div class="flex">
 
@@ -131,11 +132,14 @@ import { useCan } from '~/composables/usePermissions'
 import { KeyCode } from 'monaco-editor';
 const router = useRouter()
 const { onboarding, fetchOnboarding } = useOnboarding()
+const { selectedDomainObjects } = useDomain()
 const previous_reports = ref<any[]>([])
-const selectedDataSources = ref<any[]>([])
 const models = ref<any[]>([])
 const isLoading = ref(true)
 const hasLoadedModels = ref(false)
+
+// Use selected domains from DomainSelector as the data sources
+const selectedDataSources = computed(() => selectedDomainObjects.value)
 
 const getModels = async () => {
   try {
@@ -199,7 +203,7 @@ const showOnboardingBanner = computed(() => {
 
 const menuItems = ref([
   [{ label: 'Reports', icon: 'i-heroicons-document-chart-bar', to: '/reports' }],
-  [{ label: 'Integrations', icon: 'i-heroicons-circle-stack', to: '/integrations' }],
+  [{ label: 'Data', icon: 'i-heroicons-circle-stack', to: '/data' }],
   [{ label: (currentUser.value as any)?.name, icon: 'i-heroicons-user'},
   { label: organization.value.name, icon: 'i-heroicons-building-office'  }
   ],
@@ -255,10 +259,10 @@ onMounted(async () => {
     }
     
     // Only proceed with API calls if organization is available
+    // Note: domains are already loaded by the layout via initDomain()
     if (organization.value?.id) {
       await Promise.allSettled([
         withTimeout(getModels(), 6000, 'getModels'),
-        withTimeout(getDataSourceOptions(), 6000, 'getDataSourceOptions'),
         withTimeout(getReports(), 6000, 'getReports')
       ])
     } else {
@@ -292,25 +296,6 @@ const getReports = async () => {
   }
 }
 
-const getDataSourceOptions = async () => {
-  try {
-    const response = await useMyFetch('/data_sources/active', {
-        method: 'GET',
-    });
-
-    if (response.error.value) {
-        throw new Error(`Could not fetch data sources: ${response.error.value}`);
-    }
-
-    const dataSources = (response.data.value as any[]) || [];
-    selectedDataSources.value = dataSources;
-    return dataSources;
-  } catch (error) {
-    console.error('Failed to fetch data sources:', error);
-    selectedDataSources.value = [];
-    throw error;
-  }
-}
 
 const subscription = computed(() => (currentUser.value as any)?.organizations?.find((org: any) => org.id === organization.value.id)?.subscription)
 

@@ -4,12 +4,14 @@ Connections are the underlying database connections that Domains (DataSources) l
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
 from typing import List, Optional
 
 from app.dependencies import get_async_db
 from app.models.user import User
 from app.core.auth import current_user
 from app.models.organization import Organization
+from app.models.datasource_table import DataSourceTable
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
 from app.core.permissions_decorator import requires_permission
@@ -105,13 +107,20 @@ async def list_connections(
     
     result = []
     for conn in connections:
-        # Count tables from associated data sources (domains) since tables are stored there
-        # For now with 1:1 domain-connection, sum tables from all domains using this connection
+        # Count tables using SQL COUNT query instead of loading all tables
+        # This is critical for data sources with many tables (e.g., 25K+)
         table_count = 0
         if conn.data_sources:
-            for ds in conn.data_sources:
-                if hasattr(ds, 'tables') and ds.tables:
-                    table_count += len([t for t in ds.tables if t.is_active])
+            ds_ids = [str(ds.id) for ds in conn.data_sources]
+            if ds_ids:
+                count_result = await db.execute(
+                    select(func.count(DataSourceTable.id))
+                    .where(
+                        DataSourceTable.datasource_id.in_(ds_ids),
+                        DataSourceTable.is_active == True
+                    )
+                )
+                table_count = count_result.scalar() or 0
         
         result.append(ConnectionSchema(
             id=str(conn.id),

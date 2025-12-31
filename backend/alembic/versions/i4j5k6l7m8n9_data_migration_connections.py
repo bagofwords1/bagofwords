@@ -9,6 +9,11 @@ Migrates existing data from data_sources to connections:
 2. Insert into domain_connection junction table
 3. For each DataSourceTable, create a ConnectionTable and link
 4. Migrate user credentials and overlays
+
+Also makes git repositories org-level:
+5. Add organization_id to metadata_resources
+6. Make data_source_id nullable on metadata_resources and metadata_indexing_jobs
+7. Backfill organization_id from data_source relationship
 """
 from typing import Sequence, Union
 import uuid
@@ -268,7 +273,42 @@ def upgrade() -> None:
     finally:
         session.close()
     
-    # 7. Drop legacy columns from data_sources (data is now in connections)
+    # 7. Make git repositories org-level: add organization_id to metadata_resources
+    # and make data_source_id nullable
+    with op.batch_alter_table('metadata_resources', schema=None) as batch_op:
+        batch_op.add_column(sa.Column('organization_id', sa.String(36), nullable=True))
+    
+    # 8. Make data_source_id nullable on metadata_indexing_jobs
+    # (Already has organization_id column, just need to make data_source_id nullable)
+    with op.batch_alter_table('metadata_indexing_jobs', schema=None) as batch_op:
+        batch_op.alter_column('data_source_id', existing_type=sa.String(36), nullable=True)
+    
+    # 9. Backfill organization_id on metadata_resources from data_source
+    bind = op.get_bind()
+    session2 = Session(bind=bind)
+    try:
+        session2.execute(
+            sa.text("""
+                UPDATE metadata_resources 
+                SET organization_id = (
+                    SELECT organization_id FROM data_sources 
+                    WHERE data_sources.id = metadata_resources.data_source_id
+                )
+                WHERE organization_id IS NULL AND data_source_id IS NOT NULL
+            """)
+        )
+        session2.commit()
+    except Exception as e:
+        session2.rollback()
+        raise e
+    finally:
+        session2.close()
+    
+    # 10. Now make data_source_id nullable on metadata_resources
+    with op.batch_alter_table('metadata_resources', schema=None) as batch_op:
+        batch_op.alter_column('data_source_id', existing_type=sa.String(36), nullable=True)
+    
+    # 11. Drop legacy columns from data_sources (data is now in connections)
     with op.batch_alter_table('data_sources', schema=None) as batch_op:
         batch_op.drop_column('type')
         batch_op.drop_column('config')
@@ -278,7 +318,17 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # First, recreate legacy columns on data_sources
+    # First, revert git repo org-level changes
+    # Make data_source_id required again on metadata_resources
+    with op.batch_alter_table('metadata_resources', schema=None) as batch_op:
+        batch_op.alter_column('data_source_id', existing_type=sa.String(36), nullable=False)
+        batch_op.drop_column('organization_id')
+    
+    # Make data_source_id required again on metadata_indexing_jobs
+    with op.batch_alter_table('metadata_indexing_jobs', schema=None) as batch_op:
+        batch_op.alter_column('data_source_id', existing_type=sa.String(36), nullable=False)
+    
+    # Now recreate legacy columns on data_sources
     with op.batch_alter_table('data_sources', schema=None) as batch_op:
         batch_op.add_column(sa.Column('type', sa.String(), nullable=True))
         batch_op.add_column(sa.Column('config', sa.JSON(), nullable=True))

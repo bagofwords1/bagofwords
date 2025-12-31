@@ -305,61 +305,45 @@ const fetchLearningSettings = async () => {
 
 const fetchGitStatus = async () => {
     try {
-        if (allDataSources.value.length === 0) return
-
-        // Check all data sources for git connection
-        const results: { hasGit: boolean; completedAt: string | null; provider?: string; repoUrl?: string; repoId?: string }[] = []
+        // Fetch all org-level git repositories
+        const { data: repositories } = await useMyFetch<Array<{
+            id: string
+            provider: string
+            repo_url: string
+            last_indexed_at: string | null
+        }>>('/git/repositories', { method: 'GET' })
         
-        for (const ds of allDataSources.value) {
-            let hasGit = false
-            let completedAt: string | null = null
-            let provider: string | undefined
-            let repoUrl: string | undefined
-            let repoId: string | undefined
-            
-            // Fetch full data source which includes git_repository
-            const { data: fullDs } = await useMyFetch(`/data_sources/${ds.id}`, { method: 'GET' })
-            if (fullDs.value && (fullDs.value as any).git_repository) {
-                hasGit = true
-                provider = (fullDs.value as any).git_repository.provider
-                repoUrl = (fullDs.value as any).git_repository.repo_url
-                repoId = (fullDs.value as any).git_repository.id
-                
-                // Only fetch metadata for data sources with git connection
-                const { data: metaData } = await useMyFetch(`/data_sources/${ds.id}/metadata_resources`, { method: 'GET' })
-                if (metaData.value) {
-                    completedAt = (metaData.value as any).completed_at || null
-                }
-            }
-            
-            results.push({ hasGit, completedAt, provider, repoUrl, repoId })
+        if (!repositories.value || repositories.value.length === 0) {
+            gitConnectedCount.value = 0
+            gitLastIndexed.value = null
+            gitConnectedRepos.value = []
+            gitRepoId.value = ''
+            return
         }
 
-        let connectedCount = 0
-        let latestIndexed: string | null = null
         const repos: { provider: string; repoName: string }[] = []
+        let latestIndexed: string | null = null
         let firstRepoId: string | undefined
 
-        for (const result of results) {
-            if (result.hasGit) {
-                connectedCount++
-                // Track the first connected git repo for push operations
-                if (!firstRepoId && result.repoId) {
-                    firstRepoId = result.repoId
-                }
-                if (result.completedAt) {
-                    if (!latestIndexed || new Date(result.completedAt) > new Date(latestIndexed)) {
-                        latestIndexed = result.completedAt
-                    }
-                }
-                if (result.provider && result.repoUrl) {
-                    const repoName = result.repoUrl.split('/').pop()?.replace(/\.git$/, '') || 'Repository'
-                    repos.push({ provider: result.provider, repoName })
+        for (const repo of repositories.value) {
+            // Track the first connected git repo for push operations
+            if (!firstRepoId) {
+                firstRepoId = repo.id
+            }
+            
+            // Track latest indexed time
+            if (repo.last_indexed_at) {
+                if (!latestIndexed || new Date(repo.last_indexed_at) > new Date(latestIndexed)) {
+                    latestIndexed = repo.last_indexed_at
                 }
             }
+            
+            // Extract repo name from URL
+            const repoName = repo.repo_url.split('/').pop()?.replace(/\.git$/, '') || 'Repository'
+            repos.push({ provider: repo.provider, repoName })
         }
 
-        gitConnectedCount.value = connectedCount
+        gitConnectedCount.value = repositories.value.length
         gitLastIndexed.value = latestIndexed
         gitConnectedRepos.value = repos
         gitRepoId.value = firstRepoId || ''

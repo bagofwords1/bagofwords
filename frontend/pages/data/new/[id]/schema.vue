@@ -24,7 +24,7 @@ const route = useRoute()
 const router = useRouter()
 const id = computed(() => String(route.params.id || ''))
 
-function onSaved() { router.replace(`/integrations/new/${id.value}/context`) }
+function onSaved() { router.replace(`/data/new/${id.value}/context`) }
 </script>
 
 

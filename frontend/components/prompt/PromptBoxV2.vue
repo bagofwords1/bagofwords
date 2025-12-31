@@ -176,8 +176,21 @@ const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
 const inlineMentions = ref<any[]>([])
 const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
+
+// Watch for changes in initialSelectedDataSources (from domain selector)
+// On landing page (no report_id): always sync with domain selector
+// On report page: only bootstrap once, then use report's data sources
 watch(() => props.initialSelectedDataSources, (newVal) => {
     if (!Array.isArray(newVal)) return
+    
+    // On landing page (no report_id), always sync with domain selector
+    if (!props.report_id) {
+        selectedDataSources.value = [...newVal]
+        isHydratingDataSources.value = false
+        return
+    }
+    
+    // On report page, only bootstrap once
     if (hasBootstrappedFromInitial.value) return
     if (newVal.length === 0) return
     selectedDataSources.value = [...newVal]
@@ -413,7 +426,11 @@ function onFilesUploaded(files: any[]) {
 }
 
 const instructionsListModalRef = ref<any | null>(null)
-function openInstructions() { instructionsListModalRef.value?.openModal?.() }
+function openInstructions() {
+    // Pass selected data source IDs to filter instructions (shows selected + global)
+    const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
+    instructionsListModalRef.value?.openModal?.(dataSourceIds)
+}
 
 onMounted(async () => {
     await loadModels()

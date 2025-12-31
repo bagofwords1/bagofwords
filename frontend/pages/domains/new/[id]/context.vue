@@ -256,7 +256,7 @@ async function handleSave() {
   if (saving.value) return
   saving.value = true
   try {
-    router.replace(`/integrations/${dsId.value}`)
+    router.replace(`/data/${dsId.value}`)
   } finally {
     saving.value = false
   }

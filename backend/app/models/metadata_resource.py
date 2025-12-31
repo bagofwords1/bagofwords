@@ -31,8 +31,11 @@ class MetadataResource(BaseSchema):
     is_active = Column(Boolean, nullable=False, default=True)
     last_synced_at = Column(DateTime, nullable=True)
     
-    # The data source this resource belongs to
-    data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=False)
+    # Organization ownership (required for org-level git repos)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True)
+    
+    # The data source this resource belongs to (optional - resources can be org-wide)
+    data_source_id = Column(String(36), ForeignKey("data_sources.id"), nullable=True)
 
     # The job that indexed this resource version
     metadata_indexing_job_id = Column(String(36), ForeignKey("metadata_indexing_jobs.id"), nullable=True)
@@ -51,6 +54,7 @@ class MetadataResource(BaseSchema):
 
     
     # Relationships
+    organization = relationship("Organization")
     data_source = relationship("DataSource", back_populates="metadata_resources")
     metadata_indexing_job = relationship("MetadataIndexingJob", back_populates="metadata_resources")
     instruction = relationship("Instruction", foreign_keys=[instruction_id], lazy="selectin")

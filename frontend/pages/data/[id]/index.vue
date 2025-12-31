@@ -80,17 +80,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, inject, watch } from 'vue'
 import { useCan } from '~/composables/usePermissions'
 import DataSourceQuestionsHome from '~/components/DataSourceQuestionsHome.vue'
+import type { Ref } from 'vue'
 
-definePageMeta({ auth: true, layout: 'integrations' })
+definePageMeta({ auth: true, layout: 'data' })
 
 const route = useRoute()
 const toast = useToast?.()
 
-const loading = ref(true)
-const dataSource = ref<any | null>(null)
+// Inject integration data from layout (avoid duplicate API calls)
+const injectedIntegration = inject<Ref<any>>('integration', ref(null))
+const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
+const injectedLoading = inject<Ref<boolean>>('isLoading', ref(true))
+
+// Use injected data as main data source
+const dataSource = injectedIntegration
+const loading = injectedLoading
+
 const availableMeta = ref<any | null>(null)
 const showEditModal = ref(false)
 const editStarters = ref<{ title: string; prompt: string }[]>([])
@@ -114,13 +122,7 @@ const displayDataSource = computed(() => {
     }
 })
 
-async function loadData() {
-    const id = route.params.id as string
-    const { data, error } = await useMyFetch(`/data_sources/${id}`, { method: 'GET' })
-    if (!error?.value) {
-        dataSource.value = data.value as any
-    }
-
+async function loadAvailableMeta() {
     // Fallback to catalog description by type, if needed
     try {
         const { data: avail, error: availErr } = await useMyFetch('/available_data_sources', { method: 'GET' })
@@ -129,11 +131,12 @@ async function loadData() {
             availableMeta.value = byType || null
         }
     } catch {}
-
-    loading.value = false
 }
 
-onMounted(loadData)
+// Load available meta when dataSource is ready
+watch(() => dataSource.value?.type, (type) => {
+    if (type) loadAvailableMeta()
+}, { immediate: true })
 
 function openEditStarters() {
     const starters = (dataSource.value?.conversation_starters && dataSource.value.conversation_starters.length > 0)
@@ -170,7 +173,8 @@ async function onSaveStarters() {
     })
     savingStarters.value = false
     if (!error?.value) {
-        if (dataSource.value) dataSource.value.conversation_starters = conversation_starters
+        // Refresh from layout
+        await injectedFetchIntegration()
         showEditModal.value = false
         toast?.add?.({ title: 'Saved', description: 'Conversation starters updated' })
     } else {
@@ -195,7 +199,8 @@ async function onSaveDesc() {
     const { error } = await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: payload })
     savingDesc.value = false
     if (!error?.value) {
-        if (dataSource.value) dataSource.value.description = payload.description
+        // Refresh from layout
+        await injectedFetchIntegration()
         showDescModal.value = false
         toast?.add?.({ title: 'Saved', description: 'Description updated' })
     } else {

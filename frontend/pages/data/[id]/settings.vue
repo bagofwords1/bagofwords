@@ -83,7 +83,7 @@
                 </div>
 
                 <!-- Danger zone -->
-                <div v-if="canUpdateDataSource" class="border border-red-200 p-4 rounded-lg bg-red-50/40">
+                <div v-if="canUpdateDataSource" class="max-w-md border border-red-200 p-4 rounded-lg bg-red-50/40">
                     <div class="text-sm font-medium text-red-700">Danger zone</div>
                     <div class="text-xs text-gray-600 mt-1">Removing this domain will disconnect it from the data source. You can reconnect later.</div>
                     <div class="mt-3">
@@ -139,13 +139,19 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'integrations' })
+definePageMeta({ auth: true, layout: 'data' })
 import { useCan } from '~/composables/usePermissions'
 import Spinner from '@/components/Spinner.vue'
+import type { Ref } from 'vue'
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast?.()
+
+// Inject integration data from layout (avoid duplicate API calls)
+const injectedIntegration = inject<Ref<any>>('integration', ref(null))
+const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
+const injectedLoading = inject<Ref<boolean>>('isLoading', ref(true))
 
 const form = reactive({
     name: '',
@@ -159,24 +165,20 @@ const original = reactive({
 
 const saving = reactive({ name: false, public: false })
 const deleting = ref(false)
-const ready = ref(false)
+const ready = computed(() => !injectedLoading.value && !!injectedIntegration.value)
 const showDelete = ref(false)
 const adding = ref(false)
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 
-async function loadDataSource() {
-    const id = route.params.id as string
-    const { data, error } = await useMyFetch(`/data_sources/${id}`, { method: 'GET' })
-    if (error?.value) return
-    const ds = data.value as any
-    form.name = ds?.name || ''
-    form.isPublic = ds?.is_public ?? true
-    original.name = form.name
-    original.isPublic = form.isPublic
-    ready.value = true
-}
-
-onMounted(loadDataSource)
+// Initialize form from injected data
+watch(injectedIntegration, (ds) => {
+    if (ds) {
+        form.name = ds?.name || ''
+        form.isPublic = ds?.is_public ?? true
+        original.name = form.name
+        original.isPublic = form.isPublic
+    }
+}, { immediate: true })
 
 async function loadMembers() {
     const id = route.params.id as string
@@ -219,7 +221,10 @@ async function saveName() {
     if (!ready.value || form.name.trim() === '' || form.name === original.name) return
     saving.name = true
     const ok = await updateDataSource({ name: form.name })
-    if (ok) original.name = form.name
+    if (ok) {
+        original.name = form.name
+        await injectedFetchIntegration() // Refresh header
+    }
     saving.name = false
 }
 
@@ -284,7 +289,7 @@ async function confirmDelete() {
     if (!error?.value) {
         toast?.add?.({ title: 'Domain deleted' })
         showDelete.value = false
-        router.push('/integrations')
+        router.push('/data')
     } else {
         toast?.add?.({ title: 'Failed to delete', description: String(error.value), color: 'red' })
     }

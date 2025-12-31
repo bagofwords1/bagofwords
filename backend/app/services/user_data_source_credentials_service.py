@@ -67,9 +67,21 @@ class UserDataSourceCredentialsService:
         # Get connection info from the first connection
         ds_type, config, auth_policy, allowed_user_auth_modes, connection = self._get_connection_info(data_source)
         
+        # Helper to get cached status from connection
+        def get_cached_status():
+            if connection and connection.last_connection_status:
+                return connection.last_connection_status
+            return "unknown"
+        
+        def get_last_checked_at():
+            if connection and connection.last_connection_checked_at:
+                return connection.last_connection_checked_at
+            return None
+        
         # For system-only data sources, report system connection status
         if auth_policy != "user_required":
             conn_status = "unknown"
+            last_checked = None
             if live_test:
                 try:
                     from app.services.data_source_service import DataSourceService
@@ -82,7 +94,16 @@ class UserDataSourceCredentialsService:
                 except Exception as e:
                     logger.error(f"Connection test failed for {data_source.name}: {e}")
                     conn_status = "not_connected"
-            return DataSourceUserStatus(has_user_credentials=False, connection=conn_status, effective_auth="system")
+            else:
+                # Use cached status from connection
+                conn_status = get_cached_status()
+                last_checked = get_last_checked_at()
+            return DataSourceUserStatus(
+                has_user_credentials=False, 
+                connection=conn_status, 
+                effective_auth="system",
+                last_checked_at=last_checked
+            )
 
         row = await self.get_primary_active_row(db, data_source, user)
         if not row:
@@ -91,6 +112,7 @@ class UserDataSourceCredentialsService:
             has_system_creds = connection and connection.credentials if connection else False
             if is_owner and has_system_creds:
                 conn = "unknown"
+                last_checked = None
                 if live_test:
                     try:
                         # Attempt live test using system credentials
@@ -102,10 +124,21 @@ class UserDataSourceCredentialsService:
                         conn = "success" if success else "not_connected"
                     except Exception:
                         conn = "not_connected"
-                return DataSourceUserStatus(has_user_credentials=False, connection=conn, effective_auth="system", uses_fallback=True)
+                else:
+                    # Use cached status
+                    conn = get_cached_status()
+                    last_checked = get_last_checked_at()
+                return DataSourceUserStatus(
+                    has_user_credentials=False, 
+                    connection=conn, 
+                    effective_auth="system", 
+                    uses_fallback=True,
+                    last_checked_at=last_checked
+                )
             return DataSourceUserStatus(has_user_credentials=False, connection="offline", effective_auth="none")
 
         conn = "unknown"
+        last_checked = None
         if live_test:
             try:
                 # Local import to avoid circular
@@ -117,6 +150,10 @@ class UserDataSourceCredentialsService:
                 conn = "success" if success else "not_connected"
             except Exception:
                 conn = "not_connected"
+        else:
+            # Use cached status
+            conn = get_cached_status()
+            last_checked = get_last_checked_at()
 
         return DataSourceUserStatus(
             has_user_credentials=True,
@@ -128,6 +165,7 @@ class UserDataSourceCredentialsService:
             effective_auth="user",
             uses_fallback=False,
             credentials_id=str(getattr(row, "id", "")) if getattr(row, "id", None) else None,
+            last_checked_at=last_checked,
         )
 
     async def test_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> dict:

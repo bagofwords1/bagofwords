@@ -262,7 +262,7 @@ async function handleSave() {
   saving.value = true
   try {
     // Persist any necessary context here if applicable
-    router.replace(`/integrations/${dsId.value}`)
+    router.replace(`/data/${dsId.value}`)
   } finally {
     saving.value = false
   }

@@ -123,13 +123,15 @@ class ConnectionService:
     ) -> List[Connection]:
         """Get all connections for an organization."""
         from sqlalchemy.orm import selectinload
-        from app.models.data_source import DataSource
+        # NOTE: Do NOT use selectinload for DataSource.tables here
+        # For data sources with 25K+ tables, this causes severe performance issues
+        # Table counts are fetched separately via COUNT query in the route
         result = await db.execute(
             select(Connection)
             .filter(Connection.organization_id == organization.id)
             .options(
                 selectinload(Connection.connection_tables),
-                selectinload(Connection.data_sources).selectinload(DataSource.tables),
+                selectinload(Connection.data_sources),
             )
             .order_by(Connection.name)
         )

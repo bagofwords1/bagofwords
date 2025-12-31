@@ -162,7 +162,7 @@
               <div class="mt-5 flex justify-end">
                 <a
                   v-if="domainId"
-                  :href="`/integrations/${domainId}`"
+                  :href="`/data/${domainId}`"
                   class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline"
                 >
                   Open data source →

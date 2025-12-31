@@ -1,152 +1,174 @@
-// /composables/useDomain.ts
+/**
+ * Domain selection composable.
+ * Manages which domains (data sources) are currently selected/filtered.
+ * Selection is persisted to localStorage so it survives page refreshes.
+ */
 
-export interface Domain {
+interface Domain {
   id: string
   name: string
-  icon?: string
-  color?: string
+  type?: string
   description?: string
+  connection?: {
+    id: string
+    name: string
+    type: string
+    table_count?: number
+  }
 }
 
+// Storage key for persisting domain selection
 const STORAGE_KEY = 'bow_selected_domains'
 
-export const useDomain = () => {
-  // Selected domains - empty array means "All Domains"
-  const selectedDomains = useState<string[]>('selected_domains', () => [])
-  
-  // Available domains list
-  const domains = useState<Domain[]>('domains_list', () => [])
-  
-  // Loading state
-  const isLoading = useState<boolean>('domains_loading', () => false)
+// Load saved selection from localStorage
+function loadFromStorage(): string[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
 
-  // Fetch domains from API (using data sources as domains for now)
-  const fetchDomains = async () => {
-    isLoading.value = true
-    try {
-      const { data, error } = await useMyFetch<any[]>('/data_sources', { method: 'GET' })
-      if (!error.value && data.value) {
-        // Map data sources to domain format
-        domains.value = (data.value || []).map((ds: any) => ({
-          id: ds.id,
-          name: ds.name || ds.display_name || 'Unnamed',
-          icon: ds.icon || null,
-          color: ds.color || null,
-          description: ds.description || null
-        }))
-      }
-    } catch (e) {
-      console.error('Failed to fetch domains:', e)
-    } finally {
-      isLoading.value = false
-    }
-    return domains.value
+// Save selection to localStorage
+function saveToStorage(domainIds: string[]) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(domainIds))
+  } catch (e) {
+    console.warn('Failed to save domain selection:', e)
+  }
+}
+
+// Global state (shared across components)
+// Initialize from localStorage if available
+const selectedDomains = ref<string[]>(loadFromStorage())
+const domains = ref<Domain[]>([])
+const loading = ref(false)
+let watcherInitialized = false
+
+export function useDomain() {
+  // Set up watcher to persist selection changes (only once)
+  if (!watcherInitialized && typeof window !== 'undefined') {
+    watch(selectedDomains, (newSelection) => {
+      saveToStorage(newSelection)
+    }, { deep: true })
+    watcherInitialized = true
   }
 
-  // Toggle domain selection
-  const toggleDomain = (domainId: string | null) => {
-    if (!domainId) {
-      // "All Domains" clears selection
-      selectedDomains.value = []
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(STORAGE_KEY)
-      }
-      return
-    }
-    
-    const index = selectedDomains.value.indexOf(domainId)
-    if (index === -1) {
-      // Add domain
-      selectedDomains.value = [...selectedDomains.value, domainId]
-    } else {
-      // Remove domain
-      selectedDomains.value = selectedDomains.value.filter(id => id !== domainId)
-    }
-    
-    if (typeof window !== 'undefined') {
-      if (selectedDomains.value.length === 0) {
-        localStorage.removeItem(STORAGE_KEY)
-      } else {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedDomains.value))
-      }
-    }
-  }
-
-  // Check if domain is selected
-  const isDomainSelected = (domainId: string) => {
-    return selectedDomains.value.includes(domainId)
-  }
-
-  // Initialize domains from localStorage
-  const initDomain = async () => {
-    await fetchDomains()
-    
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        try {
-          const ids = JSON.parse(saved)
-          if (Array.isArray(ids)) {
-            // Only keep IDs that still exist
-            selectedDomains.value = ids.filter((id: string) => 
-              domains.value.some(d => d.id === id)
-            )
-            if (selectedDomains.value.length > 0) {
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(selectedDomains.value))
-            } else {
-              localStorage.removeItem(STORAGE_KEY)
-            }
-          }
-        } catch (e) {
-          // Invalid JSON, clear it
-          localStorage.removeItem(STORAGE_KEY)
-        }
-      }
-    }
-  }
-
-  // Clear all domain selections
-  const clearDomain = () => {
-    selectedDomains.value = []
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(STORAGE_KEY)
-    }
-  }
-
-  // Computed helpers
+  // Computed: check if there are any domains
   const hasDomains = computed(() => domains.value.length > 0)
+
+  // Computed: count of selected domains
   const selectedCount = computed(() => selectedDomains.value.length)
+
+  // Computed: whether "All Domains" is effectively selected (no specific selection)
   const isAllDomains = computed(() => selectedDomains.value.length === 0)
-  
-  // Display name for selected domains
+
+  // Computed: get the current domain name (for display)
   const currentDomainName = computed(() => {
-    if (selectedDomains.value.length === 0) return 'All Domains'
+    if (selectedDomains.value.length === 0) {
+      return 'All Domains'
+    }
     if (selectedDomains.value.length === 1) {
       const domain = domains.value.find(d => d.id === selectedDomains.value[0])
-      return domain?.name || 'Selected'
+      return domain?.name || 'Selected Domain'
     }
-    return `${selectedDomains.value.length} domains`
+    // Show first 2 domain names comma-separated, then +N for the rest
+    const selectedObjs = domains.value.filter(d => selectedDomains.value.includes(d.id))
+    const first2 = selectedObjs.slice(0, 2).map(d => d.name)
+    const remaining = selectedObjs.length - 2
+    if (remaining > 0) {
+      return `${first2.join(', ')} +${remaining}`
+    }
+    return first2.join(', ')
   })
-  
-  // Get selected domain objects
+
+  // Computed: get the selected domain objects
   const selectedDomainObjects = computed(() => {
+    if (selectedDomains.value.length === 0) {
+      return domains.value // All domains when none selected
+    }
     return domains.value.filter(d => selectedDomains.value.includes(d.id))
   })
 
+  // Toggle domain selection
+  function toggleDomain(domainId: string | null) {
+    if (domainId === null) {
+      // "All Domains" selected - clear selection
+      selectedDomains.value = []
+      return
+    }
+
+    const index = selectedDomains.value.indexOf(domainId)
+    if (index === -1) {
+      // Add domain to selection
+      selectedDomains.value = [...selectedDomains.value, domainId]
+    } else {
+      // Remove domain from selection
+      selectedDomains.value = selectedDomains.value.filter(id => id !== domainId)
+    }
+  }
+
+  // Check if a domain is selected
+  function isDomainSelected(domainId: string): boolean {
+    // If nothing is selected, all are considered selected
+    if (selectedDomains.value.length === 0) {
+      return false // Show as not individually selected when "All" is active
+    }
+    return selectedDomains.value.includes(domainId)
+  }
+
+  // Initialize domains by fetching from API
+  async function initDomain() {
+    loading.value = true
+    try {
+      const { data } = await useMyFetch<Domain[]>('/data_sources', { method: 'GET' })
+      if (data.value) {
+        domains.value = data.value
+      }
+    } catch (error) {
+      console.error('Failed to fetch domains:', error)
+    } finally {
+      loading.value = false
+    }
+  }
+
+  // Set domains directly (for external initialization)
+  function setDomains(newDomains: Domain[]) {
+    domains.value = newDomains
+  }
+
+  // Clear selection
+  function clearSelection() {
+    selectedDomains.value = []
+  }
+
+  // Select specific domains
+  function selectDomains(domainIds: string[]) {
+    selectedDomains.value = domainIds
+  }
+
   return {
-    selectedDomains,
-    domains,
-    isLoading,
+    // State
+    selectedDomains: readonly(selectedDomains),
+    domains: readonly(domains),
+    loading: readonly(loading),
+    
+    // Computed
     hasDomains,
     selectedCount,
     isAllDomains,
     currentDomainName,
     selectedDomainObjects,
-    fetchDomains,
+    
+    // Methods
     toggleDomain,
     isDomainSelected,
     initDomain,
-    clearDomain
+    setDomains,
+    clearSelection,
+    selectDomains,
   }
 }
-

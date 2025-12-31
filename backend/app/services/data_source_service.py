@@ -37,7 +37,7 @@ from uuid import UUID
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import insert, delete, or_, and_
+from sqlalchemy import insert, delete, or_, and_, func
 from sqlalchemy.exc import IntegrityError
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
@@ -73,31 +73,28 @@ class DataSourceService:
         # Build user status for the connection
         user_status = None
         if current_user:
+            from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+            u_svc = UserDataSourceCredentialsService()
             try:
-                from app.services.user_connection_credentials_service import UserConnectionCredentialsService
-                creds_svc = UserConnectionCredentialsService()
-                user_status = await creds_svc.build_user_status(
+                user_status = await u_svc.build_user_status(
                     db=db,
-                    connection=conn,
+                    data_source=data_source,
                     user=current_user,
                     live_test=live_test
                 )
             except Exception:
-                # Fallback: try legacy service
-                try:
-                    from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
-                    u_svc = UserDataSourceCredentialsService()
-                    user_status = await u_svc.build_user_status(
-                        db=db,
-                        data_source=data_source,
-                        user=current_user,
-                        live_test=live_test
-                    )
-                except Exception:
-                    pass
+                pass
         
-        # Get table count from data source tables (active tables for this domain)
-        table_count = len([t for t in (data_source.tables or []) if t.is_active]) if data_source.tables else 0
+        # Get table count using COUNT query instead of loading all tables
+        # This is critical for data sources with many tables (e.g., 25K+)
+        table_count_result = await db.execute(
+            select(func.count(DataSourceTable.id))
+            .where(
+                DataSourceTable.datasource_id == str(data_source.id),
+                DataSourceTable.is_active == True
+            )
+        )
+        table_count = table_count_result.scalar() or 0
         
         return ConnectionEmbedded(
             id=str(conn.id),
@@ -460,7 +457,12 @@ class DataSourceService:
 
         return result
 
+    # TTL for connection test cache (5 minutes)
+    CONNECTION_TEST_TTL_SECONDS = 300
+
     async def get_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None) -> DataSourceSchema:
+        from datetime import datetime, timezone
+        
         query = (
             select(DataSource)
             .options(
@@ -478,41 +480,53 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
-        # Persist connectivity for system-only sources when viewing details
-        # This ensures UI status aligns with org-level is_active
-        try:
-            await self.test_data_source_connection(
-                db=db,
-                data_source_id=str(data_source.id),
-                organization=organization,
-                current_user=current_user or User(),
-            )
-            # After commit in test, relationships may be expired; reload with eager options
-            try:
-                stmt = (
-                    select(DataSource)
-                    .options(
-                        selectinload(DataSource.git_repository),
-                        selectinload(DataSource.data_source_memberships),
-                        selectinload(DataSource.connections),
-                        selectinload(DataSource.tables),
-                    )
-                    .where(DataSource.id == data_source.id)
-                )
-                refreshed_res = await db.execute(stmt)
-                data_source = refreshed_res.scalar_one()
-            except Exception:
-                pass
-        except Exception:
-            # Non-fatal: keep serving the resource even if the live check fails
-            pass
+        # Check if we need to retest the connection (cache expired or never tested)
+        conn = data_source.connections[0] if data_source.connections else None
+        needs_retest = True
+        if conn and conn.last_connection_checked_at:
+            # Handle timezone-naive datetimes from database
+            last_checked = conn.last_connection_checked_at
+            if last_checked.tzinfo is None:
+                last_checked = last_checked.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - last_checked).total_seconds()
+            needs_retest = age > self.CONNECTION_TEST_TTL_SECONDS
 
-        # Build connection embedded info
+        # Only test connection if cache is stale
+        if needs_retest:
+            try:
+                await self.test_data_source_connection(
+                    db=db,
+                    data_source_id=str(data_source.id),
+                    organization=organization,
+                    current_user=current_user or User(),
+                )
+                # After commit in test, relationships may be expired; reload with eager options
+                try:
+                    stmt = (
+                        select(DataSource)
+                        .options(
+                            selectinload(DataSource.git_repository),
+                            selectinload(DataSource.data_source_memberships),
+                            selectinload(DataSource.connections),
+                            selectinload(DataSource.tables),
+                        )
+                        .where(DataSource.id == data_source.id)
+                    )
+                    refreshed_res = await db.execute(stmt)
+                    data_source = refreshed_res.scalar_one()
+                except Exception:
+                    pass
+            except Exception:
+                # Non-fatal: keep serving the resource even if the live check fails
+                pass
+
+        # Build connection embedded info - always use cached status (live_test=False)
+        # since we already tested if needed above
         connection_embedded = await self._build_connection_embedded(
             db=db, 
             data_source=data_source, 
             current_user=current_user, 
-            live_test=True
+            live_test=False
         )
         
         # Build schema with connection info
@@ -556,13 +570,15 @@ class DataSourceService:
     
     async def get_data_sources(self, db: AsyncSession, current_user: User, organization: Organization) -> List[DataSourceListItemSchema]:
         # Query for data sources the user has access to
+        # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
+        # For data sources with 25K+ tables, this causes severe performance issues
+        # Table count is fetched separately via COUNT query in _build_connection_embedded
         query = (
             select(DataSource)
             .options(
                 selectinload(DataSource.git_repository),
                 selectinload(DataSource.data_source_memberships),
                 selectinload(DataSource.connections),
-                selectinload(DataSource.tables),
             )
             .filter(DataSource.organization_id == organization.id)
             .filter(
@@ -610,12 +626,14 @@ class DataSourceService:
     async def get_active_data_sources(self, db: AsyncSession, organization: Organization, current_user: User = None) -> List[DataSourceListItemSchema]:
         """Get all active data sources for an organization that the user has access to, compact list shape"""
         # Build base query for active data sources
+        # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
+        # For data sources with 25K+ tables, this causes severe performance issues
+        # Table count is fetched separately via COUNT query in _build_connection_embedded
         stmt = (
             select(DataSource)
             .options(
                 selectinload(DataSource.data_source_memberships),
                 selectinload(DataSource.connections),
-                selectinload(DataSource.tables),
             )
             .where(
                 DataSource.organization_id == organization.id,
@@ -817,10 +835,15 @@ class DataSourceService:
         return {"message": "Data source tables deleted successfully"}
     
     async def test_data_source_connection(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+        from datetime import datetime, timezone
+        from sqlalchemy.orm import selectinload
+        
         try:
-            # Find the data source
+            # Find the data source with connections eager-loaded
             result = await db.execute(
-                select(DataSource).filter(
+                select(DataSource)
+                .options(selectinload(DataSource.connections))
+                .filter(
                     DataSource.id == data_source_id, 
                     DataSource.organization_id == organization.id
                 )
@@ -842,25 +865,38 @@ class DataSourceService:
             except Exception:
                 success = False
 
+            # Cache the connection test result on the Connection model
+            conn = data_source.connections[0] if data_source.connections else None
+            if conn:
+                conn.last_connection_status = "success" if success else "not_connected"
+                conn.last_connection_checked_at = datetime.now(timezone.utc)
+
             # Reflect connectivity on org-wide flag only for system creds
             if getattr(data_source, "auth_policy", "system_only") == "system_only":
                 if not success:
                     data_source.is_active = False
-                    await db.commit()
-                    await db.refresh(data_source)
                 else:
                     if data_source.is_active == False:
                         data_source.is_active = True
-                        await db.commit()
-                        await db.refresh(data_source)
+            
+            await db.commit()
+            if conn:
+                await db.refresh(conn)
+            await db.refresh(data_source)
 
         except Exception as e:
             # For system creds, mark DS inactive; for user creds, don't flip org state
             try:
-                if 'data_source' in locals() and getattr(data_source, "auth_policy", "system_only") == "system_only":
-                    data_source.is_active = False
+                if 'data_source' in locals():
+                    # Cache the failure
+                    conn = data_source.connections[0] if data_source.connections else None
+                    if conn:
+                        conn.last_connection_status = "not_connected"
+                        conn.last_connection_checked_at = datetime.now(timezone.utc)
+                    
+                    if getattr(data_source, "auth_policy", "system_only") == "system_only":
+                        data_source.is_active = False
                     await db.commit()
-                    await db.refresh(data_source)
             except Exception:
                 pass
 

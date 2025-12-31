@@ -44,98 +44,8 @@
         </li>
 
         <!-- Domain Selector - Context for all navigation below -->
-        <li v-if="hasDomains" class="mt-6 mb-4">
-          <UPopover 
-            :popper="{ placement: 'bottom-start', offsetDistance: 4, strategy: 'fixed' }"
-            :ui="{ 
-              width: 'max-w-none',
-              container: 'overflow-visible',
-              inner: 'overflow-visible'
-            }"
-          >
-            <button 
-              :class="[
-                'flex items-center w-full rounded-lg transition-all duration-200',
-                'bg-white hover:bg-gray-50',
-                'border border-gray-200 shadow-sm hover:shadow hover:border-gray-300',
-                isCollapsed ? 'justify-center p-2' : 'gap-1.5 px-2.5 py-2'
-              ]"
-            >
-              <UTooltip v-if="isCollapsed" :text="currentDomainName" :popper="{ placement: 'right' }">
-                <span class="flex items-center justify-center w-5 h-5">
-                  <UIcon name="heroicons-chevron-down" class="w-4 h-4 text-gray-500" />
-                </span>
-              </UTooltip>
-              <template v-else>
-                <span v-if="showText" class="flex-1 text-left min-w-0">
-                  <span class="block text-[10px] uppercase tracking-wide text-gray-400 font-semibold leading-none">Domain</span>
-                  <span class="block text-xs font-medium text-gray-700 truncate mt-0.5">
-                    {{ currentDomainName }}
-                    <span v-if="selectedCount > 0" class="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-indigo-100 text-indigo-600 text-[10px] font-semibold">
-                      {{ selectedCount }}
-                    </span>
-                  </span>
-                </span>
-                <UIcon v-if="showText" name="heroicons-chevron-down" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-              </template>
-            </button>
-
-            <template #panel>
-              <div class="overflow-visible">
-                <!-- Domain list - compact -->
-                <div class="w-44 bg-white rounded-lg shadow-lg border border-gray-200 overflow-hidden flex-shrink-0">
-                  <div class="p-1">
-                    <!-- All Domains option -->
-                    <button 
-                      @click="toggleDomain(null)"
-                      @mouseenter="hoveredDomainId = null"
-                      @mouseleave="onDomainHoverLeave()"
-                      :class="[
-                        'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left transition-colors',
-                        isAllDomains ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
-                      ]"
-                    >
-                      <span class="text-xs font-medium">All Domains</span>
-                      <UIcon v-if="isAllDomains" name="heroicons-check" class="w-3 h-3 ml-auto text-indigo-600" />
-                    </button>
-
-                    <!-- Divider -->
-                    <div class="my-1 border-t border-gray-100" />
-
-                    <!-- Domain list -->
-                    <div class="max-h-48 overflow-y-auto">
-                      <button 
-                        v-for="d in domains" 
-                        :key="d.id"
-                        @click="toggleDomain(d.id)"
-                        @mouseenter="onDomainHover(d.id, $event)"
-                        @mouseleave="onDomainHoverLeave()"
-                        :class="[
-                          'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left transition-colors',
-                          isDomainSelected(d.id) ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
-                        ]"
-                      >
-                        <span class="text-xs font-medium truncate flex-1">{{ d.name }}</span>
-                        <UIcon v-if="isDomainSelected(d.id)" name="heroicons-check" class="w-3 h-3 text-indigo-600 flex-shrink-0" />
-                      </button>
-                    </div>
-
-                    <!-- Divider -->
-                    <div class="my-1 border-t border-gray-100" />
-
-                    <!-- Manage link -->
-                    <a 
-                      href="/integrations"
-                      class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-left text-gray-400 hover:bg-gray-50 hover:text-gray-600 transition-colors"
-                    >
-                      <UIcon name="heroicons-cog-6-tooth" class="w-3 h-3 flex-shrink-0" />
-                      <span class="text-[11px]">Manage</span>
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </UPopover>
+        <li class="mt-6 mb-4">
+          <DomainSelector :collapsed="isCollapsed" :show-text="showText" />
         </li>
 
         <li class="">
@@ -278,6 +188,24 @@
         </li>
       </ul>
       <ul class="font-normal text-sm">
+        <li class="">
+          <a href="/data" :class="[
+            'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
+            isCollapsed ? 'justify-center' : 'gap-3'
+          ]">
+            <UTooltip v-if="isCollapsed" text="Data" :popper="{ placement: 'right' }">
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <UIcon name="heroicons-circle-stack" />
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <UIcon name="heroicons-circle-stack" />
+              </span>
+              <span v-if="showText" class="text-sm">Data</span>
+            </template>
+          </a>
+        </li>
         <li v-if="isMcpEnabled">
           <button 
             @click="showMcpModal = true"
@@ -374,89 +302,19 @@
   </div>
 
   <McpModal v-model="showMcpModal" />
-
-  <!-- Domain hover flyout -->
-  <DomainFlyout
-    :domain-id="hoveredDomainId"
-    :visible="flyout.visible"
-    :position="{ top: flyout.top, left: flyout.left }"
-    @enter="onFlyoutEnter"
-    @leave="onFlyoutLeave"
-  />
 </template>
 
 <script setup lang="ts">
   import Spinner from '~/components/Spinner.vue'
   import McpIcon from '~/components/icons/McpIcon.vue'
   import McpModal from '~/components/McpModal.vue'
-  import DomainFlyout from '~/components/DomainFlyout.vue'
+  import DomainSelector from '~/components/DomainSelector.vue'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
   
-  // Domain management
-  const { 
-    selectedDomains,
-    domains, 
-    hasDomains, 
-    selectedCount,
-    isAllDomains,
-    currentDomainName,
-    selectedDomainObjects,
-    toggleDomain,
-    isDomainSelected,
-    initDomain 
-  } = useDomain()
-
-  // Domain hover preview
-  const hoveredDomainId = ref<string | null>(null)
-  const flyout = reactive({ visible: false, top: 0, left: 0 })
-  let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
-
-  const showFlyoutAtEvent = (evt: MouseEvent) => {
-    const el = evt.currentTarget as HTMLElement | null
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-
-    // Position to the right of the hovered row, with a small gap.
-    // Clamp to viewport height to avoid going off-screen.
-    const desiredLeft = rect.right + 12
-    const desiredTop = rect.top - 8
-    const maxTop = window.innerHeight - 820 // flyout approx height
-    flyout.left = Math.max(12, desiredLeft)
-    flyout.top = Math.max(12, Math.min(desiredTop, maxTop))
-    flyout.visible = true
-  }
-
-  const onDomainHover = (domainId: string, evt: MouseEvent) => {
-    if (flyoutHideTimer) {
-      clearTimeout(flyoutHideTimer)
-      flyoutHideTimer = null
-    }
-    if (typeof window !== 'undefined') showFlyoutAtEvent(evt)
-    hoveredDomainId.value = domainId
-  }
-
-  const onDomainHoverLeave = () => {
-    // Give the user time to move cursor from list → flyout
-    if (flyoutHideTimer) clearTimeout(flyoutHideTimer)
-    flyoutHideTimer = setTimeout(() => {
-      flyout.visible = false
-      hoveredDomainId.value = null
-    }, 120)
-  }
-
-  const onFlyoutEnter = () => {
-    if (flyoutHideTimer) {
-      clearTimeout(flyoutHideTimer)
-      flyoutHideTimer = null
-    }
-    flyout.visible = true
-  }
-
-  const onFlyoutLeave = () => {
-    onDomainHoverLeave()
-  }
+  // Domain management - use selectedDomainObjects for new report creation
+  const { initDomain, selectedDomainObjects, domains } = useDomain()
 
   
   const workspaceIconUrl = computed<string | null>(() => {
@@ -496,8 +354,6 @@
 
   const { isExcel } = useExcel()
   const router = useRouter()
-  const selectedDataSources = ref<Array<{ id: string | number }>>([])
-  const dataSourcesLoaded = ref(false)
   const { $intercom } = useNuxtApp()
 
   onMounted(async () => {
@@ -505,10 +361,9 @@
       const route = useRoute()
       const inOnboarding = route.path.startsWith('/onboarding')
       if (!inOnboarding) {
-        // Fetch onboarding, data sources, and domains in parallel for faster load
+        // Fetch onboarding and domains in parallel for faster load
         await Promise.all([
           fetchOnboarding({ in_onboarding: false }),
-          getDataSourceOptions(),
           initDomain()
         ])
       }
@@ -580,35 +435,21 @@
     }, { immediate: true })
   }
 
-  const getDataSourceOptions = async () => {
-    const response = await useMyFetch('/data_sources', {
-        method: 'GET',
-    });
-
-    if ((response as any).error?.value) {
-        throw new Error('Could not fetch data sources');
-    }
-
-    const list = (((response as any).data?.value) as Array<{ id: string | number }> | undefined);
-    selectedDataSources.value = list || [];
-}
-
-
 const createNewReport = async () => {
   if (creatingReport.value) return
   creatingReport.value = true
   
   try {
-    // Only fetch if not already loaded
-    if (!selectedDataSources.value.length) {
-      await getDataSourceOptions()
-    }
+    // Use selected domains from DomainSelector, or all domains if none selected
+    const dataSourceIds = selectedDomainObjects.value.map((ds: any) => ds.id)
     
     const response = await useMyFetch('/reports', {
         method: 'POST',
-        body: JSON.stringify({title: 'untitled report',
-         files: [],
-         data_sources: selectedDataSources.value.map((ds) => ds.id)})
+        body: JSON.stringify({
+          title: 'untitled report',
+          files: [],
+          data_sources: dataSourceIds
+        })
     });
 
     if ((response as any).error?.value) {

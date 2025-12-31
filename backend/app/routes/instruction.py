@@ -80,6 +80,7 @@ async def get_instructions(
     label_ids: Optional[str] = Query(None, description="Comma-separated label IDs"),
     search: Optional[str] = Query(None, description="Search in instruction text and title"),
     build_id: Optional[str] = Query(None, description="Load from specific build (defaults to main build)"),
+    include_global: bool = Query(True, description="Include global instructions (no data sources) when filtering by data_source_ids"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
@@ -135,7 +136,8 @@ async def get_instructions(
         load_modes=parsed_load_modes,
         label_ids=parsed_label_ids,
         search=search,
-        build_id=build_id
+        build_id=build_id,
+        include_global=include_global
     )
 
 
