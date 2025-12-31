@@ -2,11 +2,11 @@
   <div class="flex pl-2 md:pl-4 text-sm mx-auto md:w-1/2 md:pt-10">
     <div class="w-full px-4 pl-0 py-4">
       <div>
-        <h1 class="text-lg font-semibold text-center">Create Domain</h1>
-        <p class="mt-4 text-gray-500 text-center">Reuse an existing connection or create a new one</p>
+        <h1 class="text-lg font-semibold text-center">New Data</h1>
+        <p class="mt-2 text-gray-500 text-center">Connect a data source and define its business context for querying        </p>
       </div>
 
-      <WizardSteps class="mt-4" current="connect" />
+      <WizardSteps class="mt-7" current="connect" />
 
       <!-- Loading connections -->
       <div v-if="loadingConnections" class="flex flex-col items-center justify-center py-16">

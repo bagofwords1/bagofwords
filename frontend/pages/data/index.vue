@@ -8,33 +8,90 @@
             </div>
 
             <div v-else>
-                <!-- Header - matching instructions style -->
-                <div class="flex items-start justify-between mb-6">
-                    <div>
-                        <h1 class="text-lg font-semibold">
-                            <GoBackChevron v-if="isExcel" />
-                            Data
-                        </h1>
-                        <p class="mt-2 text-gray-500">
-                            Domains group related tables and instructions together to make data easier to manage and use.
-                        </p>
-                    </div>
-                    <UButton 
-                        v-if="canCreateDataSource"
-                        @click="navigateTo('/data/new')"
-                        color="blue"
-                        size="xs"
-                        class="mt-1"
-                    >
-                        <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                        New
-                    </UButton>
+                <!-- Header -->
+                <div class="mb-4">
+                    <h1 class="text-lg font-semibold">
+                        <GoBackChevron v-if="isExcel" />
+                        Data
+                    </h1>
+                    <p class="mt-1 text-gray-500">
+                        Manage your database connections and organize tables into domains.
+                    </p>
                 </div>
 
-                <!-- Domains grid (3 columns) -->
-                <div v-if="allDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+                <!-- Connection Filters -->
+                <div class="mb-5">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <!-- All filter -->
+                        <button
+                            @click="selectedConnectionId = null"
+                            :class="[
+                                'inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-full border transition-all',
+                                selectedConnectionId === null
+                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
+                            ]"
+                        >
+                            <span>All</span>
+                        </button>
+
+                        <!-- Connection filters with inline dropdown -->
+                        <div 
+                            v-for="conn in connections" 
+                            :key="conn.id"
+                            :class="[
+                                'inline-flex items-center gap-1.5 pl-3 pr-1 py-1 text-xs rounded-full border transition-all',
+                                selectedConnectionId === conn.id
+                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
+                            ]"
+                        >
+                            <button 
+                                @click="selectedConnectionId = conn.id"
+                                class="inline-flex items-center gap-1.5"
+                            >
+                                <DataSourceIcon class="h-3.5" :type="conn.type" />
+                                <span>{{ conn.name }}</span>
+                                <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-green-500' : 'bg-red-500']"></span>
+                            </button>
+                            
+                            <!-- Ellipsis dropdown (for admins) -->
+                            <UDropdown
+                                v-if="canUpdateDataSource"
+                                :items="getConnectionMenuItems(conn)"
+                                :popper="{ placement: 'bottom-end' }"
+                            >
+                                <button 
+                                    :class="[
+                                        'p-1 rounded-full transition-colors',
+                                        selectedConnectionId === conn.id
+                                            ? 'hover:bg-blue-100 text-blue-600'
+                                            : 'hover:bg-gray-100 text-gray-400'
+                                    ]"
+                                >
+                                    <UIcon name="heroicons-ellipsis-vertical" class="w-3.5 h-3.5" />
+                                </button>
+                            </UDropdown>
+                        </div>
+
+                        <!-- New data button -->
+                        <UButton 
+                            v-if="canCreateDataSource"
+                            @click="navigateTo('/data/new')"
+                            color="blue"
+                            size="xs"
+                            class="ml-auto"
+                        >
+                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                            New data
+                        </UButton>
+                    </div>
+                </div>
+
+                <!-- Domains grid -->
+                <div v-if="filteredDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
                     <div 
-                        v-for="ds in allDomains" 
+                        v-for="ds in filteredDomains" 
                         :key="ds.id"
                         class="block p-4 rounded-lg border border-gray-100 bg-white hover:border-gray-200 hover:shadow-md transition-all group"
                     >
@@ -42,7 +99,7 @@
                             <!-- Card header -->
                             <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
                             
-                            <!-- Metadata with icon -->
+                            <!-- Metadata -->
                             <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
                                 <DataSourceIcon class="h-3.5" :type="getConnectionType(ds)" />
                                 <span>{{ getConnectionName(ds) }}</span>
@@ -71,9 +128,13 @@
                     </div>
                 </div>
 
-                <!-- Empty domains state (has connections but no domains) - only for admins -->
-                <div v-else-if="connections.length > 0 && canCreateDataSource" class="py-8 text-center border border-dashed border-gray-200 rounded-lg mb-6">
-                    <p class="text-xs text-gray-400 mb-3">No domains yet</p>
+                <!-- Empty state for filtered view (connection selected but no domains) -->
+                <div v-else-if="selectedConnectionId !== null && canCreateDataSource" class="py-12 text-center border border-dashed border-gray-200 rounded-lg mb-6">
+                    <div class="text-gray-400 mb-2">
+                        <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto opacity-50" />
+                    </div>
+                    <p class="text-sm text-gray-500 mb-1">No domains in this connection</p>
+                    <p class="text-xs text-gray-400 mb-4">Create a domain to start organizing your data</p>
                     <UButton 
                         @click="navigateTo('/data/new')"
                         color="blue"
@@ -85,26 +146,22 @@
                     </UButton>
                 </div>
 
-                <!-- Connections Section (only show if has connections AND user can update) -->
-                <div v-if="connections.length > 0 && canUpdateDataSource" class="mb-6">
-                    <h2 class="text-sm font-medium text-gray-700 mb-1">Connections</h2>
-                    <p class="text-xs text-gray-400 mb-3">
-                        Manage your database and warehouse connections here
-                    </p>
-
-                    <!-- Connections chips -->
-                    <div class="flex flex-wrap gap-2">
-                        <button 
-                            v-for="conn in connections" 
-                            :key="conn.id"
-                            @click="openConnectionDetail(conn)"
-                            class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors"
-                        >
-                            <DataSourceIcon class="h-4" :type="conn.type" />
-                            <span>{{ conn.name }}</span>
-                            <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-green-500' : 'bg-red-500']"></span>
-                        </button>
+                <!-- Empty state: has connections but no domains at all -->
+                <div v-else-if="connections.length > 0 && allDomains.length === 0 && canCreateDataSource" class="py-12 text-center border border-dashed border-gray-200 rounded-lg mb-6">
+                    <div class="text-gray-400 mb-2">
+                        <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto opacity-50" />
                     </div>
+                    <p class="text-sm text-gray-500 mb-1">No domains yet</p>
+                    <p class="text-xs text-gray-400 mb-4">Create your first domain to start organizing tables and instructions</p>
+                    <UButton 
+                        @click="navigateTo('/data/new')"
+                        color="blue"
+                        variant="soft"
+                        size="xs"
+                    >
+                        <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                        Create Domain
+                    </UButton>
                 </div>
 
                 <!-- Empty State: Show DataSourceGrid when no connections (admin only) -->
@@ -155,14 +212,43 @@ const selectedConnection = ref<any>(null)
 const showCredsModal = ref(false)
 const selectedDs = ref<any>(null)
 
+// Filter state
+const selectedConnectionId = ref<string | null>(null)
+
+// Connection menu items for dropdown (per connection)
+function getConnectionMenuItems(conn: any) {
+    return [[
+        {
+            label: 'Settings',
+            icon: 'i-heroicons-cog-6-tooth',
+            click: () => openConnectionDetail(conn)
+        }
+    ]]
+}
+
 // Permission checks
 const canViewDataSource = computed(() => useCan('view_data_source'))
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 
 const loading = computed(() => loadingConnected.value || loadingDemos.value || loadingConnections.value)
 
-// All domains (both connected and those needing setup)
+// All domains
 const allDomains = computed(() => connected_ds.value || [])
+
+// Get domains for a specific connection
+function getDomainsForConnection(connectionId: string): any[] {
+    return allDomains.value.filter(ds => 
+        ds.connection?.id === connectionId || ds.connection_id === connectionId
+    )
+}
+
+// Filtered domains based on selected connection
+const filteredDomains = computed(() => {
+    if (selectedConnectionId.value === null) {
+        return allDomains.value
+    }
+    return getDomainsForConnection(selectedConnectionId.value)
+})
 
 const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
 

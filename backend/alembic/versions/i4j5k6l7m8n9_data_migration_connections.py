@@ -20,6 +20,7 @@ import uuid
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import bindparam
 from sqlalchemy.orm import Session
 
 
@@ -49,11 +50,36 @@ def upgrade() -> None:
         # Map from data_source_id to connection_id
         ds_to_conn = {}
         
+        # Collect rows for bulk insert
+        connection_rows = []
+        domain_connection_rows = []
+        
         for ds in data_sources:
-            # 2. Create a Connection for each DataSource
             conn_id = str(uuid.uuid4())
             ds_to_conn[ds.id] = conn_id
             
+            connection_rows.append({
+                'id': conn_id,
+                'name': ds.name,
+                'type': ds.type,
+                'config': ds.config,
+                'credentials': ds.credentials,
+                'is_active': ds.is_active,
+                'last_synced_at': ds.last_synced_at,
+                'auth_policy': ds.auth_policy or 'system_only',
+                'allowed_user_auth_modes': ds.allowed_user_auth_modes,
+                'organization_id': ds.organization_id,
+                'created_at': ds.created_at,
+                'updated_at': ds.updated_at,
+            })
+            
+            domain_connection_rows.append({
+                'data_source_id': ds.id,
+                'connection_id': conn_id,
+            })
+        
+        # 2. Bulk insert connections
+        if connection_rows:
             session.execute(
                 sa.text("""
                     INSERT INTO connections (
@@ -65,33 +91,21 @@ def upgrade() -> None:
                         :auth_policy, :allowed_user_auth_modes, :organization_id,
                         :created_at, :updated_at
                     )
-                """),
-                {
-                    'id': conn_id,
-                    'name': ds.name,
-                    'type': ds.type,
-                    'config': ds.config,
-                    'credentials': ds.credentials,
-                    'is_active': ds.is_active,
-                    'last_synced_at': ds.last_synced_at,
-                    'auth_policy': ds.auth_policy or 'system_only',
-                    'allowed_user_auth_modes': ds.allowed_user_auth_modes,
-                    'organization_id': ds.organization_id,
-                    'created_at': ds.created_at,
-                    'updated_at': ds.updated_at,
-                }
+                """).bindparams(
+                    bindparam('config', type_=sa.JSON()),
+                    bindparam('allowed_user_auth_modes', type_=sa.JSON()),
+                ),
+                connection_rows
             )
-            
-            # 3. Insert into domain_connection junction table
+        
+        # 3. Bulk insert domain_connection junction
+        if domain_connection_rows:
             session.execute(
                 sa.text("""
                     INSERT INTO domain_connection (data_source_id, connection_id)
                     VALUES (:data_source_id, :connection_id)
                 """),
-                {
-                    'data_source_id': ds.id,
-                    'connection_id': conn_id,
-                }
+                domain_connection_rows
             )
         
         # 4. For each DataSourceTable, create ConnectionTable and link
@@ -106,15 +120,43 @@ def upgrade() -> None:
             """)
         ).fetchall()
         
+        # Collect rows for bulk operations
+        connection_table_rows = []
+        dst_update_rows = []
+        
         for dst in datasource_tables:
             if dst.datasource_id not in ds_to_conn:
-                # Data source was deleted or not found
                 continue
                 
             conn_id = ds_to_conn[dst.datasource_id]
             conn_table_id = str(uuid.uuid4())
             
-            # Create ConnectionTable with schema fields
+            connection_table_rows.append({
+                'id': conn_table_id,
+                'name': dst.name,
+                'connection_id': conn_id,
+                'columns': dst.columns,
+                'pks': dst.pks,
+                'fks': dst.fks,
+                'no_rows': dst.no_rows or 0,
+                'centrality_score': dst.centrality_score,
+                'richness': dst.richness,
+                'degree_in': dst.degree_in,
+                'degree_out': dst.degree_out,
+                'entity_like': dst.entity_like,
+                'metrics_computed_at': dst.metrics_computed_at,
+                'metadata_json': dst.metadata_json,
+                'created_at': dst.created_at,
+                'updated_at': dst.updated_at,
+            })
+            
+            dst_update_rows.append({
+                'id': dst.id,
+                'connection_table_id': conn_table_id,
+            })
+        
+        # Bulk insert connection_tables
+        if connection_table_rows:
             session.execute(
                 sa.text("""
                     INSERT INTO connection_tables (
@@ -128,38 +170,24 @@ def upgrade() -> None:
                         :entity_like, :metrics_computed_at, :metadata_json,
                         :created_at, :updated_at
                     )
-                """),
-                {
-                    'id': conn_table_id,
-                    'name': dst.name,
-                    'connection_id': conn_id,
-                    'columns': dst.columns,
-                    'pks': dst.pks,
-                    'fks': dst.fks,
-                    'no_rows': dst.no_rows or 0,
-                    'centrality_score': dst.centrality_score,
-                    'richness': dst.richness,
-                    'degree_in': dst.degree_in,
-                    'degree_out': dst.degree_out,
-                    'entity_like': dst.entity_like,
-                    'metrics_computed_at': dst.metrics_computed_at,
-                    'metadata_json': dst.metadata_json,
-                    'created_at': dst.created_at,
-                    'updated_at': dst.updated_at,
-                }
+                """).bindparams(
+                    bindparam('columns', type_=sa.JSON()),
+                    bindparam('pks', type_=sa.JSON()),
+                    bindparam('fks', type_=sa.JSON()),
+                    bindparam('metadata_json', type_=sa.JSON()),
+                ),
+                connection_table_rows
             )
-            
-            # Update DataSourceTable with connection_table_id link
+        
+        # Bulk update datasource_tables with connection_table_id links
+        if dst_update_rows:
             session.execute(
                 sa.text("""
                     UPDATE datasource_tables
                     SET connection_table_id = :connection_table_id
                     WHERE id = :id
                 """),
-                {
-                    'id': dst.id,
-                    'connection_table_id': conn_table_id,
-                }
+                dst_update_rows
             )
         
         # 5. Migrate user_data_source_credentials to user_connection_credentials
@@ -173,13 +201,31 @@ def upgrade() -> None:
             """)
         ).fetchall()
         
+        user_cred_rows = []
         for uc in user_creds:
             if uc.data_source_id not in ds_to_conn:
                 continue
                 
             conn_id = ds_to_conn[uc.data_source_id]
-            new_id = str(uuid.uuid4())
             
+            user_cred_rows.append({
+                'id': str(uuid.uuid4()),
+                'connection_id': conn_id,
+                'user_id': uc.user_id,
+                'organization_id': uc.organization_id,
+                'auth_mode': uc.auth_mode,
+                'encrypted_credentials': uc.encrypted_credentials,
+                'is_active': uc.is_active,
+                'is_primary': uc.is_primary,
+                'last_used_at': uc.last_used_at,
+                'expires_at': uc.expires_at,
+                'metadata_json': uc.metadata_json,
+                'created_at': uc.created_at,
+                'updated_at': uc.updated_at,
+            })
+        
+        # Bulk insert user_connection_credentials
+        if user_cred_rows:
             session.execute(
                 sa.text("""
                     INSERT INTO user_connection_credentials (
@@ -191,26 +237,14 @@ def upgrade() -> None:
                         :encrypted_credentials, :is_active, :is_primary, :last_used_at,
                         :expires_at, :metadata_json, :created_at, :updated_at
                     )
-                """),
-                {
-                    'id': new_id,
-                    'connection_id': conn_id,
-                    'user_id': uc.user_id,
-                    'organization_id': uc.organization_id,
-                    'auth_mode': uc.auth_mode,
-                    'encrypted_credentials': uc.encrypted_credentials,
-                    'is_active': uc.is_active,
-                    'is_primary': uc.is_primary,
-                    'last_used_at': uc.last_used_at,
-                    'expires_at': uc.expires_at,
-                    'metadata_json': uc.metadata_json,
-                    'created_at': uc.created_at,
-                    'updated_at': uc.updated_at,
-                }
+                """).bindparams(
+                    bindparam('metadata_json', type_=sa.JSON()),
+                ),
+                user_cred_rows
             )
         
         # 6. Migrate user_data_source_tables to user_connection_tables
-        # First build a map from (datasource_id, table_name) to connection_table_id
+        # Build a map from (datasource_id, table_name) to connection_table_id
         conn_table_map = {}
         for row in session.execute(
             sa.text("""
@@ -231,6 +265,7 @@ def upgrade() -> None:
             """)
         ).fetchall()
         
+        user_table_rows = []
         for ut in user_tables:
             if ut.data_source_id not in ds_to_conn:
                 continue
@@ -240,8 +275,21 @@ def upgrade() -> None:
             if (ut.data_source_id, ut.table_name) in conn_table_map:
                 _, conn_table_id = conn_table_map[(ut.data_source_id, ut.table_name)]
             
-            new_id = str(uuid.uuid4())
-            
+            user_table_rows.append({
+                'id': str(uuid.uuid4()),
+                'connection_id': conn_id,
+                'user_id': ut.user_id,
+                'table_name': ut.table_name,
+                'connection_table_id': conn_table_id,
+                'is_accessible': ut.is_accessible,
+                'status': ut.status,
+                'metadata_json': ut.metadata_json,
+                'created_at': ut.created_at,
+                'updated_at': ut.updated_at,
+            })
+        
+        # Bulk insert user_connection_tables
+        if user_table_rows:
             session.execute(
                 sa.text("""
                     INSERT INTO user_connection_tables (
@@ -251,19 +299,10 @@ def upgrade() -> None:
                         :id, :connection_id, :user_id, :table_name, :connection_table_id,
                         :is_accessible, :status, :metadata_json, :created_at, :updated_at
                     )
-                """),
-                {
-                    'id': new_id,
-                    'connection_id': conn_id,
-                    'user_id': ut.user_id,
-                    'table_name': ut.table_name,
-                    'connection_table_id': conn_table_id,
-                    'is_accessible': ut.is_accessible,
-                    'status': ut.status,
-                    'metadata_json': ut.metadata_json,
-                    'created_at': ut.created_at,
-                    'updated_at': ut.updated_at,
-                }
+                """).bindparams(
+                    bindparam('metadata_json', type_=sa.JSON()),
+                ),
+                user_table_rows
             )
         
         session.commit()

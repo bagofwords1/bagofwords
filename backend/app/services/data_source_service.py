@@ -873,7 +873,7 @@ class DataSourceService:
             conn = data_source.connections[0] if data_source.connections else None
             if conn:
                 conn.last_connection_status = "success" if success else "not_connected"
-                conn.last_connection_checked_at = datetime.now(timezone.utc)
+                conn.last_connection_checked_at = datetime.utcnow()
 
             # Reflect connectivity on org-wide flag only for system creds
             if getattr(data_source, "auth_policy", "system_only") == "system_only":
@@ -896,7 +896,7 @@ class DataSourceService:
                     conn = data_source.connections[0] if data_source.connections else None
                     if conn:
                         conn.last_connection_status = "not_connected"
-                        conn.last_connection_checked_at = datetime.now(timezone.utc)
+                        conn.last_connection_checked_at = datetime.utcnow()
                     
                     if getattr(data_source, "auth_policy", "system_only") == "system_only":
                         data_source.is_active = False

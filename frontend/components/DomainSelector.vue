@@ -336,27 +336,33 @@
 
                     <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
                       <div class="max-h-[320px] overflow-auto">
-                        <a
+                        <button
                           v-for="inst in instructionsResources"
                           :key="inst.id"
-                          :href="`/instructions?search=${encodeURIComponent(inst.title || '')}`"
-                          class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
+                          type="button"
+                          @click="openInstruction(inst as Instruction)"
+                          class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
                         >
                           <div class="flex-1 min-w-0">
-                            <div class="flex items-center gap-1.5">
-                              <span class="truncate text-gray-800 font-medium">{{ inst.title || 'Untitled' }}</span>
-                              <span 
-                                v-if="!inst.data_sources?.length" 
+                            <p
+                              class="text-gray-800 font-medium leading-snug line-clamp-2"
+                              :title="inst.text || ''"
+                            >
+                              {{ inst.text || '—' }}
+                            </p>
+                            <div class="mt-1 flex items-center gap-1.5 min-w-0">
+                              <span
+                                v-if="!inst.data_sources?.length"
                                 class="px-1 py-0.5 text-[9px] rounded bg-purple-50 text-purple-600 flex-shrink-0"
                               >
                                 Global
                               </span>
-                            </div>
-                            <div class="text-[11px] text-gray-400 truncate mt-0.5">
-                              {{ inst.category || 'general' }} · {{ inst.source_type || 'user' }}
+                              <span class="text-[11px] text-gray-400 truncate">
+                                {{ inst.category || 'general' }} · {{ inst.source_type || 'user' }}
+                              </span>
                             </div>
                           </div>
-                        </a>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -409,12 +415,21 @@
         </div>
       </Transition>
     </Teleport>
+
+    <!-- Instruction Modal -->
+    <InstructionModalComponent
+      v-model="showInstructionModal"
+      :instruction="selectedInstruction"
+      @instruction-saved="handleInstructionSaved"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
+import type { Instruction } from '~/composables/useInstructionHelpers'
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
@@ -681,6 +696,24 @@ watch(flyoutTab, async (tab) => {
 
 const selectTable = (t: any) => {
   selectedTable.value = t
+}
+
+// Instruction modal (same behavior as InstructionsTable click)
+const showInstructionModal = ref(false)
+const selectedInstruction = ref<Instruction | null>(null)
+
+const openInstruction = (inst: Instruction) => {
+  selectedInstruction.value = inst
+  showInstructionModal.value = true
+}
+
+const handleInstructionSaved = async () => {
+  const domainId = hoveredDomainId.value
+  if (domainId) {
+    // Clear cache and refetch so the flyout reflects the latest text/title/etc.
+    delete instructionsCache.value[domainId]
+    await fetchInstructionsForDomain(domainId)
+  }
 }
 </script>
 

@@ -24,8 +24,8 @@
                     AI Suggestions
                 </UButton>
 
-                <!-- Pending Review button -->
-                <UChip :text="pendingSuggestionCount" size="xl" :show="pendingSuggestionCount > 0">
+                <!-- Pending Review button (only show when there is something pending) -->
+                <UChip v-if="pendingSuggestionCount > 0" :text="pendingSuggestionCount" size="xl">
                     <UButton
                         color="white"
                         size="xs"
