@@ -121,6 +121,18 @@ async def test_repository_connection(
     return await git_service.test_connection(db, git_repo, organization)
 
 
+@router.get("/repositories/{repository_id}", response_model=GitRepositorySchema)
+@requires_permission('view_data_source')
+async def get_repository(
+    repository_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get a specific Git repository by ID."""
+    return await git_service.get_repository(db, repository_id, organization)
+
+
 @router.put("/repositories/{repository_id}", response_model=GitRepositorySchema)
 @requires_permission('update_data_source')
 async def update_repository(

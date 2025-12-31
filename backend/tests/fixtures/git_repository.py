@@ -82,6 +82,40 @@ def list_git_repositories(test_client):
 
 
 @pytest.fixture
+def get_git_repository(test_client):
+    """Get a specific Git repository by ID (org-level)."""
+    def _get_git_repository(
+        *,
+        repository_id: str = None,
+        user_token: str = None,
+        org_id: str = None,
+        data_source_id: str = None,  # Ignored, kept for backwards compat
+    ):
+        headers = _build_headers(user_token, org_id)
+        # If repository_id provided, get specific repo
+        if repository_id:
+            response = test_client.get(
+                f"/api/git/repositories/{repository_id}",
+                headers=headers,
+            )
+        else:
+            # For backwards compat: list all and return first
+            response = test_client.get(
+                "/api/git/repositories",
+                headers=headers,
+            )
+            if response.status_code == 200:
+                repos = response.json()
+                if repos and len(repos) > 0:
+                    return repos[0]
+                return None
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _get_git_repository
+
+
+@pytest.fixture
 def update_git_repository(test_client):
     """Update a Git repository (org-level)."""
     def _update_git_repository(

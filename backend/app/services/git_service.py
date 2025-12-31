@@ -106,6 +106,13 @@ class GitService:
         repositories = result.scalars().all()
         return [GitRepositorySchema.from_orm_with_capabilities(repo) for repo in repositories]
 
+    async def get_repository(
+        self, db: AsyncSession, repository_id: str, organization: Organization
+    ) -> GitRepositorySchema:
+        """Get a specific Git repository by ID."""
+        repository = await self._verify_repository(db, repository_id, organization)
+        return GitRepositorySchema.from_orm_with_capabilities(repository)
+
     async def get_repository_by_id(
         self, db: AsyncSession, repository_id: str
     ) -> Optional[GitRepository]:
