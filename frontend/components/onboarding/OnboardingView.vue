@@ -102,7 +102,7 @@ onMounted(async () => {
 const stepMeta = new Map([
   ['onboarding', { title: 'Welcome to Bag of words! 🎉', description: 'Chat with your data, run deep analysis and create dashboards in seconds' }],
   ['llm_configured', { title: 'Configure LLM', description: 'Connect to any LLM provider, and bring your own API key' }],
-  ['data_source_created', { title: 'Connect data', description: 'Select one of the available data sources' }],
+  ['data_source_created', { title: 'Connect data', description: 'Select one of the available connectors and set up your data source' }],
   // Shown on the right panel while selecting tables
   ['schema_selected', { title: 'Select tables', description: 'Choose 5-20 related tables. Start focused—you can always add more later.' }],
   ['instructions_added', { title: 'Add instructions', description: 'Help the AI understand your terminology, business rules, and preferences' }],

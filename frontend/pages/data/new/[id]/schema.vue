@@ -10,7 +10,7 @@
 
 
       <div class="bg-white rounded-lg">
-        <TablesSelector :ds-id="id" schema="full" :can-update="true" :show-refresh="true" :show-save="true" :show-header="true" header-title="Select tables" header-subtitle="Start focused—select related tables for better AI answers" save-label="Save & Continue" @saved="onSaved" />
+        <TablesSelector :ds-id="id" schema="full" :can-update="true" :show-refresh="true" :show-save="true" :show-header="true" header-title="Select tables" header-subtitle="Choose 5-20 related tables. Start focused, you can always add more later." save-label="Save & Continue" @saved="onSaved" />
       </div>
     </div>
   </div>

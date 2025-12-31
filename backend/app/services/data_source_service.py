@@ -1738,7 +1738,7 @@ class DataSourceService:
         - Insert new tables
         - Update changed tables
         - Deactivate missing tables (keep history)
-        - If should_set_active and > MAX_ACTIVE_TABLES, auto-select top tables via SQL
+        - If should_set_active and > ONBOARDING_MAX_TABLES, auto-select top tables via SQL
         """
         from sqlalchemy import text
         import json as json_module
@@ -1776,7 +1776,7 @@ class DataSourceService:
                     }
 
             total_tables = len(incoming)
-            needs_smart_selection = should_set_active and total_tables > self.MAX_ACTIVE_TABLES
+            needs_smart_selection = should_set_active and total_tables > self.ONBOARDING_MAX_TABLES
 
             # Load existing table names only (not full objects for efficiency)
             existing_q = await db.execute(
@@ -1815,9 +1815,9 @@ class DataSourceService:
                     ))
                 await db.commit()
 
-            # If smart selection needed, use SQL to select top tables
+            # If smart selection needed, use SQL to select top tables (onboarding limit)
             if needs_smart_selection:
-                await self._select_active_tables_sql(db, str(data_source.id), self.MAX_ACTIVE_TABLES)
+                await self._select_active_tables_sql(db, str(data_source.id), self.ONBOARDING_MAX_TABLES)
 
         except Exception as e:
             print(f"Error saving tables: {e}")

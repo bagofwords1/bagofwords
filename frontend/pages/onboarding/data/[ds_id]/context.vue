@@ -101,13 +101,7 @@
                     </button>
                   </div>
                   <!-- Build Version Selector - only show if user can view builds -->
-                  <BuildVersionSelector
-                    v-if="canViewBuilds"
-                    v-model="selectedBuildId"
-                    :loading="loadingBuilds"
-                    :git-repo-id="integration?.git_repository?.id || ''"
-                    @rollback="handleRollback"
-                  />
+
                 </div>
               </div>
             </div>
@@ -435,7 +429,9 @@ function handleGitModalClose(value: boolean) {
 async function fetchBuilds() {
   loadingBuilds.value = true
   try {
-    const { data } = await useMyFetch<{ items: any[]; total: number }>('/api/builds', { 
+    // NOTE: useMyFetch already applies runtimeConfig.public.baseURL (/api).
+    // Passing '/api/...' would become '/api/api/...'
+    const { data } = await useMyFetch<{ items: any[]; total: number }>('/builds', { 
       method: 'GET',
       query: { limit: 50 }
     })
@@ -474,17 +470,16 @@ async function handleSave() {
   saving.value = true
   
   try {
-    // Update onboarding as completed - OnboardingView will automatically redirect
-    try {
-      await updateOnboarding({ current_step: 'instructions_added' as any, completed: true as any, dismissed: false as any })
-    } catch (e) {
-      console.warn('Failed to update onboarding, continuing to home:', e)
-      // Fallback: navigate manually if onboarding update fails
-      await navigateTo({path: '/', query: { setup: 'done' } })
-    }
+    await updateOnboarding({ current_step: 'instructions_added' as any, completed: true as any, dismissed: false as any })
+  } catch (e) {
+    console.warn('Failed to update onboarding:', e)
   } finally {
+    // Never keep the UI stuck if navigation/middleware blocks.
     saving.value = false
   }
+
+  // Don't await navigation: Nuxt route middleware can await network calls and hang.
+  navigateTo({ path: '/', query: { setup: 'done' } })
 }
 
 async function skipForNow() { 
