@@ -1,5 +1,8 @@
 <template>
     <div class="py-6 space-y-6">
+        <!-- Hide content when there's a fetch error (layout shows error state) -->
+        <template v-if="injectedFetchError" />
+        <template v-else>
         <!-- Connect Git Repository Section (only shown when not connected) -->
         <div v-if="!hasGitConnection" class="border border-gray-200 rounded-lg p-6">
             <div class="bg-white">
@@ -130,6 +133,7 @@
             :instruction="selectedInstruction"
             @instruction-saved="handleInstructionSaved"
         />
+        </template>
     </div>
 </template>
 
@@ -161,6 +165,7 @@ const isLoading = ref(false)
 // Inject integration data from layout (avoid duplicate API calls)
 const injectedIntegration = inject<Ref<any>>('integration', ref(null))
 const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
+const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
 
 // Use local integration that syncs with injected, but can be updated independently for polling
 const integration = ref<any>(null)

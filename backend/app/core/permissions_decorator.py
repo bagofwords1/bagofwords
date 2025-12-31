@@ -173,15 +173,19 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
                 # Check data source access rules
                 has_access = False
                 
-                # If public data sources are allowed and this is public
+                # If data source is public and allow_public flag is set
                 if allow_public and data_source.is_public:
                     has_access = True
                 
-                # If membership is required, check for explicit membership
+                # If data source is private and allow_public flag is set, require membership
+                elif allow_public and not data_source.is_public:
+                    has_access = await data_source.has_membership_async(user.id, db)
+                
+                # If membership is explicitly required, check for membership
                 elif membership_required:
                     has_access = await data_source.has_membership_async(user.id, db)
                 
-                # Otherwise, access is based on role permissions only (already checked above)
+                # No access control flags - allow based on role permission only (already checked above)
                 else:
                     has_access = True
                 

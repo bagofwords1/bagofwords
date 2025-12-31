@@ -1,6 +1,8 @@
 <template>
     <div class="py-6 relative">
-        <div class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
+        <!-- Hide content when there's a fetch error (layout shows error state) -->
+        <div v-if="fetchError" />
+        <div v-else class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
             <div v-if="loading" class="text-xs text-gray-500 text-center">Loading…</div>
             <div v-else class="md:w-2/3 ">
                 <div class="flex items-center gap-2">
@@ -94,10 +96,12 @@ const toast = useToast?.()
 const injectedIntegration = inject<Ref<any>>('integration', ref(null))
 const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
 const injectedLoading = inject<Ref<boolean>>('isLoading', ref(true))
+const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
 
 // Use injected data as main data source
 const dataSource = injectedIntegration
 const loading = injectedLoading
+const fetchError = injectedFetchError
 
 const availableMeta = ref<any | null>(null)
 const showEditModal = ref(false)

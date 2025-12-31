@@ -6,9 +6,9 @@
                     <div class="flex items-start justify-between">
                         <div>
                             <h1 class="text-lg font-semibold">
-                                {{ integration?.name || 'Domain' }}
+                                {{ fetchError ? 'Data Source' : (integration?.name || 'Domain') }}
                             </h1>
-                            <div v-if="!isLoading && integration" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                            <div v-if="!isLoading && integration && !fetchError" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
                                 <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
                                 <DataSourceIcon :type="connectionType" class="h-4" />
                                 <span>{{ connectionName }}</span>
@@ -22,28 +22,63 @@
                         </div>
                     </div>
 
-                    <!-- Tabs navigation -->
-                    <div class="border-b border-gray-200 mt-6">
-                        <nav class=" flex space-x-8">
-                            <NuxtLink
-                                v-for="tab in tabs"
-                                :key="tab.name"
-                                :to="tabTo(tab.name)"
-                                :class="[
-                                    isTabActive(tab.name)
-                                        ? 'border-blue-500 text-blue-600'
-                                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
-                                    'whitespace-nowrap border-b-2 py-2 px-2 text-sm font-medium flex items-center space-x-2'
-                                ]"
-                            >
-                                <Icon v-if="tab.icon" :name="tab.icon" class="w-4 mr-1" />
-                                <span>{{ tab.label }}</span>
-                            </NuxtLink>
-                        </nav>
+                    <!-- Access denied state -->
+                    <div v-if="!isLoading && fetchError === 403" class="mt-8">
+                        <div class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
+                            <div class="flex flex-col items-center justify-center py-12 text-center">
+                                <Icon name="i-heroicons-lock-closed" class="w-12 h-12 text-gray-300 mb-4" />
+                                <h2 class="text-lg font-medium text-gray-900">Access Restricted</h2>
+                                <p class="mt-2 text-sm text-gray-500 max-w-sm">
+                                    This data source is private. Contact the owner or an admin to request access.
+                                </p>
+                                <NuxtLink to="/data" class="mt-4 text-sm text-blue-600 hover:underline">
+                                    ← Back to Data Sources
+                                </NuxtLink>
+                            </div>
+                        </div>
                     </div>
 
-                    <!-- Page content -->
-                    <slot />
+                    <!-- Not found state -->
+                    <div v-else-if="!isLoading && fetchError === 404" class="mt-8">
+                        <div class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
+                            <div class="flex flex-col items-center justify-center py-12 text-center">
+                                <Icon name="i-heroicons-exclamation-circle" class="w-12 h-12 text-gray-300 mb-4" />
+                                <h2 class="text-lg font-medium text-gray-900">Data Source Not Found</h2>
+                                <p class="mt-2 text-sm text-gray-500 max-w-sm">
+                                    The data source you're looking for doesn't exist or has been removed.
+                                </p>
+                                <NuxtLink to="/data" class="mt-4 text-sm text-blue-600 hover:underline">
+                                    ← Back to Data Sources
+                                </NuxtLink>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Normal content -->
+                    <template v-else-if="!fetchError">
+                        <!-- Tabs navigation -->
+                        <div class="border-b border-gray-200 mt-6">
+                            <nav class=" flex space-x-8">
+                                <NuxtLink
+                                    v-for="tab in tabs"
+                                    :key="tab.name"
+                                    :to="tabTo(tab.name)"
+                                    :class="[
+                                        isTabActive(tab.name)
+                                            ? 'border-blue-500 text-blue-600'
+                                            : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
+                                        'whitespace-nowrap border-b-2 py-2 px-2 text-sm font-medium flex items-center space-x-2'
+                                    ]"
+                                >
+                                    <Icon v-if="tab.icon" :name="tab.icon" class="w-4 mr-1" />
+                                    <span>{{ tab.label }}</span>
+                                </NuxtLink>
+                            </nav>
+                        </div>
+
+                        <!-- Page content -->
+                        <slot />
+                    </template>
                 </div>
             </div>
         </div>
@@ -81,6 +116,7 @@ function isTabActive(tabName: string) {
 
 const integration = ref<any>(null)
 const isLoading = ref(true)
+const fetchError = ref<number | null>(null)
 const connection = computed(() => String(integration.value?.user_status?.connection || '').toLowerCase())
 
 // Connection info for display
@@ -94,6 +130,7 @@ const isConnected = computed(() => {
 async function fetchIntegration() {
     if (!id.value) return
     isLoading.value = true
+    fetchError.value = null
     
     try {
         const config = useRuntimeConfig()
@@ -110,8 +147,9 @@ async function fetchIntegration() {
         })
         
         integration.value = data as any
-    } catch (e) {
+    } catch (e: any) {
         console.error('Failed to fetch integration:', e)
+        fetchError.value = e?.response?.status || e?.status || e?.statusCode || 500
     }
     
     isLoading.value = false
@@ -121,6 +159,7 @@ async function fetchIntegration() {
 provide('integration', integration)
 provide('fetchIntegration', fetchIntegration)
 provide('isLoading', isLoading)
+provide('fetchError', fetchError)
 
 watch(id, () => {
     fetchIntegration()

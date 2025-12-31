@@ -1,6 +1,8 @@
 <template>
     <div class="py-6">
-        <div class="border border-gray-200 rounded-xl p-6 bg-white">
+        <!-- Hide content when there's a fetch error (layout shows error state) -->
+        <div v-if="injectedFetchError" />
+        <div v-else class="border border-gray-200 rounded-xl p-6 bg-white">
             <div v-if="!ready" class="inline-flex items-center text-gray-500 text-xs">
                 <Spinner class="w-4 h-4 mr-2" />
                 Loading settings...
@@ -152,6 +154,7 @@ const toast = useToast?.()
 const injectedIntegration = inject<Ref<any>>('integration', ref(null))
 const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
 const injectedLoading = inject<Ref<boolean>>('isLoading', ref(true))
+const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
 
 const form = reactive({
     name: '',

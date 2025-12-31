@@ -73,7 +73,7 @@ export function useDomain() {
       if (domains.value.length === 1) {
         return domains.value[0].name
       }
-      return 'All Domains'
+      return 'All'
     }
     if (selectedDomains.value.length === 1) {
       const domain = domains.value.find(d => d.id === selectedDomains.value[0])

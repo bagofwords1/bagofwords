@@ -18,7 +18,7 @@
         <!-- Domain name -->
         <div class="mb-4">
           <label class="block text-sm font-medium text-gray-700 mb-1">
-            Domain Name <span class="text-red-500">*</span>
+            Name <span class="text-red-500">*</span>
           </label>
           <UInput
             v-model="domainName"

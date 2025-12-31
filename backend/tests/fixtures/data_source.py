@@ -7,7 +7,16 @@ import pytest  # type: ignore
 
 @pytest.fixture
 def create_data_source(test_client):
-    def _create_data_source(*, name: str, type: str, config: dict = None, credentials: dict = None, user_token: str = None, org_id: str = None):
+    def _create_data_source(
+        *,
+        name: str,
+        type: str,
+        config: dict = None,
+        credentials: dict = None,
+        auth_policy: str = "system_only",
+        user_token: str = None,
+        org_id: str = None
+    ):
         if user_token is None:
             pytest.fail("User token is required for create_data_source")
         if org_id is None:
@@ -18,6 +27,7 @@ def create_data_source(test_client):
             "type": type,
             "config": config or {},
             "credentials": credentials or {},
+            "auth_policy": auth_policy,
             "generate_summary": False,
             "generate_conversation_starters": False,
             "generate_ai_rules": False

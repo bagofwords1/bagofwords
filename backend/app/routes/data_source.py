@@ -18,7 +18,7 @@ from app.schemas.datasource_table_schema import (
     DeltaUpdateTablesRequest,
     DeltaUpdateTablesResponse,
 )
-from app.core.permissions_decorator import requires_permission
+from app.core.permissions_decorator import requires_permission, requires_data_source_access
 from app.models.data_source import DataSource
 
 router = APIRouter(tags=["data_sources"])
@@ -52,7 +52,7 @@ async def get_active_data_sources(
     return await data_source_service.get_active_data_sources(db, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}", response_model=DataSourceSchema)
-@requires_permission('view_data_source', model=DataSource)
+@requires_data_source_access('view_data_source', allow_public=True)
 async def get_data_source(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -93,7 +93,7 @@ async def delete_data_source(
     return await data_source_service.delete_data_source(db, data_source_id, organization, current_user)
 
 @router.get("/data_sources/{data_source_id}/test_connection", response_model=dict)
-@requires_permission('view_data_source', model=DataSource)
+@requires_data_source_access('view_data_source', allow_public=True)
 async def test_data_source_connection(
     data_source_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -124,7 +124,7 @@ async def update_data_source(
     return await data_source_service.update_data_source(db, data_source_id, organization, data_source, current_user)
 
 @router.get("/data_sources/{data_source_id}/schema", response_model=list)
-@requires_permission('view_data_source', model=DataSource)
+@requires_data_source_access('view_data_source', allow_public=True)
 async def get_data_source_schema(
     data_source_id: str,
     with_stats: bool = Query(False),

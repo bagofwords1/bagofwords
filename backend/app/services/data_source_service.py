@@ -1729,6 +1729,9 @@ class DataSourceService:
     
     # Maximum tables to set as active when auto-selecting
     MAX_ACTIVE_TABLES = 500
+    
+    # Onboarding: auto-select a focused set of tables
+    ONBOARDING_MAX_TABLES = 20
 
     async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None, should_set_active: bool = True, current_user: User | None = None):
         """Diff-based upsert of datasource tables.
@@ -2174,8 +2177,11 @@ class DataSourceService:
             if additional_user_ids:
                 await self._create_memberships(db, new_data_source, additional_user_ids)
         
-        # Sync domain tables from connection tables
-        await self.sync_domain_tables_from_connection(db, new_data_source, connection)
+        # Sync domain tables from connection tables (onboarding: auto-select up to 20)
+        await self.sync_domain_tables_from_connection(
+            db, new_data_source, connection, 
+            max_auto_select=self.ONBOARDING_MAX_TABLES
+        )
         
         # Generate AI content if requested
         if auth_policy == "system_only":
@@ -2256,9 +2262,12 @@ class DataSourceService:
         )
         await db.commit()
         
-        # Sync domain tables from this connection
+        # Sync domain tables from this connection (no auto-select for existing domains)
         if sync_tables:
-            await self.sync_domain_tables_from_connection(db, data_source, connection)
+            await self.sync_domain_tables_from_connection(
+                db, data_source, connection,
+                max_auto_select=None  # User must manually select tables
+            )
         
         return {"message": "Connection added to domain"}
 
@@ -2317,11 +2326,16 @@ class DataSourceService:
         db: AsyncSession,
         data_source: DataSource,
         connection,
-        activate_all: bool = True,
+        max_auto_select: int | None = None,
     ):
         """
         Create DataSourceTable (DomainTable) entries from ConnectionTable entries.
         Links domain tables to connection tables for schema access.
+        
+        Args:
+            max_auto_select: Maximum tables to auto-select.
+                - None: No auto-selection, all tables start inactive (for new domains from existing connections)
+                - int: Auto-select up to this many tables (for onboarding, use ONBOARDING_MAX_TABLES=20)
         """
         from app.models.connection_table import ConnectionTable
         
@@ -2340,9 +2354,18 @@ class DataSourceService:
         )
         existing_by_name = {t.name: t for t in existing.scalars().all()}
         
-        MAX_ACTIVE = 500
         total_tables = len(conn_tables)
-        should_activate = activate_all and total_tables <= MAX_ACTIVE
+        
+        # Determine initial activation:
+        # - If max_auto_select is None: all tables start inactive (user must select)
+        # - If max_auto_select is set and total <= limit: activate all
+        # - If max_auto_select is set and total > limit: start inactive, then smart-select
+        if max_auto_select is None:
+            should_activate = False
+            needs_smart_selection = False
+        else:
+            should_activate = total_tables <= max_auto_select
+            needs_smart_selection = total_tables > max_auto_select
         
         for conn_table in conn_tables:
             if conn_table.name in existing_by_name:
@@ -2373,9 +2396,9 @@ class DataSourceService:
         
         await db.commit()
         
-        # If too many tables, use smart selection
-        if activate_all and total_tables > MAX_ACTIVE:
-            await self._select_active_tables_sql(db, str(data_source.id), MAX_ACTIVE)
+        # If too many tables for auto-select, use smart selection algorithm
+        if needs_smart_selection and max_auto_select:
+            await self._select_active_tables_sql(db, str(data_source.id), max_auto_select)
 
     async def get_domain_connections(
         self,

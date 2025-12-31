@@ -43,8 +43,8 @@
             </button>
         </li>
 
-        <!-- Domain Selector - Context for all navigation below -->
-        <li class="mt-6 mb-4">
+        <!-- Domain Selector - Context for all navigation below (hidden if no domains) -->
+        <li v-if="hasDomains" class="mt-6 mb-4">
           <DomainSelector :collapsed="isCollapsed" :show-text="showText" />
         </li>
 
@@ -314,7 +314,7 @@
   const showMcpModal = ref(false)
   
   // Domain management - use selectedDomainObjects for new report creation
-  const { initDomain, selectedDomainObjects, domains } = useDomain()
+  const { initDomain, selectedDomainObjects, domains, hasDomains } = useDomain()
 
   
   const workspaceIconUrl = computed<string | null>(() => {

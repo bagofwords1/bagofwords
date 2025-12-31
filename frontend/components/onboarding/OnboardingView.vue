@@ -104,8 +104,8 @@ const stepMeta = new Map([
   ['llm_configured', { title: 'Configure LLM', description: 'Connect to any LLM provider, and bring your own API key' }],
   ['data_source_created', { title: 'Connect data', description: 'Select one of the available data sources' }],
   // Shown on the right panel while selecting tables
-  ['schema_selected', { title: 'Select tables', description: 'Choose which tables the AI can access and query during conversations' }],
-  ['instructions_added', { title: 'Context', description: 'Add more context and custom instructions to help the AI make better decisions' }],
+  ['schema_selected', { title: 'Select tables', description: 'Choose 5-20 related tables. Start focused—you can always add more later.' }],
+  ['instructions_added', { title: 'Add instructions', description: 'Help the AI understand your terminology, business rules, and preferences' }],
 ])
 
 const stepsList = computed(() => {

@@ -1,6 +1,8 @@
 <template>
     <div class="py-6">
-        <div class="bg-white border border-gray-200 rounded-lg p-6">
+        <!-- Hide content when there's a fetch error (layout shows error state) -->
+        <div v-if="injectedFetchError" />
+        <div v-else class="bg-white border border-gray-200 rounded-lg p-6">
             <!-- Loading state -->
             <div v-if="!integration" class="text-sm text-gray-500">Loading...</div>
 
@@ -131,6 +133,7 @@ const { organization } = useOrganization()
 // Inject integration data from layout (avoid duplicate API calls)
 const injectedIntegration = inject<Ref<any>>('integration', ref(null))
 const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
+const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
 
 // Use injected data
 const integration = injectedIntegration

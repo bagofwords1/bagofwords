@@ -107,10 +107,26 @@ class UserDataSourceCredentialsService:
 
         row = await self.get_primary_active_row(db, data_source, user)
         if not row:
-            # Owner fallback possible; if no creds but owner can use system, reflect that
+            # Owner/admin fallback possible; if no creds but owner/admin can use system, reflect that
             is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
             has_system_creds = connection and connection.credentials if connection else False
-            if is_owner and has_system_creds:
+            
+            # Check if user has admin permission (update_data_source) - same logic as resolve_credentials
+            has_update_perm = False
+            try:
+                from app.models.membership import Membership, ROLES_PERMISSIONS
+                mem_res = await db.execute(
+                    select(Membership).where(
+                        Membership.user_id == user.id,
+                        Membership.organization_id == getattr(data_source, "organization_id", None),
+                    )
+                )
+                membership = mem_res.scalar_one_or_none()
+                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+            except Exception:
+                has_update_perm = False
+            
+            if (is_owner or has_update_perm) and has_system_creds:
                 conn = "unknown"
                 last_checked = None
                 if live_test:

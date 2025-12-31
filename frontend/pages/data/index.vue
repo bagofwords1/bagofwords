@@ -1,110 +1,93 @@
 <template>
-    <div class="flex flex-col min-h-screen">
-        <!-- Full page loading spinner -->
-        <div v-if="loading" class="flex flex-col items-center justify-center flex-grow py-20">
-            <Spinner class="h-4 w-4 text-gray-400" />
-            <p class="text-sm text-gray-500 mt-2">Loading...</p>
-        </div>
+    <div class="flex justify-center pl-2 md:pl-4 text-sm h-full">
+        <div class="w-full max-w-7xl px-4 pl-0 py-2 h-full">
+            <!-- Full page loading spinner -->
+            <div v-if="loading" class="flex flex-col items-center justify-center py-20">
+                <Spinner class="h-4 w-4 text-gray-400" />
+                <p class="text-sm text-gray-500 mt-2">Loading...</p>
+            </div>
 
-        <div class="flex pl-2 md:pl-4 text-sm mx-auto w-full max-w-4xl md:pt-10" v-else>
-            <div class="w-full px-4 py-4">
-                <!-- Header -->
-                <div class="mb-8">
-                    <h1 class="text-lg font-semibold text-center">
-                        <GoBackChevron v-if="isExcel" />
-                        Data
-                    </h1>
-                    <p class="mt-2 text-gray-400 text-center text-xs">Manage your connections and domains</p>
+            <div v-else>
+                <!-- Header - matching instructions style -->
+                <div class="flex items-start justify-between mb-6">
+                    <div>
+                        <h1 class="text-lg font-semibold">
+                            <GoBackChevron v-if="isExcel" />
+                            Data
+                        </h1>
+                        <p class="mt-2 text-gray-500">
+                            Domains group related tables and instructions together to make data easier to manage and use.
+                        </p>
+                    </div>
+                    <UButton 
+                        v-if="canCreateDataSource"
+                        @click="navigateTo('/data/new')"
+                        color="blue"
+                        size="xs"
+                        class="mt-1"
+                    >
+                        <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                        New
+                    </UButton>
                 </div>
 
-                <!-- My Domains Section (show if has domains OR user can create) -->
-                <div v-if="allDomains.length > 0 || (connections.length > 0 && canCreateDataSource)" class="mb-8">
-                    <div class="flex items-center justify-between mb-1">
-                        <h2 class="text-sm font-medium text-gray-700">Domains</h2>
-                        <UButton 
-                            v-if="canCreateDataSource"
-                            @click="navigateTo('/data/new')"
-                            color="blue"
-                            size="xs"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            New Domain
-                        </UButton>
-                    </div>
-                    <p class="text-xs text-gray-400 mb-4">
-                        Domains group related tables and instructions together to make data easier to manage and use.
-                    </p>
-
-                    <!-- Domains grid - 3 columns -->
-                    <div v-if="allDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                        <div 
-                            v-for="ds in allDomains" 
-                            :key="ds.id"
-                            class="block p-4 rounded-xl border border-gray-100 bg-white hover:border-gray-200 hover:shadow-sm transition-all group"
-                        >
-                            <NuxtLink :to="`/data/${ds.id}`" class="block">
-                                <!-- Card header -->
-                                <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
-                                
-                                <!-- Metadata with icon -->
-                                <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
-                                    <DataSourceIcon class="h-3.5 w-3.5" :type="getConnectionType(ds)" />
-                                    <span>{{ getConnectionName(ds) }}</span>
-                                    <span class="text-gray-300">·</span>
-                                    <span>{{ getTableCount(ds) }} tables</span>
-                                </div>
-                                
-                                <!-- Description (2 lines max) -->
-                                <p v-if="ds.description" class="text-xs text-gray-500 leading-relaxed line-clamp-2">
-                                    {{ ds.description }}
-                                </p>
-                                <p v-else class="text-xs text-gray-300 italic">
-                                    No description
-                                </p>
-                            </NuxtLink>
+                <!-- Domains grid (3 columns) -->
+                <div v-if="allDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
+                    <div 
+                        v-for="ds in allDomains" 
+                        :key="ds.id"
+                        class="block p-4 rounded-lg border border-gray-100 bg-white hover:border-gray-200 hover:shadow-md transition-all group"
+                    >
+                        <NuxtLink :to="`/data/${ds.id}`" class="block">
+                            <!-- Card header -->
+                            <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
                             
-                            <!-- Connect button for user auth required but not connected -->
-                            <button 
-                                v-if="needsUserConnection(ds)"
-                                @click.stop="openCredentialsModal(ds)"
-                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
-                            >
-                                <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
-                                Connect
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Empty domains state (has connections but no domains) -->
-                    <div v-else class="py-8 text-center border border-dashed border-gray-200 rounded-xl">
-                        <p class="text-xs text-gray-400 mb-3">No domains yet</p>
-                        <UButton 
-                            v-if="canCreateDataSource"
-                            @click="navigateTo('/data/new')"
-                            color="blue"
-                            variant="soft"
-                            size="xs"
+                            <!-- Metadata with icon -->
+                            <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
+                                <DataSourceIcon class="h-3.5" :type="getConnectionType(ds)" />
+                                <span>{{ getConnectionName(ds) }}</span>
+                                <span class="text-gray-300">·</span>
+                                <span>{{ getTableCount(ds) }} tables</span>
+                            </div>
+                            
+                            <!-- Description (2 lines max) -->
+                            <p v-if="ds.description" class="text-xs text-gray-500 leading-relaxed line-clamp-2">
+                                {{ ds.description }}
+                            </p>
+                            <p v-else class="text-xs text-gray-300 italic">
+                                No description
+                            </p>
+                        </NuxtLink>
+                        
+                        <!-- Connect button for user auth required but not connected -->
+                        <button 
+                            v-if="needsUserConnection(ds)"
+                            @click.stop="openCredentialsModal(ds)"
+                            class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
                         >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            Create Domain
-                        </UButton>
+                            <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
+                            Connect
+                        </button>
                     </div>
+                </div>
+
+                <!-- Empty domains state (has connections but no domains) - only for admins -->
+                <div v-else-if="connections.length > 0 && canCreateDataSource" class="py-8 text-center border border-dashed border-gray-200 rounded-lg mb-6">
+                    <p class="text-xs text-gray-400 mb-3">No domains yet</p>
+                    <UButton 
+                        @click="navigateTo('/data/new')"
+                        color="blue"
+                        variant="soft"
+                        size="xs"
+                    >
+                        <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                        Create Domain
+                    </UButton>
                 </div>
 
                 <!-- Connections Section (only show if has connections AND user can update) -->
-                <div v-if="connections.length > 0 && canUpdateDataSource" class="mb-8">
-                    <div class="flex items-center justify-between mb-1">
-                        <h2 class="text-sm font-medium text-gray-700">Connections</h2>
-                        <UButton 
-                            v-if="canCreateDataSource"
-                            @click="navigateTo('/data/new?mode=new_connection')"
-                            color="blue"
-                            size="xs"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            New Connection
-                        </UButton>
-                    </div>
+                <div v-if="connections.length > 0 && canUpdateDataSource" class="mb-6">
+                    <h2 class="text-sm font-medium text-gray-700 mb-1">Connections</h2>
                     <p class="text-xs text-gray-400 mb-3">
                         Manage your database and warehouse connections here
                     </p>
@@ -117,60 +100,32 @@
                             @click="openConnectionDetail(conn)"
                             class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors"
                         >
-                            <DataSourceIcon class="h-4 w-4" :type="conn.type" />
+                            <DataSourceIcon class="h-4" :type="conn.type" />
                             <span>{{ conn.name }}</span>
                             <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-green-500' : 'bg-red-500']"></span>
                         </button>
                     </div>
-
-                    <!-- Sample Databases (only when has connections) -->
-                    <div v-if="uninstalledDemos.length > 0 && canCreateDataSource" class="mt-6">
-                        <h2 class="text-sm font-medium text-gray-700 mb-1">Try a sample</h2>
-                        <p class="text-xs text-gray-400 mb-3">Explore with pre-loaded demo databases</p>
-                        <div class="flex flex-wrap gap-2">
-                            <button 
-                                v-for="demo in uninstalledDemos" 
-                                :key="`chip-${demo.id}`"
-                                @click="installDemo(demo.id)"
-                                :disabled="installingDemo === demo.id"
-                                class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
-                                <DataSourceIcon v-else class="h-4 w-4" :type="demo.type" />
-                                {{ demo.name }}
-                                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
-                            </button>
-                        </div>
-                    </div>
                 </div>
 
-                <!-- Empty State: Show DataSourceGrid when no connections (admin) -->
-                <div v-else-if="canCreateDataSource" class="mb-8">
+                <!-- Empty State: Show DataSourceGrid when no connections (admin only) -->
+                <div v-if="allDomains.length === 0 && connections.length === 0 && canCreateDataSource">
                     <DataSourceGrid 
                         @select="handleDataSourceSelect"
                         @demo-installed="handleDemoInstalled"
                     />
                 </div>
-
-                <!-- Empty State for view-only users -->
-                <div v-else-if="canViewDataSource" class="mb-8 py-12 text-center">
-                    <UIcon name="heroicons-circle-stack" class="w-12 h-12 mx-auto text-gray-300 mb-4" />
-                    <h3 class="text-sm font-medium text-gray-700 mb-2">No data sources available</h3>
-                    <p class="text-xs text-gray-400">Contact your administrator to get access to data sources.</p>
-                </div>
-
             </div>
+
+            <!-- Connection Detail Modal -->
+            <ConnectionDetailModal 
+                v-model="showConnectionModal" 
+                :connection="selectedConnection" 
+                @updated="refreshData"
+            />
+
+            <!-- User Credentials Modal (for per-user auth) -->
+            <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="selectedDs" @saved="refreshData" />
         </div>
-
-        <!-- Connection Detail Modal -->
-        <ConnectionDetailModal 
-            v-model="showConnectionModal" 
-            :connection="selectedConnection" 
-            @updated="refreshData"
-        />
-
-        <!-- User Credentials Modal (for per-user auth) -->
-        <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="selectedDs" @saved="refreshData" />
     </div>
 </template>
 
