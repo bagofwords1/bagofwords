@@ -82,8 +82,9 @@ class DataSourceService:
                     user=current_user,
                     live_test=live_test
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"Failed to build user_status: {e}")
         
         # Get table count using COUNT query instead of loading all tables
         # This is critical for data sources with many tables (e.g., 25K+)
@@ -296,7 +297,44 @@ class DataSourceService:
         result = await db.execute(stmt)
         final_data_source = result.scalar_one()
         
-        return final_data_source
+        # Build connection embedded info
+        connection_embedded = await self._build_connection_embedded(
+            db=db,
+            data_source=final_data_source,
+            current_user=current_user,
+            live_test=False
+        )
+        
+        # Build schema with connection info (same pattern as get_data_source)
+        conn = final_data_source.connections[0] if final_data_source.connections else None
+        conn_config = None
+        if conn and conn.config:
+            conn_config = json.loads(conn.config) if isinstance(conn.config, str) else conn.config
+        
+        return DataSourceSchema(
+            id=str(final_data_source.id),
+            organization_id=str(final_data_source.organization_id),
+            name=final_data_source.name,
+            created_at=final_data_source.created_at,
+            updated_at=final_data_source.updated_at,
+            context=final_data_source.context,
+            description=final_data_source.description,
+            summary=final_data_source.summary,
+            conversation_starters=final_data_source.conversation_starters,
+            is_active=final_data_source.is_active,
+            is_public=final_data_source.is_public,
+            use_llm_sync=final_data_source.use_llm_sync,
+            owner_user_id=str(final_data_source.owner_user_id) if final_data_source.owner_user_id else None,
+            git_repository=final_data_source.git_repository,
+            memberships=final_data_source.data_source_memberships,
+            connection=connection_embedded,
+            # Legacy fields from connection for backward compatibility
+            type=conn.type if conn else None,
+            config=conn_config,
+            auth_policy=conn.auth_policy if conn else None,
+            allowed_user_auth_modes=conn.allowed_user_auth_modes if conn else None,
+            user_status=connection_embedded.user_status if connection_embedded else None,
+        )
 
     async def generate_data_source_items(self, db: AsyncSession, item: str, data_source_id: str, organization: Organization, current_user: User):
         # get data source by id
@@ -1047,11 +1085,15 @@ class DataSourceService:
                 has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
             except Exception:
                 has_update_perm = False
-            if (is_owner or has_update_perm) and conn.credentials:
-                try:
-                    return conn.decrypt_credentials() or {}
-                except Exception:
-                    pass
+            if is_owner or has_update_perm:
+                # Owner/admin can use system credentials (or empty creds for data sources like SQLite)
+                if conn.credentials:
+                    try:
+                        return conn.decrypt_credentials() or {}
+                    except Exception:
+                        pass
+                # Return empty dict for data sources that don't require credentials (e.g., SQLite)
+                return {}
             raise HTTPException(status_code=403, detail="User credentials required for this data source")
         return row.decrypt_credentials() or {}
 
@@ -1213,7 +1255,11 @@ class DataSourceService:
         return main_model_schema
 
     async def get_data_source_fresh_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User = None):
-        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        result = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id)
+        )
         data_source = result.scalar_one_or_none()
         
         if not data_source:
@@ -1231,14 +1277,23 @@ class DataSourceService:
             raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
     
     async def get_data_source_schema(self, db: AsyncSession, data_source_id: str, include_inactive: bool = False, organization: Organization = None, current_user: User = None, with_stats: bool = False):
-        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        result = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id)
+        )
         data_source = result.scalar_one_or_none()
         
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
+        
+        # Get auth_policy from the first connection (auth_policy is now on Connection, not DataSource)
+        auth_policy = "system_only"
+        if data_source.connections:
+            auth_policy = data_source.connections[0].auth_policy or "system_only"
             
         # For user_required policy, prefer the user's live schema view and upsert overlay
-        if getattr(data_source, "auth_policy", "system_only") == "user_required" and current_user is not None:
+        if auth_policy == "user_required" and current_user is not None:
             try:
                 return await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
             except Exception:
@@ -1928,8 +1983,12 @@ class DataSourceService:
         
     
     async def refresh_data_source_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
-        # Get the DataSource model instance instead of schema
-        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        # Get the DataSource model instance with connections eagerly loaded
+        result = await db.execute(
+            select(DataSource)
+            .options(selectinload(DataSource.connections))
+            .filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id)
+        )
         data_source = result.scalar_one_or_none()
         
         if not data_source:

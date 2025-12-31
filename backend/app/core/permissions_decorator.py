@@ -173,8 +173,16 @@ def requires_data_source_access(permission, allow_public=False, membership_requi
                 # Check data source access rules
                 has_access = False
                 
+                # Check if user has admin-level permissions (update_data_source or manage_data_source_memberships)
+                # Admins can access all data sources in their org
+                is_admin = "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set())
+                
                 # If data source is public and allow_public flag is set
                 if allow_public and data_source.is_public:
+                    has_access = True
+                
+                # If user is an org admin, they can access all data sources
+                elif is_admin:
                     has_access = True
                 
                 # If data source is private and allow_public flag is set, require membership

@@ -2,7 +2,7 @@
 Git Router - Endpoints for Git operations
 
 This router provides endpoints for:
-- Repository CRUD (org-level)
+- Repository CRUD (org-level, with optional data_source_id for backwards compat)
 - Syncing branches from Git to BOW
 - Pushing builds to Git
 - Repository status and capabilities
@@ -83,9 +83,7 @@ async def list_repositories(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    List all Git repositories for the organization.
-    """
+    """List all Git repositories for the organization."""
     return await git_service.list_repositories(db, organization)
 
 
@@ -99,6 +97,9 @@ async def create_repository(
 ):
     """
     Create a new Git repository integration for the organization.
+    
+    The data_source_id is optional - if provided, instructions will be scoped
+    to that domain. If omitted, instructions are org-wide.
     """
     return await git_service.create_git_repository(
         db, 
@@ -116,14 +117,8 @@ async def test_repository_connection(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Test Git repository connection before creating.
-    """
-    return await git_service.test_connection(
-        db,
-        git_repo,
-        organization
-    )
+    """Test Git repository connection before creating."""
+    return await git_service.test_connection(db, git_repo, organization)
 
 
 @router.put("/repositories/{repository_id}", response_model=GitRepositorySchema)
@@ -135,14 +130,9 @@ async def update_repository(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Update an existing Git repository integration.
-    """
+    """Update an existing Git repository integration."""
     return await git_service.update_git_repository(
-        db,
-        repository_id,
-        git_repo,
-        organization
+        db, repository_id, git_repo, organization
     )
 
 
@@ -154,14 +144,9 @@ async def delete_repository(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Delete a Git repository and associated data.
-    """
+    """Delete a Git repository and associated data."""
     return await git_service.delete_git_repository(
-        db,
-        repository_id,
-        organization,
-        user_id=current_user.id
+        db, repository_id, organization, user_id=current_user.id
     )
 
 
@@ -173,14 +158,8 @@ async def get_linked_instructions_count(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Get the count of instructions linked to a git repository.
-    """
-    return await git_service.get_linked_instructions_count(
-        db,
-        repository_id,
-        organization
-    )
+    """Get the count of instructions linked to a git repository."""
+    return await git_service.get_linked_instructions_count(db, repository_id, organization)
 
 
 @router.post("/{repo_id}/index")
@@ -191,14 +170,8 @@ async def index_repository(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Trigger indexing/re-indexing of a Git repository.
-    """
-    return await git_service.index_git_repository(
-        db,
-        repo_id,
-        organization
-    )
+    """Trigger indexing/re-indexing of a Git repository."""
+    return await git_service.index_git_repository(db, repo_id, organization)
 
 
 @router.get("/{repo_id}/job_status")
@@ -209,14 +182,8 @@ async def get_indexing_job_status(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
-    """
-    Get current indexing job status with progress percentage.
-    """
-    return await git_service.get_indexing_job_status(
-        db,
-        repo_id,
-        organization
-    )
+    """Get current indexing job status with progress percentage."""
+    return await git_service.get_indexing_job_status(db, repo_id, organization)
 
 
 # ==================== Sync Endpoints ====================

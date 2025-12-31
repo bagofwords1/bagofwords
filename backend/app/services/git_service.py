@@ -69,15 +69,26 @@ class GitService:
         return data_source
 
     async def _verify_repository(
-        self, db: AsyncSession, repository_id: str, organization: Organization
+        self, db: AsyncSession, repository_id: str, organization: Organization, data_source_id: Optional[str] = None
     ) -> GitRepository:
         """Verify repository exists and belongs to organization."""
-        result = await db.execute(
-            select(GitRepository).where(
-                GitRepository.id == repository_id,
-                GitRepository.organization_id == organization.id
+        if data_source_id:
+            # Backwards compatibility: verify with data_source_id
+            result = await db.execute(
+                select(GitRepository).where(
+                    GitRepository.id == repository_id,
+                    GitRepository.data_source_id == data_source_id,
+                    GitRepository.organization_id == organization.id
+                )
             )
-        )
+        else:
+            # Org-level verification
+            result = await db.execute(
+                select(GitRepository).where(
+                    GitRepository.id == repository_id,
+                    GitRepository.organization_id == organization.id
+                )
+            )
         repository = result.scalar_one_or_none()
         if not repository:
             raise HTTPException(status_code=404, detail="Git repository not found")
@@ -86,11 +97,11 @@ class GitService:
     async def list_repositories(
         self, db: AsyncSession, organization: Organization
     ) -> List[GitRepositorySchema]:
-        """List all git repositories for an organization."""
+        """List all Git repositories for an organization."""
         result = await db.execute(
             select(GitRepository).where(
                 GitRepository.organization_id == organization.id
-            ).order_by(GitRepository.created_at.desc())
+            )
         )
         repositories = result.scalars().all()
         return [GitRepositorySchema.from_orm_with_capabilities(repo) for repo in repositories]
@@ -120,6 +131,10 @@ class GitService:
         organization: Organization
     ) -> Dict[str, Any]:
         """Test Git repository connection using provided credentials."""
+        # If data_source_id is provided in the schema, verify it
+        if git_repo.data_source_id:
+            await self._verify_data_source(db, git_repo.data_source_id, organization)
+
         try:
             with tempfile.TemporaryDirectory() as temp_dir:
                 # Use PAT for HTTPS or SSH key for SSH
@@ -230,7 +245,12 @@ class GitService:
         current_user: User,
         organization: Organization
     ) -> GitRepositorySchema:
-        """Create a new Git repository integration (org-level)."""
+        """Create a new Git repository integration."""
+        # If data_source_id is provided, verify it exists
+        data_source_id = git_repo.data_source_id
+        if data_source_id:
+            await self._verify_data_source(db, data_source_id, organization)
+
         # Test connection before creating
         connection_test = await self.test_connection(db, git_repo, organization)
         if not connection_test["success"]:
@@ -245,7 +265,7 @@ class GitService:
             branch=git_repo.branch,
             user_id=current_user.id,
             organization_id=organization.id,
-            data_source_id=None,  # Org-level, not tied to a specific domain
+            data_source_id=data_source_id,
             status="pending",
             auto_publish=git_repo.auto_publish,
             default_load_mode=git_repo.default_load_mode,
@@ -277,6 +297,7 @@ class GitService:
                     "repository_id": str(git_repository.id),
                     "provider": git_repository.provider,
                     "branch": git_repository.branch,
+                    "data_source_id": data_source_id,
                     "repo_host": host,
                 },
                 user_id=current_user.id,
@@ -328,23 +349,44 @@ class GitService:
         organization: Organization
     ) -> Dict[str, int]:
         """Get the count of instructions linked to a git repository's resources."""
-        await self._verify_repository(db, repository_id, organization)
+        repository = await self._verify_repository(db, repository_id, organization)
 
-        # Get indexing jobs for this repository
-        result = await db.execute(
-            select(MetadataIndexingJob).where(
-                MetadataIndexingJob.git_repository_id == repository_id,
-                MetadataIndexingJob.organization_id == organization.id
+        # Use data_source_id from repository if it exists, otherwise use org-level scope
+        data_source_id = repository.data_source_id
+        if data_source_id:
+            indexing_jobs_result = await self.metadata_indexing_job_service.get_indexing_jobs(
+                db, data_source_id, organization
             )
-        )
-        metadata_indexing_jobs = result.scalars().all()
+        else:
+            # Get indexing jobs by git_repository_id
+            jobs_result = await db.execute(
+                select(MetadataIndexingJob).where(
+                    MetadataIndexingJob.git_repository_id == repository_id
+                )
+            )
+            indexing_jobs_result = {"items": jobs_result.scalars().all()}
+        metadata_indexing_jobs = indexing_jobs_result.get("items", []) if isinstance(indexing_jobs_result, dict) else []
 
         job_ids = [job.id for job in metadata_indexing_jobs]
         
-        # Find resources created by these jobs
-        resources_stmt = select(MetadataResource).where(
-            MetadataResource.metadata_indexing_job_id.in_(job_ids)
-        )
+        # Build resources query based on available identifiers
+        if data_source_id and job_ids:
+            resources_stmt = select(MetadataResource).where(
+                (MetadataResource.metadata_indexing_job_id.in_(job_ids)) |
+                (MetadataResource.data_source_id == data_source_id)
+            )
+        elif job_ids:
+            resources_stmt = select(MetadataResource).where(
+                MetadataResource.metadata_indexing_job_id.in_(job_ids)
+            )
+        elif data_source_id:
+            resources_stmt = select(MetadataResource).where(
+                MetadataResource.data_source_id == data_source_id
+            )
+        else:
+            # No jobs or data source - return empty
+            return {"instruction_count": 0}
+            
         resources_result = await db.execute(resources_stmt)
         resources = resources_result.scalars().all()
 
@@ -373,24 +415,46 @@ class GitService:
     ) -> Dict[str, str]:
         """Delete a Git repository and associated indexing jobs and resources."""
         repository = await self._verify_repository(db, repository_id, organization)
+        data_source_id = repository.data_source_id
 
-        # Find related indexing jobs for this repository
-        result = await db.execute(
-            select(MetadataIndexingJob).where(
-                MetadataIndexingJob.git_repository_id == repository_id,
-                MetadataIndexingJob.organization_id == organization.id
+        # Find related indexing jobs
+        if data_source_id:
+            indexing_jobs_result = await self.metadata_indexing_job_service.get_indexing_jobs(
+                db, data_source_id, organization
             )
-        )
-        metadata_indexing_jobs = result.scalars().all()
+            metadata_indexing_jobs = indexing_jobs_result.get("items", []) if isinstance(indexing_jobs_result, dict) else []
+        else:
+            # Get indexing jobs by git_repository_id directly
+            jobs_result = await db.execute(
+                select(MetadataIndexingJob).where(
+                    MetadataIndexingJob.git_repository_id == repository_id
+                )
+            )
+            metadata_indexing_jobs = jobs_result.scalars().all()
 
         job_ids = [job.id for job in metadata_indexing_jobs]
 
-        # Find resources created by these jobs
-        resources_to_delete_stmt = select(MetadataResource).where(
-            MetadataResource.metadata_indexing_job_id.in_(job_ids)
-        )
-        resources_result = await db.execute(resources_to_delete_stmt)
-        resources_to_delete = resources_result.scalars().all()
+        # Find resources
+        if data_source_id and job_ids:
+            resources_to_delete_stmt = select(MetadataResource).where(
+                (MetadataResource.metadata_indexing_job_id.in_(job_ids)) |
+                (MetadataResource.data_source_id == data_source_id)
+            )
+        elif job_ids:
+            resources_to_delete_stmt = select(MetadataResource).where(
+                MetadataResource.metadata_indexing_job_id.in_(job_ids)
+            )
+        elif data_source_id:
+            resources_to_delete_stmt = select(MetadataResource).where(
+                MetadataResource.data_source_id == data_source_id
+            )
+        else:
+            resources_to_delete_stmt = None
+        
+        resources_to_delete = []
+        if resources_to_delete_stmt is not None:
+            resources_result = await db.execute(resources_to_delete_stmt)
+            resources_to_delete = resources_result.scalars().all()
 
         resource_ids = [r.id for r in resources_to_delete]
         job_ids_to_delete = [job.id for job in metadata_indexing_jobs]
@@ -415,8 +479,11 @@ class GitService:
                     from app.services.build_service import BuildService
                     build_service = BuildService()
 
+                    # Use org_id from repository, or try to get from data source
+                    org_id = repository.organization_id
+                    
                     deletion_build = await build_service.get_or_create_draft_build(
-                        db, organization.id, source='git', user_id=user_id
+                        db, org_id, source='git', user_id=user_id
                     )
                     for instruction_id in instruction_ids_to_delete:
                         await build_service.remove_from_build(db, deletion_build.id, instruction_id)
@@ -508,6 +575,7 @@ class GitService:
     ) -> Dict[str, str]:
         """Index/sync a Git repository."""
         repository = await self._verify_repository(db, repository_id, organization)
+        data_source_id = repository.data_source_id  # May be None for org-level repos
 
         try:
             temp_dir = tempfile.mkdtemp()
@@ -518,6 +586,7 @@ class GitService:
                 db=db,
                 repository_id=repository.id,
                 repo_path=temp_dir,
+                data_source_id=data_source_id,  # Optional
                 organization=organization,
                 detected_project_types=detected_types
             )
@@ -608,10 +677,11 @@ class GitService:
         self,
         db: AsyncSession,
         repository_id: str,
+        data_source_id: str,
         organization: Organization
     ) -> Dict[str, Any]:
         """Get current indexing job status with progress percentage."""
-        await self._verify_repository(db, repository_id, organization)
+        await self._verify_repository(db, repository_id, data_source_id, organization)
 
         result = await db.execute(
             select(MetadataIndexingJob)
@@ -706,6 +776,7 @@ class GitService:
                 db=db,
                 repository_id=repository.id,
                 repo_path=temp_dir,
+                data_source_id=repository.data_source_id,
                 organization=organization,
                 detected_project_types=detected_types,
                 build_id=build.id,

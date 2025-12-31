@@ -102,7 +102,8 @@ class ConnectionService:
         if auth_policy == "system_only":
             await self.refresh_schema(db=db, connection=connection)
 
-        return connection
+        # Re-fetch with eager loading to avoid lazy load issues in async context
+        return await self.get_connection(db, str(connection.id), organization)
 
     async def get_connection(
         self,
@@ -198,13 +199,13 @@ class ConnectionService:
 
         try:
             await db.commit()
-            await db.refresh(connection)
 
             # Refresh tables if connection changed
             if connection_changed and connection.auth_policy == "system_only":
                 await self.refresh_schema(db=db, connection=connection)
 
-            return connection
+            # Re-fetch with eager loading to avoid lazy load issues in async context
+            return await self.get_connection(db, connection_id, organization)
         except IntegrityError:
             await db.rollback()
             raise HTTPException(

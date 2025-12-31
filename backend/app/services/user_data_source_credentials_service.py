@@ -107,9 +107,8 @@ class UserDataSourceCredentialsService:
 
         row = await self.get_primary_active_row(db, data_source, user)
         if not row:
-            # Owner/admin fallback possible; if no creds but owner/admin can use system, reflect that
+            # Owner/admin fallback possible; owner/admin can use system creds or empty creds (e.g., SQLite)
             is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
-            has_system_creds = connection and connection.credentials if connection else False
             
             # Check if user has admin permission (update_data_source) - same logic as resolve_credentials
             has_update_perm = False
@@ -126,7 +125,8 @@ class UserDataSourceCredentialsService:
             except Exception:
                 has_update_perm = False
             
-            if (is_owner or has_update_perm) and has_system_creds:
+            # Owner/admin can use the connection even without stored credentials (e.g., SQLite)
+            if is_owner or has_update_perm:
                 conn = "unknown"
                 last_checked = None
                 if live_test:

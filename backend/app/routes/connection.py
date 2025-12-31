@@ -5,7 +5,7 @@ Connections are the underlying database connections that Domains (DataSources) l
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from typing import List, Optional
+from typing import List
 
 from app.dependencies import get_async_db
 from app.models.user import User
@@ -15,82 +15,18 @@ from app.models.datasource_table import DataSourceTable
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
 from app.core.permissions_decorator import requires_permission
-from pydantic import BaseModel
+from app.schemas.connection_schema import (
+    ConnectionCreate,
+    ConnectionUpdate,
+    ConnectionSchema,
+    ConnectionDetailSchema,
+    ConnectionTableSchema,
+    ConnectionTestResult,
+)
 
 
 router = APIRouter(prefix="/connections", tags=["connections"])
 connection_service = ConnectionService()
-
-
-# ==================== Schemas ====================
-
-class ConnectionCreate(BaseModel):
-    name: str
-    type: str
-    config: dict
-    credentials: Optional[dict] = None
-    auth_policy: str = "system_only"
-    allowed_user_auth_modes: Optional[list] = None
-
-
-class ConnectionUpdate(BaseModel):
-    name: Optional[str] = None
-    config: Optional[dict] = None
-    credentials: Optional[dict] = None
-    is_active: Optional[bool] = None
-    auth_policy: Optional[str] = None  # system_only, user_required
-    allowed_user_auth_modes: Optional[list] = None
-
-
-class ConnectionSchema(BaseModel):
-    id: str
-    name: str
-    type: str
-    is_active: bool
-    auth_policy: str
-    last_synced_at: Optional[str] = None
-    organization_id: str
-    table_count: int = 0
-    domain_count: int = 0
-
-    class Config:
-        from_attributes = True
-
-
-class ConnectionDetailSchema(BaseModel):
-    """Extended schema for editing - includes config but not credentials (never sent back)."""
-    id: str
-    name: str
-    type: str
-    is_active: bool
-    auth_policy: str
-    allowed_user_auth_modes: Optional[list] = None
-    config: dict  # Non-sensitive connection parameters
-    last_synced_at: Optional[str] = None
-    organization_id: str
-    table_count: int = 0
-    domain_count: int = 0
-    has_credentials: bool = False  # Whether system credentials are set
-
-    class Config:
-        from_attributes = True
-
-
-class ConnectionTableSchema(BaseModel):
-    id: str
-    name: str
-    column_count: int = 0
-    
-    class Config:
-        from_attributes = True
-
-
-class ConnectionTestResult(BaseModel):
-    success: bool
-    message: str
-    connectivity: bool = False
-    schema_access: bool = False
-    table_count: int = 0
 
 
 # ==================== Routes ====================
