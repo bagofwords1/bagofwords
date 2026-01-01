@@ -620,6 +620,7 @@ import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionLabelFormModal from '~/components/InstructionLabelFormModal.vue'
 import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
+import { useDomain } from '~/composables/useDomain'
 
 // Define interfaces
 interface DataSource {
@@ -667,6 +668,7 @@ const emit = defineEmits(['instructionSaved', 'cancel', 'toggle-analyze', 'updat
 
 // Reactive state
 const toast = useToast()
+const { selectedDomains: domainSelectedDomains, isAllDomains: isDomainAllSelected } = useDomain()
 const isSubmitting = ref(false)
 const isDeleting = ref(false)
 const isEnhancing = ref(false)
@@ -1053,7 +1055,12 @@ const resetForm = () => {
         can_user_toggle: true,
         load_mode: 'always'
     }
-    selectedDataSources.value = []
+    // Use domain selection as initial scope for new instructions
+    if (!isDomainAllSelected.value && domainSelectedDomains.value.length > 0) {
+        selectedDataSources.value = [...domainSelectedDomains.value]
+    } else {
+        selectedDataSources.value = []
+    }
     selectedReferences.value = []
     selectedLabelIds.value = []
     isSubmitting.value = false

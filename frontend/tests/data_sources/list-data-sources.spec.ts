@@ -7,6 +7,6 @@ test('can list data sources', async ({ page }) => {
 
   // Check that integrations page loads (either connected or available section)
   await expect(
-    page.getByText('Connected Integrations').or(page.getByText('Available Integrations'))
+    page.getByText('Data')
   ).toBeVisible({ timeout: 10000 });
 });

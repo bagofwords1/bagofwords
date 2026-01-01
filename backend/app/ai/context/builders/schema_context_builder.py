@@ -284,7 +284,8 @@ class SchemaContextBuilder:
                     info=DataSourceSummarySchema(
                         id=str(ds.id),
                         name=ds.name,
-                        type=ds.connections[0].type if ds.connections else None,
+                        # Support both Pydantic schemas (ds.type) and ORM objects (ds.connections[0].type)
+                        type=getattr(ds, 'type', None) or (ds.connections[0].type if getattr(ds, 'connections', None) else None),
                         # Prefer the richer human-written description when available; fallback to context
                         context=(getattr(ds, 'description', None) or getattr(ds, 'context', None)),
                     ),
