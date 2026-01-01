@@ -884,8 +884,23 @@ class InstructionService:
                 failed_ids.append(req_id)
         
         # Fetch labels if needed
+        labels_to_set = None  # None means no change, empty list means clear labels
         labels_to_add = []
         labels_to_remove_ids = set()
+        
+        if bulk_update.set_label_ids is not None:  # Empty list is valid (= clear labels)
+            if bulk_update.set_label_ids:
+                label_result = await db.execute(
+                    select(InstructionLabel).where(
+                        and_(
+                            InstructionLabel.id.in_(bulk_update.set_label_ids),
+                            InstructionLabel.organization_id == organization.id
+                        )
+                    )
+                )
+                labels_to_set = label_result.scalars().all()
+            else:
+                labels_to_set = []  # Clear all labels
         
         if bulk_update.add_label_ids:
             label_result = await db.execute(
@@ -946,30 +961,38 @@ class InstructionService:
             logger.warning(f"Failed to create bulk update build: {build_error}")
         
         # Track instructions that were actually modified for versioning
+        # Only content changes (status, load_mode, data_sources) trigger builds
+        # Label changes are metadata only - no build needed
         modified_instructions = []
         
         # Apply updates
         for instruction in instructions:
             try:
-                modified = False
+                content_modified = False  # Changes that need builds (status, load_mode, data_sources)
+                metadata_modified = False  # Changes that don't need builds (labels)
                 
-                # Update status (simplified - no dual-status handling)
+                # Update status (simplified - no dual-status handling) - CONTENT CHANGE
                 if bulk_update.status:
                     instruction.status = bulk_update.status
-                    modified = True
+                    content_modified = True
                 
-                # Update load mode
+                # Update load mode - CONTENT CHANGE
                 if bulk_update.load_mode:
                     instruction.load_mode = bulk_update.load_mode
-                    modified = True
+                    content_modified = True
                 
-                # Add labels
+                # Set labels (replace all) - METADATA ONLY, no build
+                if labels_to_set is not None:
+                    instruction.labels = list(labels_to_set)
+                    metadata_modified = True
+                
+                # Add labels - METADATA ONLY, no build
                 for label in labels_to_add:
                     if label not in instruction.labels:
                         instruction.labels.append(label)
-                        modified = True
+                        metadata_modified = True
                 
-                # Remove labels
+                # Remove labels - METADATA ONLY, no build
                 if labels_to_remove_ids:
                     original_count = len(instruction.labels)
                     instruction.labels = [
@@ -977,20 +1000,20 @@ class InstructionService:
                         if str(lbl.id) not in labels_to_remove_ids
                     ]
                     if len(instruction.labels) != original_count:
-                        modified = True
+                        metadata_modified = True
                 
-                # Set data sources (replace all)
+                # Set data sources (replace all) - CONTENT CHANGE
                 if data_sources_to_set is not None:
                     instruction.data_sources = list(data_sources_to_set)
-                    modified = True
+                    content_modified = True
                 
-                # Add data sources
+                # Add data sources - CONTENT CHANGE
                 for ds in data_sources_to_add:
                     if ds not in instruction.data_sources:
                         instruction.data_sources.append(ds)
-                        modified = True
+                        content_modified = True
                 
-                # Remove data sources
+                # Remove data sources - CONTENT CHANGE
                 if data_sources_to_remove_ids:
                     original_count = len(instruction.data_sources)
                     instruction.data_sources = [
@@ -998,12 +1021,15 @@ class InstructionService:
                         if str(ds.id) not in data_sources_to_remove_ids
                     ]
                     if len(instruction.data_sources) != original_count:
-                        modified = True
+                        content_modified = True
                 
-                if modified:
+                # Only track for build if content was modified
+                if content_modified:
                     modified_instructions.append(instruction)
                 
-                updated_count += 1
+                # Count as updated if anything changed
+                if content_modified or metadata_modified:
+                    updated_count += 1
             except Exception as e:
                 failed_ids.append(str(instruction.id))
         

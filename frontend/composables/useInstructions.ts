@@ -366,6 +366,10 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
   const bulkAddDataSource = (dataSourceId: string) => bulkUpdate({ add_data_source_ids: [dataSourceId] })
   const bulkRemoveDataSource = (dataSourceId: string) => bulkUpdate({ remove_data_source_ids: [dataSourceId] })
   const bulkClearDataSources = () => bulkUpdate({ set_data_source_ids: [] })  // Make global
+  
+  // Bulk label methods
+  const bulkSetLabels = (labelIds: string[]) => bulkUpdate({ set_label_ids: labelIds })
+  const bulkClearLabels = () => bulkUpdate({ set_label_ids: [] })  // Clear all labels
 
   // Bulk delete
   const bulkDelete = async () => {
@@ -434,11 +438,11 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     }
   }
 
-  // Watch for dataSourceId changes
-  watch(resolvedDataSourceId, () => {
+  // Watch for dataSourceIds changes (supports multi-select domain filtering)
+  watch(resolvedDataSourceIds, () => {
     currentPage.value = 1
     fetchInstructions()
-  })
+  }, { deep: true })
 
   // Initialize
   if (persistFiltersInUrl) {
@@ -502,6 +506,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     bulkAddDataSource,
     bulkRemoveDataSource,
     bulkClearDataSources,
+    bulkSetLabels,
+    bulkClearLabels,
     bulkDelete
   }
 }

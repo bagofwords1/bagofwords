@@ -120,6 +120,7 @@ class InstructionBulkUpdate(BaseModel):
     # Updates to apply to all selected instructions
     status: Optional[str] = None  # 'draft' | 'published' | 'archived'
     load_mode: Optional[str] = None  # 'always' | 'intelligent' | 'disabled'
+    set_label_ids: Optional[List[str]] = None  # Replace all labels (empty list = clear labels)
     add_label_ids: Optional[List[str]] = None  # Labels to add
     remove_label_ids: Optional[List[str]] = None  # Labels to remove
     
