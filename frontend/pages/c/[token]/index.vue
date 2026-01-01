@@ -1,13 +1,13 @@
 <template>
-    <div class="min-h-screen bg-white">
+    <div class="h-screen w-full bg-white flex flex-col overflow-hidden">
         <!-- Loading state -->
-        <div v-if="isLoading" class="h-screen w-full flex items-center justify-center text-gray-500">
+        <div v-if="isLoading" class="flex-1 flex items-center justify-center text-gray-500">
             <Spinner class="w-5 h-5 mr-2" />
             <span class="text-sm">Loading conversation…</span>
         </div>
 
         <!-- Error state -->
-        <div v-else-if="error" class="h-screen w-full flex items-center justify-center">
+        <div v-else-if="error" class="flex-1 flex items-center justify-center">
             <div class="text-center">
                 <Icon name="heroicons:exclamation-circle" class="w-12 h-12 text-gray-300 mx-auto mb-4" />
                 <h1 class="text-lg font-medium text-gray-700">Conversation not found</h1>
@@ -16,9 +16,9 @@
         </div>
 
         <!-- Conversation content -->
-        <div v-else>
+        <template v-else>
             <!-- Minimal header -->
-            <header class="border-b border-gray-100 py-5 px-4">
+            <header class="flex-none border-b border-gray-100 py-5 px-4 bg-white z-10">
                 <div class="max-w-2xl mx-auto">
                     <h1 class="text-base font-medium text-gray-900">{{ conversation.title || 'Untitled' }}</h1>
                     <p class="text-xs text-gray-400 mt-1">by {{ conversation.user_name }} · {{ formatDate(conversation.created_at) }}</p>
@@ -28,7 +28,7 @@
             <!-- Messages -->
             <div 
                 ref="messagesContainer"
-                class="max-w-2xl mx-auto py-6 px-4 max-h-[calc(100vh-140px)] overflow-y-auto"
+                class="flex-1 overflow-y-auto py-6 px-4"
                 @scroll="handleScroll"
             >
                 <!-- Loading more indicator -->
@@ -47,7 +47,7 @@
                     </button>
                 </div>
                 
-                <ul class="space-y-4">
+                <ul class="max-w-2xl mx-auto space-y-4">
                     <li v-for="m in conversation.completions" :key="m.id" class="text-gray-700 text-sm">
                         <div class="flex rounded-lg p-1" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
                             <!-- User message (right-aligned bubble) -->
@@ -159,12 +159,12 @@
             </div>
 
             <!-- Footer -->
-            <footer class="border-t border-gray-100 py-6 text-center">
-                <a href="https://bagofwords.com" target="_blank" class="text-xs text-gray-400 hover:text-gray-600 transition-colors">
-                    Powered by <span class="font-medium">Bag of Words</span>
+            <footer class="flex-none border-t border-gray-100 py-2 text-center bg-white z-10">
+                <a href="https://bagofwords.com" target="_blank" class="text-[10px] text-gray-300 hover:text-gray-400 transition-colors">
+                    Powered by Bag of Words
                 </a>
             </footer>
-        </div>
+        </template>
     </div>
 </template>
 
@@ -317,8 +317,8 @@ async function loadConversation() {
         }
         
         conversation.value = data.value
-        hasMore.value = data.value.has_more || false
-        nextBefore.value = data.value.next_before || null
+        hasMore.value = (data.value as any).has_more || false
+        nextBefore.value = (data.value as any).next_before || null
         
         // Auto-collapse reasoning for blocks that have content
         for (const completion of conversation.value.completions || []) {
@@ -333,6 +333,22 @@ async function loadConversation() {
         error.value = true
     } finally {
         isLoading.value = false
+        
+        // Scroll to bottom after DOM renders (must be after isLoading = false)
+        await nextTick()
+        // Use a slightly longer timeout and requestAnimationFrame to ensure layout is stable
+        setTimeout(() => {
+            requestAnimationFrame(() => {
+                scrollToBottom()
+            })
+        }, 100)
+    }
+}
+
+function scrollToBottom() {
+    const container = messagesContainer.value
+    if (container) {
+        container.scrollTop = container.scrollHeight
     }
 }
 
@@ -353,11 +369,11 @@ async function loadPreviousCompletions() {
         const scrollHeightBefore = container?.scrollHeight || 0
         
         // Prepend older completions
-        const olderCompletions = data.value.completions || []
+        const olderCompletions = (data.value as any).completions || []
         conversation.value.completions = [...olderCompletions, ...conversation.value.completions]
         
-        hasMore.value = data.value.has_more || false
-        nextBefore.value = data.value.next_before || null
+        hasMore.value = (data.value as any).has_more || false
+        nextBefore.value = (data.value as any).next_before || null
         
         // Auto-collapse reasoning for new blocks
         for (const completion of olderCompletions) {
