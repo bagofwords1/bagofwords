@@ -49,23 +49,18 @@ def test_schema_refresh_discovers_new_tables(
     conn.commit()
     conn.close()
 
-    # 4. Refresh schema
-    refresh_schema(
+    # 4. Refresh schema - returns all discovered tables including inactive
+    refreshed_tables = refresh_schema(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
 
-    # 5. Verify new table is discovered
-    updated_schema = get_schema(
-        data_source_id=domain["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
-    updated_table_names = {t["name"] for t in updated_schema}
+    # 5. Verify new table is discovered (refresh_schema returns all tables including inactive)
+    refreshed_table_names = {t["name"] for t in refreshed_tables}
 
-    assert "products" in updated_table_names
-    assert len(updated_schema) == initial_count + 1
+    assert "products" in refreshed_table_names, f"Expected 'products' in {refreshed_table_names}"
+    assert len(refreshed_tables) == initial_count + 1
 
     # Cleanup
     delete_data_source(
@@ -217,26 +212,21 @@ def test_schema_refresh_updates_column_changes(
     conn.commit()
     conn.close()
 
-    # 5. Refresh schema
-    refresh_schema(
+    # 5. Refresh schema - returns all tables with updated columns
+    refreshed_tables = refresh_schema(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
 
-    # 6. Verify new column is detected
-    updated_schema = get_schema(
-        data_source_id=domain["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
-    users_table_updated = next((t for t in updated_schema if t["name"] == "users"), None)
-    assert users_table_updated is not None
+    # 6. Verify new column is detected (check refresh return directly)
+    users_table_updated = next((t for t in refreshed_tables if t["name"] == "users"), None)
+    assert users_table_updated is not None, f"users table not found in {[t['name'] for t in refreshed_tables]}"
     updated_column_count = len(users_table_updated.get("columns", []))
 
-    assert updated_column_count == initial_column_count + 1
+    assert updated_column_count == initial_column_count + 1, f"Expected {initial_column_count + 1} columns, got {updated_column_count}"
     column_names = {c["name"] for c in users_table_updated.get("columns", [])}
-    assert "email" in column_names
+    assert "email" in column_names, f"Expected 'email' in {column_names}"
 
     # Cleanup
     delete_data_source(
@@ -384,22 +374,16 @@ def test_schema_refresh_with_empty_database(
     conn.commit()
     conn.close()
 
-    # 4. Refresh schema
-    refresh_schema(
+    # 4. Refresh schema - returns all discovered tables including inactive
+    refreshed_tables = refresh_schema(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
 
-    # 5. Verify table is discovered
-    updated_schema = get_schema(
-        data_source_id=domain["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
-
-    assert len(updated_schema) == 1
-    assert updated_schema[0]["name"] == "first_table"
+    # 5. Verify table is discovered (check refresh return directly)
+    assert len(refreshed_tables) == 1, f"Expected 1 table, got {len(refreshed_tables)}: {[t.get('name') for t in refreshed_tables]}"
+    assert refreshed_tables[0]["name"] == "first_table"
 
     # Cleanup
     delete_data_source(
@@ -480,23 +464,18 @@ def test_connection_schema_sync_to_domains(
         org_id=org_id,
     )
 
-    # 7. Refresh domain schema
-    refresh_schema(
+    # 7. Refresh domain schema - returns all tables including inactive
+    refreshed_tables = refresh_schema(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
 
-    # 8. Verify domain has the new table
-    updated_schema = get_schema(
-        data_source_id=domain["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
-    updated_names = {t["name"] for t in updated_schema}
+    # 8. Verify domain has the new table (check refresh return directly)
+    refreshed_names = {t["name"] for t in refreshed_tables}
 
-    assert "new_table" in updated_names
-    assert len(updated_schema) == initial_count + 1
+    assert "new_table" in refreshed_names, f"Expected 'new_table' in {refreshed_names}"
+    assert len(refreshed_tables) == initial_count + 1
 
     # Cleanup
     delete_data_source(

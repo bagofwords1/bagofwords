@@ -1,5 +1,6 @@
 """End-to-end tests for MCP (Model Context Protocol) API routes."""
 
+import json
 import pytest
 from pathlib import Path
 
@@ -633,9 +634,8 @@ def test_mcp_get_context(
 
     # Extract report_id from the response
     report_result_text = report_response.json()["result"]["content"][0]["text"]
-    # Parse the report_id from the string representation
-    import ast
-    report_result = ast.literal_eval(report_result_text)
+    # Parse the report_id from the JSON response
+    report_result = json.loads(report_result_text)
     report_id = report_result["report_id"]
 
     # Call get_context
@@ -700,9 +700,8 @@ def test_mcp_get_context_with_patterns(
     assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
 
     # Extract report_id
-    import ast
     report_result_text = report_response.json()["result"]["content"][0]["text"]
-    report_result = ast.literal_eval(report_result_text)
+    report_result = json.loads(report_result_text)
     report_id = report_result["report_id"]
 
     # Call get_context with pattern filter
@@ -766,9 +765,8 @@ def test_mcp_inspect_data_no_llm(
     assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
 
     # Extract report_id
-    import ast
     report_result_text = report_response.json()["result"]["content"][0]["text"]
-    report_result = ast.literal_eval(report_result_text)
+    report_result = json.loads(report_result_text)
     report_id = report_result["report_id"]
 
     # Call inspect_data - should fail due to no LLM
@@ -836,9 +834,8 @@ def test_mcp_create_data_no_llm(
     assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
 
     # Extract report_id
-    import ast
     report_result_text = report_response.json()["result"]["content"][0]["text"]
-    report_result = ast.literal_eval(report_result_text)
+    report_result = json.loads(report_result_text)
     report_id = report_result["report_id"]
 
     # Call create_data - should fail due to no LLM

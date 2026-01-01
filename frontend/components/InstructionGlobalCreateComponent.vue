@@ -439,18 +439,19 @@ Examples:
                         <template #label>
                             <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">All sources</span>
                             <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">Sources</span>
-                            <span v-else class="text-xs text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
+                            <div v-else class="flex items-center gap-1 text-xs text-gray-700">
+                                <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" class="w-3 h-3" />
+                                <span class="truncate max-w-[100px]">{{ getSelectedDataSourceObjects[0]?.name }}</span>
+                                <span v-if="getSelectedDataSourceObjects.length > 1" class="text-gray-500">+{{ getSelectedDataSourceObjects.length - 1 }}</span>
+                            </div>
                         </template>
                         <template #option="{ option }">
-                            <div class="flex items-center justify-between w-full py-0.5 pr-1">
-                                <div class="flex items-center">
-                                    <div v-if="option.id === 'all'" class="flex -space-x-1 mr-1.5">
-                                        <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 w-3 border border-white rounded" />
-                                    </div>
-                                    <DataSourceIcon v-else :type="option.type" class="w-3 h-3 mr-1.5" />
-                                    <span class="text-xs">{{ option.name }}</span>
+                            <div class="flex items-center w-full py-0.5">
+                                <div v-if="option.id === 'all'" class="flex -space-x-1 mr-1.5">
+                                    <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 w-3 border border-white rounded" />
                                 </div>
-                                <UCheckbox :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(String(option.id))" @update:model-value="handleDataSourceToggle(String(option.id))" @click.stop class="flex-shrink-0 ml-1" />
+                                <DataSourceIcon v-else :type="option.type" class="w-3 h-3 mr-1.5" />
+                                <span class="text-xs">{{ option.name }}</span>
                             </div>
                         </template>
                     </USelectMenu>
@@ -467,19 +468,23 @@ Examples:
                         :model-value="selectedReferenceIds"
                         @update:model-value="handleReferencesChange"
                         class="min-w-[200px]"
+                        :ui-menu="{ width: 'w-96', option: { base: 'py-1.5' } }"
                     >
                         <template #label>
                             <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">Tables</span>
-                            <span v-else class="text-xs text-gray-700">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
+                            <div v-else class="flex items-center gap-1 text-xs text-gray-700">
+                                <Icon name="heroicons:table-cells" class="w-3 h-3 text-gray-500" />
+                                <span class="truncate max-w-[120px]">{{ selectedReferences[0].name }}</span>
+                                <span v-if="selectedReferences.length > 1" class="text-gray-500">+{{ selectedReferences.length - 1 }}</span>
+                            </div>
                         </template>
                         <template #option="{ option }">
                             <div class="w-full py-0.5">
                                 <div class="flex items-center gap-1.5">
-                                    <UCheckbox :model-value="selectedReferenceIds.includes(String(option.id))" @update:model-value="toggleReference(String(option.id))" @click.stop @mousedown.stop class="flex-shrink-0" />
                                     <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 text-gray-500 flex-shrink-0" />
-                                    <span class="text-xs font-medium text-gray-900 truncate">{{ option.name }}</span>
+                                    <span class="text-[11px] font-medium text-gray-900 break-all">{{ option.name }}</span>
                                 </div>
-                                <div class="flex items-center gap-1.5 ml-6">
+                                <div class="flex items-center gap-1">
                                     <DataSourceIcon :type="option.data_source_type" class="w-2.5 h-2.5 flex-shrink-0" />
                                     <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
                                 </div>

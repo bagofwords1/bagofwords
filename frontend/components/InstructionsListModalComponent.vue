@@ -57,6 +57,7 @@
                 <InstructionsTable
                     :instructions="inst.instructions.value"
                     :loading="inst.isLoading.value"
+                    :data-sources="allDataSources"
                     :selectable="false"
                     :compact="true"
                     :show-source="true"

@@ -230,11 +230,6 @@ class ConnectionService:
                 detail=f"Cannot delete connection that is linked to {len(connection.data_sources)} domain(s). Remove domain links first."
             )
 
-        # Delete user credentials and overlays
-        await db.execute(
-            select(UserConnectionCredentials)
-            .filter(UserConnectionCredentials.connection_id == connection_id)
-        )
         # Tables and credentials will cascade delete
 
         await db.delete(connection)

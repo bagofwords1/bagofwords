@@ -7,6 +7,7 @@ Authentication via Authorization: Bearer <api_key> or X-API-Key header.
 Organization is derived from the API key.
 """
 
+import json
 import logging
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
@@ -131,9 +132,9 @@ async def mcp_endpoint(
         tool = tool_class()
         try:
             result = await tool.execute(arguments, db, user, organization)
-            # MCP expects content array with type/text
+            # MCP expects content array with type/text - use JSON for proper serialization
             return JSONResponse(jsonrpc_response(request.id, {
-                "content": [{"type": "text", "text": str(result)}],
+                "content": [{"type": "text", "text": json.dumps(result)}],
                 "isError": False,
             }))
         except Exception as e:

@@ -229,7 +229,7 @@ class MentionService:
                         'columns': columns,
                         'is_active': getattr(table, 'is_active', True),
                         'data_source_name': ds.name,
-                        'data_source_type': ds.connections[0].type if ds.connections else None,
+                        'data_source_type': ds.type,  # ds is DataSourceListItemSchema which has type directly
                     })
             except HTTPException:
                 continue

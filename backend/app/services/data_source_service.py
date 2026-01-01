@@ -1022,13 +1022,7 @@ class DataSourceService:
             
             table_count = len(tables) if tables else 0
             
-            if table_count == 0:
-                return {
-                    "success": False,
-                    "message": "Connected but no tables found. Check schema name or permissions.",
-                    "table_count": 0,
-                }
-            
+            # Note: Empty databases are allowed - schema can be refreshed later when tables are added
             return {
                 "success": True,
                 "table_count": table_count,
@@ -1269,9 +1263,12 @@ class DataSourceService:
         client = await self.construct_client(db=db, data_source=data_source, current_user=current_user)
         try:
             schema = client.get_schemas()
-            if not schema:
+            # Empty list is valid (e.g., empty database) - only None indicates an error
+            if schema is None:
                 raise HTTPException(status_code=500, detail="No schema returned from data source")
             return schema
+        except HTTPException:
+            raise
         except Exception as e:
             print(f"Error getting data source schema: {e}")
             raise HTTPException(status_code=500, detail=f"Error getting data source schema: {e}")
@@ -1795,7 +1792,7 @@ class DataSourceService:
         - Deactivate missing tables (keep history)
         - If should_set_active and > ONBOARDING_MAX_TABLES, auto-select top tables via SQL
         """
-        from sqlalchemy import text
+        from sqlalchemy import text, update
         import json as json_module
         
         try:
@@ -1869,6 +1866,34 @@ class DataSourceService:
                         no_rows=table_data["no_rows"],
                     ))
                 await db.commit()
+
+            # Update existing tables with new column data
+            for name, payload in incoming.items():
+                if name in existing_names:
+                    table_id = existing_names[name]
+                    await db.execute(
+                        update(DataSourceTable)
+                        .where(DataSourceTable.id == table_id)
+                        .values(
+                            columns=payload["columns"],
+                            pks=payload["pks"],
+                            fks=payload["fks"],
+                            metadata_json=payload.get("metadata_json"),
+                        )
+                    )
+            
+            # Deactivate tables that no longer exist in fresh schema
+            missing_tables = set(existing_names.keys()) - set(incoming.keys())
+            if missing_tables:
+                for table_name in missing_tables:
+                    table_id = existing_names[table_name]
+                    await db.execute(
+                        update(DataSourceTable)
+                        .where(DataSourceTable.id == table_id)
+                        .values(is_active=False)
+                    )
+            
+            await db.commit()
 
             # If smart selection needed, use SQL to select top tables (onboarding limit)
             if needs_smart_selection:

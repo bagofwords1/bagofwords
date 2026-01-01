@@ -118,6 +118,7 @@
             <InstructionsTable
                 :instructions="inst.instructions.value"
                 :loading="inst.isLoading.value || inst.isBulkUpdating.value"
+                :data-sources="allDataSources"
                 :selectable="canUpdateInstructions"
                 :selected-ids="inst.selectedIds.value"
                 :is-all-page-selected="inst.isAllPageSelected.value"
