@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
+from app.schemas.data_source_schema import DataSourceReportSchema
 from app.services.widget_service import WidgetService
 from app.core.telemetry import telemetry
 from app.schemas.widget_schema import WidgetSchema
@@ -417,10 +418,11 @@ class ReportService:
         total_result = await db.execute(count_query)
         total = total_result.scalar()
         
-        # Get paginated results
+        # Get paginated results - load data_sources with connections to get type
         query = base_query.options(
             selectinload(Report.user), 
-            selectinload(Report.widgets)
+            selectinload(Report.widgets),
+            selectinload(Report.data_sources).selectinload(DataSource.connections)
         ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
         
         result = await db.execute(query)
@@ -431,6 +433,28 @@ class ReportService:
         for report in reports:
             report_schema = ReportSchema.from_orm(report)
             report_schema.user = UserSchema.from_orm(report.user)
+            
+            # Manually build data_sources with type computed from connection
+            report_schema.data_sources = [
+                DataSourceReportSchema(
+                    id=str(ds.id),
+                    name=ds.name,
+                    organization_id=str(ds.organization_id),
+                    created_at=ds.created_at,
+                    updated_at=ds.updated_at,
+                    context=ds.context,
+                    description=ds.description,
+                    summary=ds.summary,
+                    is_active=ds.is_active,
+                    is_public=ds.is_public,
+                    owner_user_id=str(ds.owner_user_id) if ds.owner_user_id else None,
+                    use_llm_sync=ds.use_llm_sync,
+                    # Compute type from first connection
+                    type=ds.connections[0].type if ds.connections else None,
+                )
+                for ds in (report.data_sources or [])
+            ]
+            
             report_schemas.append(report_schema)
 
         # Calculate pagination metadata
