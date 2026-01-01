@@ -90,6 +90,7 @@ const emit = defineEmits<{
     'load-disabled': []
     'add-label': [labelId: string]
     'remove-label': [labelId: string]
+    'open-scope-modal': []
     'delete': []
 }>()
 
@@ -111,6 +112,12 @@ const menuItems = computed(() => {
         { label: 'Always', icon: 'i-heroicons-arrow-path', click: () => emit('load-always') },
         { label: 'Smart', icon: 'i-heroicons-light-bulb', click: () => emit('load-intelligent') },
         { label: 'Disabled', icon: 'i-heroicons-x-circle', click: () => emit('load-disabled') },
+    ])
+    
+    // Scope section
+    items.push([
+        { label: 'Scope', header: true, disabled: true },
+        { label: 'Set Source...', icon: 'i-heroicons-server-stack', click: () => emit('open-scope-modal') },
     ])
     
     // Labels section (if labels exist)

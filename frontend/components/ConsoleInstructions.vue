@@ -91,6 +91,7 @@
                     @load-disabled="inst.bulkSetLoadDisabled"
                     @add-label="inst.bulkAddLabel"
                     @remove-label="inst.bulkRemoveLabel"
+                    @open-scope-modal="showBulkScopeModal = true"
                     @delete="handleBulkDelete"
                 />
 
@@ -171,6 +172,13 @@
             :git-repo-id="gitRepoId"
             @rollback="handleSuggestionsRollback"
         />
+
+        <BulkScopeModal
+            v-model="showBulkScopeModal"
+            :data-sources="allDataSources"
+            @set-scope="inst.bulkSetDataSources"
+            @clear-scope="inst.bulkClearDataSources"
+        />
     </div>
 </template>
 
@@ -183,6 +191,7 @@ import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import InstructionsFilterBar from '~/components/instructions/InstructionsFilterBar.vue'
 import InstructionsBulkBar from '~/components/instructions/InstructionsBulkBar.vue'
+import BulkScopeModal from '~/components/instructions/BulkScopeModal.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
 import { useCan } from '~/composables/usePermissions'
@@ -219,6 +228,7 @@ const showLabelsManagerModal = ref(false)
 const showLearningSettingsModal = ref(false)
 const showGitRepositoriesModal = ref(false)
 const showSuggestionsModal = ref(false)
+const showBulkScopeModal = ref(false)
 const pendingSuggestionCount = ref(0)
 
 // Git connection status

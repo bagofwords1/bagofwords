@@ -455,8 +455,7 @@ class InstructionService:
         return await self._execute_instructions_query(
             db, organization, conditions, status, categories, skip, limit,
             data_source_ids, source_types, load_modes, label_ids, search,
-            build_id=build_id,
-            include_global=include_global
+            build_id=build_id, include_global=include_global
         )
 
     async def get_available_source_types(
@@ -902,6 +901,39 @@ class InstructionService:
         if bulk_update.remove_label_ids:
             labels_to_remove_ids = set(bulk_update.remove_label_ids)
         
+        # Fetch data sources if needed for scope updates
+        data_sources_to_set = None  # None means no change, empty list means make global
+        data_sources_to_add = []
+        data_sources_to_remove_ids = set()
+        
+        if bulk_update.set_data_source_ids is not None:  # Empty list is valid (= make global)
+            if bulk_update.set_data_source_ids:
+                ds_result = await db.execute(
+                    select(DataSource).where(
+                        and_(
+                            DataSource.id.in_(bulk_update.set_data_source_ids),
+                            DataSource.organization_id == organization.id
+                        )
+                    )
+                )
+                data_sources_to_set = ds_result.scalars().all()
+            else:
+                data_sources_to_set = []  # Clear all = make global
+        
+        if bulk_update.add_data_source_ids:
+            ds_result = await db.execute(
+                select(DataSource).where(
+                    and_(
+                        DataSource.id.in_(bulk_update.add_data_source_ids),
+                        DataSource.organization_id == organization.id
+                    )
+                )
+            )
+            data_sources_to_add = ds_result.scalars().all()
+        
+        if bulk_update.remove_data_source_ids:
+            data_sources_to_remove_ids = set(bulk_update.remove_data_source_ids)
+        
         # === Build System Integration ===
         # Create a single build for all bulk updates
         bulk_build = None
@@ -945,6 +977,27 @@ class InstructionService:
                         if str(lbl.id) not in labels_to_remove_ids
                     ]
                     if len(instruction.labels) != original_count:
+                        modified = True
+                
+                # Set data sources (replace all)
+                if data_sources_to_set is not None:
+                    instruction.data_sources = list(data_sources_to_set)
+                    modified = True
+                
+                # Add data sources
+                for ds in data_sources_to_add:
+                    if ds not in instruction.data_sources:
+                        instruction.data_sources.append(ds)
+                        modified = True
+                
+                # Remove data sources
+                if data_sources_to_remove_ids:
+                    original_count = len(instruction.data_sources)
+                    instruction.data_sources = [
+                        ds for ds in instruction.data_sources 
+                        if str(ds.id) not in data_sources_to_remove_ids
+                    ]
+                    if len(instruction.data_sources) != original_count:
                         modified = True
                 
                 if modified:
@@ -1476,16 +1529,16 @@ class InstructionService:
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
         if data_source_ids:
+            # Filter by any of the specified domain IDs (OR logic)
             if include_global:
-                # Filter by specified domain IDs OR global (no data sources assigned)
+                # Include instructions that match the data sources OR have no data sources (global)
                 filter_conditions.append(
                     or_(
                         Instruction.data_sources.any(DataSource.id.in_(data_source_ids)),
-                        ~Instruction.data_sources.any()  # Include global instructions
+                        ~Instruction.data_sources.any()  # No data sources = global
                     )
                 )
             else:
-                # Filter by any of the specified domain IDs only
                 filter_conditions.append(Instruction.data_sources.any(DataSource.id.in_(data_source_ids)))
         if source_types:
             # Build source type filter conditions

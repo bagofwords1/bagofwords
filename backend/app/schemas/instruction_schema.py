@@ -122,6 +122,11 @@ class InstructionBulkUpdate(BaseModel):
     load_mode: Optional[str] = None  # 'always' | 'intelligent' | 'disabled'
     add_label_ids: Optional[List[str]] = None  # Labels to add
     remove_label_ids: Optional[List[str]] = None  # Labels to remove
+    
+    # Data source (scope) operations
+    set_data_source_ids: Optional[List[str]] = None  # Replace all data sources (empty list = make global)
+    add_data_source_ids: Optional[List[str]] = None  # Add these data sources
+    remove_data_source_ids: Optional[List[str]] = None  # Remove these data sources
 
 
 class InstructionBulkDelete(BaseModel):

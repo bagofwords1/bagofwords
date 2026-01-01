@@ -22,7 +22,6 @@ export interface InstructionFilters {
   dataSourceId: string | null  // Single ID (deprecated, for backward compat)
   dataSourceIds: string[]  // Multiple domain IDs
   buildId: string | null
-  includeGlobal: boolean  // Include global instructions when filtering by data sources
 }
 
 export interface PaginatedResponse {
@@ -69,8 +68,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     labelIds: [],
     dataSourceId: null,
     dataSourceIds: [],
-    buildId: null,
-    includeGlobal: true  // Default to including global instructions
+    buildId: null
   })
 
   // Selection state
@@ -175,8 +173,6 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
       if (filters.labelIds.length) queryParams.label_ids = filters.labelIds.join(',')
       if (filters.search?.trim()) queryParams.search = filters.search.trim()
       if (filters.buildId) queryParams.build_id = filters.buildId
-      // Include global instructions flag (default true on backend, only pass if false)
-      if (!filters.includeGlobal) queryParams.include_global = false
 
       const { data, error: fetchError } = await useMyFetch<PaginatedResponse>('/api/instructions', {
         method: 'GET',
@@ -364,6 +360,12 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
   const bulkSetLoadDisabled = () => bulkUpdate({ load_mode: 'disabled' })
   const bulkAddLabel = (labelId: string) => bulkUpdate({ add_label_ids: [labelId] })
   const bulkRemoveLabel = (labelId: string) => bulkUpdate({ remove_label_ids: [labelId] })
+  
+  // Bulk scope (data source) methods
+  const bulkSetDataSources = (dataSourceIds: string[]) => bulkUpdate({ set_data_source_ids: dataSourceIds })
+  const bulkAddDataSource = (dataSourceId: string) => bulkUpdate({ add_data_source_ids: [dataSourceId] })
+  const bulkRemoveDataSource = (dataSourceId: string) => bulkUpdate({ remove_data_source_ids: [dataSourceId] })
+  const bulkClearDataSources = () => bulkUpdate({ set_data_source_ids: [] })  // Make global
 
   // Bulk delete
   const bulkDelete = async () => {
@@ -496,6 +498,10 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     bulkSetLoadDisabled,
     bulkAddLabel,
     bulkRemoveLabel,
+    bulkSetDataSources,
+    bulkAddDataSource,
+    bulkRemoveDataSource,
+    bulkClearDataSources,
     bulkDelete
   }
 }
