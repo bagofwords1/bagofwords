@@ -7,7 +7,7 @@
           <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 mr-1.5 text-gray-500" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
           <button
-            v-if="queryId && canEditCode"
+            v-if="queryId && canEditCode && !readonly"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
             title="Edit query code"
@@ -134,7 +134,7 @@
                 <div class="relative">
                   <!-- Edit button top right -->
                   <button
-                    v-if="queryId && canEditCode"
+                    v-if="queryId && canEditCode && !readonly"
                     @click="onEditClick"
                     class="absolute top-2 right-2 z-10 text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
                     title="Edit code"
@@ -184,8 +184,8 @@
           </div>
         </template>
 
-        <!-- Bottom Action Buttons -->
-        <div class="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
+        <!-- Bottom Action Buttons (hidden in readonly mode) -->
+        <div v-if="!readonly" class="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
           <div class="flex items-center space-x-2">
             <button
               v-if="!isPublished"
@@ -268,7 +268,10 @@ interface ToolExecution {
   created_visualizations?: Array<{ id: string; title?: string; status?: string; report_id?: string; query_id?: string; view?: Record<string, any> }>
 }
 
-const props = defineProps<{ toolExecution: ToolExecution }>()
+const props = defineProps<{ 
+  toolExecution: ToolExecution
+  readonly?: boolean
+}>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
 const { canEditCode } = useOrgSettings()
@@ -289,7 +292,26 @@ const attemptsExpanded = ref(false)
 const activeTab = ref<'chart' | 'table' | 'code'>('chart')
 
 const widget = computed(() => props.toolExecution?.created_widget || null)
-const step = computed(() => props.toolExecution?.created_step || null)
+const step = computed(() => {
+  // First try created_step
+  if (props.toolExecution?.created_step) {
+    return props.toolExecution.created_step
+  }
+  // Fallback: build synthetic step from result_json (for public/readonly views)
+  const rj = props.toolExecution?.result_json as any
+  if (rj?.data?.rows || rj?.data?.columns) {
+    return {
+      id: props.toolExecution?.created_step_id || `step-${props.toolExecution?.id || 'preview'}`,
+      title: rj?.title || rj?.widget_title || 'Results',
+      code: rj?.code || '',
+      data: rj?.data || {},
+      data_model: rj?.data_model || { type: 'table' },
+      view: rj?.view || null,
+      status: 'success',
+    }
+  }
+  return null
+})
 const stepOverride = ref<any | null>(null)
 const effectiveStep = computed(() => stepOverride.value || step.value)
 const hydratedVisualization = ref<any | null>(null)
@@ -298,6 +320,16 @@ const visualization = computed(() => {
   if (hydratedVisualization.value) return hydratedVisualization.value
   const list = (props.toolExecution as any)?.created_visualizations
   if (Array.isArray(list) && list.length) return list[0]
+  // Fallback: build synthetic visualization from result_json (for public/readonly views)
+  const rj = props.toolExecution?.result_json as any
+  if (rj?.view || rj?.data_model) {
+    return {
+      id: `viz-${props.toolExecution?.id || 'preview'}`,
+      title: rj?.title || rj?.widget_title || 'Results',
+      view: rj?.view || { type: rj?.data_model?.type || 'table' },
+      status: 'success',
+    }
+  }
   return null
 })
 

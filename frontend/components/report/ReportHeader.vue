@@ -17,7 +17,8 @@
                 <span v-else></span>
             </span>
         </h1>
-        <div class="ml-auto flex items-center gap-1">
+        <div class="ml-auto flex items-center gap-2">
+            <ShareConversationModal v-if="report" :report="report" />
             <button @click="$emit('toggleSplitScreen')" class="p-1.5 rounded text-xl hover:bg-gray-100 flex items-center">
                 <span class="inline-flex items-center">
                     <Icon name="heroicons:chart-pie" class="inline-block mr-2" />
@@ -31,7 +32,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
-import ShareModal from '@/components/ShareModal.vue'
+import ShareConversationModal from '@/components/ShareConversationModal.vue'
 
 const props = defineProps<{ 
     report: any | null,

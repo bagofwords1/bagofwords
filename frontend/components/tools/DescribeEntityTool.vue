@@ -103,6 +103,7 @@
     <div v-if="isActionMode && hasPreview" class="mt-2">
       <ToolWidgetPreview 
         :tool-execution="enhancedToolExecution" 
+        :readonly="readonly"
         @addWidget="onAddWidget" 
         @toggleSplitScreen="$emit('toggleSplitScreen')" 
         @editQuery="$emit('editQuery', $event)" 
@@ -134,7 +135,7 @@ interface Props {
   toolExecution: ToolExecution
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props & { readonly?: boolean }>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
 // Collapsed state

@@ -84,14 +84,14 @@
         </button>
       </UTooltip>
 
-      <ShareModal :report="report" />
+      <PublishModal :report="report" />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import CronModal from '../CronModal.vue'
-import ShareModal from '../ShareModal.vue'
+import PublishModal from '../PublishModal.vue'
 import FilterBuilder from './FilterBuilder.vue'
 import { computed, ref } from 'vue'
 

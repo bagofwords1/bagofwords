@@ -38,7 +38,7 @@
                 <button
                   class="absolute top-2 right-2 px-2 py-1 text-xs rounded border border-gray-300 bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-800"
                   :disabled="!canOpenEditor"
-                  v-if="canOpenEditor"
+                  v-if="canOpenEditor && !readonly"
                   @click.stop="openEditor"
                 >
                   Edit code
@@ -67,7 +67,7 @@
 
     <!-- Results Preview - only show if not failed -->
     <div class="mt-2" v-if="hasPreview && status !== 'error'">
-      <ToolWidgetPreview :tool-execution="toolExecution" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
+      <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
     </div>
   </div>
   <QueryCodeEditorModal
@@ -115,7 +115,7 @@ interface Props {
   }
 }
 
-const props = defineProps<Props>()
+const props = defineProps<Props & { readonly?: boolean }>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
 
 const codeCollapsed = ref(false)

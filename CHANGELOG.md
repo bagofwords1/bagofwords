@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.290 (January 1, 2026)
+- Happy new year!
+- Added: domains
+- Share report conversation
+
 ## Version 0.0.288 (December 26, 2025)
 - UI improvements: eval, build ID
 - Added modal to manage test suites

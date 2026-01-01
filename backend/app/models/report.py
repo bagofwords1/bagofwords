@@ -19,6 +19,10 @@ class Report(BaseSchema):
     
     #privacy = Column(String, nullable=False, default='private') # private, internal, public
     cron_schedule = Column(String, nullable=True)
+    
+    # Conversation sharing (separate from dashboard publishing)
+    conversation_share_token = Column(String, nullable=True, unique=True, index=True)
+    conversation_share_enabled = Column(Boolean, default=False, nullable=False)
 
     user_id = Column(String(36), ForeignKey('users.id'), nullable=False, index=True)
     user = relationship("User", back_populates="reports", lazy="selectin")

@@ -1,24 +1,24 @@
 <template>
-    <UTooltip text="Share">
-        <button @click="shareModalOpen = true"
+    <UTooltip text="Publish">
+        <button @click="publishModalOpen = true"
             class="text-sm items-center flex gap-1 hover:bg-gray-100 px-2 py-1 rounded border border-gray-200 bg-cyan-100 text-cyan-700">
-            <Icon name="heroicons:arrow-down-tray" />
-            <span class="text-sm">Share</span>
+            <Icon name="heroicons:globe-alt" />
+            <span class="text-sm">Publish</span>
         </button>
     </UTooltip>
 
 
-    <UModal v-model="shareModalOpen">
+    <UModal v-model="publishModalOpen">
         <div class="p-4 relative">
-            <button @click="shareModalOpen = false"
+            <button @click="publishModalOpen = false"
                 class="absolute top-2 right-2 text-gray-500 hover:text-gray-700 outline-none">
                 <Icon name="heroicons:x-mark" class="w-5 h-5" />
             </button>
-            <h1 class="text-lg font-semibold">Share</h1>
-            <p class="text-sm text-gray-500">Share this report with others</p>
+            <h1 class="text-lg font-semibold">Publish Dashboard</h1>
+            <p class="text-sm text-gray-500">Make this dashboard publicly accessible</p>
             <hr class="my-4" />
             <div class="flex flex-row items-center text-sm">
-                Allow public access to this report
+                Allow public access to this dashboard
                 <UToggle color="sky" :model-value="isPublished" class="ml-2" @update:model-value="publishReport" />
             </div>
             <div class="flex flex-col mt-4 text-sm" v-if="isPublished">
@@ -35,14 +35,14 @@
                         </span>
                     </button>
                 </div>
-                <div v-if="isPublished"class="mt-4 font-normal">
+                <div v-if="isPublished" class="mt-4 font-normal">
                     <a :href="reportUrl" target="_blank" class="text-blue-500 hover:underline">
                         <Icon name="heroicons:arrow-top-right-on-square" />
-                        View report</a>
+                        View dashboard</a>
                 </div>
             </div>
             <div class="border-t border-gray-200 pt-4 mt-8">
-                <button @click="shareModalOpen = false"
+                <button @click="publishModalOpen = false"
                     class="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-xs hover:bg-gray-100">Close</button>
             </div>
         </div>
@@ -50,7 +50,7 @@
 </template>
 
 <script lang="ts" setup>
-const shareModalOpen = ref(false);
+const publishModalOpen = ref(false);
 const toast = useToast();
 const props = defineProps<{
     report: any
@@ -58,7 +58,6 @@ const props = defineProps<{
 
 const report = ref(props.report);
 const reportUrl = computed(() => `${window.location.origin}/r/${report.value.id}`);
-// set report to published
 
 const isPublished = computed(() => report.value.status === 'published');
 
@@ -67,18 +66,17 @@ const publishReport = async (newValue: boolean) => {
         method: 'POST',
     })
     if (response.status.value === 'success') {
-
         report.value.status = newValue ? 'published' : 'draft';
         toast.add({
-            title: 'Report published',
-            description: `Your report is now ${newValue ? 'public' : 'private'}`,
+            title: 'Dashboard published',
+            description: `Your dashboard is now ${newValue ? 'public' : 'private'}`,
             color: 'green',
         })
     }
     else {
         toast.add({
             title: 'Error',
-            description: 'Failed to publish report',
+            description: 'Failed to publish dashboard',
             color: 'red',
         })
     }
@@ -91,7 +89,8 @@ const copyReportUrl = () => {
     showTooltip.value = true;
     setTimeout(() => {
         showTooltip.value = false;
-    }, 2000); // Tooltip will disappear after 2 seconds
+    }, 2000);
 }
 
 </script>
+
