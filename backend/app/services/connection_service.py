@@ -5,7 +5,7 @@ Extracted from DataSourceService for the domain-connection architecture.
 import importlib
 import logging
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 import uuid as uuid_module
@@ -394,7 +394,9 @@ class ConnectionService:
                     db.add(table)
 
             # Update last_synced_at
-            connection.last_synced_at = datetime.now(timezone.utc)
+            # NOTE: our SQLAlchemy DateTime columns are stored as TIMESTAMP WITHOUT TIME ZONE,
+            # so we must write naive UTC datetimes (asyncpg will error on tz-aware datetimes).
+            connection.last_synced_at = datetime.utcnow()
             await db.commit()
 
             # Return all tables
