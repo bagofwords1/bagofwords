@@ -2,7 +2,7 @@
   <img src="./media/logo-128.png" style="width:64px;" />
 </div>
 
-# Bag of words — deploy an AI Analyst in minutes
+# Bag of words - Open-source AI Analyst/MCP for your data, deploy in minutes
 
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
@@ -17,11 +17,11 @@ Built for reliable quick answers and deeper investigations like root-cause analy
 
 - **Agentic loop** - chat with data, ask complex questions, run multi-step analysis with tools, reasoning, and reflection  
 - **Any LLM ↔ Any warehouse** - OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift  
-- **Git repo indexing** - use `AGENTS.md`, dbt, LookML, Dataform, Tableau, and code as live context  
-- **Centralized instructions** - one place for definitions, business terms, and rules with full versioning, tracking, and approval workflows  
+- **Instructions Registry** - definitions, rules, and context with versioning and approval workflows; git sync with auto-indexing of dbt, markdown, code, and more 
 - **Self-learning** - learns from usage and surfaces instruction and semantic-layer updates, review-gated  
 - **Reliability** - full observability: agent traces, plans, guardrails, LLM judges, evals  
 - **Auth & deploy** - run via Docker/Compose/k8s with SSO, RBAC, warehouse inherited permissions, and audit trail  
+- **The Data MCP** - use MCP to interact with your data from Cursor, Claude Desktop, and other AI clients while reliably tracking your requests and data operations
 
 [Deploy anywhere](https://docs.bagofwords.com/install)
 
@@ -55,15 +55,8 @@ Create reports, deep analysis or quick visuals with an AI interface powered by a
     <i></i>
 </div>
 
-### Create and customize AI instructions and rules
-Manage your AI rules and instructions with review process, full versioning and tracking, and control
-<div style="text-align: center; margin: 20px 0;">
-    <img src="./media/add-instructions.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
-    <i></i>
-</div>
-
-### Connect dbt, Tableau, and more for better AI context
-Enrich your AI context with  dbt models, Tableau data sources, AGENTS.md and your git repo
+### Instructions Registry
+Manage AI rules and instructions with review process, full versioning and tracking. Sync with git to auto-index dbt, Tableau, AGENTS.md and more.
 <div style="text-align: center; margin: 20px 0;">
     <img src="./media/instructions-table.png" alt="Bag of words" style="width: 100%; max-width: 1200px;">
     <i></i>

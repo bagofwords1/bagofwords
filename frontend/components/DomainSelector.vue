@@ -155,7 +155,7 @@
                   :href="`/data/${hoveredDomainId}`"
                   class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline flex-shrink-0 whitespace-nowrap"
                 >
-                  Open domain →
+                  Open data source →
                 </a>
               </div>
             </div>
@@ -233,13 +233,22 @@
                   <div v-if="hoveredDomainDetails?.conversation_starters?.length">
                     <div class="text-[10px] uppercase tracking-wider text-gray-400 font-semibold mb-2">Sample Questions</div>
                     <div class="space-y-1.5">
-                      <div
+                      <button
                         v-for="(starter, idx) in hoveredDomainDetails.conversation_starters.slice(0, 6)"
                         :key="idx"
-                        class="bg-gray-50 border border-gray-100 text-gray-700 text-xs px-3 py-2 rounded-lg"
+                        @click.stop.prevent="startReportWithQuestion(starter, Number(idx))"
+                        :disabled="creatingReport"
+                        :class="[
+                          'w-full text-left text-xs px-3 py-2 rounded-lg transition-colors flex items-center gap-2',
+                          creatingReport && creatingQuestionIdx === idx
+                            ? 'bg-indigo-100 border border-indigo-300 text-indigo-700'
+                            : 'bg-gray-50 border border-gray-100 text-gray-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-700 cursor-pointer',
+                          creatingReport && creatingQuestionIdx !== idx ? 'opacity-50 cursor-not-allowed' : ''
+                        ]"
                       >
-                        {{ starter.split('\n')[0] }}
-                      </div>
+                        <Spinner v-if="creatingReport && creatingQuestionIdx === idx" class="w-3 h-3 flex-shrink-0 animate-spin" />
+                        <span class="flex-1">{{ starter.split('\n')[0] }}</span>
+                      </button>
                       <div
                         v-if="hoveredDomainDetails.conversation_starters.length > 6"
                         class="text-[11px] text-gray-400"
@@ -415,6 +424,8 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
+
+const router = useRouter()
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
@@ -681,6 +692,49 @@ watch(flyoutTab, async (tab) => {
 
 const selectTable = (t: any) => {
   selectedTable.value = t
+}
+
+const creatingReport = ref(false)
+const creatingQuestionIdx = ref<number | null>(null)
+
+const startReportWithQuestion = async (question: string, idx: number) => {
+  if (creatingReport.value) return
+  creatingReport.value = true
+  creatingQuestionIdx.value = idx
+  
+  try {
+    // Get the hovered domain ID to use as the data source
+    const dataSourceIds = hoveredDomainId.value ? [hoveredDomainId.value] : []
+    
+    const response = await useMyFetch('/reports', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: 'untitled report',
+        files: [],
+        new_message: question,
+        data_sources: dataSourceIds
+      })
+    })
+    
+    if ((response as any)?.error?.value) {
+      throw new Error('Report creation failed')
+    }
+    
+    const data = (response as any)?.data?.value as any
+    if (data?.id) {
+      await router.push({ 
+        path: `/reports/${data.id}`, 
+        query: { 
+          new_message: question
+        }
+      })
+    }
+  } catch (error) {
+    console.error('Failed to create report:', error)
+  } finally {
+    creatingReport.value = false
+    creatingQuestionIdx.value = null
+  }
 }
 </script>
 

@@ -223,7 +223,7 @@
               <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <McpIcon class="w-5 h-5" />
               </span>
-              <span v-if="showText" class="text-sm">MCP</span>
+              <span v-if="showText" class="text-sm">MCP Server</span>
             </template>
           </button>
         </li>
