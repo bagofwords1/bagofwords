@@ -154,7 +154,7 @@
                                         <UTooltip :text="instruction.data_sources.map((ds: any) => ds.name).join(', ')">
                                             <div class="flex items-center gap-1">
                                                 <DataSourceIcon 
-                                                    :type="instruction.data_sources[0]?.type" 
+                                                    :type="getDataSourceType(instruction) as any"
                                                     :class="compact ? 'h-3 w-3' : 'h-3.5 w-3.5'"
                                                     class="flex-shrink-0"
                                                 />
@@ -274,6 +274,8 @@ const props = withDefaults(defineProps<{
     instructions: Instruction[]
     loading?: boolean
     compact?: boolean
+    // Optional: provide full data sources list so we can resolve missing ds.type from list endpoints
+    dataSources?: Array<{ id: string; type?: string | null }>
     
     // Selection
     selectable?: boolean
@@ -331,6 +333,20 @@ const emit = defineEmits<{
 
 const helpers = useInstructionHelpers()
 const expandedRows = ref<Set<string>>(new Set())
+
+const dataSourceTypeById = computed<Record<string, string | null | undefined>>(() => {
+    const out: Record<string, string | null | undefined> = {}
+    for (const ds of props.dataSources || []) {
+        out[ds.id] = ds.type
+    }
+    return out
+})
+
+const getDataSourceType = (instruction: Instruction) => {
+    const first = instruction.data_sources?.[0]
+    if (!first) return null
+    return first.type ?? dataSourceTypeById.value[first.id] ?? null
+}
 
 const toggleExpand = (id: string) => {
     if (expandedRows.value.has(id)) {

@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.290 (January 1, 2026)
+- Happy new year!
+- Connections and data sources are now decoupled. You can attach multiple data sources to a single connection, each with its own tables, instructions, and evals. This brings much greater flexibility, reliability, and organization to your workspace.
+- New: Context Selector – easily control which data sources are currently active throughout the application.
+- Added ability to share report conversations with others
+
 ## Version 0.0.288 (December 26, 2025)
 - UI improvements: eval, build ID
 - Added modal to manage test suites

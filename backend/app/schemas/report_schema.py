@@ -46,6 +46,9 @@ class ReportSchema(ReportBase):
     general: Optional[PublicGeneralSettings] = None
     theme_name: Optional[str] = None
     theme_overrides: Optional[dict] = None
+    # Conversation sharing
+    conversation_share_enabled: bool = False
+    conversation_share_token: Optional[str] = None
 
     class Config:
         from_attributes = True

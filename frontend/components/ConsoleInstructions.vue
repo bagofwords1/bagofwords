@@ -24,8 +24,8 @@
                     AI Suggestions
                 </UButton>
 
-                <!-- Pending Review button -->
-                <UChip :text="pendingSuggestionCount" size="xl" :show="pendingSuggestionCount > 0">
+                <!-- Pending Review button (only show when there is something pending) -->
+                <UChip v-if="pendingSuggestionCount > 0" :text="pendingSuggestionCount" size="xl">
                     <UButton
                         color="white"
                         size="xs"
@@ -57,16 +57,17 @@
                 :status="inst.filters.status"
                 :load-modes="inst.filters.loadModes"
                 :categories="inst.filters.categories"
-                :data-source-id="inst.filters.dataSourceId"
+                :data-source-ids="inst.filters.dataSourceIds"
                 :label-ids="labelFilter"
                 :labels="allLabels"
                 :data-sources="allDataSources"
+                :hide-domain-filter="true"
                 @update:search="inst.debouncedSearch"
                 @update:source-types="v => inst.setFilter('sourceTypes', v)"
                 @update:status="v => inst.setFilter('status', v)"
                 @update:load-modes="v => inst.setFilter('loadModes', v)"
                 @update:categories="v => inst.setFilter('categories', v)"
-                @update:data-source-id="v => inst.setFilter('dataSourceId', v)"
+                @update:data-source-ids="v => inst.setFilter('dataSourceIds', v)"
                 @update:label-ids="handleLabelFilterChange"
                 @label-created="fetchLabels"
                 @reset="resetAllFilters"
@@ -88,8 +89,8 @@
                     @load-always="inst.bulkSetLoadAlways"
                     @load-intelligent="inst.bulkSetLoadIntelligent"
                     @load-disabled="inst.bulkSetLoadDisabled"
-                    @add-label="inst.bulkAddLabel"
-                    @remove-label="inst.bulkRemoveLabel"
+                    @open-scope-modal="showBulkScopeModal = true"
+                    @open-labels-modal="showBulkLabelsModal = true"
                     @delete="handleBulkDelete"
                 />
 
@@ -117,6 +118,7 @@
             <InstructionsTable
                 :instructions="inst.instructions.value"
                 :loading="inst.isLoading.value || inst.isBulkUpdating.value"
+                :data-sources="allDataSources"
                 :selectable="canUpdateInstructions"
                 :selected-ids="inst.selectedIds.value"
                 :is-all-page-selected="inst.isAllPageSelected.value"
@@ -169,6 +171,20 @@
             :git-repo-id="gitRepoId"
             @rollback="handleSuggestionsRollback"
         />
+
+        <BulkScopeModal
+            v-model="showBulkScopeModal"
+            :data-sources="allDataSources"
+            @set-scope="inst.bulkSetDataSources"
+            @clear-scope="inst.bulkClearDataSources"
+        />
+
+        <BulkLabelsModal
+            v-model="showBulkLabelsModal"
+            :labels="allLabels"
+            @set-labels="inst.bulkSetLabels"
+            @clear-labels="inst.bulkClearLabels"
+        />
     </div>
 </template>
 
@@ -181,10 +197,13 @@ import BuildExplorerModal from '~/components/instructions/BuildExplorerModal.vue
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import InstructionsFilterBar from '~/components/instructions/InstructionsFilterBar.vue'
 import InstructionsBulkBar from '~/components/instructions/InstructionsBulkBar.vue'
+import BulkScopeModal from '~/components/instructions/BulkScopeModal.vue'
+import BulkLabelsModal from '~/components/instructions/BulkLabelsModal.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import BuildVersionSelector from '~/components/instructions/BuildVersionSelector.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useInstructions } from '~/composables/useInstructions'
+import { useDomain } from '~/composables/useDomain'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 
 // Props
@@ -194,14 +213,18 @@ withDefaults(defineProps<{
     showHeader: false
 })
 
+// Domain filtering
+const { selectedDomains } = useDomain()
+
 // Wrapper for fetchBuilds to avoid hoisting issues
 const refreshBuilds = () => fetchBuilds()
 
-// Instructions composable with URL persistence
+// Instructions composable with URL persistence and domain filtering
 const inst = useInstructions({
     autoFetch: true,
     pageSize: 25,
     persistFiltersInUrl: true,
+    dataSourceIds: selectedDomains,  // Pass selected domains for filtering
     onBulkSuccess: refreshBuilds  // Refresh builds list after bulk updates
 })
 
@@ -212,6 +235,8 @@ const showLabelsManagerModal = ref(false)
 const showLearningSettingsModal = ref(false)
 const showGitRepositoriesModal = ref(false)
 const showSuggestionsModal = ref(false)
+const showBulkScopeModal = ref(false)
+const showBulkLabelsModal = ref(false)
 const pendingSuggestionCount = ref(0)
 
 // Git connection status
@@ -299,61 +324,45 @@ const fetchLearningSettings = async () => {
 
 const fetchGitStatus = async () => {
     try {
-        if (allDataSources.value.length === 0) return
-
-        // Check all data sources for git connection
-        const results: { hasGit: boolean; completedAt: string | null; provider?: string; repoUrl?: string; repoId?: string }[] = []
+        // Fetch all org-level git repositories
+        const { data: repositories } = await useMyFetch<Array<{
+            id: string
+            provider: string
+            repo_url: string
+            last_indexed_at: string | null
+        }>>('/git/repositories', { method: 'GET' })
         
-        for (const ds of allDataSources.value) {
-            let hasGit = false
-            let completedAt: string | null = null
-            let provider: string | undefined
-            let repoUrl: string | undefined
-            let repoId: string | undefined
-            
-            // Fetch full data source which includes git_repository
-            const { data: fullDs } = await useMyFetch(`/data_sources/${ds.id}`, { method: 'GET' })
-            if (fullDs.value && (fullDs.value as any).git_repository) {
-                hasGit = true
-                provider = (fullDs.value as any).git_repository.provider
-                repoUrl = (fullDs.value as any).git_repository.repo_url
-                repoId = (fullDs.value as any).git_repository.id
-                
-                // Only fetch metadata for data sources with git connection
-                const { data: metaData } = await useMyFetch(`/data_sources/${ds.id}/metadata_resources`, { method: 'GET' })
-                if (metaData.value) {
-                    completedAt = (metaData.value as any).completed_at || null
-                }
-            }
-            
-            results.push({ hasGit, completedAt, provider, repoUrl, repoId })
+        if (!repositories.value || repositories.value.length === 0) {
+            gitConnectedCount.value = 0
+            gitLastIndexed.value = null
+            gitConnectedRepos.value = []
+            gitRepoId.value = ''
+            return
         }
 
-        let connectedCount = 0
-        let latestIndexed: string | null = null
         const repos: { provider: string; repoName: string }[] = []
+        let latestIndexed: string | null = null
         let firstRepoId: string | undefined
 
-        for (const result of results) {
-            if (result.hasGit) {
-                connectedCount++
-                // Track the first connected git repo for push operations
-                if (!firstRepoId && result.repoId) {
-                    firstRepoId = result.repoId
-                }
-                if (result.completedAt) {
-                    if (!latestIndexed || new Date(result.completedAt) > new Date(latestIndexed)) {
-                        latestIndexed = result.completedAt
-                    }
-                }
-                if (result.provider && result.repoUrl) {
-                    const repoName = result.repoUrl.split('/').pop()?.replace(/\.git$/, '') || 'Repository'
-                    repos.push({ provider: result.provider, repoName })
+        for (const repo of repositories.value) {
+            // Track the first connected git repo for push operations
+            if (!firstRepoId) {
+                firstRepoId = repo.id
+            }
+            
+            // Track latest indexed time
+            if (repo.last_indexed_at) {
+                if (!latestIndexed || new Date(repo.last_indexed_at) > new Date(latestIndexed)) {
+                    latestIndexed = repo.last_indexed_at
                 }
             }
+            
+            // Extract repo name from URL
+            const repoName = repo.repo_url.split('/').pop()?.replace(/\.git$/, '') || 'Repository'
+            repos.push({ provider: repo.provider, repoName })
         }
 
-        gitConnectedCount.value = connectedCount
+        gitConnectedCount.value = repositories.value.length
         gitLastIndexed.value = latestIndexed
         gitConnectedRepos.value = repos
         gitRepoId.value = firstRepoId || ''

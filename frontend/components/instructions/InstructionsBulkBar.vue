@@ -88,8 +88,8 @@ const emit = defineEmits<{
     'load-always': []
     'load-intelligent': []
     'load-disabled': []
-    'add-label': [labelId: string]
-    'remove-label': [labelId: string]
+    'open-scope-modal': []
+    'open-labels-modal': []
     'delete': []
 }>()
 
@@ -113,40 +113,12 @@ const menuItems = computed(() => {
         { label: 'Disabled', icon: 'i-heroicons-x-circle', click: () => emit('load-disabled') },
     ])
     
-    // Labels section (if labels exist)
-    if (props.labels && props.labels.length > 0) {
-        const addLabelActions: any[] = [
-            { label: 'Add Label', header: true, disabled: true }
-        ]
-        
-        props.labels.forEach(label => {
-            addLabelActions.push({
-                label: label.name,
-                icon: 'i-heroicons-plus-circle',
-                isLabel: true,
-                color: label.color || '#94A3B8',
-                click: () => emit('add-label', label.id)
-            })
-        })
-        
-        items.push(addLabelActions)
-        
-        const removeLabelActions: any[] = [
-            { label: 'Remove Label', header: true, disabled: true }
-        ]
-        
-        props.labels.forEach(label => {
-            removeLabelActions.push({
-                label: label.name,
-                icon: 'i-heroicons-minus-circle',
-                isLabel: true,
-                color: label.color || '#94A3B8',
-                click: () => emit('remove-label', label.id)
-            })
-        })
-        
-        items.push(removeLabelActions)
-    }
+    // Scope section
+    items.push([
+        { label: 'Scope', header: true, disabled: true },
+        { label: 'Set Source...', icon: 'i-heroicons-server-stack', click: () => emit('open-scope-modal') },
+        { label: 'Set Labels...', icon: 'i-heroicons-tag', click: () => emit('open-labels-modal') },
+    ])
     
     return items
 })

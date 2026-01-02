@@ -51,7 +51,6 @@ from app.routes import (
     text_widget,
     user_profile,
     llm,
-    git_repository,
     git,
     organization_settings,
     branding,
@@ -71,6 +70,7 @@ from app.routes import (
     api_key,
     mcp,
     build,
+    connection,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 
@@ -176,7 +176,6 @@ app.include_router(file.router, prefix="/api")
 app.include_router(organization.router, prefix="/api")
 app.include_router(text_widget.router, prefix="/api")
 app.include_router(llm.router, prefix="/api")
-app.include_router(git_repository.router, prefix="/api")
 app.include_router(git.router, prefix="/api")
 app.include_router(organization_settings.router, prefix="/api")
 app.include_router(branding.router, prefix="/api")
@@ -195,6 +194,7 @@ app.include_router(user_data_source_credentials.router, prefix="/api")
 app.include_router(mentions.router, prefix="/api")
 app.include_router(api_key.router, prefix="/api")
 app.include_router(mcp.router, prefix="/api")
+app.include_router(connection.router, prefix="/api")
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():

@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from app.models.report import Report
 from app.schemas.report_schema import ReportCreate, ReportSchema, ReportUpdate
+from app.schemas.data_source_schema import DataSourceReportSchema
 from app.services.widget_service import WidgetService
 from app.core.telemetry import telemetry
 from app.schemas.widget_schema import WidgetSchema
@@ -82,7 +83,7 @@ class ReportService:
             select(Report)
             .options(
                 selectinload(Report.user),  # Use selectinload for async loading
-                selectinload(Report.data_sources)  # Add this line to load data sources
+                selectinload(Report.data_sources)  # Load data sources
             )
             .filter(Report.id == report_id)
         )
@@ -109,7 +110,10 @@ class ReportService:
             data_sources=report.data_sources,
             external_platform=report.external_platform,
             theme_name=report.theme_name,
-            theme_overrides=report.theme_overrides
+            theme_overrides=report.theme_overrides,
+            # Conversation sharing
+            conversation_share_enabled=bool(getattr(report, "conversation_share_enabled", False)),
+            conversation_share_token=getattr(report, "conversation_share_token", None),
         )
         return report_schema
 
@@ -417,10 +421,11 @@ class ReportService:
         total_result = await db.execute(count_query)
         total = total_result.scalar()
         
-        # Get paginated results
+        # Get paginated results - load data_sources with connections to get type
         query = base_query.options(
             selectinload(Report.user), 
-            selectinload(Report.widgets)
+            selectinload(Report.widgets),
+            selectinload(Report.data_sources).selectinload(DataSource.connections)
         ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
         
         result = await db.execute(query)
@@ -431,6 +436,28 @@ class ReportService:
         for report in reports:
             report_schema = ReportSchema.from_orm(report)
             report_schema.user = UserSchema.from_orm(report.user)
+            
+            # Manually build data_sources with type computed from connection
+            report_schema.data_sources = [
+                DataSourceReportSchema(
+                    id=str(ds.id),
+                    name=ds.name,
+                    organization_id=str(ds.organization_id),
+                    created_at=ds.created_at,
+                    updated_at=ds.updated_at,
+                    context=ds.context,
+                    description=ds.description,
+                    summary=ds.summary,
+                    is_active=ds.is_active,
+                    is_public=ds.is_public,
+                    owner_user_id=str(ds.owner_user_id) if ds.owner_user_id else None,
+                    use_llm_sync=ds.use_llm_sync,
+                    # Compute type from first connection
+                    type=ds.connections[0].type if ds.connections else None,
+                )
+                for ds in (report.data_sources or [])
+            ]
+            
             report_schemas.append(report_schema)
 
         # Calculate pagination metadata
@@ -661,3 +688,202 @@ class ReportService:
         except Exception:
             pass
         return report
+
+    async def toggle_conversation_share(
+        self, 
+        db: AsyncSession, 
+        report_id: str, 
+        current_user: User, 
+        organization: Organization
+    ) -> dict:
+        """Toggle conversation sharing for a report. Generates token if enabling."""
+        result = await db.execute(select(Report).filter(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        # Toggle the enabled state
+        new_enabled = not report.conversation_share_enabled
+        
+        if new_enabled:
+            # Generate a new token if enabling and no token exists
+            if not report.conversation_share_token:
+                report.conversation_share_token = uuid.uuid4().hex
+            report.conversation_share_enabled = True
+        else:
+            # Keep the token but disable sharing (allows re-enabling with same URL)
+            report.conversation_share_enabled = False
+        
+        await db.commit()
+        await db.refresh(report)
+        
+        # Telemetry
+        try:
+            await telemetry.capture(
+                "conversation_share_toggled",
+                {
+                    "report_id": str(report.id),
+                    "enabled": report.conversation_share_enabled,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+        
+        return {
+            "enabled": report.conversation_share_enabled,
+            "token": report.conversation_share_token if report.conversation_share_enabled else None,
+        }
+
+    async def get_public_conversation(
+        self, 
+        db: AsyncSession, 
+        share_token: str,
+        limit: int = 10,
+        before: str | None = None
+    ) -> dict:
+        """Fetch a shared conversation by its token (public, no auth required)."""
+        result = await db.execute(
+            select(Report)
+            .options(selectinload(Report.user))
+            .filter(Report.conversation_share_token == share_token)
+        )
+        report = result.scalar_one_or_none()
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        if not report.conversation_share_enabled:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        # Fetch completions for this report
+        from app.models.completion import Completion
+        from app.models.completion_block import CompletionBlock
+        from app.models.plan_decision import PlanDecision
+        from app.models.tool_execution import ToolExecution
+        
+        # Build query with pagination - fetch newest first, then reverse for display
+        completions_query = select(Completion).where(Completion.report_id == report.id)
+        
+        # If 'before' cursor provided, fetch older completions
+        if before:
+            cursor_result = await db.execute(select(Completion).where(Completion.id == before))
+            cursor_completion = cursor_result.scalar_one_or_none()
+            if cursor_completion:
+                completions_query = completions_query.where(
+                    Completion.created_at < cursor_completion.created_at
+                )
+        
+        # Order by newest first, limit, then we'll reverse
+        completions_stmt = (
+            completions_query
+            .order_by(Completion.created_at.desc())
+            .limit(limit + 1)  # Fetch one extra to check if there are more
+        )
+        completions_res = await db.execute(completions_stmt)
+        fetched = list(completions_res.scalars().all())
+        
+        # Check if there are more older completions
+        has_more = len(fetched) > limit
+        if has_more:
+            fetched = fetched[:limit]  # Remove the extra one
+        
+        # Reverse to get chronological order (oldest first)
+        all_completions = list(reversed(fetched))
+        
+        # Get the cursor for the next page (oldest completion in this batch)
+        next_before = all_completions[0].id if all_completions and has_more else None
+        
+        completion_ids = [c.id for c in all_completions]
+        system_completion_ids = [c.id for c in all_completions if c.role == 'system']
+        
+        # Fetch blocks for system completions
+        blocks: list = []
+        pd_map: dict = {}
+        te_map: dict = {}
+        if system_completion_ids:
+            blocks_join_stmt = (
+                select(CompletionBlock, PlanDecision, ToolExecution)
+                .where(CompletionBlock.completion_id.in_(system_completion_ids))
+                .outerjoin(PlanDecision, CompletionBlock.plan_decision_id == PlanDecision.id)
+                .outerjoin(ToolExecution, CompletionBlock.tool_execution_id == ToolExecution.id)
+                .order_by(CompletionBlock.completion_id.asc(), CompletionBlock.block_index.asc())
+            )
+            join_res = await db.execute(blocks_join_stmt)
+            for row in join_res.all():
+                b = row[0]
+                pd = row[1]
+                te = row[2]
+                blocks.append(b)
+                if pd is not None:
+                    pd_map[pd.id] = pd
+                if te is not None:
+                    te_map[te.id] = te
+        
+        
+        # Build per-completion block lists (sanitized)
+        completion_id_to_blocks: dict = {cid: [] for cid in completion_ids}
+        for b in blocks:
+            pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
+            te = te_map.get(b.tool_execution_id) if b.tool_execution_id else None
+            
+            # Build sanitized block (no internal IDs, no user feedback)
+            block_data = {
+                "id": b.id,
+                "block_index": b.block_index,
+                "status": b.status,
+                "content": b.content,
+                "reasoning": b.reasoning,
+                "started_at": b.started_at.isoformat() if b.started_at else None,
+                "completed_at": b.completed_at.isoformat() if b.completed_at else None,
+            }
+            
+            if pd:
+                block_data["plan_decision"] = {
+                    "reasoning": pd.reasoning,
+                    "assistant": pd.assistant,
+                    "final_answer": pd.final_answer,
+                    "analysis_complete": pd.analysis_complete,
+                }
+            
+            if te:
+                # Sanitized tool execution - include results but strip internal IDs
+                block_data["tool_execution"] = {
+                    "id": te.id,
+                    "tool_name": te.tool_name,
+                    "tool_action": te.tool_action,
+                    "status": te.status,
+                    "result_summary": te.result_summary,
+                    "result_json": te.result_json,
+                    "duration_ms": te.duration_ms,
+                }
+            
+            completion_id_to_blocks[b.completion_id].append(block_data)
+        
+        # Assemble sanitized completions
+        sanitized_completions = []
+        for c in all_completions:
+            c_blocks = completion_id_to_blocks.get(c.id, [])
+            c_blocks.sort(key=lambda x: x["block_index"])
+            
+            completion_data = {
+                "id": c.id,
+                "role": c.role,
+                "status": c.status,
+                "prompt": c.prompt if c.role == "user" else None,
+                "completion_blocks": c_blocks if c.role == "system" else [],
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+            }
+            sanitized_completions.append(completion_data)
+        
+        return {
+            "report_id": report.id,
+            "title": report.title,
+            "user_name": report.user.name if report.user else "Unknown",
+            "completions": sanitized_completions,
+            "created_at": report.created_at.isoformat() if report.created_at else None,
+            "has_more": has_more,
+            "next_before": next_before,
+        }

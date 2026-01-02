@@ -1,5 +1,8 @@
 <template>
     <div class="py-6 space-y-6">
+        <!-- Hide content when there's a fetch error (layout shows error state) -->
+        <template v-if="injectedFetchError" />
+        <template v-else>
         <!-- Connect Git Repository Section (only shown when not connected) -->
         <div v-if="!hasGitConnection" class="border border-gray-200 rounded-lg p-6">
             <div class="bg-white">
@@ -130,11 +133,12 @@
             :instruction="selectedInstruction"
             @instruction-saved="handleInstructionSaved"
         />
+        </template>
     </div>
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'integrations' })
+definePageMeta({ auth: true, layout: 'data' })
 import GitRepoModalComponent from '@/components/GitRepoModalComponent.vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
@@ -147,6 +151,8 @@ import { useInstructions } from '~/composables/useInstructions'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 import Spinner from '@/components/Spinner.vue'
 
+import type { Ref } from 'vue'
+
 const route = useRoute()
 const dsId = computed(() => String(route.params.id || ''))
 
@@ -156,7 +162,20 @@ const canViewBuilds = computed(() => useCan('view_builds'))
 const showGitModal = ref(false)
 const isLoading = ref(false)
 
+// Inject integration data from layout (avoid duplicate API calls)
+const injectedIntegration = inject<Ref<any>>('integration', ref(null))
+const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
+const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
+
+// Use local integration that syncs with injected, but can be updated independently for polling
 const integration = ref<any>(null)
+
+// Sync injected integration to local
+watch(injectedIntegration, (val) => {
+    if (val && !integration.value) {
+        integration.value = val
+    }
+}, { immediate: true })
 const metadataResources = ref<any>({ resources: [] })
 let pollInterval: ReturnType<typeof setInterval> | null = null
 
@@ -229,8 +248,10 @@ async function fetchIntegration(silent = false) {
   if (!dsId.value) return
   if (!silent) isLoading.value = true
   try {
-    const response = await useMyFetch(`/data_sources/${dsId.value}`, { method: 'GET' })
-    if ((response.status as any)?.value === 'success') integration.value = (response.data as any)?.value
+    // Use layout's fetch function to refresh
+    await injectedFetchIntegration()
+    // Also update our local ref
+    integration.value = injectedIntegration.value
   } finally {
     if (!silent) isLoading.value = false
   }
@@ -365,7 +386,8 @@ function handleGitRepoChanged() {
 onMounted(async () => {
   isLoading.value = true
   try {
-    await fetchIntegration(true)
+    // Integration is already fetched by layout, just sync to local
+    integration.value = injectedIntegration.value
     await fetchMetadataResources(true)
     await inst.fetchInstructions()
     fetchLabels()

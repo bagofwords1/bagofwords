@@ -107,7 +107,9 @@ function getPermissionsForRole(role: string): string[] {
       'reject_entities',
       'manage_tests',
       'view_builds',
-      'create_builds'
+      'create_builds',
+      'manage_connections',
+      'view_connections'
     ],
     member: [
       'view_data_source',

@@ -3,8 +3,8 @@
   <div class="min-h-screen py-10 px-4 md:w-1/2 mx-auto text-sm">
       <div class="w-full px-4 pl-0 py-4">
       <div>
-        <h1 class="text-lg font-semibold text-center">Integrations</h1>
-        <p class="mt-4 text-gray-500 text-center">Connect and manage your data sources</p>
+        <h1 class="text-lg font-semibold text-center">Create Domain</h1>
+        <p class="mt-4 text-gray-500 text-center">Add instructions and enrichment for this domain</p>
       </div>
         <WizardSteps class="mb-5 mt-4" current="context" :ds-id="dsId" />
 
@@ -174,12 +174,10 @@ async function fetchInstructions() {
   try {
     const params: any = { limit: 100 }
     if (dsId.value) params.data_source_id = dsId.value
-    const { data, error } = await useMyFetch<any>('/instructions', { method: 'GET', query: params })
+    const { data, error } = await useMyFetch<{ items: any[]; total: number }>('/instructions', { method: 'GET', query: params })
     if (!error.value && data.value) {
-      // Handle paginated response format: { items: [...], total: ... }
-      const responseData = data.value
-      const instructions = responseData.items || responseData || []
-      suggestedInstructions.value = Array.isArray(instructions) ? instructions : []
+      // API returns paginated response { items, total, ... }
+      suggestedInstructions.value = data.value.items || []
       const map: Record<string, 'approved' | 'removed'> = {}
       for (const inst of suggestedInstructions.value) {
         const gs = (inst as any).global_status
@@ -264,7 +262,7 @@ async function handleSave() {
   saving.value = true
   try {
     // Persist any necessary context here if applicable
-    router.replace(`/integrations/${dsId.value}`)
+    router.replace(`/data/${dsId.value}`)
   } finally {
     saving.value = false
   }

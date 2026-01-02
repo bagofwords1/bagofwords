@@ -118,6 +118,19 @@ from tests.fixtures.data_source import (
     get_full_schema_paginated,
     list_demo_data_sources,
     install_demo_data_source,
+    create_domain_from_connection,
+    dynamic_sqlite_db,
+    empty_sqlite_db,
+)
+from tests.fixtures.connection import (
+    create_connection,
+    get_connections,
+    get_connection,
+    update_connection,
+    delete_connection,
+    test_connection_connectivity,
+    refresh_connection_schema,
+    get_connection_tables,
 )
 from tests.fixtures.git_repository import (
     create_git_repository,

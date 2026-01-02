@@ -413,12 +413,13 @@ class InstructionService:
         include_archived: bool = False,
         include_hidden: bool = False,
         user_id: Optional[str] = None,
-        data_source_id: Optional[str] = None,
+        data_source_ids: Optional[List[str]] = None,
         source_types: Optional[List[str]] = None,
         load_modes: Optional[List[str]] = None,
         label_ids: Optional[List[str]] = None,
         search: Optional[str] = None,
-        build_id: Optional[str] = None
+        build_id: Optional[str] = None,
+        include_global: bool = True
     ) -> dict:
         """Get instructions with clean permission-based filtering. Returns paginated response.
         
@@ -453,8 +454,8 @@ class InstructionService:
         # Execute query with new filters
         return await self._execute_instructions_query(
             db, organization, conditions, status, categories, skip, limit,
-            data_source_id, source_types, load_modes, label_ids, search,
-            build_id=build_id
+            data_source_ids, source_types, load_modes, label_ids, search,
+            build_id=build_id, include_global=include_global
         )
 
     async def get_available_source_types(
@@ -883,8 +884,23 @@ class InstructionService:
                 failed_ids.append(req_id)
         
         # Fetch labels if needed
+        labels_to_set = None  # None means no change, empty list means clear labels
         labels_to_add = []
         labels_to_remove_ids = set()
+        
+        if bulk_update.set_label_ids is not None:  # Empty list is valid (= clear labels)
+            if bulk_update.set_label_ids:
+                label_result = await db.execute(
+                    select(InstructionLabel).where(
+                        and_(
+                            InstructionLabel.id.in_(bulk_update.set_label_ids),
+                            InstructionLabel.organization_id == organization.id
+                        )
+                    )
+                )
+                labels_to_set = label_result.scalars().all()
+            else:
+                labels_to_set = []  # Clear all labels
         
         if bulk_update.add_label_ids:
             label_result = await db.execute(
@@ -900,6 +916,39 @@ class InstructionService:
         if bulk_update.remove_label_ids:
             labels_to_remove_ids = set(bulk_update.remove_label_ids)
         
+        # Fetch data sources if needed for scope updates
+        data_sources_to_set = None  # None means no change, empty list means make global
+        data_sources_to_add = []
+        data_sources_to_remove_ids = set()
+        
+        if bulk_update.set_data_source_ids is not None:  # Empty list is valid (= make global)
+            if bulk_update.set_data_source_ids:
+                ds_result = await db.execute(
+                    select(DataSource).where(
+                        and_(
+                            DataSource.id.in_(bulk_update.set_data_source_ids),
+                            DataSource.organization_id == organization.id
+                        )
+                    )
+                )
+                data_sources_to_set = ds_result.scalars().all()
+            else:
+                data_sources_to_set = []  # Clear all = make global
+        
+        if bulk_update.add_data_source_ids:
+            ds_result = await db.execute(
+                select(DataSource).where(
+                    and_(
+                        DataSource.id.in_(bulk_update.add_data_source_ids),
+                        DataSource.organization_id == organization.id
+                    )
+                )
+            )
+            data_sources_to_add = ds_result.scalars().all()
+        
+        if bulk_update.remove_data_source_ids:
+            data_sources_to_remove_ids = set(bulk_update.remove_data_source_ids)
+        
         # === Build System Integration ===
         # Create a single build for all bulk updates
         bulk_build = None
@@ -912,30 +961,38 @@ class InstructionService:
             logger.warning(f"Failed to create bulk update build: {build_error}")
         
         # Track instructions that were actually modified for versioning
+        # Only content changes (status, load_mode, data_sources) trigger builds
+        # Label changes are metadata only - no build needed
         modified_instructions = []
         
         # Apply updates
         for instruction in instructions:
             try:
-                modified = False
+                content_modified = False  # Changes that need builds (status, load_mode, data_sources)
+                metadata_modified = False  # Changes that don't need builds (labels)
                 
-                # Update status (simplified - no dual-status handling)
+                # Update status (simplified - no dual-status handling) - CONTENT CHANGE
                 if bulk_update.status:
                     instruction.status = bulk_update.status
-                    modified = True
+                    content_modified = True
                 
-                # Update load mode
+                # Update load mode - CONTENT CHANGE
                 if bulk_update.load_mode:
                     instruction.load_mode = bulk_update.load_mode
-                    modified = True
+                    content_modified = True
                 
-                # Add labels
+                # Set labels (replace all) - METADATA ONLY, no build
+                if labels_to_set is not None:
+                    instruction.labels = list(labels_to_set)
+                    metadata_modified = True
+                
+                # Add labels - METADATA ONLY, no build
                 for label in labels_to_add:
                     if label not in instruction.labels:
                         instruction.labels.append(label)
-                        modified = True
+                        metadata_modified = True
                 
-                # Remove labels
+                # Remove labels - METADATA ONLY, no build
                 if labels_to_remove_ids:
                     original_count = len(instruction.labels)
                     instruction.labels = [
@@ -943,12 +1000,36 @@ class InstructionService:
                         if str(lbl.id) not in labels_to_remove_ids
                     ]
                     if len(instruction.labels) != original_count:
-                        modified = True
+                        metadata_modified = True
                 
-                if modified:
+                # Set data sources (replace all) - CONTENT CHANGE
+                if data_sources_to_set is not None:
+                    instruction.data_sources = list(data_sources_to_set)
+                    content_modified = True
+                
+                # Add data sources - CONTENT CHANGE
+                for ds in data_sources_to_add:
+                    if ds not in instruction.data_sources:
+                        instruction.data_sources.append(ds)
+                        content_modified = True
+                
+                # Remove data sources - CONTENT CHANGE
+                if data_sources_to_remove_ids:
+                    original_count = len(instruction.data_sources)
+                    instruction.data_sources = [
+                        ds for ds in instruction.data_sources 
+                        if str(ds.id) not in data_sources_to_remove_ids
+                    ]
+                    if len(instruction.data_sources) != original_count:
+                        content_modified = True
+                
+                # Only track for build if content was modified
+                if content_modified:
                     modified_instructions.append(instruction)
                 
-                updated_count += 1
+                # Count as updated if anything changed
+                if content_modified or metadata_modified:
+                    updated_count += 1
             except Exception as e:
                 failed_ids.append(str(instruction.id))
         
@@ -1415,12 +1496,13 @@ class InstructionService:
         categories: Optional[List[str]], 
         skip: int, 
         limit: int,
-        data_source_id: Optional[str] = None,
+        data_source_ids: Optional[List[str]] = None,
         source_types: Optional[List[str]] = None,
         load_modes: Optional[List[str]] = None,
         label_ids: Optional[List[str]] = None,
         search: Optional[str] = None,
-        build_id: Optional[str] = None
+        build_id: Optional[str] = None,
+        include_global: bool = True
     ) -> dict:
         """Execute the instructions query with given conditions. Returns paginated response.
         
@@ -1472,8 +1554,18 @@ class InstructionService:
             filter_conditions.append(Instruction.status == status)
         if categories:
             filter_conditions.append(Instruction.category.in_(categories))
-        if data_source_id:
-            filter_conditions.append(Instruction.data_sources.any(DataSource.id == data_source_id))
+        if data_source_ids:
+            # Filter by any of the specified domain IDs (OR logic)
+            if include_global:
+                # Include instructions that match the data sources OR have no data sources (global)
+                filter_conditions.append(
+                    or_(
+                        Instruction.data_sources.any(DataSource.id.in_(data_source_ids)),
+                        ~Instruction.data_sources.any()  # No data sources = global
+                    )
+                )
+            else:
+                filter_conditions.append(Instruction.data_sources.any(DataSource.id.in_(data_source_ids)))
         if source_types:
             # Build source type filter conditions
             # source_types can contain: 'user', 'ai', 'git', 'dbt', 'markdown', etc.
@@ -1663,6 +1755,9 @@ class InstructionService:
         queries_to_union = []
         
         # Metadata Resources query with data source info
+        from app.models.connection import Connection
+        from app.models.domain_connection import domain_connection
+        
         if "metadata_resource" in wanted:
             mr_query = (
                 select(
@@ -1671,14 +1766,12 @@ class InstructionService:
                     MetadataResource.name.label('name'),
                     MetadataResource.data_source_id.label('data_source_id'),
                     DataSource.name.label('data_source_name'),
-                    DataSource.type.label('data_source_type')
+                    Connection.type.label('data_source_type')
                 )
-                .select_from(
-                    MetadataResource.__table__.join(
-                        DataSource.__table__, 
-                        MetadataResource.data_source_id == DataSource.id
-                    )
-                )
+                .select_from(MetadataResource)
+                .join(DataSource, MetadataResource.data_source_id == DataSource.id)
+                .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+                .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                 .filter(MetadataResource.data_source_id.in_(data_source_access_subquery))
             )
             
@@ -1697,14 +1790,12 @@ class InstructionService:
                     
                     DataSourceTable.datasource_id.label('data_source_id'),
                     DataSource.name.label('data_source_name'),
-                    DataSource.type.label('data_source_type')
+                    Connection.type.label('data_source_type')
                 )
-                .select_from(
-                    DataSourceTable.__table__.join(
-                        DataSource.__table__, 
-                        DataSourceTable.datasource_id == DataSource.id
-                    )
-                )
+                .select_from(DataSourceTable)
+                .join(DataSource, DataSourceTable.datasource_id == DataSource.id)
+                .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+                .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                 .filter(DataSourceTable.is_active == True)
                 .filter(DataSourceTable.datasource_id.in_(data_source_access_subquery))
             )
@@ -1813,8 +1904,13 @@ class InstructionService:
                         ref_data["object"] = MetadataResourceSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for metadata resources
+                        from app.models.connection import Connection
+                        from app.models.domain_connection import domain_connection
                         ds_result = await db.execute(
-                            select(DataSource.name, DataSource.type)
+                            select(DataSource.name, Connection.type)
+                            .select_from(DataSource)
+                            .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+                            .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                             .where(DataSource.id == referenced_obj.data_source_id)
                         )
                         ds_info = ds_result.first()
@@ -1828,8 +1924,13 @@ class InstructionService:
                         ref_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for datasource tables
+                        from app.models.connection import Connection
+                        from app.models.domain_connection import domain_connection
                         ds_result = await db.execute(
-                            select(DataSource.name, DataSource.type)
+                            select(DataSource.name, Connection.type)
+                            .select_from(DataSource)
+                            .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+                            .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                             .where(DataSource.id == referenced_obj.datasource_id)
                         )
                         ds_info = ds_result.first()

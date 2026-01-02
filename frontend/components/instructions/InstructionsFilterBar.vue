@@ -192,8 +192,8 @@
                         </USelectMenu>
                     </div>
 
-                    <!-- Data Source filter -->
-                    <div v-if="dataSources.length > 0">
+                    <!-- Data Source filter (hidden when domain filter is used globally) -->
+                    <div v-if="dataSources.length > 0 && !hideDomainFilter">
                         <label class="block text-xs font-medium text-gray-700 mb-2">Data Source</label>
                         <USelectMenu
                             :model-value="dataSourceId"
@@ -287,20 +287,24 @@ const props = withDefaults(defineProps<{
     status: string | null
     loadModes: string[]
     categories: string[]
-    dataSourceId: string | null
+    dataSourceId?: string | null
+    dataSourceIds?: string[]
     labelIds: string[]
     labels?: Label[]
     dataSources?: DataSource[]
     compact?: boolean
+    hideDomainFilter?: boolean
 }>(), {
     compact: false,
+    hideDomainFilter: false,
     labels: () => [],
     dataSources: () => [],
     labelIds: () => [],
     sourceTypes: () => [],
     availableSourceTypes: () => [],
     loadModes: () => [],
-    categories: () => []
+    categories: () => [],
+    dataSourceIds: () => []
 })
 
 const emit = defineEmits<{
@@ -310,6 +314,7 @@ const emit = defineEmits<{
     'update:loadModes': [value: string[]]
     'update:categories': [value: string[]]
     'update:dataSourceId': [value: string | null]
+    'update:dataSourceIds': [value: string[]]
     'update:labelIds': [value: string[]]
     'reset': []
     'labelCreated': []
@@ -403,14 +408,15 @@ const selectedStatus = computed(() => statusOptions.find(o => o.value === props.
 const selectedDataSource = computed(() => dataSourceOptions.value.find(o => o.value === props.dataSourceId) || dataSourceOptions.value[0])
 
 const hasAdvancedFilters = computed(() => {
-    return props.categories.length > 0 || props.loadModes.length > 0 || props.dataSourceId
+    const hasDataSourceFilter = !props.hideDomainFilter && (props.dataSourceId || props.dataSourceIds?.length > 0)
+    return props.categories.length > 0 || props.loadModes.length > 0 || hasDataSourceFilter
 })
 
 const advancedFilterCount = computed(() => {
     let count = 0
     if (props.categories.length > 0) count++
     if (props.loadModes.length > 0) count++
-    if (props.dataSourceId) count++
+    if (!props.hideDomainFilter && (props.dataSourceId || props.dataSourceIds?.length > 0)) count++
     return count
 })
 
@@ -421,6 +427,9 @@ const hasActiveFilters = computed(() => {
 const clearAdvancedFilters = () => {
     emit('update:categories', [])
     emit('update:loadModes', [])
-    emit('update:dataSourceId', null)
+    if (!props.hideDomainFilter) {
+        emit('update:dataSourceId', null)
+        emit('update:dataSourceIds', [])
+    }
 }
 </script>

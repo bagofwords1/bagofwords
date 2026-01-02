@@ -952,7 +952,7 @@ async function testAndProceed() {
     detectedFileCount.value = null
 
     try {
-        const response = await useMyFetch(`/data_sources/${activeDatasourceId.value}/git_repository/test`, {
+        const response = await useMyFetch(`/git/repositories/test`, {
             method: 'POST',
             body: {
                 provider: selectedProvider.value,
@@ -1006,7 +1006,7 @@ async function saveAndIndex() {
     pendingRepoId.value = null
     
     try {
-        const response = await useMyFetch<{ id: string }>(`/data_sources/${activeDatasourceId.value}/git_repository`, {
+        const response = await useMyFetch<{ id: string }>(`/git/repositories`, {
             method: 'POST',
             body: {
                 provider: selectedProvider.value,
@@ -1053,7 +1053,7 @@ async function updateSettings() {
     if (!connectedRepo.value?.id || !canEditSettings.value) return
     
     try {
-        await useMyFetch(`/data_sources/${activeDatasourceId.value}/git_repository/${connectedRepo.value.id}`, {
+        await useMyFetch(`/git/repositories/${connectedRepo.value.id}`, {
             method: 'PUT',
             body: {
                 auto_publish: editSettings.value.autoPublish,
@@ -1074,7 +1074,7 @@ async function confirmDelete() {
     isLoadingCount.value = true
     try {
         const { data, error } = await useMyFetch<{ instruction_count: number }>(
-            `/data_sources/${activeDatasourceId.value}/git_repository/${connectedRepo.value.id}/linked_instructions_count`,
+            `/git/repositories/${connectedRepo.value.id}/linked_instructions_count`,
             { method: 'GET' }
         )
         
@@ -1095,7 +1095,7 @@ async function executeDelete() {
     
     isLoading.value = true
     try {
-        const { error } = await useMyFetch(`/data_sources/${activeDatasourceId.value}/git_repository/${connectedRepo.value.id}`, {
+        const { error } = await useMyFetch(`/git/repositories/${connectedRepo.value.id}`, {
             method: 'DELETE'
         })
         
@@ -1130,7 +1130,7 @@ async function reindexRepository() {
     
     try {
         console.log('[GitRepo] Starting reindex...')
-        const response = await useMyFetch(`/data_sources/${activeDatasourceId.value}/git_repository/${connectedRepo.value.id}/index`, {
+        const response = await useMyFetch(`/git/${connectedRepo.value.id}/index`, {
             method: 'POST'
         })
         
@@ -1155,8 +1155,8 @@ async function pollJobStatus() {
     // Use connectedRepo.id if available, otherwise use pendingRepoId from save response
     const repoId = connectedRepo.value?.id || pendingRepoId.value
     
-    if (!repoId || !activeDatasourceId.value) {
-        console.log('[GitRepo] Polling skipped - no repo or datasource. repoId:', repoId, 'dsId:', activeDatasourceId.value)
+    if (!repoId) {
+        console.log('[GitRepo] Polling skipped - no repo. repoId:', repoId)
         return
     }
     
@@ -1169,7 +1169,7 @@ async function pollJobStatus() {
             processed_files: number
             total_files: number
             error_message: string | null
-        }>(`/data_sources/${activeDatasourceId.value}/git_repository/${repoId}/job_status`, {
+        }>(`/git/${repoId}/job_status`, {
             key: `job-status-${Date.now()}` // Prevent caching
         })
         

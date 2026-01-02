@@ -137,9 +137,9 @@ jobs:
           frontend/tests/config/*.png
         retention-days: 7
 
-  # Integration tests - only run on push to main (before release)
+  # Integration tests - run on main push OR on PRs from the same repo (not forks for security)
   integration-data-sources:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -172,7 +172,7 @@ jobs:
         pytest -v tests/integrations/ds_clients.py --disable-warnings
 
   integration-llms:
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     permissions:
       contents: read

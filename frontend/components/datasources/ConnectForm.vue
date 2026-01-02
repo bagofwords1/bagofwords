@@ -9,7 +9,7 @@
       <form @submit.prevent="onSubmit" class="space-y-3">
         <div v-if="allowNameEdit !== false">
           <label class="text-sm font-medium text-gray-700 mb-1 block">Name</label>
-          <input v-model="name" type="text" placeholder="Data source name" class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" />
+          <input v-model="name" type="text" placeholder="Name (e.g. 'Sales')" class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" />
         </div>
 
         <div v-if="fields.config" class="p-3 rounded border">
@@ -29,7 +29,15 @@
         </div>
 
         <div v-if="true" class="p-3 rounded border">
-          <div class="text-sm font-medium text-gray-700 mb-2">System Credentials</div>
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-sm font-medium text-gray-700">System Credentials</div>
+            <span v-if="isConnectionEdit && props.initialValues?.has_credentials" class="text-xs text-green-600">
+              ✓ Credentials set
+            </span>
+          </div>
+          <p v-if="isConnectionEdit && props.initialValues?.has_credentials" class="text-xs text-gray-500 mb-2">
+            Leave blank to keep existing credentials, or enter new values to update.
+          </p>
 
           <div v-if="authOptions.length" class="w-48 mb-2">
             <USelectMenu v-if="authOptions.length > 1" v-model="selectedAuth" :options="authOptions" option-attribute="label" value-attribute="value" @change="handleAuthChange" />
@@ -42,7 +50,7 @@
             <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" rows="3" />
             <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
           </div>
-          <div v-if="showRequireUserAuth && isCreateMode" class="flex items-center gap-2 mb-2 mt-4">
+          <div v-if="showRequireUserAuth && (isCreateMode || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
             <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
             <span class="text-xs text-gray-700">Require user authentication</span>
           </div>
@@ -90,13 +98,23 @@
 import Spinner from '@/components/Spinner.vue'
 function selectProvider(ds: any) {
   selectedType.value = String(ds?.type || '')
-  if (!name.value) {
-    const title = ds?.title || ds?.type || ''
-    name.value = title ? `My ${title}` : ''
-  }
   handleTypeChange()
 }
-const props = defineProps<{ mode?: 'onboarding'|'create'|'edit', initialType?: string, dataSourceId?: string, initialValues?: any, showTestButton?: boolean, showLLMToggle?: boolean, allowNameEdit?: boolean, forceShowSystemCredentials?: boolean, showRequireUserAuthToggle?: boolean, initialRequireUserAuth?: boolean, hideHeader?: boolean }>()
+const props = defineProps<{
+  mode?: 'onboarding'|'create'|'edit',
+  initialType?: string,
+  initialName?: string,
+  dataSourceId?: string,
+  connectionId?: string,
+  initialValues?: any,
+  showTestButton?: boolean,
+  showLLMToggle?: boolean,
+  allowNameEdit?: boolean,
+  forceShowSystemCredentials?: boolean,
+  showRequireUserAuthToggle?: boolean,
+  initialRequireUserAuth?: boolean,
+  hideHeader?: boolean
+}>()
 const emit = defineEmits<{ (e: 'submitted', payload: any): void; (e: 'success', dataSource: any): void; (e: 'change:type', type: string): void; (e: 'change:auth', authType: string | null): void }>()
 
 const toast = useToast()
@@ -104,7 +122,7 @@ const route = useRoute()
 
 const available_ds = ref<any[]>([])
 const selectedType = ref<string>(String(props.initialType || (typeof route.query.type === 'string' ? route.query.type : '')))
-const name = ref('')
+const name = ref(String(props.initialName || ''))
 const fields = ref<any>({ config: null, credentials: null, auth: null, credentials_by_auth: null })
 const formData = reactive<{ config: Record<string, any>; credentials: Record<string, any> }>({ config: {}, credentials: {} })
 const selectedAuth = ref<string | undefined>(undefined)
@@ -121,6 +139,7 @@ const preserveOnNextFetch = ref(false)
 const auth_policy = computed(() => (require_user_auth.value ? 'user_required' : 'system_only'))
 const isEditMode = computed(() => props.mode === 'edit')
 const isCreateMode = computed(() => props.mode === 'create')
+const isConnectionEdit = computed(() => isEditMode.value && !!props.connectionId)
 
 const typeOptions = computed(() => available_ds.value || [])
 
@@ -190,16 +209,12 @@ async function fetchFields() {
     // set default auth
     const authMeta = fields.value?.auth
     if (authMeta && !selectedAuth.value) selectedAuth.value = authMeta.default || undefined
+    const shouldSkipHydration = preserveOnNextFetch.value
     initFormDefaults(preserveOnNextFetch.value)
     preserveOnNextFetch.value = false
     emit('change:type', selectedType.value)
-    // Ensure a friendly default name on initial load if none set
-    if (!name.value) {
-      const title = selectedTitle.value || selectedType.value || ''
-      name.value = title ? `My ${title}` : ''
-    }
-    // hydrate initial values in edit mode
-    if (isEditMode.value && props.initialValues) {
+    // hydrate initial values in edit mode (skip if user just toggled auth policy)
+    if (isEditMode.value && props.initialValues && !shouldSkipHydration) {
       try {
         const iv = props.initialValues || {}
         name.value = iv.name || name.value
@@ -258,10 +273,6 @@ function initFormDefaults(preserveExisting: boolean = false) {
 function handleTypeChange() {
   fields.value = { config: null, credentials: null, auth: null, credentials_by_auth: null }
   selectedAuth.value = undefined
-  if (!name.value) {
-    const title = selectedTitle.value || selectedType.value || ''
-    name.value = title ? `My ${title}` : ''
-  }
   fetchFields()
 }
 
@@ -294,7 +305,31 @@ async function onSubmit() {
       use_llm_sync: use_llm_onboarding.value
     }
     emit('submitted', payload)
-    if (isEditMode.value && props.dataSourceId) {
+    
+    // Handle connection editing (uses /connections endpoint)
+    if (isConnectionEdit.value && props.connectionId) {
+      // Only include credentials if user provided new values
+      const hasNewCredentials = Object.values(formData.credentials).some(v => v && String(v).trim())
+      const connectionPayload: any = {
+        name: name.value || selectedType.value,
+        config: { ...formData.config, auth_type: selectedAuth.value || undefined },
+        auth_policy: auth_policy.value
+      }
+      if (hasNewCredentials) {
+        connectionPayload.credentials = formData.credentials
+      }
+      
+      const res = await useMyFetch(`/connections/${props.connectionId}`, { method: 'PUT', body: JSON.stringify(connectionPayload), headers: { 'Content-Type': 'application/json' } })
+      if ((res.status as any)?.value === 'success') {
+        const updated = (res.data as any)?.value
+        emit('success', updated)
+      } else {
+        const errAny = (res.error as any)
+        const err = (errAny && (errAny.value || errAny)) || {}
+        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to update connection'
+        toast.add({ title: 'Failed to update connection', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+      }
+    } else if (isEditMode.value && props.dataSourceId) {
       const res = await useMyFetch(`/data_sources/${props.dataSourceId}`, { method: 'PUT', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
       if ((res.status as any)?.value === 'success') {
         const updated = (res.data as any)?.value
@@ -329,15 +364,24 @@ async function testConnection() {
   isTestingConnection.value = true
   connectionTestPassed.value = false
   try {
-    const payload = {
-      name: name.value || selectedType.value,
-      type: selectedType.value,
-      // Include auth_type so backend can select correct credentials schema (e.g., Snowflake keypair)
-      config: { ...formData.config, auth_type: selectedAuth.value || undefined },
-      credentials: showSystemCredentialFields.value ? formData.credentials : {},
-      is_public: is_public.value
+    let res: any
+    
+    // When editing a connection, use the connection test endpoint which uses stored credentials
+    if (isConnectionEdit.value && props.connectionId) {
+      res = await useMyFetch(`/connections/${props.connectionId}/test`, { method: 'POST' })
+    } else {
+      // For new connections or data sources, test with form values
+      const payload = {
+        name: name.value || selectedType.value,
+        type: selectedType.value,
+        // Include auth_type so backend can select correct credentials schema (e.g., Snowflake keypair)
+        config: { ...formData.config, auth_type: selectedAuth.value || undefined },
+        credentials: showSystemCredentialFields.value ? formData.credentials : {},
+        is_public: is_public.value
+      }
+      res = await useMyFetch('/data_sources/test_connection', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
     }
-    const res = await useMyFetch('/data_sources/test_connection', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })
+    
     const data: any = (res.data as any)?.value
     const ok = !!(data?.success)
     const msg = data?.message || (ok ? 'Connection successful' : 'Connection failed')
@@ -366,6 +410,19 @@ watch(require_user_auth, (val) => {
   preserveOnNextFetch.value = true
   fetchFields()
 })
+
+watch(
+  () => props.initialName,
+  (val) => {
+    const next = String(val || '')
+    if (!next) return
+    // If the name isn't editable externally, keep it in sync with the parent.
+    // If it is editable, only initialize when empty to avoid clobbering user edits.
+    if (props.allowNameEdit === false || !name.value) {
+      name.value = next
+    }
+  }
+)
 
 onMounted(() => { fetchAvailable() })
 </script>

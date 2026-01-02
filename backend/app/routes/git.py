@@ -2,20 +2,22 @@
 Git Router - Endpoints for Git operations
 
 This router provides endpoints for:
+- Repository CRUD (org-level, with optional data_source_id for backwards compat)
 - Syncing branches from Git to BOW
 - Pushing builds to Git
 - Repository status and capabilities
 
-URL Pattern: /git/{repo_id}/...
+URL Pattern: /git/repositories for CRUD, /git/{repo_id}/... for operations
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
+from typing import Optional, List
 from pydantic import BaseModel
 
 from app.dependencies import get_async_db, get_current_organization
 from app.services.git_service import GitService
+from app.schemas.git_repository_schema import GitRepositoryCreate, GitRepositoryUpdate, GitRepositorySchema
 from app.core.auth import current_user
 from app.models.user import User
 from app.models.organization import Organization
@@ -70,6 +72,130 @@ class RepositoryStatusResponse(BaseModel):
     write_enabled: bool
     is_self_hosted: bool
     last_synced_at: Optional[str]
+
+
+# ==================== Repository CRUD Endpoints (Org-Level) ====================
+
+@router.get("/repositories", response_model=List[GitRepositorySchema])
+@requires_permission('view_data_source')
+async def list_repositories(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """List all Git repositories for the organization."""
+    return await git_service.list_repositories(db, organization)
+
+
+@router.post("/repositories", response_model=GitRepositorySchema)
+@requires_permission('create_data_source')
+async def create_repository(
+    git_repo: GitRepositoryCreate,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Create a new Git repository integration for the organization.
+    
+    The data_source_id is optional - if provided, instructions will be scoped
+    to that domain. If omitted, instructions are org-wide.
+    """
+    return await git_service.create_git_repository(
+        db, 
+        git_repo, 
+        current_user, 
+        organization
+    )
+
+
+@router.post("/repositories/test")
+@requires_permission('create_data_source')
+async def test_repository_connection(
+    git_repo: GitRepositoryCreate,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Test Git repository connection before creating."""
+    return await git_service.test_connection(db, git_repo, organization)
+
+
+@router.get("/repositories/{repository_id}", response_model=GitRepositorySchema)
+@requires_permission('view_data_source')
+async def get_repository(
+    repository_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get a specific Git repository by ID."""
+    return await git_service.get_repository(db, repository_id, organization)
+
+
+@router.put("/repositories/{repository_id}", response_model=GitRepositorySchema)
+@requires_permission('update_data_source')
+async def update_repository(
+    repository_id: str,
+    git_repo: GitRepositoryUpdate,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Update an existing Git repository integration."""
+    return await git_service.update_git_repository(
+        db, repository_id, git_repo, organization
+    )
+
+
+@router.delete("/repositories/{repository_id}")
+@requires_permission('update_data_source')
+async def delete_repository(
+    repository_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Delete a Git repository and associated data."""
+    return await git_service.delete_git_repository(
+        db, repository_id, organization, user_id=current_user.id
+    )
+
+
+@router.get("/repositories/{repository_id}/linked_instructions_count")
+@requires_permission('view_data_source')
+async def get_linked_instructions_count(
+    repository_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get the count of instructions linked to a git repository."""
+    return await git_service.get_linked_instructions_count(db, repository_id, organization)
+
+
+@router.post("/{repo_id}/index")
+@requires_permission('update_data_source')
+async def index_repository(
+    repo_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Trigger indexing/re-indexing of a Git repository."""
+    return await git_service.index_git_repository(db, repo_id, organization)
+
+
+@router.get("/{repo_id}/job_status")
+@requires_permission('view_data_source')
+async def get_indexing_job_status(
+    repo_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get current indexing job status with progress percentage."""
+    return await git_service.get_indexing_job_status(db, repo_id, organization)
 
 
 # ==================== Sync Endpoints ====================

@@ -71,30 +71,25 @@ class MetadataIndexingJobService:
         self,
         db: AsyncSession,
         repo_id: str,
-        data_source_id: str,
         organization: Organization,
-        detected_project_types: List[str]
+        detected_project_types: List[str],
+        data_source_id: Optional[str] = None,
     ):
         """Creates the MetadataIndexingJob record before background processing starts."""
-        # Verify data source exists
-        await self._verify_data_source(db, data_source_id, organization)
-
         # Get the GitRepository to link the job
         git_repository = await db.execute(
             select(GitRepository).where(
-                GitRepository.data_source_id == data_source_id,
                 GitRepository.organization_id == organization.id,
                 GitRepository.id == repo_id
             )
         )
         git_repository = git_repository.scalar_one_or_none()
         if not git_repository:
-             # This case should ideally be caught earlier, but double-check
-             raise HTTPException(status_code=404, detail=f"Git repository {repo_id} not found for data source {data_source_id}")
+             raise HTTPException(status_code=404, detail=f"Git repository {repo_id} not found")
 
-        # Create a new indexing job record
+        # Create a new indexing job record (data_source_id is optional for org-level repos)
         job = MetadataIndexingJob(
-            data_source_id=data_source_id,
+            data_source_id=data_source_id,  # Can be None for org-level repos
             organization_id=organization.id,
             git_repository_id=git_repository.id,
             status="running", # Start as running
@@ -119,9 +114,10 @@ class MetadataIndexingJobService:
         self,
         db: AsyncSession,
         temp_dir: str,
-        data_source_id: str,
         job_id: str,
-        activate_new_resources: bool,
+        organization_id: str,
+        data_source_id: Optional[str] = None,
+        activate_new_resources: bool = True,
     ):
         """Parse DBT resources from a cloned repository and save using MetadataResource."""
         created_or_updated_resources = []
@@ -178,8 +174,9 @@ class MetadataIndexingJobService:
                         db=db,
                         item=item, # Pass the raw item dictionary
                         resource_type=f"dbt_{resource_type_singular}", # Add 'dbt_' prefix
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                         columns=[col for col in columns if isinstance(col, dict)], # Ensure columns are dicts
                         depends_on=[dep for dep in depends_on if isinstance(dep, str)] if isinstance(depends_on, list) else [],
@@ -206,9 +203,10 @@ class MetadataIndexingJobService:
         self,
         db: AsyncSession,
         temp_dir: str,
-        data_source_id: str,
         job_id: str,
-        activate_new_resources: bool,
+        organization_id: str,
+        data_source_id: Optional[str] = None,
+        activate_new_resources: bool = True,
     ):
         """Parse Tableau TDS/TDSX resources from a cloned repository."""
         created_resources = []
@@ -240,8 +238,9 @@ class MetadataIndexingJobService:
                         db=db,
                         item=item,
                         resource_type=item_resource_type,
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                         columns=item_columns,
                         depends_on=item.get('depends_on', []),
@@ -261,9 +260,10 @@ class MetadataIndexingJobService:
         self,
         db: AsyncSession,
         temp_dir: str,
-        data_source_id: str,
         job_id: str,
-        activate_new_resources: bool,
+        organization_id: str,
+        data_source_id: Optional[str] = None,
+        activate_new_resources: bool = True,
     ):
         """Parse LookML resources from a cloned repository."""
         created_resources = []
@@ -300,8 +300,9 @@ class MetadataIndexingJobService:
                         db=db,
                         item=resource_item, # Pass the entire resource item
                         resource_type=item_type_from_resource, # Use specific type if available
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                         # Pass the columns we just looked up
                         columns=item_columns,
@@ -323,20 +324,25 @@ class MetadataIndexingJobService:
         self,
         db: AsyncSession,
         temp_dir: str,
-        data_source_id: str,
         job_id: str,
-        activate_new_resources: bool,
+        organization_id: str,
+        data_source_id: Optional[str] = None,
+        activate_new_resources: bool = True,
     ):
         """Parse Markdown files from a cloned repository."""
         created_resources = []
         try:
             logger.info(f"Starting Markdown parsing for job {job_id} in {temp_dir}")
 
-            # Deactivate existing markdown resources for this data source so new chunks replace them
+            # Deactivate existing markdown resources for this job's organization so new chunks replace them
             await db.execute(
                 update(MetadataResource)
                 .where(
-                    MetadataResource.data_source_id == data_source_id,
+                    MetadataResource.metadata_indexing_job_id.in_(
+                        select(MetadataIndexingJob.id).where(
+                            MetadataIndexingJob.organization_id == organization_id
+                        )
+                    ),
                     MetadataResource.resource_type == 'markdown_document',
                 )
                 .values(is_active=False)
@@ -366,8 +372,9 @@ class MetadataIndexingJobService:
                     db=db,
                     item=doc_item, # Pass the entire document item
                     resource_type='markdown_document',
-                    data_source_id=data_source_id,
                     job_id=job_id,
+                    organization_id=organization_id,
+                    data_source_id=data_source_id,
                     activate_new_resources=activate_new_resources,
                     columns=[], # Markdown files don't have columns
                     depends_on=[] # Markdown files typically don't have dependencies
@@ -388,9 +395,10 @@ class MetadataIndexingJobService:
         self,
         db: AsyncSession,
         temp_dir: str,
-        data_source_id: str,
         job_id: str,
-        activate_new_resources: bool,
+        organization_id: str,
+        data_source_id: Optional[str] = None,
+        activate_new_resources: bool = True,
     ):
         """Parse Dataform resources (from .sqlx files) from a cloned repository."""
         created_or_updated_resources = []
@@ -427,8 +435,9 @@ class MetadataIndexingJobService:
                         db=db,
                         item=item,
                         resource_type=resource_type,
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                         columns=[col for col in item_columns if isinstance(col, dict)],
                         depends_on=[dep for dep in depends_on if isinstance(dep, str)] if isinstance(depends_on, list) else [],
@@ -453,8 +462,9 @@ class MetadataIndexingJobService:
         db: AsyncSession,
         item: Dict[str, Any], # Raw dictionary from the parser
         resource_type: str, # Should include prefix like 'dbt_model' or 'lookml_view'
-        data_source_id: str,
         job_id: str,
+        organization_id: str,
+        data_source_id: Optional[str] = None,
         activate_new_resources: bool = True,
         columns: Optional[List[Dict[str, Any]]] = None,
         depends_on: Optional[List[str]] = None,
@@ -490,15 +500,21 @@ class MetadataIndexingJobService:
              depends_on=depends_on or [],
              is_active=True, # Default to active on create/update
              data_source_id=data_source_id,
-             metadata_indexing_job_id=job_id
+             metadata_indexing_job_id=job_id,
+             organization_id=organization_id,
         )
 
         try:
-            # Check if resource already exists (using name, type, and data_source_id as unique key)
+            # Check if resource already exists (using name, type, and organization_id as unique key)
+            # Use job's organization for org-level git repos
             stmt = select(MetadataResource).where(
                  MetadataResource.name == resource_data.name,
                  MetadataResource.resource_type == resource_data.resource_type,
-                 MetadataResource.data_source_id == data_source_id
+                 MetadataResource.metadata_indexing_job_id.in_(
+                     select(MetadataIndexingJob.id).where(
+                         MetadataIndexingJob.organization_id == organization_id
+                     )
+                 )
              )
             result = await db.execute(stmt)
             existing_resource = result.scalar_one_or_none()
@@ -624,24 +640,26 @@ class MetadataIndexingJobService:
         db: AsyncSession,
         repository_id: str,
         repo_path: str,
-        data_source_id: str,
         organization,
         detected_project_types: List[str],
         build_id: Optional[str] = None,  # Optional pre-created build to use
+        data_source_id: Optional[str] = None,  # Optional - for backwards compatibility
     ):
         """Start indexing a Git repository in the background
         
         Args:
             build_id: Optional build ID to add instructions to. If not provided,
                      a new build will be created during indexing.
+            data_source_id: Optional data source ID for backwards compatibility.
+                     Org-level repos don't need this.
         """
         # Call start_indexing first to create the job record synchronously
         job = await self.start_indexing(
             db=db,
             repo_id=repository_id,
-            data_source_id=data_source_id,
             organization=organization,
-            detected_project_types=detected_project_types
+            detected_project_types=detected_project_types,
+            data_source_id=data_source_id,
         )
 
         # In tests, run the indexing job inline so the task isn't cancelled when the event loop ends.
@@ -650,11 +668,11 @@ class MetadataIndexingJobService:
             await self._run_indexing_job(
                 repository_id=repository_id,
                 repo_path=repo_path,
-                data_source_id=data_source_id,
                 organization=organization,
                 detected_project_types=detected_project_types,
                 job_id=job.id,
                 build_id=build_id,
+                data_source_id=data_source_id,
             )
             return {
                 "status": "completed",
@@ -667,11 +685,11 @@ class MetadataIndexingJobService:
             self._run_indexing_job(
                 repository_id=repository_id,
                 repo_path=repo_path,
-                data_source_id=data_source_id,
                 organization=organization,
                 detected_project_types=detected_project_types,
                 job_id=job.id,
                 build_id=build_id,
+                data_source_id=data_source_id,
             )
         )
 
@@ -683,11 +701,11 @@ class MetadataIndexingJobService:
         # The db: AsyncSession parameter is removed from the signature
         repository_id: str,
         repo_path: str,
-        data_source_id: str,
         organization,
         detected_project_types: List[str],
         job_id: str,
         build_id: Optional[str] = None,
+        data_source_id: Optional[str] = None,
     ):
         """Run the actual indexing job and update repository status when complete
         
@@ -724,9 +742,14 @@ class MetadataIndexingJobService:
                 )
                 await db.commit()
 
+                # Check for existing resources to determine if we should auto-activate new ones
                 existing_count_result = await db.execute(
                     select(func.count(MetadataResource.id)).where(
-                        MetadataResource.data_source_id == data_source_id
+                        MetadataResource.metadata_indexing_job_id.in_(
+                            select(MetadataIndexingJob.id).where(
+                                MetadataIndexingJob.organization_id == organization_id
+                            )
+                        )
                     )
                 )
                 has_existing_resources = existing_count_result.scalar_one() > 0
@@ -737,8 +760,9 @@ class MetadataIndexingJobService:
                     dbt_resources = await self._parse_dbt_resources(
                         db=db,
                         temp_dir=repo_path,
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                     )
                     all_created_resources.extend(dbt_resources or [])
@@ -748,8 +772,9 @@ class MetadataIndexingJobService:
                     lookml_resources = await self._parse_lookml_resources(
                         db=db,
                         temp_dir=repo_path,
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                     )
                     all_created_resources.extend(lookml_resources or [])
@@ -759,8 +784,9 @@ class MetadataIndexingJobService:
                     markdown_resources = await self._parse_markdown_resources(
                         db=db,
                         temp_dir=repo_path,
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                     )
                     all_created_resources.extend(markdown_resources or [])
@@ -770,8 +796,9 @@ class MetadataIndexingJobService:
                     tableau_resources = await self._parse_tableau_resources(
                         db=db,
                         temp_dir=repo_path,
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                     )
                     all_created_resources.extend(tableau_resources or [])
@@ -781,8 +808,9 @@ class MetadataIndexingJobService:
                     sqlx_resources = await self._parse_sqlx_resources(
                         db=db,
                         temp_dir=repo_path,
-                        data_source_id=data_source_id,
                         job_id=job_id,
+                        organization_id=organization_id,
+                        data_source_id=data_source_id,
                         activate_new_resources=activate_new_resources,
                     )
                     all_created_resources.extend(sqlx_resources or [])
@@ -801,12 +829,15 @@ class MetadataIndexingJobService:
 
                 if job_status == "completed":
                     # Get stale resources before deleting them (for instruction archival)
+                    # For org-level repos, look for resources from same organization but not from this job
                     stale_stmt = select(MetadataResource.id).where(
-                        MetadataResource.data_source_id == data_source_id,
-                        or_(
-                            MetadataResource.metadata_indexing_job_id != job_id,
-                            MetadataResource.metadata_indexing_job_id.is_(None),
+                        MetadataResource.metadata_indexing_job_id.in_(
+                            select(MetadataIndexingJob.id).where(
+                                MetadataIndexingJob.organization_id == organization_id,
+                                MetadataIndexingJob.git_repository_id == repository_id
+                            )
                         ),
+                        MetadataResource.metadata_indexing_job_id != job_id,
                     )
                     stale_result = await db.execute(stale_stmt)
                     stale_resource_ids = [row[0] for row in stale_result.fetchall()]
@@ -822,15 +853,11 @@ class MetadataIndexingJobService:
                     
                     # Delete stale resources
                     delete_stmt = delete(MetadataResource).where(
-                        MetadataResource.data_source_id == data_source_id,
-                        or_(
-                            MetadataResource.metadata_indexing_job_id != job_id,
-                            MetadataResource.metadata_indexing_job_id.is_(None),
-                        ),
+                        MetadataResource.id.in_(stale_resource_ids)
                     )
                     result = await db.execute(delete_stmt)
                     logger.info(
-                        f"Job {job_id}: Deleted {result.rowcount or 0} stale metadata resources for data source {data_source_id}"
+                        f"Job {job_id}: Deleted {result.rowcount or 0} stale metadata resources for organization {organization_id}"
                     )
                     
                     # Sync all created/updated resources to instructions

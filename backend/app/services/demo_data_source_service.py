@@ -154,27 +154,58 @@ class DemoDataSourceService:
         config = demo.config.copy()
         config[DEMO_ID_KEY] = demo.id
 
-        # Create the data source
-        data_source = DataSource(
+        # Create the Connection first
+        from app.models.connection import Connection
+        connection = Connection(
             name=demo.name,
             type=demo.type,
             config=json.dumps(config),
+            organization_id=str(organization.id),
+            is_active=True,
+            auth_policy="system_only",
+        )
+        
+        # Encrypt credentials on connection (even if empty, for consistency)
+        if demo.credentials:
+            connection.encrypt_credentials(demo.credentials)
+        
+        db.add(connection)
+        await db.flush()
+
+        # Create the data source (Domain)
+        data_source = DataSource(
+            name=demo.name,
             organization_id=organization.id,
             is_public=True,
             is_active=True,  # Explicitly set active
             use_llm_sync=False,
-            auth_policy="system_only",
             owner_user_id=current_user.id,
             description=demo.description,
             conversation_starters=demo.conversation_starters if demo.conversation_starters else None,
         )
 
-        # Encrypt credentials (even if empty, for consistency)
-        data_source.encrypt_credentials(demo.credentials)
-
         db.add(data_source)
+        await db.flush()
+        
+        # Associate data source with connection via junction table
+        from app.models.domain_connection import domain_connection
+        await db.execute(
+            domain_connection.insert().values(
+                data_source_id=data_source.id,
+                connection_id=connection.id
+            )
+        )
+        
         await db.commit()
-        await db.refresh(data_source)
+        
+        # Reload with connections eagerly loaded
+        from sqlalchemy.orm import selectinload
+        result = await db.execute(
+            select(DataSource)
+            .where(DataSource.id == data_source.id)
+            .options(selectinload(DataSource.connections))
+        )
+        data_source = result.scalar_one()
 
         logger.info(
             f"Created demo data source: {demo.name} (id={data_source.id}) "
@@ -333,17 +364,23 @@ class DemoDataSourceService:
         
         Returns a dict mapping demo_id -> DataSource.
         """
-        # Query all data sources for this org
+        from sqlalchemy.orm import selectinload
+        
+        # Query all data sources for this org with their connections
         stmt = select(DataSource).where(
             DataSource.organization_id == organization_id
-        )
+        ).options(selectinload(DataSource.connections))
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
 
-        # Filter to those that have a demo_id in their config
+        # Filter to those that have a demo_id in their config (from connection)
         installed = {}
         for ds in data_sources:
-            config = ds.config if isinstance(ds.config, dict) else json.loads(ds.config or "{}")
+            # Get config from first connection
+            conn = ds.connections[0] if ds.connections else None
+            if not conn:
+                continue
+            config = conn.config if isinstance(conn.config, dict) else json.loads(conn.config or "{}")
             demo_id = config.get(DEMO_ID_KEY)
             if demo_id and demo_id in DEMO_DATA_SOURCES:
                 installed[demo_id] = ds

@@ -1,146 +1,143 @@
 <template>
     <div class="py-6">
         <div class="bg-white border border-gray-200 rounded-lg p-6">
-            <div class="flex items-center justify-start space-x-3">
-                <h2 class="text-lg font-semibold text-gray-900">Connection</h2>
-                <div v-if="canUpdate">
-                    <button @click="openEdit" class="text-xs text-blue-600 hover:underline">Edit</button>
-                </div>
-            </div>
+            <!-- Loading state -->
+            <div v-if="!integration" class="text-sm text-gray-500">Loading...</div>
 
-            <div v-if="integration" class="mt-6">
-                <!-- Configuration (main fields) -->
-                <div class="mb-6">
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3">Configuration</h3>
-                    <div v-if="configFields.length === 0" class="text-xs text-gray-500">No configuration fields.</div>
-                    <div v-else class="space-y-3">
-                        <div v-for="field in configFields" :key="field.field_name">
-                            <label class="block text-xs font-medium text-gray-600 mb-1">{{ field.title || field.field_name }}</label>
-                            <div class="bg-gray-50 border border-gray-200 rounded-md p-2 text-sm text-gray-800">
-                                <span v-if="field.type === 'boolean'">{{ configFormData[field.field_name] ? 'Yes' : 'No' }}</span>
-                                <span v-else>{{ displayValue(configFormData[field.field_name]) }}</span>
-                            </div>
+            <!-- Main content - View Mode -->
+            <div v-else>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <DataSourceIcon :type="connectionType" class="h-8" />
+                        <div>
+                            <div class="font-semibold text-gray-900">{{ connectionName }}</div>
+                            <div class="text-xs text-gray-500">{{ connectionType }}</div>
                         </div>
                     </div>
+                    <div class="flex items-center gap-2">
+                        <!-- Connection status badge -->
+                        <span :class="['px-2 py-0.5 rounded text-xs border flex items-center gap-1', connectionStatusClass]">
+                            {{ connectionStatusLabel }}
+                        </span>
+                        <!-- Last checked time -->
+                        <span v-if="lastCheckedDisplay" class="text-[10px] text-gray-400">
+                            {{ lastCheckedDisplay }}
+                        </span>
+                        <!-- Test/Refresh button -->
+                        <button 
+                            @click="testConnection" 
+                            :disabled="isTesting"
+                            class="p-1.5 rounded hover:bg-gray-100 disabled:opacity-50"
+                            title="Test connection"
+                        >
+                            <Spinner v-if="isTesting" class="w-4 h-4" />
+                            <UIcon v-else name="heroicons-arrow-path" class="w-4 h-4 text-gray-500" />
+                        </button>
+                        <!-- Edit button - only for users with manage_connections permission -->
+                        <UButton 
+                            v-if="canManageConnections"
+                            color="gray" 
+                            variant="ghost" 
+                            size="xs"
+                            @click="showEditModal = true"
+                        >
+                            <UIcon name="heroicons-pencil" class="w-5 h-5" />
+                        </UButton>
+                    </div>
                 </div>
 
-                <!-- User Connection (only for user_required auth) -->
-                <div class="mb-6" v-if="integration?.auth_policy === 'user_required'">
-                    <!-- Admin control row above title -->
-                    <div v-if="isAdmin" class="mb-2 flex items-center space-x-3 text-sm text-gray-800">
-                        <UButton size="xs" color="gray" :loading="isTesting" @click="testConnection">Test connection</UButton>
-                        <UButton v-if="canUpdate" size="xs" color="gray" @click="openEdit">Edit connection</UButton>
-                    </div>
-                    <h3 class="text-sm font-semibold text-gray-800 mb-3 mt-5">User Connection</h3>
-                    <div v-if="isAdmin" class="text-xs text-gray-800 mb-3">Admin users will assume system credentials</div>
-    
+                <!-- Test result (inline) -->
+                <div v-if="testConnectionStatus !== null" class="mt-2 ml-11 text-xs">
+                    <span :class="testConnectionStatus?.success ? 'text-green-600' : 'text-red-600'">
+                        {{ testConnectionStatus?.success ? 'Connection successful' : (testConnectionStatus?.message || 'Connection failed') }}
+                    </span>
+                </div>
+
+                <!-- User Connection (only for user_required auth, non-admin) -->
+                <div class="mt-4 ml-11" v-if="connectionAuthPolicy === 'user_required' && !isAdmin">
                     <div class="text-sm text-gray-800 flex items-center space-x-3">
-                        <template v-if="integration?.user_status?.has_user_credentials">
-                            <span class="inline-flex items-center text-green-700">
-                                <UIcon name="heroicons-check-circle" class="w-4 h-4 mr-1" />
+                        <template v-if="connectionUserStatus?.has_user_credentials">
+                            <span class="inline-flex items-center text-green-700 text-xs">
+                                <UIcon name="heroicons-check-circle" class="w-3 h-3 mr-1" />
                                 Connected as {{ connectedUserDisplay }}
                             </span>
-                            <UButton v-if="!isAdmin" size="xs" color="gray" :loading="isTestingUser" @click="testUserConnection">Test connection</UButton>
-                            <UButton size="xs" color="red" variant="soft" @click="disconnectUserCredentials">Disconnect</UButton>
+                            <UButton size="xs" color="gray" variant="ghost" :loading="isTestingUser" @click="testUserConnection">
+                                <UIcon name="heroicons-play" class="w-4 h-4" />
+                            </UButton>
+                            <UButton size="xs" color="red" variant="ghost" @click="disconnectUserCredentials">Disconnect</UButton>
                         </template>
                         <template v-else>
-                            <template v-if="!isAdmin">
-                                <span class="inline-flex items-center text-gray-600">
-                                    <UIcon name="heroicons-exclamation-circle" class="w-4 h-4 mr-1" />
-                                    Not connected
-                                </span>
-                                <UButton size="xs" color="blue" variant="solid" @click="openAddCredentials">Add</UButton>
-                            </template>
-                            <template v-else>
-                                <!-- Admin sees controls above; nothing here -->
-                            </template>
-                        </template>
-                    </div>
-                    <div v-if="(!isAdmin && integration?.user_status?.has_user_credentials && testUserStatus !== null) || (isAdmin && testConnectionStatus !== null)" class="mt-2 text-sm">
-                        <template v-if="!isAdmin">
-                            <span v-if="testUserStatus?.success" class="inline-flex items-center text-green-700">
-                                <UIcon name="heroicons-check-circle" class="w-4 h-4 mr-1" /> Connected
+                            <span class="inline-flex items-center text-gray-500 text-xs">
+                                <UIcon name="heroicons-exclamation-circle" class="w-3 h-3 mr-1" />
+                                User credentials required
                             </span>
-                            <span v-else class="inline-flex items-center text-red-700">
-                                <UIcon name="heroicons-x-circle" class="w-4 h-4 mr-1" /> Failed
-                            </span>
-                            <div v-if="!testUserStatus?.success && testUserStatus?.message" class="mt-1 text-xs text-gray-600">
-                                {{ testUserStatus.message }}
-                            </div>
-                        </template>
-                        <template v-else>
-                            <span v-if="testConnectionStatus?.success" class="inline-flex items-center text-green-700">
-                                <UIcon name="heroicons-check-circle" class="w-4 h-4 mr-1" /> Connected
-                            </span>
-                            <span v-else class="inline-flex items-center text-red-700">
-                                <UIcon name="heroicons-x-circle" class="w-4 h-4 mr-1" /> Failed
-                            </span>
+                            <UButton size="xs" color="blue" variant="soft" @click="openAddCredentials">Connect</UButton>
                         </template>
                     </div>
                 </div>
-
-                <!-- Credentials section removed per requirements -->
-            </div>
-
-            <div v-else class="text-sm text-gray-500 mt-6">Loading...</div>
-
-            <!-- Footer actions: bottom-left -->
-            <div class="mt-6 flex items-center space-x-3" v-if="showFooterTest">
-                <span v-if="testConnectionStatus !== null" class="text-sm">
-                    <span v-if="testConnectionStatus?.success" class="inline-flex items-center text-green-700">
-                        <UIcon name="heroicons-check-circle" class="w-4 h-4 mr-1" /> Connected
-                    </span>
-                    <span v-else class="inline-flex items-center text-red-700">
-                        <UIcon name="heroicons-x-circle" class="w-4 h-4 mr-1" /> Failed
-                    </span>
-                </span>
             </div>
         </div>
     </div>
 
-  <UModal v-model="showEdit" :ui="{ width: 'sm:max-w-2xl' }">
-    <div class="p-4">
-      <ConnectForm
-        mode="edit"
-        :data-source-id="dsId"
-        :initial-type="integration?.type"
-        :initial-values="{ name: integration?.name, type: integration?.type, config: integration?.config, credentials: integration?.credentials, is_public: integration?.is_public, auth_policy: integration?.auth_policy }"
-              :show-test-button="true"
-              :show-llm-toggle="false"
-              :allow-name-edit="false"
-              :force-show-system-credentials="true"
-        @success="(updated) => { showEdit = false; fetchIntegration(); fetchFields(); hydrateValues(); }"
-      />
-    </div>
-  </UModal>
+    <!-- Edit Connection Modal -->
+    <UModal v-model="showEditModal" :ui="{ width: 'sm:max-w-xl' }">
+        <UCard>
+            <template #header>
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <DataSourceIcon :type="connectionType" class="h-5 w-5" />
+                        <h3 class="text-lg font-semibold">Edit Connection</h3>
+                    </div>
+                    <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />
+                </div>
+            </template>
 
-  <!-- Modal for managing user credentials -->
-  <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="integration" @saved="onCredsSaved" />
+            <ConnectForm
+                v-if="showEditModal"
+                mode="edit"
+                :connection-id="connectionId"
+                :initial-type="connectionType"
+                :initial-values="editFormInitialValues"
+                :show-test-button="true"
+                :show-llm-toggle="false"
+                :allow-name-edit="true"
+                :force-show-system-credentials="true"
+                :show-require-user-auth-toggle="true"
+                :hide-header="true"
+                @success="handleEditSuccess"
+            />
+        </UCard>
+    </UModal>
 
+    <!-- Modal for managing user credentials -->
+    <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="integration" @saved="onCredsSaved" />
 </template>
 
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'integrations' })
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 import { useOrganization } from '~/composables/useOrganization'
+import type { Ref } from 'vue'
 
 const route = useRoute()
 const dsId = computed(() => String(route.params.id || ''))
-const canUpdate = computed(() => useCan('update_data_source'))
+const canManageConnections = computed(() => useCan('manage_connections'))
 const { data: currentUser } = useAuth()
 const { organization } = useOrganization()
 
-const integration = ref<any>(null)
-const configFields = ref<any[]>([])
-const credentialFields = ref<any[]>([])
-const configFormData = reactive<any>({})
-const credentialsFormData = reactive<any>({})
+// Inject integration data from layout (avoid duplicate API calls)
+const injectedIntegration = inject<Ref<any>>('integration', ref(null))
+const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
+
+// Use injected data
+const integration = injectedIntegration
 
 const isTesting = ref(false)
 const testConnectionStatus = ref<any>(null)
-const showEdit = ref(false)
+const showEditModal = ref(false)
 const showCredsModal = ref(false)
 const isTestingUser = ref(false)
 const testUserStatus = ref<any>(null)
@@ -156,65 +153,73 @@ const isAdmin = computed(() => {
   return org?.role === 'admin'
 })
 
-const showFooterTest = computed(() => {
-  // Hide footer test when admin on user_required, as the inline section provides the test
-  return !(integration.value?.auth_policy === 'user_required' && isAdmin.value)
+// Connection data accessors
+const connectionId = computed(() => integration.value?.connection?.id || null)
+const connectionType = computed(() => integration.value?.connection?.type || integration.value?.type)
+const connectionName = computed(() => integration.value?.connection?.name || integration.value?.name || 'Connection')
+const connectionConfig = computed(() => integration.value?.connection?.config || integration.value?.config || {})
+const connectionAuthPolicy = computed(() => integration.value?.connection?.auth_policy || integration.value?.auth_policy || 'system_only')
+const connectionUserStatus = computed(() => integration.value?.connection?.user_status || integration.value?.user_status)
+const hasCredentials = computed(() => integration.value?.connection?.has_credentials ?? true)
+
+// Connection status display
+const connectionStatus = computed(() => String(connectionUserStatus.value?.connection || '').toLowerCase())
+const connectionStatusLabel = computed(() => {
+    const c = connectionStatus.value
+    if (c === 'success') return 'Connected'
+    if (c === 'not_connected') return 'Not connected'
+    if (c === 'offline') return 'Offline'
+    if (c === 'unknown' || !c) return 'Unknown'
+    return 'Unknown'
+})
+const connectionStatusClass = computed(() => {
+    const c = connectionStatus.value
+    if (c === 'success') return 'bg-green-50 text-green-700 border-green-200'
+    if (c === 'not_connected' || c === 'offline') return 'bg-red-50 text-red-700 border-red-200'
+    return 'bg-gray-50 text-gray-700 border-gray-200'
 })
 
-function isPasswordField(fieldName: string) {
-  const n = (fieldName || '').toLowerCase()
-  return n.includes('password') || n.includes('secret') || n.includes('token') || n.includes('key')
+// Last checked display
+const lastCheckedAt = computed(() => connectionUserStatus.value?.last_checked_at)
+const lastCheckedDisplay = computed(() => {
+    if (!lastCheckedAt.value) return null
+    return `Checked ${timeAgo(lastCheckedAt.value)}`
+})
+
+function timeAgo(date: string) {
+    const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000)
+    if (seconds < 60) return 'just now'
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`
+    return `${Math.floor(seconds / 86400)}d ago`
 }
 
-function displayValue(v: any) {
-  if (v === undefined || v === null || v === '') return 'Not configured'
-  return String(v)
-}
-
-async function fetchIntegration() {
-  if (!dsId.value) return
-  const response = await useMyFetch(`/data_sources/${dsId.value}`, { method: 'GET' })
-  if ((response.status as any)?.value === 'success') {
-    integration.value = (response.data as any)?.value
-  }
-}
-
-async function fetchFields() {
-  if (!integration.value?.type) return
-  const response = await useMyFetch(`/data_sources/${integration.value.type}/fields`, { method: 'GET' })
-  const schema = (response.data as any)?.value
-  if (schema?.config?.properties) {
-    configFields.value = Object.entries(schema.config.properties).map(([field_name, s]: any) => ({ field_name, ...s }))
-  }
-  if (schema?.credentials?.properties) {
-    credentialFields.value = Object.entries(schema.credentials.properties).map(([field_name, s]: any) => ({ field_name, ...s }))
-  }
-}
-
-function hydrateValues() {
-  if (integration.value?.config) {
-    const cfg = typeof integration.value.config === 'string' ? JSON.parse(integration.value.config) : integration.value.config
-    Object.keys(cfg || {}).forEach(k => (configFormData[k] = cfg[k]))
-  }
-  if (integration.value?.credentials) {
-    const creds = typeof integration.value.credentials === 'string' ? JSON.parse(integration.value.credentials) : integration.value.credentials
-    Object.keys(creds || {}).forEach(k => (credentialsFormData[k] = creds[k]))
-  }
-}
+// Form initial values for editing
+const editFormInitialValues = computed(() => ({
+  name: connectionName.value,
+  config: connectionConfig.value,
+  auth_policy: connectionAuthPolicy.value,
+  has_credentials: hasCredentials.value,
+  credentials: {}
+}))
 
 async function testConnection() {
   if (!dsId.value || isTesting.value) return
   isTesting.value = true
+  testConnectionStatus.value = null
   try {
     const response = await useMyFetch(`/data_sources/${dsId.value}/test_connection`, { method: 'GET' })
     testConnectionStatus.value = (response.data as any)?.value || null
+    // Refresh integration data from layout
+    await injectedFetchIntegration()
   } finally {
     isTesting.value = false
   }
 }
 
-function openEdit() {
-  showEdit.value = true
+function handleEditSuccess() {
+  showEditModal.value = false
+  injectedFetchIntegration()
 }
 
 function openAddCredentials() {
@@ -225,35 +230,29 @@ async function disconnectUserCredentials() {
   if (!dsId.value) return
   try {
     await useMyFetch(`/data_sources/${dsId.value}/my-credentials`, { method: 'DELETE' })
-    await fetchIntegration()
-    hydrateValues()
+    await injectedFetchIntegration()
   } catch (e) {
-    // no-op; errors handled by fetch utility
+    // no-op
   }
 }
 
 async function onCredsSaved() {
   showCredsModal.value = false
-  await fetchIntegration()
+  await injectedFetchIntegration()
 }
 
 async function testUserConnection() {
   if (!dsId.value || isTestingUser.value) return
   isTestingUser.value = true
   try {
-    // Invoke test for the existing data source. Backend will use stored user creds per policy
     const response = await useMyFetch(`/data_sources/${dsId.value}/test_connection`, { method: 'GET' })
     testUserStatus.value = (response.data as any)?.value || null
+    // Refresh integration data from layout
+    await injectedFetchIntegration()
   } finally {
     isTestingUser.value = false
   }
 }
-
-onMounted(async () => {
-  await fetchIntegration()
-  await fetchFields()
-  hydrateValues()
-})
 </script>
 
 

@@ -42,11 +42,14 @@
               <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="w-10 " />
             </button>
         </li>
-        <li>
 
+        <!-- Domain Selector - Context for all navigation below (hidden if no domains) -->
+        <li v-if="hasDomains" class="mt-6 mb-4">
+          <DomainSelector :collapsed="isCollapsed" :show-text="showText" />
         </li>
+
         <li class="">
-          <div class="flex mt-10">
+          <div class="flex mt-2">
              <button
                name="create-report"
                @click="createNewReport"
@@ -185,12 +188,12 @@
         </li>
       </ul>
       <ul class="font-normal text-sm">
-        <li>
-           <a href="/integrations" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Data Sources" :popper="{ placement: 'right' }">
+        <li class="">
+          <a href="/data" :class="[
+            'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
+            isCollapsed ? 'justify-center' : 'gap-3'
+          ]">
+            <UTooltip v-if="isCollapsed" text="Data" :popper="{ placement: 'right' }">
               <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <UIcon name="heroicons-circle-stack" />
               </span>
@@ -199,7 +202,7 @@
               <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <UIcon name="heroicons-circle-stack" />
               </span>
-              <span v-if="showText" class="text-sm">Data Sources</span>
+              <span v-if="showText" class="text-sm">Data</span>
             </template>
           </a>
         </li>
@@ -220,7 +223,7 @@
               <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <McpIcon class="w-5 h-5" />
               </span>
-              <span v-if="showText" class="text-sm">MCP</span>
+              <span v-if="showText" class="text-sm">MCP Server</span>
             </template>
           </button>
         </li>
@@ -305,9 +308,14 @@
   import Spinner from '~/components/Spinner.vue'
   import McpIcon from '~/components/icons/McpIcon.vue'
   import McpModal from '~/components/McpModal.vue'
+  import DomainSelector from '~/components/DomainSelector.vue'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
+  
+  // Domain management - use selectedDomainObjects for new report creation
+  const { initDomain, selectedDomainObjects, domains, hasDomains } = useDomain()
+
   
   const workspaceIconUrl = computed<string | null>(() => {
     const orgId = organization.value?.id
@@ -346,8 +354,6 @@
 
   const { isExcel } = useExcel()
   const router = useRouter()
-  const selectedDataSources = ref<Array<{ id: string | number }>>([])
-  const dataSourcesLoaded = ref(false)
   const { $intercom } = useNuxtApp()
 
   onMounted(async () => {
@@ -355,10 +361,10 @@
       const route = useRoute()
       const inOnboarding = route.path.startsWith('/onboarding')
       if (!inOnboarding) {
-        // Fetch onboarding and data sources in parallel for faster load
+        // Fetch onboarding and domains in parallel for faster load
         await Promise.all([
           fetchOnboarding({ in_onboarding: false }),
-          getDataSourceOptions()
+          initDomain()
         ])
       }
     } catch {}
@@ -429,35 +435,21 @@
     }, { immediate: true })
   }
 
-  const getDataSourceOptions = async () => {
-    const response = await useMyFetch('/data_sources', {
-        method: 'GET',
-    });
-
-    if ((response as any).error?.value) {
-        throw new Error('Could not fetch data sources');
-    }
-
-    const list = (((response as any).data?.value) as Array<{ id: string | number }> | undefined);
-    selectedDataSources.value = list || [];
-}
-
-
 const createNewReport = async () => {
   if (creatingReport.value) return
   creatingReport.value = true
   
   try {
-    // Only fetch if not already loaded
-    if (!selectedDataSources.value.length) {
-      await getDataSourceOptions()
-    }
+    // Use selected domains from DomainSelector, or all domains if none selected
+    const dataSourceIds = selectedDomainObjects.value.map((ds: any) => ds.id)
     
     const response = await useMyFetch('/reports', {
         method: 'POST',
-        body: JSON.stringify({title: 'untitled report',
-         files: [],
-         data_sources: selectedDataSources.value.map((ds) => ds.id)})
+        body: JSON.stringify({
+          title: 'untitled report',
+          files: [],
+          data_sources: dataSourceIds
+        })
     });
 
     if ((response as any).error?.value) {

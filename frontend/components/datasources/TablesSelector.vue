@@ -710,6 +710,8 @@ function selectAllMatching() {
   // Update visible tables to show as checked
   for (const table of tables.value) {
     currentActiveState.value.set(table.name, true)
+    // Update originalActiveState so subsequent toggles are detected as changes
+    originalActiveState.value.set(table.name, true)
   }
 }
 
@@ -736,6 +738,8 @@ function deselectAllMatching() {
   // Update visible tables to show as unchecked
   for (const table of tables.value) {
     currentActiveState.value.set(table.name, false)
+    // Update originalActiveState so subsequent toggles are detected as changes
+    originalActiveState.value.set(table.name, false)
   }
 }
 

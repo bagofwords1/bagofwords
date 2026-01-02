@@ -223,11 +223,14 @@ class InstructionSyncService:
         # Build structured data for storage
         structured_data = self._build_structured_data(resource)
         
-        # Get data source info for context
-        data_source_result = await db.execute(
-            select(DataSource).where(DataSource.id == resource.data_source_id)
-        )
-        data_source = data_source_result.scalar_one_or_none()
+        # Get data source info for context (if resource is domain-scoped)
+        # For org-level git repos, resource.data_source_id is None
+        data_source = None
+        if resource.data_source_id:
+            data_source_result = await db.execute(
+                select(DataSource).where(DataSource.id == resource.data_source_id)
+            )
+            data_source = data_source_result.scalar_one_or_none()
         
         # Get user_id from git repository (creator of the repo)
         # This is needed for test environments where user_id may still be NOT NULL
@@ -258,7 +261,8 @@ class InstructionSyncService:
         await db.commit()
         await db.refresh(instruction)
         
-        # Associate instruction with the data source
+        # Associate instruction with the data source (only for domain-scoped resources)
+        # Org-level git repos create org-wide instructions with no domain association
         if data_source:
             instruction.data_sources.append(data_source)
             await db.commit()

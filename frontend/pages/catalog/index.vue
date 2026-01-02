@@ -179,6 +179,7 @@ type EntityList = {
 
 const router = useRouter()
 const { data: authData } = useAuth()
+const { selectedDomains } = useDomain()
 const items = ref<EntityList[]>([])
 const allItems = ref<EntityList[]>([])
 const loading = ref(true)
@@ -237,13 +238,27 @@ watch(filterType, () => {
   page.value = 1
 })
 
+// Reload when selected domains change
+watch(selectedDomains, () => {
+  page.value = 1
+  loadEntities()
+})
+
 onMounted(async () => { await loadEntities() })
 
 async function loadEntities() {
   loading.value = true
   try {
-    // Fetch all entities - backend will filter by data source access
-    const { data, error } = await useMyFetch('/api/entities', { method: 'GET' })
+    // Build query params with domain filter
+    const params: Record<string, string> = {}
+    if (selectedDomains.value.length > 0) {
+      params.data_source_ids = selectedDomains.value.join(',')
+    }
+    const queryString = new URLSearchParams(params).toString()
+    const url = queryString ? `/api/entities?${queryString}` : '/api/entities'
+    
+    // Fetch entities - backend will filter by data source access and selected domains
+    const { data, error } = await useMyFetch(url, { method: 'GET' })
     if (error.value) throw error.value
     allItems.value = data.value as any
     loading.value = false

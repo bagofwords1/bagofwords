@@ -87,9 +87,25 @@ async def rerun_report(report_id: str, current_user: User = Depends(current_user
 async def publish_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await report_service.publish_report(db, report_id, current_user, organization)
 
+@router.post("/reports/{report_id}/conversation-share")
+@requires_permission('publish_reports', model=Report, owner_only=True)
+async def toggle_conversation_share(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    """Toggle conversation sharing for a report. Returns enabled status and share token."""
+    return await report_service.toggle_conversation_share(db, report_id, current_user, organization)
+
 @router.get("/r/{report_id}", response_model=ReportSchema)
 async def get_public_report(report_id: str, db: AsyncSession = Depends(get_async_db)):
     return await report_service.get_public_report(db, report_id)
+
+@router.get("/c/{token}")
+async def get_public_conversation(
+    token: str, 
+    limit: int = 10,
+    before: str | None = None,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Public endpoint to fetch a shared conversation by its token. Supports pagination."""
+    return await report_service.get_public_conversation(db, token, limit=limit, before=before)
 
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)

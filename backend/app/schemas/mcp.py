@@ -66,7 +66,7 @@ class DataSourceInfo(BaseModel):
     """Summary of a data source with its tables."""
     id: str
     name: str
-    type: str
+    type: Optional[str] = None
     tables: List[TableInfo]
 
 

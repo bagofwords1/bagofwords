@@ -5,6 +5,7 @@ import type { Instruction } from './useInstructionHelpers'
 
 export interface UseInstructionsOptions {
   dataSourceId?: string | Ref<string | undefined>
+  dataSourceIds?: string[] | Ref<string[] | undefined>  // Support multiple domain IDs
   autoFetch?: boolean
   pageSize?: number
   persistFiltersInUrl?: boolean
@@ -18,7 +19,8 @@ export interface InstructionFilters {
   sourceTypes: string[]
   loadModes: string[]
   labelIds: string[]
-  dataSourceId: string | null
+  dataSourceId: string | null  // Single ID (deprecated, for backward compat)
+  dataSourceIds: string[]  // Multiple domain IDs
   buildId: string | null
 }
 
@@ -33,6 +35,7 @@ export interface PaginatedResponse {
 export function useInstructions(options: UseInstructionsOptions = {}) {
   const {
     dataSourceId,
+    dataSourceIds,
     autoFetch = true,
     pageSize = 25,
     persistFiltersInUrl = false,
@@ -64,6 +67,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     loadModes: [],
     labelIds: [],
     dataSourceId: null,
+    dataSourceIds: [],
     buildId: null
   })
 
@@ -71,12 +75,24 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
   const selectedIds = ref<Set<string>>(new Set())
   const selectAllMode = ref<'none' | 'page' | 'all'>('none')
 
-  // Computed: resolved dataSourceId
-  const resolvedDataSourceId = computed(() => {
-    if (filters.dataSourceId) return filters.dataSourceId
-    if (!dataSourceId) return undefined
-    return isRef(dataSourceId) ? dataSourceId.value : dataSourceId
+  // Computed: resolved data source IDs (supports both single and multiple)
+  const resolvedDataSourceIds = computed((): string[] => {
+    // Priority: filter.dataSourceIds > filter.dataSourceId > option.dataSourceIds > option.dataSourceId
+    if (filters.dataSourceIds.length > 0) return filters.dataSourceIds
+    if (filters.dataSourceId) return [filters.dataSourceId]
+    if (dataSourceIds) {
+      const ids = isRef(dataSourceIds) ? dataSourceIds.value : dataSourceIds
+      if (ids && ids.length > 0) return ids
+    }
+    if (dataSourceId) {
+      const id = isRef(dataSourceId) ? dataSourceId.value : dataSourceId
+      if (id) return [id]
+    }
+    return []
   })
+  
+  // Backward compat: single resolved ID
+  const resolvedDataSourceId = computed(() => resolvedDataSourceIds.value[0] || undefined)
 
   // Computed: all selected (for current page)
   const isAllPageSelected = computed(() => {
@@ -148,8 +164,8 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
         include_archived: filters.status === 'archived'
       }
 
-      // Add filters
-      if (resolvedDataSourceId.value) queryParams.data_source_id = resolvedDataSourceId.value
+      // Add filters - use comma-separated IDs for domain filtering
+      if (resolvedDataSourceIds.value.length > 0) queryParams.data_source_ids = resolvedDataSourceIds.value.join(',')
       if (filters.status) queryParams.status = filters.status
       if (filters.categories.length) queryParams.categories = filters.categories.join(',')
       if (filters.sourceTypes.length) queryParams.source_types = filters.sourceTypes.join(',')
@@ -280,7 +296,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
           include_drafts: true,
           include_archived: filters.status === 'archived'
         }
-        if (resolvedDataSourceId.value) queryParams.data_source_id = resolvedDataSourceId.value
+        if (resolvedDataSourceIds.value.length > 0) queryParams.data_source_ids = resolvedDataSourceIds.value.join(',')
         if (filters.status) queryParams.status = filters.status
         if (filters.categories.length) queryParams.categories = filters.categories.join(',')
         if (filters.sourceTypes.length) queryParams.source_types = filters.sourceTypes.join(',')
@@ -344,6 +360,16 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
   const bulkSetLoadDisabled = () => bulkUpdate({ load_mode: 'disabled' })
   const bulkAddLabel = (labelId: string) => bulkUpdate({ add_label_ids: [labelId] })
   const bulkRemoveLabel = (labelId: string) => bulkUpdate({ remove_label_ids: [labelId] })
+  
+  // Bulk scope (data source) methods
+  const bulkSetDataSources = (dataSourceIds: string[]) => bulkUpdate({ set_data_source_ids: dataSourceIds })
+  const bulkAddDataSource = (dataSourceId: string) => bulkUpdate({ add_data_source_ids: [dataSourceId] })
+  const bulkRemoveDataSource = (dataSourceId: string) => bulkUpdate({ remove_data_source_ids: [dataSourceId] })
+  const bulkClearDataSources = () => bulkUpdate({ set_data_source_ids: [] })  // Make global
+  
+  // Bulk label methods
+  const bulkSetLabels = (labelIds: string[]) => bulkUpdate({ set_label_ids: labelIds })
+  const bulkClearLabels = () => bulkUpdate({ set_label_ids: [] })  // Clear all labels
 
   // Bulk delete
   const bulkDelete = async () => {
@@ -361,7 +387,7 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
           include_drafts: true,
           include_archived: filters.status === 'archived'
         }
-        if (resolvedDataSourceId.value) queryParams.data_source_id = resolvedDataSourceId.value
+        if (resolvedDataSourceIds.value.length > 0) queryParams.data_source_ids = resolvedDataSourceIds.value.join(',')
         if (filters.status) queryParams.status = filters.status
         if (filters.categories.length) queryParams.categories = filters.categories.join(',')
         if (filters.sourceTypes.length) queryParams.source_types = filters.sourceTypes.join(',')
@@ -412,11 +438,11 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     }
   }
 
-  // Watch for dataSourceId changes
-  watch(resolvedDataSourceId, () => {
+  // Watch for dataSourceIds changes (supports multi-select domain filtering)
+  watch(resolvedDataSourceIds, () => {
     currentPage.value = 1
     fetchInstructions()
-  })
+  }, { deep: true })
 
   // Initialize
   if (persistFiltersInUrl) {
@@ -476,6 +502,12 @@ export function useInstructions(options: UseInstructionsOptions = {}) {
     bulkSetLoadDisabled,
     bulkAddLabel,
     bulkRemoveLabel,
+    bulkSetDataSources,
+    bulkAddDataSource,
+    bulkRemoveDataSource,
+    bulkClearDataSources,
+    bulkSetLabels,
+    bulkClearLabels,
     bulkDelete
   }
 }

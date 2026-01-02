@@ -1,6 +1,8 @@
 <template>
     <div class="py-6">
-        <div class="border border-gray-200 rounded-lg p-6">
+        <!-- Hide content when there's a fetch error (layout shows error state) -->
+        <div v-if="injectedFetchError" />
+        <div v-else class="border border-gray-200 rounded-lg p-6">
             <TablesSelector :ds-id="id" :schema="schemaMode" :can-update="canUpdateDataSource" :show-refresh="true" :show-save="canUpdateDataSource" :show-header="true" header-title="Select tables" header-subtitle="Choose which tables to enable" save-label="Save" :show-stats="true" @saved="onSaved" />
         </div>
     </div>
@@ -8,13 +10,18 @@
 </template>
 
 <script setup lang="ts">
-definePageMeta({ auth: true, layout: 'integrations' })
+definePageMeta({ auth: true, layout: 'data' })
 import TablesSelector from '@/components/datasources/TablesSelector.vue'
 import { useCan } from '~/composables/usePermissions'
-const toast = useToast()
+import type { Ref } from 'vue'
 
+const toast = useToast()
 const route = useRoute()
 const id = computed(() => String(route.params.id || ''))
+
+// Inject integration data from layout (avoid duplicate API calls)
+const injectedIntegration = inject<Ref<any>>('integration', ref(null))
+const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
 
 const loading = ref(false)
 const schemaMode = ref<'full' | 'user'>('full')
@@ -23,31 +30,16 @@ const canUpdateDataSource = computed(() => useCan('update_data_source'))
 
 // Tables state is managed by TablesSelector component
 
-onMounted(async () => {
-    if (!id.value) return
-    loading.value = true
-    try {
-        const policy = await getAuthPolicy()
-        if(canUpdateDataSource.value) {
+// Set schema mode based on injected data
+watch(injectedIntegration, (ds) => {
+    if (ds) {
+        if (canUpdateDataSource.value) {
             schemaMode.value = 'full'
         } else {
             schemaMode.value = 'user'
         }
-    } finally {
-        loading.value = false
     }
-})
-
-async function getAuthPolicy() {
-    try {
-        const res = await useMyFetch(`/data_sources/${id.value}`, { method: 'GET' })
-        if (!(res as any)?.error?.value) {
-            const ds = (res as any).data?.value as any
-            return (ds?.auth_policy as any) ?? null
-        }
-    } catch {}
-    return null
-}
+}, { immediate: true })
 
 function onSaved() { toast.add({ title: 'Saved', description: 'Schema updated', color: 'green' }) }
 </script>

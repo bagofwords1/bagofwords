@@ -56,7 +56,8 @@ async def list_entities(
     q: Optional[str] = Query(None),
     type: Optional[str] = Query(None),
     owner_id: Optional[str] = Query(None),
-    data_source_id: Optional[str] = Query(None),
+    data_source_id: Optional[str] = Query(None, description="Filter by single domain ID (deprecated, use data_source_ids)"),
+    data_source_ids: Optional[str] = Query(None, description="Comma-separated domain IDs to filter by"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_async_db),
@@ -64,6 +65,13 @@ async def list_entities(
     organization: Organization = Depends(get_current_organization),
 ):
     """List entities filtered by user's data source access"""
+    # Parse data_source_ids from comma-separated string
+    parsed_data_source_ids = None
+    if data_source_ids:
+        parsed_data_source_ids = [ds_id.strip() for ds_id in data_source_ids.split(',') if ds_id.strip()]
+    elif data_source_id:
+        parsed_data_source_ids = [data_source_id]
+    
     entities = await service.list_entities(
         db,
         organization,
@@ -71,7 +79,7 @@ async def list_entities(
         q=q,
         type=type,
         owner_id=owner_id,
-        data_source_id=data_source_id,
+        data_source_ids=parsed_data_source_ids,
         skip=skip,
         limit=limit,
     )

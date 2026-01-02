@@ -23,6 +23,27 @@ import inspect
 
 
 class UserDataSourceCredentialsService:
+    def _get_connection_info(self, data_source: DataSource) -> tuple:
+        """
+        Get connection info (type, config, auth_policy, allowed_user_auth_modes) from the first connection.
+        Returns (type, config, auth_policy, allowed_user_auth_modes, connection) tuple.
+        """
+        conn = data_source.connections[0] if data_source.connections else None
+        if not conn:
+            return (None, {}, "system_only", None, None)
+        
+        config = conn.config
+        if isinstance(config, str):
+            config = json.loads(config)
+        
+        return (
+            conn.type,
+            config or {},
+            conn.auth_policy or "system_only",
+            conn.allowed_user_auth_modes,
+            conn
+        )
+
     async def get_primary_active_row(self, db: AsyncSession, data_source: DataSource, user: User) -> Optional[UserDataSourceCredentials]:
         stmt = (
             select(UserDataSourceCredentials)
@@ -43,9 +64,24 @@ class UserDataSourceCredentialsService:
         import logging
         logger = logging.getLogger(__name__)
         
+        # Get connection info from the first connection
+        ds_type, config, auth_policy, allowed_user_auth_modes, connection = self._get_connection_info(data_source)
+        
+        # Helper to get cached status from connection
+        def get_cached_status():
+            if connection and connection.last_connection_status:
+                return connection.last_connection_status
+            return "unknown"
+        
+        def get_last_checked_at():
+            if connection and connection.last_connection_checked_at:
+                return connection.last_connection_checked_at
+            return None
+        
         # For system-only data sources, report system connection status
-        if getattr(data_source, "auth_policy", "system_only") != "user_required":
-            conn = "unknown"
+        if auth_policy != "user_required":
+            conn_status = "unknown"
+            last_checked = None
             if live_test:
                 try:
                     from app.services.data_source_service import DataSourceService
@@ -53,19 +89,46 @@ class UserDataSourceCredentialsService:
                     client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
                     ok = client.test_connection()
                     success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
-                    conn = "success" if success else "not_connected"
-                    logger.info(f"Connection test for {data_source.name}: {conn} (result={ok})")
+                    conn_status = "success" if success else "not_connected"
+                    logger.info(f"Connection test for {data_source.name}: {conn_status} (result={ok})")
                 except Exception as e:
                     logger.error(f"Connection test failed for {data_source.name}: {e}")
-                    conn = "not_connected"
-            return DataSourceUserStatus(has_user_credentials=False, connection=conn, effective_auth="system")
+                    conn_status = "not_connected"
+            else:
+                # Use cached status from connection
+                conn_status = get_cached_status()
+                last_checked = get_last_checked_at()
+            return DataSourceUserStatus(
+                has_user_credentials=False, 
+                connection=conn_status, 
+                effective_auth="system",
+                last_checked_at=last_checked
+            )
 
         row = await self.get_primary_active_row(db, data_source, user)
         if not row:
-            # Owner fallback possible; if no creds but owner can use system, reflect that
+            # Owner/admin fallback possible; owner/admin can use system creds or empty creds (e.g., SQLite)
             is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
-            if is_owner and getattr(data_source, "credentials", None):
+            
+            # Check if user has admin permission (update_data_source) - same logic as resolve_credentials
+            has_update_perm = False
+            try:
+                from app.models.membership import Membership, ROLES_PERMISSIONS
+                mem_res = await db.execute(
+                    select(Membership).where(
+                        Membership.user_id == user.id,
+                        Membership.organization_id == getattr(data_source, "organization_id", None),
+                    )
+                )
+                membership = mem_res.scalar_one_or_none()
+                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+            except Exception:
+                has_update_perm = False
+            
+            # Owner/admin can use the connection even without stored credentials (e.g., SQLite)
+            if is_owner or has_update_perm:
                 conn = "unknown"
+                last_checked = None
                 if live_test:
                     try:
                         # Attempt live test using system credentials
@@ -77,10 +140,21 @@ class UserDataSourceCredentialsService:
                         conn = "success" if success else "not_connected"
                     except Exception:
                         conn = "not_connected"
-                return DataSourceUserStatus(has_user_credentials=False, connection=conn, effective_auth="system", uses_fallback=True)
+                else:
+                    # Use cached status
+                    conn = get_cached_status()
+                    last_checked = get_last_checked_at()
+                return DataSourceUserStatus(
+                    has_user_credentials=False, 
+                    connection=conn, 
+                    effective_auth="system", 
+                    uses_fallback=True,
+                    last_checked_at=last_checked
+                )
             return DataSourceUserStatus(has_user_credentials=False, connection="offline", effective_auth="none")
 
         conn = "unknown"
+        last_checked = None
         if live_test:
             try:
                 # Local import to avoid circular
@@ -92,6 +166,10 @@ class UserDataSourceCredentialsService:
                 conn = "success" if success else "not_connected"
             except Exception:
                 conn = "not_connected"
+        else:
+            # Use cached status
+            conn = get_cached_status()
+            last_checked = get_last_checked_at()
 
         return DataSourceUserStatus(
             has_user_credentials=True,
@@ -103,11 +181,18 @@ class UserDataSourceCredentialsService:
             effective_auth="user",
             uses_fallback=False,
             credentials_id=str(getattr(row, "id", "")) if getattr(row, "id", None) else None,
+            last_checked_at=last_checked,
         )
 
     async def test_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> dict:
+        # Get connection info
+        ds_type, config, auth_policy, allowed_user_auth_modes, connection = self._get_connection_info(data_source)
+        
+        if not ds_type:
+            raise HTTPException(status_code=400, detail="Data source has no connection")
+        
         # Validate against registry
-        entry = get_entry(data_source.type)
+        entry = get_entry(ds_type)
         variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
         if not variant or ("user" not in (variant.scopes or [])):
             raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
@@ -118,8 +203,7 @@ class UserDataSourceCredentialsService:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
 
         # Build client with provided creds without persisting
-        ClientClass = resolve_client_class(data_source.type)
-        config = json.loads(data_source.config) if isinstance(data_source.config, str) else (data_source.config or {})
+        ClientClass = resolve_client_class(ds_type)
         params = {**(config or {}), **(payload.credentials or {})}
         # Strip meta keys
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
@@ -139,14 +223,20 @@ class UserDataSourceCredentialsService:
             return {"success": False, "message": str(e)}
 
     async def upsert_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> UserDataSourceCredentialsSchema:
+        # Get connection info
+        ds_type, config, auth_policy, allowed_user_auth_modes, connection = self._get_connection_info(data_source)
+        
+        if not ds_type:
+            raise HTTPException(status_code=400, detail="Data source has no connection")
+        
         # Policy: ensure auth_mode allowed for user scope
-        entry = get_entry(data_source.type)
+        entry = get_entry(ds_type)
         variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
         if not variant or ("user" not in (variant.scopes or [])):
             raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
 
         # If DS restricts allowed_user_auth_modes, enforce
-        allowed = getattr(data_source, "allowed_user_auth_modes", None) or []
+        allowed = allowed_user_auth_modes or []
         if allowed and payload.auth_mode not in allowed:
             raise HTTPException(status_code=400, detail="Authentication mode not permitted by data source policy")
 
@@ -216,6 +306,12 @@ class UserDataSourceCredentialsService:
         return UserDataSourceCredentialsSchema.from_orm(row)
 
     async def patch_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsUpdate) -> UserDataSourceCredentialsSchema:
+        # Get connection info
+        ds_type, config, auth_policy, allowed_user_auth_modes, connection = self._get_connection_info(data_source)
+        
+        if not ds_type:
+            raise HTTPException(status_code=400, detail="Data source has no connection")
+        
         stmt = (
             select(UserDataSourceCredentials)
             .where(
@@ -235,7 +331,7 @@ class UserDataSourceCredentialsService:
 
         # Apply changes
         if payload.auth_mode:
-            entry = get_entry(data_source.type)
+            entry = get_entry(ds_type)
             variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode)
             if not variant or ("user" not in (variant.scopes or [])):
                 raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
@@ -250,7 +346,7 @@ class UserDataSourceCredentialsService:
 
         if payload.credentials and not payload.auth_mode:
             # Validate against current auth_mode
-            entry = get_entry(data_source.type)
+            entry = get_entry(ds_type)
             variant = (entry.credentials_auth.by_auth or {}).get(row.auth_mode)
             schema_cls = variant.schema if variant else None
             if schema_cls is None:

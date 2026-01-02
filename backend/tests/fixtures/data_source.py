@@ -1,10 +1,22 @@
 import time
+import tempfile
+import sqlite3
+import os
 
 import pytest  # type: ignore
 
 @pytest.fixture
 def create_data_source(test_client):
-    def _create_data_source(*, name: str, type: str, config: dict = None, credentials: dict = None, user_token: str = None, org_id: str = None):
+    def _create_data_source(
+        *,
+        name: str,
+        type: str,
+        config: dict = None,
+        credentials: dict = None,
+        auth_policy: str = "system_only",
+        user_token: str = None,
+        org_id: str = None
+    ):
         if user_token is None:
             pytest.fail("User token is required for create_data_source")
         if org_id is None:
@@ -15,6 +27,7 @@ def create_data_source(test_client):
             "type": type,
             "config": config or {},
             "credentials": credentials or {},
+            "auth_policy": auth_policy,
             "generate_summary": False,
             "generate_conversation_starters": False,
             "generate_ai_rules": False
@@ -407,3 +420,108 @@ def install_demo_data_source(test_client):
         return response.json()
 
     return _install_demo_data_source
+
+
+# ============================================================================
+# Domain from Connection Fixtures
+# ============================================================================
+
+@pytest.fixture
+def create_domain_from_connection(test_client):
+    """Create a domain (data source) linked to an existing connection."""
+    def _create_domain_from_connection(
+        *,
+        name: str,
+        connection_id: str,
+        user_token: str = None,
+        org_id: str = None,
+        use_llm_sync: bool = False,
+        is_public: bool = True,
+    ):
+        if user_token is None:
+            pytest.fail("User token is required for create_domain_from_connection")
+        if org_id is None:
+            pytest.fail("Organization ID is required for create_domain_from_connection")
+
+        payload = {
+            "name": name,
+            "connection_id": connection_id,
+            "generate_summary": False,
+            "generate_conversation_starters": False,
+            "generate_ai_rules": False,
+            "use_llm_sync": use_llm_sync,
+            "is_public": is_public,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.post(
+            "/api/data_sources",
+            json=payload,
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _create_domain_from_connection
+
+
+# ============================================================================
+# Dynamic SQLite Database Fixture (for schema drift tests)
+# ============================================================================
+
+@pytest.fixture
+def dynamic_sqlite_db():
+    """Create a temporary SQLite database that can be modified during tests.
+    
+    Yields the path to a SQLite database with initial tables:
+    - users (id, name)
+    - orders (id, user_id, amount)
+    
+    The database file is deleted after the test completes.
+    """
+    # Create a temporary file for the database
+    with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
+        db_path = f.name
+
+    # Create initial schema
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+    conn.execute("CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, amount REAL)")
+    conn.commit()
+    conn.close()
+
+    yield db_path
+
+    # Cleanup - remove the temp database file
+    try:
+        os.unlink(db_path)
+    except OSError:
+        pass  # File may already be deleted
+
+
+@pytest.fixture
+def empty_sqlite_db():
+    """Create an empty temporary SQLite database.
+    
+    Yields the path to an empty SQLite database (no tables).
+    The database file is deleted after the test completes.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as f:
+        db_path = f.name
+
+    # Just create the file, no tables
+    conn = sqlite3.connect(db_path)
+    conn.close()
+
+    yield db_path
+
+    # Cleanup
+    try:
+        os.unlink(db_path)
+    except OSError:
+        pass

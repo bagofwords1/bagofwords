@@ -217,7 +217,7 @@ class EntityService:
         q: Optional[str] = None,
         type: Optional[str] = None,
         owner_id: Optional[str] = None,
-        data_source_id: Optional[str] = None,
+        data_source_ids: Optional[List[str]] = None,
         skip: int = 0,
         limit: int = 100,
     ) -> List[Entity]:
@@ -270,8 +270,8 @@ class EntityService:
         if q:
             like = f"%{q}%"
             stmt = stmt.where(or_(Entity.title.ilike(like), Entity.slug.ilike(like)))
-        if data_source_id:
-            # Filter to entities that have this specific data source
+        if data_source_ids:
+            # Filter to entities that have any of the specified domain IDs
             stmt = stmt.where(
                 exists(
                     select(1)
@@ -279,7 +279,7 @@ class EntityService:
                     .where(
                         and_(
                             entity_data_source_association.c.entity_id == Entity.id,
-                            entity_data_source_association.c.data_source_id == data_source_id
+                            entity_data_source_association.c.data_source_id.in_(data_source_ids)
                         )
                     )
                 )

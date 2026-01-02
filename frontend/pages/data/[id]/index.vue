@@ -1,13 +1,11 @@
 <template>
     <div class="py-6 relative">
-        <div class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
+        <!-- Hide content when there's a fetch error (layout shows error state) -->
+        <div v-if="fetchError" />
+        <div v-else class="bg-white border border-gray-200 rounded-lg p-8 md:p-10">
             <div v-if="loading" class="text-xs text-gray-500 text-center">Loading…</div>
             <div v-else class="md:w-2/3 ">
                 <div class="flex items-center gap-2">
-                    <DataSourceIcon :type="displayDataSource?.type" class="h-6" />
-                    <div class="text-2xl font-semibold text-gray-900">{{ displayDataSource?.name }}</div>
-                </div>
-                <div class="mt-5 flex items-center gap-2">
                     <div class="text-xs uppercase tracking-wide text-gray-400">Description</div>
                     <button v-if="useCan('update_data_source')" @click="openEditDescription" class="text-[10px] text-blue-600 hover:underline">Edit</button>
                 </div>
@@ -84,17 +82,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, inject, watch } from 'vue'
 import { useCan } from '~/composables/usePermissions'
 import DataSourceQuestionsHome from '~/components/DataSourceQuestionsHome.vue'
+import type { Ref } from 'vue'
 
-definePageMeta({ auth: true, layout: 'integrations' })
+definePageMeta({ auth: true, layout: 'data' })
 
 const route = useRoute()
 const toast = useToast?.()
 
-const loading = ref(true)
-const dataSource = ref<any | null>(null)
+// Inject integration data from layout (avoid duplicate API calls)
+const injectedIntegration = inject<Ref<any>>('integration', ref(null))
+const injectedFetchIntegration = inject<() => Promise<void>>('fetchIntegration', async () => {})
+const injectedLoading = inject<Ref<boolean>>('isLoading', ref(true))
+const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
+
+// Use injected data as main data source
+const dataSource = injectedIntegration
+const loading = injectedLoading
+const fetchError = injectedFetchError
+
 const availableMeta = ref<any | null>(null)
 const showEditModal = ref(false)
 const editStarters = ref<{ title: string; prompt: string }[]>([])
@@ -118,13 +126,7 @@ const displayDataSource = computed(() => {
     }
 })
 
-async function loadData() {
-    const id = route.params.id as string
-    const { data, error } = await useMyFetch(`/data_sources/${id}`, { method: 'GET' })
-    if (!error?.value) {
-        dataSource.value = data.value as any
-    }
-
+async function loadAvailableMeta() {
     // Fallback to catalog description by type, if needed
     try {
         const { data: avail, error: availErr } = await useMyFetch('/available_data_sources', { method: 'GET' })
@@ -133,11 +135,12 @@ async function loadData() {
             availableMeta.value = byType || null
         }
     } catch {}
-
-    loading.value = false
 }
 
-onMounted(loadData)
+// Load available meta when dataSource is ready
+watch(() => dataSource.value?.type, (type) => {
+    if (type) loadAvailableMeta()
+}, { immediate: true })
 
 function openEditStarters() {
     const starters = (dataSource.value?.conversation_starters && dataSource.value.conversation_starters.length > 0)
@@ -174,7 +177,8 @@ async function onSaveStarters() {
     })
     savingStarters.value = false
     if (!error?.value) {
-        if (dataSource.value) dataSource.value.conversation_starters = conversation_starters
+        // Refresh from layout
+        await injectedFetchIntegration()
         showEditModal.value = false
         toast?.add?.({ title: 'Saved', description: 'Conversation starters updated' })
     } else {
@@ -199,7 +203,8 @@ async function onSaveDesc() {
     const { error } = await useMyFetch(`/data_sources/${id}`, { method: 'PUT', body: payload })
     savingDesc.value = false
     if (!error?.value) {
-        if (dataSource.value) dataSource.value.description = payload.description
+        // Refresh from layout
+        await injectedFetchIntegration()
         showDescModal.value = false
         toast?.add?.({ title: 'Saved', description: 'Description updated' })
     } else {

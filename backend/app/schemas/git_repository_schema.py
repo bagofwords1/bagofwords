@@ -68,6 +68,7 @@ class GitRepositoryCreate(GitRepositoryBase):
     ssh_key: Optional[str] = None  # Will be encrypted before storage
     access_token: Optional[str] = None  # PAT for HTTPS + API
     access_token_username: Optional[str] = None  # For Bitbucket Cloud
+    data_source_id: Optional[str] = None  # Optional: associate with a specific data source
 
 
 class GitRepositoryUpdate(BaseModel):
