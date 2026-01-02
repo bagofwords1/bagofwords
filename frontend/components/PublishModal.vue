@@ -84,12 +84,38 @@ const publishReport = async (newValue: boolean) => {
 
 const showTooltip = ref(false);
 
-const copyReportUrl = () => {
-    navigator.clipboard.writeText(reportUrl.value);
-    showTooltip.value = true;
-    setTimeout(() => {
-        showTooltip.value = false;
-    }, 2000);
+const copyReportUrl = async () => {
+    try {
+        await navigator.clipboard.writeText(reportUrl.value);
+        showTooltip.value = true;
+        setTimeout(() => {
+            showTooltip.value = false;
+        }, 2000);
+    } catch {
+        // Fallback for browsers that don't support clipboard API
+        const textArea = document.createElement('textarea');
+        textArea.value = reportUrl.value;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            showTooltip.value = true;
+            setTimeout(() => {
+                showTooltip.value = false;
+            }, 2000);
+        } catch {
+            toast.add({
+                title: 'Error',
+                description: 'Failed to copy to clipboard',
+                color: 'red',
+            });
+        }
+        document.body.removeChild(textArea);
+    }
 }
 
 </script>

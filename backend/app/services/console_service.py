@@ -805,10 +805,15 @@ class ConsoleService:
 
         # Define target tools and labels
         target_labels = {
+            # Internal tools
             'create_data': 'Create Data',
             'clarify': 'Request Clarification',
             'answer_question': 'Search Context',
-            "create_dashboard": "Create Dashboard"
+            'create_dashboard': 'Create Dashboard',
+            'inspect_data': 'Inspect Data',
+            'describe_tables': 'Describe Tables',
+            'describe_entity': 'Describe Entity',
+            'read_resources': 'Read Resources',
         }
 
         q = (
@@ -1757,7 +1762,7 @@ class ConsoleService:
         """Get dashboard metrics for diagnosis page."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
 
-        # Count failed queries (create_and_execute_code tool failures)
+        # Count failed queries (create_data tool failures - includes internal + MCP)
         failed_queries_query = (
             select(func.count(func.distinct(ToolExecution.agent_execution_id)))
             .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
@@ -1765,7 +1770,7 @@ class ConsoleService:
                 AgentExecution.organization_id == organization.id,
                 AgentExecution.created_at >= start_date,
                 AgentExecution.created_at <= end_date,
-                ToolExecution.tool_name == 'create_and_execute_code',
+                ToolExecution.tool_name == 'create_data',
                 ToolExecution.success == False
             )
         )

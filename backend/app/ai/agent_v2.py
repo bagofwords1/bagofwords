@@ -1218,6 +1218,39 @@ class AgentV2:
 
                         if observation and observation.get("analysis_complete"):
                             analysis_done = True
+
+                            # If tool provides final_answer, update completion and block content
+                            final_answer_from_tool = observation.get("final_answer")
+                            if final_answer_from_tool and self.system_completion:
+                                # Update completion message
+                                await self.project_manager.update_message(
+                                    self.db, self.system_completion, message=final_answer_from_tool
+                                )
+                                # Update block content so UI shows it
+                                if current_plan_decision:
+                                    current_plan_decision.final_answer = final_answer_from_tool
+                                    current_plan_decision.analysis_complete = True
+                                    try:
+                                        block = await self.project_manager.upsert_block_for_decision(
+                                            self.db, self.system_completion, self.current_execution, current_plan_decision
+                                        )
+                                        await self.project_manager.rebuild_completion_from_blocks(
+                                            self.db, self.system_completion, self.current_execution
+                                        )
+                                        # Emit updated block to frontend
+                                        if block:
+                                            block_schema = await serialize_block_v2(self.db, block)
+                                            seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
+                                            await self._emit_sse_event(SSEEvent(
+                                                event="block.upsert",
+                                                completion_id=str(self.system_completion.id),
+                                                agent_execution_id=str(self.current_execution.id),
+                                                seq=seq_blk,
+                                                data={"block": block_schema.model_dump()}
+                                            ))
+                                    except Exception:
+                                        pass
+
                             # Emit completion.finished immediately so UI updates
                             if self.system_completion and not completion_finished_emitted:
                                 await self.project_manager.update_completion_status(
