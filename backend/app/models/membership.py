@@ -76,7 +76,8 @@ ADMIN_PERMISSIONS = {
     'reject_entities',
     'manage_tests',
     'view_builds',
-    'create_builds'
+    'create_builds',
+    'train_mode'
 }
 
 # Combine permissions for roles

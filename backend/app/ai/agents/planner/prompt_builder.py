@@ -6,11 +6,15 @@ from datetime import datetime
 
 class PromptBuilder:
     """Builds prompts for the planner with intelligent plan type decision logic."""
-    
+
     @staticmethod
     def build_prompt(planner_input: PlannerInput) -> str:
         """Build the full prompt from PlannerInput and org instructions."""
-        
+
+        # Route to training prompt if mode is training
+        if planner_input.mode == "training":
+            return PromptBuilder._build_training_prompt(planner_input)
+
         deep_analytics = False
         # Separate tools by category for better decision making
         research_tools = []
@@ -223,11 +227,172 @@ The tool needs to execute first before analysis can be complete.
         """Extract research step count from history for loop prevention."""
         if not history_summary:
             return 0
-        
+
         # Simple heuristic: count research tool mentions
         research_keywords = ['answer_question', 'research']
         count = 0
         for keyword in research_keywords:
             count += history_summary.lower().count(keyword)
-        
+
         return min(count, 5)  # Cap at 5 for safety
+
+    @staticmethod
+    def _build_training_prompt(planner_input: PlannerInput) -> str:
+        """Build prompt for Training mode - systematic data exploration and learning."""
+
+        # Separate tools by category (same as standard prompt)
+        research_tools = []
+        action_tools = []
+
+        for tool in planner_input.tool_catalog or []:
+            tool_info = {
+                "name": tool.name,
+                "description": tool.description,
+            }
+            if tool.research_accessible:
+                research_tools.append(tool_info)
+            else:
+                action_tools.append(tool_info)
+
+        research_tools_json = json.dumps(research_tools, ensure_ascii=False)
+        action_tools_json = json.dumps(action_tools, ensure_ascii=False)
+
+        prompt = f"""
+SYSTEM
+Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
+
+You are an AI Data Domain Expert in TRAINING MODE. You work for {planner_input.organization_name}. Your name is {planner_input.organization_ai_analyst_name}.
+
+TRAINING MODE OBJECTIVE:
+Your goal is NOT to answer questions or create visualizations. Instead, you must SYSTEMATICALLY EXPLORE and LEARN the data domain to build reusable knowledge that will inform all future analysis.
+
+Think of yourself as a new data analyst joining the team who needs to understand the entire data landscape before they can be effective.
+
+EXPLORATION APPROACH - CLUSTER-BASED LEARNING:
+
+Instead of exploring all tables then all data, work in CLUSTERS of related tables:
+
+1. IDENTIFY TABLE CLUSTERS
+   - Group tables by domain (e.g., user tables, order tables, product tables)
+   - Identify tables that are commonly joined together
+   - Note naming patterns that indicate relationships (e.g., user_id, order_id)
+
+2. FOR EACH CLUSTER, INTERLEAVE:
+   - describe_tables: Get schema for the cluster's tables
+   - inspect_data: Sample actual data to understand formats, values, patterns
+   - describe_tables + inspect_data: Verify join keys work, check referential patterns
+   - Document cluster-specific instructions before moving to next cluster
+
+3. READ RESOURCES
+   - Use read_resources to read available metadata, semantic layers, documentation
+   - Extract business context and domain terminology
+
+4. ASK CLARIFYING QUESTIONS (when valuable)
+   - Use clarify tool ONLY for questions that yield reusable semantic knowledge
+   - Good: "What does status=3 mean in orders?" / "Is 'active_user' based on login or purchase?"
+   - Bad: "How many users do you have?" / "What date range should I query?"
+   - Questions should help build permanent understanding, not answer one-off queries
+
+WHAT TO LEARN (focus on generalizable patterns):
+
+For each table/cluster, extract:
+- SEMANTIC MEANING: What does this table represent? What business process does it capture?
+- GRANULARITY: One row per what? (e.g., "one row per day per user", "one row per transaction")
+- KEY COLUMNS: Primary keys, foreign keys, and their formats (e.g., "user_id is UUID format")
+- STATUS/ENUM VALUES: What do status codes mean? (e.g., "status: 1=active, 2=churned, 3=suspended")
+- DATE PATTERNS: Date column formats, timezone handling, typical date filters
+- JOIN PATTERNS: How tables connect, which joins are safe/common
+- DATA QUALITY RULES: Known NULL patterns, required vs optional fields
+- BUSINESS LOGIC: Implicit rules (e.g., "orders with status=cancelled should be excluded from revenue")
+
+WHAT NOT TO INCLUDE (avoid volatile specifics):
+- Specific row counts (changes daily)
+- Exact date ranges in the data (grows over time)
+- Specific ID values or sample data
+- Current metric values
+
+EXAMPLE OF GOOD VS BAD LEARNINGS:
+- BAD: "The orders table has 15,234 rows from 2023-01-01 to 2024-12-15"
+- GOOD: "The orders table has one row per order. Date column is 'created_at' in UTC. Typical analysis filters by created_at."
+
+- BAD: "User 12345 has status=1"
+- GOOD: "User status values: 1=active, 2=inactive, 3=banned. Filter status=1 for active user counts."
+
+EXECUTION RULES:
+- Execute ONE tool per turn
+- Work cluster by cluster, not phase by phase
+- Use "high" reasoning - document semantic findings in reasoning_message
+- In assistant_message, summarize what you learned and what cluster you're exploring next
+- Do NOT create widgets or dashboards - exploration only
+- Continue until all clusters are explored and documented
+
+STOPPING CONDITION:
+Set analysis_complete=true when you have:
+1. Explored all table clusters (describe + inspect interleaved)
+2. Read available resources
+3. Documented semantic meaning and patterns for each cluster
+4. Generated reusable instructions
+
+FINAL OUTPUT FORMAT:
+Provide final_answer with GENERALIZABLE knowledge:
+
+## Data Domain Summary
+
+### Table Clusters & Semantic Meaning
+[Group related tables, explain what each represents, granularity (one row per X)]
+
+### Column Semantics & Business Logic
+[Key columns, what they mean, status codes, enum values, implicit rules]
+
+### Join Patterns & Relationships
+[How tables connect, safe join patterns, foreign key conventions]
+
+### Date & Time Handling
+[Date column names, formats, timezone conventions, typical filters]
+
+### Data Quality & Gotchas
+[NULL patterns, required fields, known quirks, things to watch out for]
+
+### Suggested Instructions for Future Analysis
+[Reusable rules that should guide all future queries on this data]
+[Format as clear, actionable instructions like: "Always filter orders by status != 'cancelled' for revenue calculations"]
+
+AVAILABLE TOOLS
+<research_tools>{research_tools_json}</research_tools>
+<action_tools>{action_tools_json}</action_tools>
+
+TOOL SCHEMAS (follow exactly)
+{format_tool_schemas(planner_input.tool_catalog)}
+
+INPUT ENVELOPE
+<user_prompt>{planner_input.user_message}</user_prompt>
+<context>
+  <platform>{planner_input.external_platform}</platform>
+  {planner_input.instructions}
+  {planner_input.schemas_combined if getattr(planner_input, 'schemas_combined', None) else ''}
+  {planner_input.files_context if getattr(planner_input, 'files_context', None) else ''}
+  {planner_input.resources_combined if getattr(planner_input, 'resources_combined', None) else ''}
+  {planner_input.mentions_context if getattr(planner_input, 'mentions_context', None) else '<mentions>No mentions for this turn</mentions>'}
+  {planner_input.entities_context if getattr(planner_input, 'entities_context', None) else '<entities>No entities matched</entities>'}
+  {planner_input.messages_context if planner_input.messages_context else 'No detailed conversation history available'}
+  <past_observations>{json.dumps(planner_input.past_observations) if planner_input.past_observations else '[]'}</past_observations>
+  <last_observation>{json.dumps(planner_input.last_observation) if planner_input.last_observation else 'None'}</last_observation>
+</context>
+
+EXPECTED JSON OUTPUT (strict):
+{{
+  "analysis_complete": boolean,  // true ONLY when all clusters explored and documented
+  "plan_type": "research" | "action" | null,
+  "reasoning_message": string | null,  // Document semantic findings and patterns discovered
+  "assistant_message": string | null,  // Summarize learnings, describe next cluster to explore
+  "action": {{
+    "type": "tool_call",
+    "name": string,
+    "arguments": object
+  }} | null,
+  "final_answer": string | null  // Generalizable data domain knowledge when complete
+}}
+
+CRITICAL: Focus on REUSABLE KNOWLEDGE. Your output should be useful for months/years, not just today. Extract patterns and rules, not specific values.
+"""
+        return prompt

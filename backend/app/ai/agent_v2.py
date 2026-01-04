@@ -268,9 +268,10 @@ class AgentV2:
                         logger.warning(f"Failed to create AI build: {build_error}")
                     
                     async for draft in self.suggest_instructions.stream_suggestions(
-                        context_view=view_for_suggest, 
-                        context_hub=self.context_hub, 
-                        conditions=conditions
+                        context_view=view_for_suggest,
+                        context_hub=self.context_hub,
+                        conditions=conditions,
+                        mode=self.mode
                     ):
                         # Persist immediately and stream back full instruction object
                         inst = await self.project_manager.create_instruction_from_draft(
@@ -626,7 +627,8 @@ class AgentV2:
             instructions = inst_section.render() if inst_section else ""
 
             observation: Optional[dict] = None
-            step_limit = 10
+            # Training mode needs more iterations for thorough exploration
+            step_limit = 20 if self.mode == "training" else 10
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -1663,6 +1665,7 @@ class AgentV2:
                 report_id=str(self.report.id) if self.report else None,
                 current_execution_id=str(self.current_execution.id) if self.current_execution else None,
                 user_message=user_message,
+                mode=self.mode,
             )
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:
