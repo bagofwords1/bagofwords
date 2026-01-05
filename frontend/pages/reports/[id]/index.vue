@@ -228,6 +228,13 @@
 							</template>
 						</div>
 					</li>
+					<!-- Training Mode Summary - shows all instructions created in this session -->
+					<li v-if="report?.mode === 'training'" class="mt-4">
+						<TrainingInstructionsSummary
+							:report="report"
+							:isStreaming="isStreaming"
+						/>
+					</li>
 			</ul>
 			<div v-else class="w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
 				<h1 class="text-4xl mb-4">🪴</h1>
@@ -269,10 +276,11 @@
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
 			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
-				<PromptBoxV2 
+				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
 					:initialSelectedDataSources="report?.data_sources || []"
+					:initialMode="report?.mode || 'chat'"
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
 					@submitCompletion="onSubmitCompletion"
@@ -336,6 +344,8 @@ import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
+import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
+import TrainingInstructionsSummary from '~/components/TrainingInstructionsSummary.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
@@ -615,6 +625,8 @@ function getToolComponent(toolName: string) {
 			return InspectDataTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
+		case 'create_instruction':
+			return CreateInstructionTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool

@@ -111,6 +111,7 @@ class ReportService:
             external_platform=report.external_platform,
             theme_name=report.theme_name,
             theme_overrides=report.theme_overrides,
+            mode=getattr(report, "mode", "chat"),
             # Conversation sharing
             conversation_share_enabled=bool(getattr(report, "conversation_share_enabled", False)),
             conversation_share_token=getattr(report, "conversation_share_token", None),
@@ -210,6 +211,30 @@ class ReportService:
             report.theme_name = report_data.theme_name
         if hasattr(report_data, 'theme_overrides') and report_data.theme_overrides is not None:
             report.theme_overrides = report_data.theme_overrides
+        # Persist mode update if present in payload
+        if hasattr(report_data, 'mode') and report_data.mode is not None:
+            # Block training mode if allow_llm_see_data is disabled
+            if report_data.mode == 'training':
+                from app.models.organization_settings import OrganizationSettings
+                settings_result = await db.execute(
+                    select(OrganizationSettings).filter(OrganizationSettings.organization_id == organization.id)
+                )
+                org_settings = settings_result.scalar_one_or_none()
+                if org_settings:
+                    allow_llm_see_data = org_settings.get_config("allow_llm_see_data")
+                    # Check if feature is disabled (value=False or state='disabled')
+                    is_disabled = False
+                    if allow_llm_see_data is not None:
+                        if hasattr(allow_llm_see_data, 'value'):
+                            is_disabled = allow_llm_see_data.value is False
+                        elif isinstance(allow_llm_see_data, dict):
+                            is_disabled = allow_llm_see_data.get('value') is False
+                    if is_disabled:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Training mode is not available when 'Allow LLM to see data' is disabled"
+                        )
+            report.mode = report_data.mode
         # Replace data_sources associations if provided
         if hasattr(report_data, 'data_sources') and report_data.data_sources is not None:
             await self.set_data_sources_for_report(db, report, report_data.data_sources)

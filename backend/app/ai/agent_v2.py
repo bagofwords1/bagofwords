@@ -51,7 +51,7 @@ class AgentV2:
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
         self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
         self.mode = mode
-
+        self.training_build_id = None  # Track build ID for training mode instruction creation
 
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
 
@@ -1007,17 +1007,21 @@ class AgentV2:
                                     ))
                                 completion_finished_emitted = True
                             
-                            # === INLINE: Post-analysis tasks (suggestions) ===
-                            # Run suggestions inline so SSE events reach the frontend before stream closes
-                            res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
-                            should_trigger_suggestions = res.get("decision", False)
-                            conditions = res.get("conditions", [])
+                            # === INLINE: Post-analysis tasks ===
+                            if self.mode == "training":
+                                # Training mode: finalize the build with all created instructions
+                                await self._finalize_training_build()
+                            else:
+                                # Normal mode: Run suggestions inline so SSE events reach the frontend before stream closes
+                                res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
+                                should_trigger_suggestions = res.get("decision", False)
+                                conditions = res.get("conditions", [])
 
-                            if should_trigger_suggestions:
-                                await self._stream_suggestions_inline(
-                                    prev_tool_name_before_last_user,
-                                    conditions
-                                )
+                                if should_trigger_suggestions:
+                                    await self._stream_suggestions_inline(
+                                        prev_tool_name_before_last_user,
+                                        conditions
+                                    )
                             break
                         # Retry flow: action plan with missing action
                         if (getattr(decision, "plan_type", None) == "action") and not action:
@@ -1140,6 +1144,7 @@ class AgentV2:
                         runtime_ctx = {
                             "db": self.db,
                             "organization": self.organization,
+                            "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                             "settings": self.organization_settings,
                             "report": self.report,
                             "head_completion": self.head_completion,
@@ -1157,7 +1162,9 @@ class AgentV2:
                             "context_view": view,
                             "context_hub": self.context_hub,
                             "ds_clients": self.clients,
-                            "excel_files": self.files
+                            "excel_files": self.files,
+                            "training_build_id": self.training_build_id,  # For training mode instruction creation
+                            "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                         }
 
                         # Emit generic output event for tools that stream results (inspect_data, answer_question)
@@ -1183,6 +1190,10 @@ class AgentV2:
                                 ))
 
                         tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+
+                        # Capture training_build_id if set by create_instruction tool
+                        if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                            self.training_build_id = runtime_ctx["training_build_id"]
 
                         # Extract observation and output from tool result
                         if isinstance(tool_result, dict) and "observation" in tool_result:
@@ -1646,6 +1657,66 @@ class AgentV2:
             
         except Exception as e:
             print(f"Error emitting SSE event: {e}")
+
+    async def _finalize_training_build(self):
+        """Finalize the training build by publishing it (approve + promote to main).
+
+        Called at the end of a training mode session to make all created instructions live.
+        """
+        if not self.training_build_id:
+            logger.info("Training mode ended with no instructions created - no build to finalize")
+            return
+
+        try:
+            from app.services.build_service import BuildService
+
+            build_service = BuildService()
+            user_id = str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+
+            result = await build_service.publish_build(
+                db=self.db,
+                build_id=self.training_build_id,
+                user_id=user_id,
+            )
+
+            build = result.get("build")
+            merged = result.get("merged", False)
+
+            logger.info(
+                f"Training build {self.training_build_id} published successfully "
+                f"(merged={merged}, new_build_id={build.id if build else 'N/A'})"
+            )
+
+            # Emit SSE event to notify frontend that training build was finalized
+            if self.event_queue:
+                try:
+                    await self.event_queue.put(SSEEvent(
+                        event="training.build_finalized",
+                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                        data={
+                            "build_id": str(build.id) if build else self.training_build_id,
+                            "merged": merged,
+                            "status": "published",
+                        }
+                    ))
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.exception(f"Failed to finalize training build {self.training_build_id}: {e}")
+            # Still emit an error event so frontend knows something went wrong
+            if self.event_queue:
+                try:
+                    await self.event_queue.put(SSEEvent(
+                        event="training.build_error",
+                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                        data={
+                            "build_id": self.training_build_id,
+                            "error": str(e),
+                        }
+                    ))
+                except Exception:
+                    pass
 
     async def _should_suggest_instructions(self, prev_tool_name_before_last_user: Optional[str]) -> Dict[str, object]:
         """Decide whether to run suggest_instructions based on report history.

@@ -23,6 +23,7 @@ class ReportUpdate(BaseModel):
     theme_overrides: Optional[dict] = None
     cron_schedule: Optional[str] = None
     data_sources: Optional[List[str]] = None
+    mode: Optional[Literal["chat", "deep", "training"]] = None
 
 class ReportSchema(ReportBase):
     class PublicGeneralSettings(BaseModel):
@@ -46,6 +47,7 @@ class ReportSchema(ReportBase):
     general: Optional[PublicGeneralSettings] = None
     theme_name: Optional[str] = None
     theme_overrides: Optional[dict] = None
+    mode: Literal["chat", "deep", "training"] = "chat"
     # Conversation sharing
     conversation_share_enabled: bool = False
     conversation_share_token: Optional[str] = None

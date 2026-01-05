@@ -157,6 +157,7 @@ import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '@/composables/usePermissions'
+import { useOrgSettings } from '@/composables/useOrgSettings'
 
 const props = defineProps({
     report_id: String,
@@ -170,6 +171,10 @@ const props = defineProps({
     initialSelectedDataSources: {
         type: Array,
         default: () => []
+    },
+    initialMode: {
+        type: String as () => 'chat' | 'deep' | 'training',
+        default: 'chat'
     }
 })
 
@@ -177,7 +182,7 @@ const emit = defineEmits(['submitCompletion','stopGeneration','update:modelValue
 
 const text = ref('')
 const placeholder = 'Ask for data, dashboard or a deep analysis'
-const mode = ref<'chat' | 'deep' | 'training'>('chat')
+const mode = ref<'chat' | 'deep' | 'training'>(props.initialMode || 'chat')
 const selectedDataSources = ref<any[]>([...(props.initialSelectedDataSources || [])])
 const isHydratingDataSources = ref(!!props.report_id && selectedDataSources.value.length === 0)
 const uploadedFiles = ref<any[]>([])
@@ -289,8 +294,9 @@ const modeIcon = computed(() => {
     }
 })
 
-// Permission check for training mode
-const canUseTrainingMode = computed(() => useCan('train_mode'))
+// Permission check for training mode - requires both permission and allow_llm_see_data enabled
+const { allowLlmSeeData } = useOrgSettings()
+const canUseTrainingMode = computed(() => useCan('train_mode') && allowLlmSeeData.value)
 
 // Model selector state - fetch from backend
 const models = ref<any[]>([])
@@ -397,7 +403,25 @@ async function refreshContextEstimate(force = false) {
 function selectModel(modelId: string) {
     selectedModel.value = modelId
 }
-function selectMode(m: 'chat' | 'deep' | 'training') { mode.value = m }
+
+async function persistMode() {
+    // Only persist for reports, not landing page
+    if (!props.report_id) return
+    try {
+        await useMyFetch(`/reports/${props.report_id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: mode.value })
+        })
+    } catch (e) {
+        console.error('Failed to persist mode:', e)
+    }
+}
+
+function selectMode(m: 'chat' | 'deep' | 'training') {
+    mode.value = m
+    persistMode()
+}
 
 // Functions to select and close popovers
 function selectModeAndClose(m: 'chat' | 'deep' | 'training') {
@@ -521,6 +545,13 @@ defineExpose({
 watch(() => props.textareaContent, (newVal) => {
     if (typeof newVal === 'string' && newVal !== text.value) {
         text.value = newVal
+    }
+}, { immediate: true })
+
+// Keep mode in sync with initialMode prop (from report data)
+watch(() => props.initialMode, (newVal) => {
+    if (newVal && newVal !== mode.value) {
+        mode.value = newVal
     }
 }, { immediate: true })
 
