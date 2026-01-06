@@ -49,9 +49,20 @@ class PostgresqlClient(DataSourceClient):
             conn = engine.connect()
             # Set search_path if schemas are provided
             if self._schemas:
-                search_path = ", ".join(self._schemas)
+                # Use proper identifier quoting to prevent SQL injection
+                # PostgreSQL requires identifiers to be quoted individually
+                from psycopg2 import sql as psql
                 try:
-                    conn.execute(text(f"SET search_path TO {search_path}"))
+                    # Get the raw psycopg2 connection from SQLAlchemy
+                    raw_conn = conn.connection.driver_connection
+                    with raw_conn.cursor() as cursor:
+                        # Build a list of quoted identifiers
+                        identifiers = [psql.Identifier(schema) for schema in self._schemas]
+                        # Join them with commas
+                        search_path_sql = psql.SQL("SET search_path TO {}").format(
+                            psql.SQL(", ").join(identifiers)
+                        )
+                        cursor.execute(search_path_sql)
                 except Exception:
                     pass
             yield conn
