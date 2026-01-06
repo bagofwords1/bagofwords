@@ -886,6 +886,7 @@ class AgentV2:
                                     "plan_type": decision.plan_type,
                                     "reasoning": decision.reasoning_message,
                                     "assistant": decision.assistant_message,
+                                    "final_answer": decision.final_answer,
                                     "action": decision.action.model_dump() if decision.action else None,
                                 }
                             ))

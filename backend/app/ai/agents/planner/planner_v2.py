@@ -160,13 +160,16 @@ class PlannerV2:
             )
         
         # Build decision data
+        # Note: Don't gate final_answer on analysis_complete during streaming - the partial JSON
+        # parser may return final_answer before analysis_complete is fully parsed, and we want
+        # to stream the final_answer content as it comes in.
         decision_data = {
             "analysis_complete": bool(raw.get("analysis_complete", False)),
             "plan_type": raw.get("plan_type"),  # Extract plan_type from LLM response
             "reasoning_message": raw.get("reasoning_message") or raw.get("reasoning") or raw.get("thought"),
             "assistant_message": raw.get("assistant_message") or raw.get("message"),
             "action": raw.get("action") if not raw.get("analysis_complete") else None,
-            "final_answer": raw.get("final_answer") if raw.get("analysis_complete") else None,
+            "final_answer": raw.get("final_answer"),
             "streaming_complete": is_final,
             "metrics": metrics,
         }

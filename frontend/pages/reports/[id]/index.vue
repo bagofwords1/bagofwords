@@ -101,11 +101,12 @@
 											</div>
 
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
-							<!-- Fallback to plan_decision.assistant if block.content is empty (e.g., streaming tokens missed) -->
-							<div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper">
+							<!-- Fallback to plan_decision.assistant or final_answer if block.content is empty (e.g., streaming tokens missed) -->
+							<!-- Show content section when: content exists OR assistant exists OR (final_answer exists but analysis not complete yet, i.e. still streaming) -->
+							<div v-if="(block.content || block.plan_decision?.assistant || (block.plan_decision?.final_answer && !block.plan_decision?.analysis_complete)) && block.status !== 'error'" class="block-content markdown-wrapper">
 								<!-- Finalized: show only MDC -->
 								<template v-if="isBlockFinalized(block)">
-									<MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
+									<MDC :value="block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer || ''" class="markdown-content" />
 								</template>
 												<!-- Streaming: hybrid layer approach with rolling window -->
 												<template v-else>
@@ -117,18 +118,18 @@
 											<!-- Committed text (no animation, already shown) -->
 											<span class="committed-text">{{ getCommittedText(`${block.id}:content`) }}</span>
 											<!-- Active chunks with fade-in animation -->
-											<span 
-												v-for="chunk in getBlockChunks(`${block.id}:content`)" 
-												:key="chunk.id" 
+											<span
+												v-for="chunk in getBlockChunks(`${block.id}:content`)"
+												:key="chunk.id"
 												class="chunk-fade"
 											>{{ chunk.text }}</span>
 										</template>
-										<template v-else>{{ block.content || block.plan_decision?.assistant }}</template>
+										<template v-else>{{ block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer }}</template>
 															</div>
 														</div>
 									<!-- Layer 2: MDC preview (hidden, pre-rendering for instant switch) -->
 									<div class="streaming-layer streaming-layer--mdc-preview" aria-hidden="true">
-										<MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
+										<MDC :value="block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer || ''" class="markdown-content" />
 									</div>
 													</div>
 												</template>
