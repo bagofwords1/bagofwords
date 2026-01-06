@@ -363,10 +363,31 @@ CRITICAL FOR BAR/LINE/AREA CHARTS:
 - "value" = the NUMERIC column (y-axis) - REQUIRED, the metric to display
 - You MUST include BOTH "key" and "value" in every series entry!
 
-EXAMPLE - Bar chart with date and price:
+DETECTING GROUP_BY (for multi-series grouped bar/line/area charts):
+- If the data has a CATEGORICAL column that creates MULTIPLE ROWS per x-axis value, use "group_by"
+- Look at unique_count in the data profile: if a column has few unique values (2-10) that repeat across x-axis categories, it's likely a grouping column
+- Common group_by column names: category, type, group, segment, channel, region, product, source, status
+- When group_by is used, each unique value in that column becomes a separate series (colored bar/line)
+
+EXAMPLE 1 - Simple bar chart (one value per x-axis category):
 Columns: ["date", "max_bitcoin_price"]
 CORRECT:
 {{"type": "bar_chart", "series": [{{"name": "Max Bitcoin Price", "key": "date", "value": "max_bitcoin_price"}}]}}
+
+EXAMPLE 2 - Grouped bar chart (multiple categories per x-axis value):
+Columns: ["month", "revenue_group", "revenue"]
+Data pattern: Each month has multiple rows (one per revenue_group: CARDS, FX, SAAS, etc.)
+CORRECT (with group_by):
+{{"type": "bar_chart", "series": [{{"name": "Revenue", "key": "month", "value": "revenue"}}], "group_by": "revenue_group"}}
+
+WRONG (missing group_by - all bars will show same value!):
+{{"type": "bar_chart", "series": [{{"name": "Revenue", "key": "month", "value": "revenue"}}]}}
+
+EXAMPLE 3 - Line chart with multiple series by category:
+Columns: ["date", "channel", "sales"]
+Data pattern: Each date has rows for different channels (online, retail, wholesale)
+CORRECT:
+{{"type": "line_chart", "series": [{{"name": "Sales", "key": "date", "value": "sales"}}], "group_by": "channel"}}
 
 WRONG (missing key - will break the chart):
 {{"type": "bar_chart", "series": [{{"name": "Max Bitcoin Price", "value": "max_bitcoin_price"}}]}}
@@ -384,7 +405,9 @@ OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
 Return ONLY valid JSON:
-{{"type": "...", "series": [...]}}
+{{"type": "...", "series": [...], "group_by": "column_name_or_null"}}
+
+Include "group_by" when the data has multiple rows per x-axis category that should be shown as separate colored series.
 
 REMEMBER: Use EXACT column names from: {column_names}
 Do NOT use generic placeholders like "value" unless that's the actual column name."""

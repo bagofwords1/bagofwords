@@ -862,18 +862,21 @@ class AgentV2:
                                 pass
 
                         # Emit incremental, throttled token deltas for reasoning/content
+                        # When analysis_complete=true, the LLM puts the response in final_answer, not assistant_message
+                        # So we need to stream final_answer as content when assistant is empty
                         try:
                             new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
-                            new_content = getattr(current_plan_decision, "assistant", None) or ""
+                            new_content = getattr(current_plan_decision, "assistant", None) or getattr(current_plan_decision, "final_answer", None) or ""
                             if plan_streamer:
                                 await plan_streamer.update(new_reasoning, new_content)
                         except Exception:
                             pass
-                        
-                        # Emit SSE event only if there is content in reasoning or assistant
+
+                        # Emit SSE event only if there is content in reasoning, assistant, or final_answer
                         reasoning_text = (getattr(decision, "reasoning_message", None) or "").strip()
                         assistant_text = (getattr(decision, "assistant_message", None) or "").strip()
-                        if reasoning_text or assistant_text:
+                        final_answer_text = (getattr(decision, "final_answer", None) or "").strip()
+                        if reasoning_text or assistant_text or final_answer_text:
                             await self._emit_sse_event(SSEEvent(
                                 event="decision.partial",
                                 completion_id=str(self.system_completion.id),

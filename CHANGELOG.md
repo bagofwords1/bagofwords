@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.291 (January 6, 2026)
+- Improve streaming for final_message
+- Fix multi bar chart rendering bug 
+
 ## Version 0.0.290 (January 1, 2026)
 - Happy new year!
 - Connections and data sources are now decoupled. You can attach multiple data sources to a single connection, each with its own tables, instructions, and evals. This brings much greater flexibility, reliability, and organization to your workspace.
