@@ -5,13 +5,76 @@ import numpy as np
 import datetime
 import json
 import uuid
+import ast
+import signal
 from contextlib import redirect_stdout
-from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
+from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, Set
 from app.schemas.organization_settings_schema import OrganizationSettingsConfig
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+
+class CodeSecurityValidator:
+    """
+    Validates Python code AST to detect potentially dangerous operations.
+
+    This provides defense-in-depth against malicious code execution, though
+    it's not a complete sandbox. The code being executed is AI-generated for
+    data analysis purposes and should still be reviewed.
+    """
+
+    # Dangerous operations that should not be allowed
+    DANGEROUS_IMPORTS: Set[str] = {
+        'os', 'subprocess', 'sys', 'eval', 'exec', 'compile',
+        'open', '__import__', 'file', 'input', 'raw_input',
+        'execfile', 'reload', 'pickle', 'shelve', 'marshal',
+        'socket', 'urllib', 'requests', 'http', 'ftplib',
+        'smtplib', 'telnetlib', 'tempfile', 'shutil'
+    }
+
+    DANGEROUS_ATTRIBUTES: Set[str] = {
+        '__import__', '__loader__', '__spec__', '__file__',
+        '__builtins__', '__globals__', '__code__', '__class__'
+    }
+
+    @classmethod
+    def validate_code(cls, code: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate that code doesn't contain dangerous operations.
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            return False, f"Syntax error: {str(e)}"
+
+        for node in ast.walk(tree):
+            # Check for dangerous imports
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.split('.')[0] in cls.DANGEROUS_IMPORTS:
+                        return False, f"Forbidden import: {alias.name}"
+
+            if isinstance(node, ast.ImportFrom):
+                if node.module and node.module.split('.')[0] in cls.DANGEROUS_IMPORTS:
+                    return False, f"Forbidden import: {node.module}"
+
+            # Check for dangerous built-in function calls
+            if isinstance(node, ast.Call):
+                if isinstance(node.func, ast.Name):
+                    if node.func.id in {'eval', 'exec', 'compile', '__import__', 'open'}:
+                        return False, f"Forbidden function call: {node.func.id}"
+
+            # Check for dangerous attribute access
+            if isinstance(node, ast.Attribute):
+                if node.attr in cls.DANGEROUS_ATTRIBUTES:
+                    return False, f"Forbidden attribute access: {node.attr}"
+
+        return True, None
+
 
 class CodeExecutionManager:
     """
@@ -44,25 +107,121 @@ class StreamingCodeExecutor:
         self.logger = logger
         self.context_hub = context_hub
 
-    def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List) -> Tuple[pd.DataFrame, str]:
-        """Execute Python code and return the resulting DataFrame and captured stdout log."""
+    def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List, timeout: int = 300) -> Tuple[pd.DataFrame, str]:
+        """
+        Execute Python code in a restricted environment and return the resulting DataFrame.
+
+        Security measures:
+        1. AST validation to block dangerous imports/operations
+        2. Restricted builtins (no eval, exec, open, __import__, etc.)
+        3. Limited global namespace with only safe modules
+        4. Timeout protection (default 300 seconds)
+
+        WARNING: This is not a complete sandbox. The code should be AI-generated
+        for data analysis purposes only. Do not execute untrusted user code.
+
+        Args:
+            code: Python code to execute
+            ds_clients: Database clients available to the code
+            excel_files: Excel files available to the code
+            timeout: Maximum execution time in seconds
+
+        Returns:
+            Tuple of (DataFrame, stdout_log)
+
+        Raises:
+            ValueError: If code contains forbidden operations
+            TimeoutError: If execution exceeds timeout
+            Exception: If code execution fails
+        """
+        # Validate code for dangerous operations
+        is_valid, error_msg = CodeSecurityValidator.validate_code(code)
+        if not is_valid:
+            raise ValueError(f"Code validation failed: {error_msg}")
+
         output_log = ""
-        local_namespace = {
+
+        # Create restricted builtins - only allow safe operations
+        safe_builtins = {
+            'abs': abs,
+            'all': all,
+            'any': any,
+            'bool': bool,
+            'dict': dict,
+            'enumerate': enumerate,
+            'filter': filter,
+            'float': float,
+            'int': int,
+            'isinstance': isinstance,
+            'len': len,
+            'list': list,
+            'map': map,
+            'max': max,
+            'min': min,
+            'range': range,
+            'round': round,
+            'set': set,
+            'sorted': sorted,
+            'str': str,
+            'sum': sum,
+            'tuple': tuple,
+            'type': type,
+            'zip': zip,
+            # Safe exceptions
+            'ValueError': ValueError,
+            'TypeError': TypeError,
+            'KeyError': KeyError,
+            'IndexError': IndexError,
+            'Exception': Exception,
+            # Allow None, True, False
+            'None': None,
+            'True': True,
+            'False': False,
+        }
+
+        # Create restricted global namespace with only safe modules
+        restricted_globals = {
+            '__builtins__': safe_builtins,
             'pd': pd,
             'np': np,
+            'datetime': datetime,
+            'json': json,
+        }
+
+        # Create local namespace for execution
+        local_namespace = {
             'db_clients': ds_clients,
             'excel_files': excel_files,
         }
+
         if self.logger:
-            self.logger.debug(f"Executing code:\n{code}")
-        with io.StringIO() as stdout_capture:
-            with redirect_stdout(stdout_capture):
-                exec(code, local_namespace)
-                generate_df = local_namespace.get('generate_df')
-                if not generate_df:
-                    raise Exception("No generate_df function found in code")
-                df = generate_df(ds_clients, excel_files)
-            output_log = stdout_capture.getvalue()
+            self.logger.debug(f"Executing code with security restrictions:\n{code}")
+
+        def timeout_handler(signum, frame):
+            raise TimeoutError(f"Code execution exceeded {timeout} seconds")
+
+        # Set timeout alarm (Unix-like systems only)
+        old_handler = None
+        if hasattr(signal, 'SIGALRM'):
+            old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(timeout)
+
+        try:
+            with io.StringIO() as stdout_capture:
+                with redirect_stdout(stdout_capture):
+                    # Execute code with restricted globals and locals
+                    exec(code, restricted_globals, local_namespace)
+                    generate_df = local_namespace.get('generate_df')
+                    if not generate_df:
+                        raise Exception("No generate_df function found in code")
+                    df = generate_df(ds_clients, excel_files)
+                output_log = stdout_capture.getvalue()
+        finally:
+            # Cancel timeout alarm
+            if hasattr(signal, 'SIGALRM') and old_handler is not None:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+
         return df, output_log
 
     def get_df_info(self, df: pd.DataFrame) -> Dict:
