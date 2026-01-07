@@ -8,8 +8,7 @@
 
 
 
-**Chat with your data - with memory, rules management, and observability built-in.<br />
-Built for reliable quick answers, visualizations, and deeper investigations like root-cause analysis.**
+Chat, visualize, and run deep analysis on your data - with memory, rules management, and observability built in.
 
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
