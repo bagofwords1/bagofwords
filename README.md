@@ -1,32 +1,33 @@
 <div>
+
+<div>
   <img src="./media/logo-128.png" style="width:64px;" />
 </div>
 
-# Bag of words - Open-source AI Analyst/MCP for your data, deploy in minutes
+# Open-source agentic analytics
+
+Chat with your data - with memory, rules management, and observability built-in.<br />
+Built for reliable quick answers, visualizations, and deeper investigations like root-cause analysis.
 
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/bagofwords/bagofwords)
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
-
-Connect any LLM to any data source through a unified context layer (instructions, docs, dbt, code) with full observability.
-
-Built for reliable quick answers and deeper investigations like root-cause analysis.
+</div>
 
 **Features:**
 
-- **Agentic loop** - chat with data, ask complex questions, run multi-step analysis with tools, reasoning, and reflection  
-- **Any LLM ↔ Any warehouse** - OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift  
-- **Instructions Registry** - definitions, rules, and context with versioning and approval workflows; git sync with auto-indexing of dbt, markdown, code, and more 
-- **Self-learning** - learns from usage and surfaces instruction and semantic-layer updates, review-gated  
-- **Reliability** - full observability: agent traces, plans, guardrails, LLM judges, evals  
-- **Auth & deploy** - run via Docker/Compose/k8s with SSO, RBAC, warehouse inherited permissions, and audit trail  
-- **The Data MCP** - use MCP to interact with your data from Cursor, Claude Desktop, and other AI clients while reliably tracking your requests and data operations
+- **Memory:** Stores context, preferences, and usage patterns down to table/column level. AI learns over time and surfaces semantic-layer updates, review-gated.
 
-[Deploy anywhere](https://docs.bagofwords.com/install)
+- **Rules:** Define instructions, terms, and guardrails with versioning and approval workflows. Git sync with auto-indexing of dbt, markdown, code, and more.
 
-[![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
+- **Observability:** Full visibility into agent traces, plans, guardrails, LLM judges, evals, and feedback — debug and improve the loop.
 
+- **Dashboards & sharing:** Build and share dashboards instantly. Share conversations, saved queries, and analysis with your team.
+
+- **Any LLM ↔ Any warehouse:** OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift. Swap without breaking workflows.
+
+- **MCP:** Use from Cursor, Claude Desktop, and other AI clients while reliably tracking requests and data operations.
 ---
 
 ## Quick Start 🚀
