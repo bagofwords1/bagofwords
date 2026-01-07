@@ -27,7 +27,7 @@ Built for reliable quick answers, visualizations, and deeper investigations like
 
 - **Dashboards & sharing:** Build and share dashboards instantly. Share conversations, saved queries, and analysis with your team.
 
-- **Any LLM ↔ Any warehouse:** OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift. Swap without breaking workflows.
+- **Any LLM ↔ Any warehouse:** OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift. Swap or mix without breaking workflows.
 
 - **MCP:** Use from Cursor, Claude Desktop, and other AI clients while reliably tracking requests and data operations.
 
@@ -140,6 +140,14 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | MongoDB                  | Database/Warehouse  |
 
 > **Note:** Some data sources (like NetSuite) may be marked as inactive or beta in the registry. "Service" refers to APIs or SaaS platforms, while "Database/Warehouse" refers to systems that store and query structured data.
+
+## Enterprise
+
+For teams requiring advanced security, compliance, and governance:
+
+- **SSO:** Google Workspace and OIDC-compatible identity providers
+- **Self-hosted:** Deploy on your own infrastructure with full data control
+- **RBAC:** Role-based access control for fine-grained permissions
 
 ## 🔒 Security & Privacy
 We take data security and privacy seriously.  
