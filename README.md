@@ -1,13 +1,15 @@
 <div>
 
 <div>
-  <img src="./media/logo-128.png" style="width:64px;" />
+  <img src="./media/logo-128.png" style="width:128px;" />
 </div>
 
-# Open-source agentic analytics
+## The open-source agentic analytics platform
 
-Chat with your data - with memory, rules management, and observability built-in.<br />
-Built for reliable quick answers, visualizations, and deeper investigations like root-cause analysis.
+
+
+**Chat with your data - with memory, rules management, and observability built-in.<br />
+Built for reliable quick answers, visualizations, and deeper investigations like root-cause analysis.**
 
 [![Website](https://img.shields.io/badge/Website-bagofwords.com-blue)](https://bagofwords.com)
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
