@@ -1,6 +1,4 @@
 <div>
-
-<div>
   <img src="./media/logo-128.png" style="width:64px;" />
 </div>
 
@@ -13,7 +11,6 @@ Built for reliable quick answers, visualizations, and deeper investigations like
 [![Docs](https://img.shields.io/badge/Docs-Documentation-blue)](https://docs.bagofwords.com)
 [![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/bagofwords/bagofwords)
 [![e2e tests](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml/badge.svg)](https://github.com/bagofwords1/bagofwords/actions/workflows/e2e-tests.yml)
-</div>
 
 **Features:**
 
