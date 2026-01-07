@@ -28,7 +28,40 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Fetch fork branch for PR review
+        if: github.event.issue.pull_request || github.event_name == 'pull_request_review_comment' || github.event_name == 'pull_request_review'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get PR number from event
+          if [ -n "${{ github.event.issue.number }}" ]; then
+            PR_NUMBER="${{ github.event.issue.number }}"
+          elif [ -n "${{ github.event.pull_request.number }}" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          else
+            echo "No PR number found, skipping fork fetch"
+            exit 0
+          fi
+
+          # Get PR details including fork info
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json headRepositoryOwner,headRepository,headRefName)
+          FORK_OWNER=$(echo "$PR_DATA" | jq -r '.headRepositoryOwner.login')
+          FORK_REPO=$(echo "$PR_DATA" | jq -r '.headRepository.name')
+          HEAD_REF=$(echo "$PR_DATA" | jq -r '.headRefName')
+          CURRENT_OWNER="${{ github.repository_owner }}"
+
+          # Check if PR is from a fork (different owner)
+          if [ "$FORK_OWNER" != "$CURRENT_OWNER" ]; then
+            echo "PR is from fork: $FORK_OWNER/$FORK_REPO"
+            FORK_URL="https://github.com/$FORK_OWNER/$FORK_REPO.git"
+            git remote add fork "$FORK_URL" || true
+            git fetch fork "$HEAD_REF" --depth=50
+            echo "Successfully fetched fork branch: $HEAD_REF"
+          else
+            echo "PR is from the same repository, no fork fetch needed"
+          fi
 
       - name: Run Claude Code
         id: claude
