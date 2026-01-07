@@ -28,6 +28,11 @@ Built for reliable quick answers, visualizations, and deeper investigations like
 - **Any LLM ↔ Any warehouse:** OpenAI, Anthropic, Gemini, Ollama ↔ Snowflake, BigQuery, Postgres, Redshift. Swap without breaking workflows.
 
 - **MCP:** Use from Cursor, Claude Desktop, and other AI clients while reliably tracking requests and data operations.
+
+[Deploy anywhere](https://docs.bagofwords.com/install)
+
+[![Demo](./media/hero3.png)](https://bagofwords.com/demos/hero4.mp4)
+
 ---
 
 ## Quick Start 🚀
