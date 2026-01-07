@@ -56,9 +56,10 @@ jobs:
           if [ "$FORK_OWNER" != "$CURRENT_OWNER" ]; then
             echo "PR is from fork: $FORK_OWNER/$FORK_REPO"
             FORK_URL="https://github.com/$FORK_OWNER/$FORK_REPO.git"
-            git remote add fork "$FORK_URL" || true
-            git fetch fork "$HEAD_REF" --depth=50
-            echo "Successfully fetched fork branch: $HEAD_REF"
+
+            # Fetch the fork branch and create it as an origin ref so Claude can find it
+            git fetch "$FORK_URL" "$HEAD_REF:refs/remotes/origin/$HEAD_REF" --depth=50
+            echo "Successfully fetched fork branch as origin/$HEAD_REF"
           else
             echo "PR is from the same repository, no fork fetch needed"
           fi
