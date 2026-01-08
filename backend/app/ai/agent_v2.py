@@ -152,6 +152,42 @@ class AgentV2:
         # Initialize SuggestInstructions agent for post-analysis suggestions
         self.suggest_instructions = SuggestInstructions(model=self.small_model)
 
+        # Track if handler was registered for cleanup
+        self._handler_registered = True
+
+    def __del__(self):
+        """Cleanup websocket handler on object destruction to prevent memory leaks."""
+        if hasattr(self, '_handler_registered') and self._handler_registered:
+            try:
+                websocket_manager.remove_handler(self._handle_completion_update)
+                self._handler_registered = False
+            except Exception:
+                # Silently ignore cleanup errors during destruction
+                pass
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit - ensures cleanup."""
+        await self.cleanup()
+        return False  # Don't suppress exceptions
+
+    async def cleanup(self):
+        """Explicit cleanup method for releasing resources.
+
+        Call this method or use AgentV2 as an async context manager to ensure
+        proper resource cleanup (websocket handlers, etc.).
+        """
+        if hasattr(self, '_handler_registered') and self._handler_registered:
+            try:
+                websocket_manager.remove_handler(self._handle_completion_update)
+                self._handler_registered = False
+                logger.debug("Cleaned up websocket handler for AgentV2")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup websocket handler: {e}")
+
     async def estimate_prompt_tokens(self) -> dict:
         """Approximate the total planner prompt tokens without executing tools."""
         try:
@@ -175,10 +211,8 @@ class AgentV2:
                 "remaining_tokens": remaining_tokens,
             }
         finally:
-            try:
-                websocket_manager.remove_handler(self._handle_completion_update)
-            except Exception:
-                pass
+            # Use explicit cleanup method to ensure handler is removed
+            await self.cleanup()
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
@@ -1559,11 +1593,8 @@ class AgentV2:
                 pass
             raise
         finally:
-            # Cleanup
-            try:
-                websocket_manager.remove_handler(self._handle_completion_update)
-            except Exception:
-                pass
+            # Use explicit cleanup method to ensure handler is removed
+            await self.cleanup()
 
     async def _build_planner_prompt_text(self, view=None) -> str:
         if view is None:
