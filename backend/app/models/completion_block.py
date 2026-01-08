@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, Integer, Boolean, JSON, ForeignKey, DateT
 from sqlalchemy.orm import relationship, selectinload
 from .base import BaseSchema
 import asyncio
+import threading
 from typing import Dict
 
 # Async DB + adapter imports used by event callbacks
@@ -56,6 +57,7 @@ class CompletionBlock(BaseSchema):
 _sent_block_text_ids = set()
 _sent_block_tool_ids = set()
 _block_locks: Dict[str, asyncio.Lock] = {}
+_block_locks_lock = threading.Lock()  # Protects _block_locks dictionary access to prevent race conditions
 
 
 async def send_completion_blocks_to_slack(completion_id: str):
@@ -106,7 +108,9 @@ async def send_completion_blocks_to_slack(completion_id: str):
             # Send each block as a separate message (text first, then tool output)
             for block in blocks:
                 block_id_str = str(block.id)
-                lock = _block_locks.setdefault(block_id_str, asyncio.Lock())
+                # Thread-safe lock acquisition to prevent race conditions
+                with _block_locks_lock:
+                    lock = _block_locks.setdefault(block_id_str, asyncio.Lock())
                 async with lock:
                     content = (block.content or '').strip()
                     # Send text for decision/final blocks once
@@ -160,14 +164,15 @@ async def _send_block_to_slack(block_id: str):
                 return
 
             block_id_str = str(block_id)
-            
+
             # Resolve organization once for both tool and text sends
             org_id = completion.report.organization_id if completion.report else None
             if not org_id:
                 return
 
-            # Concurrency guard per block
-            lock = _block_locks.setdefault(block_id_str, asyncio.Lock())
+            # Concurrency guard per block - thread-safe lock acquisition
+            with _block_locks_lock:
+                lock = _block_locks.setdefault(block_id_str, asyncio.Lock())
             async with lock:
                 # Decision/final blocks: send concise text when meaningful (send first)
                 is_user_facing_source = (block.source_type in ('decision', 'final'))
