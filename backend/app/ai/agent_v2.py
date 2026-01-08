@@ -43,17 +43,34 @@ class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
 
     def __init__(self, db=None, organization=None, organization_settings=None, report=None,
-                 model=None, small_model=None, mode=None, messages=[], head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
+                 model=None, small_model=None, mode=None, messages=None, head_completion=None, system_completion=None, widget=None, step=None, event_queue=None, clients=None, build_id=None):
         self.db = db
         self.build_id = build_id
         self.organization = organization
         self.organization_settings = organization_settings
-        self.top_k_schema = organization_settings.get_config("top_k_schema").value
-        self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
+
+        # Safe retrieval of configuration values with null checks
+        # Prevent AttributeError if get_config() returns None
+        if organization_settings:
+            top_k_schema_config = organization_settings.get_config("top_k_schema")
+            self.top_k_schema = top_k_schema_config.value if top_k_schema_config else 10
+
+            top_k_metadata_config = organization_settings.get_config("top_k_metadata_resources")
+            self.top_k_metadata_resources = top_k_metadata_config.value if top_k_metadata_config else 5
+
+            # Safe access to nested config dictionary
+            self.ai_analyst_name = (
+                organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
+                if hasattr(organization_settings, 'config') and organization_settings.config
+                else "AI Analyst"
+            )
+        else:
+            # Default values when organization_settings is None
+            self.top_k_schema = 10
+            self.top_k_metadata_resources = 5
+            self.ai_analyst_name = "AI Analyst"
+
         self.mode = mode
-
-
-        self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
 
         self.report = report
         self.report_type = getattr(report, 'report_type', 'regular')
@@ -187,7 +204,17 @@ class AgentV2:
             async with SessionLocal() as session:
                 try:
                     # Use a new Judge instance (stateless) and score from the same planner input
-                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                    # Cache get_config() result to avoid redundant calls and prevent race conditions
+                    enable_llm_judgement_config = (
+                        self.organization_settings.get_config("enable_llm_judgement")
+                        if self.organization_settings else None
+                    )
+                    enable_llm_judgement = (
+                        enable_llm_judgement_config.value
+                        if enable_llm_judgement_config else False
+                    )
+
+                    if enable_llm_judgement and self.report_type == 'regular':
                         judge = Judge(model=self.model, organization_settings=self.organization_settings)
                         instructions_score, context_score = await judge.score_instructions_and_context_from_planner_input(planner_input)
                     else:
@@ -209,9 +236,23 @@ class AgentV2:
             SessionLocal = create_async_session_factory()
             async with SessionLocal() as session:
                 try:
-                    if self.organization_settings.get_config("enable_llm_judgement") and self.organization_settings.get_config("enable_llm_judgement").value and self.report_type == 'regular':
+                    # Cache get_config() result to avoid redundant calls and prevent race conditions
+                    enable_llm_judgement_config = (
+                        self.organization_settings.get_config("enable_llm_judgement")
+                        if self.organization_settings else None
+                    )
+                    enable_llm_judgement = (
+                        enable_llm_judgement_config.value
+                        if enable_llm_judgement_config else False
+                    )
+
+                    if enable_llm_judgement and self.report_type == 'regular':
                         judge = Judge(model=self.model, organization_settings=self.organization_settings)
-                        original_prompt = self.head_completion.prompt.get("content", "") if getattr(self.head_completion, "prompt", None) else ""
+                        # Safe access to nested prompt dictionary with proper null checks
+                        original_prompt = ""
+                        if self.head_completion and hasattr(self.head_completion, "prompt") and self.head_completion.prompt:
+                            original_prompt = self.head_completion.prompt.get("content", "")
+
                         response_score = await judge.score_response_quality(original_prompt, messages_context, observation_data=observation_data)
                     else:
                         response_score = 3
