@@ -159,8 +159,8 @@ class AgentV2:
             await self.context_hub.refresh_warm()
             try:
                 await self.context_hub.build_context()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to build context during token estimation: {e}", exc_info=True)
             prompt_text = await self._build_planner_prompt_text()
             prompt_tokens = count_tokens(prompt_text, getattr(self.model, "model_id", None))
 
@@ -177,8 +177,8 @@ class AgentV2:
         finally:
             try:
                 websocket_manager.remove_handler(self._handle_completion_update)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to remove websocket handler during cleanup: {e}")
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
@@ -197,11 +197,10 @@ class AgentV2:
                     completion = await session.get(Completion, str(self.head_completion.id))
                     if completion is not None:
                         await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
         except Exception as e:
-
-            pass
+            logger.error(f"Critical error in early scoring background task: {e}", exc_info=True)
 
     async def _run_late_scoring_background(self, messages_context: str, observation_data: dict):
         """Run response scoring in a fresh DB session to avoid concurrency conflicts."""
@@ -218,10 +217,10 @@ class AgentV2:
                     completion = await session.get(Completion, str(self.head_completion.id))
                     if completion is not None:
                         await self.project_manager.update_completion_response_score(session, completion, response_score)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
         except Exception as e:
-            pass
+            logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
 
     async def _stream_suggestions_inline(self, prev_tool_name: Optional[str], conditions: list):
         """Stream instruction suggestions inline before the SSE stream closes.
@@ -242,8 +241,8 @@ class AgentV2:
                     seq=seq_si,
                     data={}
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to emit suggestion started event: {e}")
 
             try:
                 if self.suggest_instructions is not None and self.report_type == 'regular':
@@ -313,8 +312,8 @@ class AgentV2:
                                 seq=seq_si_p,
                                 data={"instruction": draft_payload}
                             ))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Failed to emit suggestion progress event: {e}")
                     
                     # === Finalize Build ===
                     # Submit the AI build for admin approval (don't auto-publish)
@@ -337,9 +336,10 @@ class AgentV2:
                             seq=seq_si_f,
                             data={"instructions": drafts}
                         ))
-                    except Exception:
-                        pass
-            except Exception:
+                    except Exception as e:
+                        logger.debug(f"Failed to emit suggestion finished event: {e}")
+            except Exception as e:
+                logger.warning(f"Error during instruction suggestion generation: {e}", exc_info=True)
                 try:
                     seq_si_e = await self.project_manager.next_seq(self.db, self.current_execution)
                     await self._emit_sse_event(SSEEvent(
@@ -349,11 +349,11 @@ class AgentV2:
                         seq=seq_si_e,
                         data={"instructions": []}
                     ))
-                except Exception:
-                    pass
-        except Exception:
+                except Exception as e2:
+                    logger.debug(f"Failed to emit error suggestion finished event: {e2}")
+        except Exception as e:
             # Best-effort; don't fail on suggestion errors
-            pass
+            logger.info(f"Instruction suggestion process failed (non-critical): {e}")
 
     async def _generate_title_background(self, messages_context: str, plan_info: list):
         """Generate report title in background after completion.finished is sent."""
