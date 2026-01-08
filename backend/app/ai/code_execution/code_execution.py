@@ -35,7 +35,7 @@ class CodeSecurityValidator:
 
     DANGEROUS_ATTRIBUTES: Set[str] = {
         '__import__', '__loader__', '__spec__', '__file__',
-        '__builtins__', '__globals__', '__code__', '__class__'
+        '__builtins__', '__globals__', '__code__', '__class__', '__dict__'
     }
 
     @classmethod
