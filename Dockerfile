@@ -93,6 +93,9 @@ COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 
+# Copy demo data sources (SQLite/DuckDB files for demo databases)
+COPY --chown=app:app ./demo-datasources /app/backend/demo-datasources
+
 # Copy only the built Nuxt output to keep the image small
 COPY --from=frontend-builder --chown=app:app /app/frontend/.output /app/frontend/.output
 

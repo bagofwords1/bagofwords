@@ -105,17 +105,17 @@ class DemoDataSourceService:
                 demo=demo,
             )
 
-            # Telemetry: track demo installation
+            # Telemetry: track demo data source creation (consistent with regular data sources)
             try:
                 await telemetry.capture(
-                    "demo_data_source_installed",
+                    "data_source_created",
                     {
-                        "demo_id": demo_id,
-                        "demo_name": demo.name,
-                        "demo_type": demo.type,
                         "data_source_id": str(data_source.id),
-                        "num_instructions": len(demo.instructions),
-                        "num_conversation_starters": len(demo.conversation_starters),
+                        "type": f"{demo.type}-demo",
+                        "is_public": True,
+                        "auth_policy": "system_only",
+                        "use_llm_sync": False,
+                        "from_existing_connection": False,
                     },
                     user_id=current_user.id,
                     org_id=organization.id,

@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.292 (January 9, 2026)
+- Fix demo data sources not loading in Docker container
+
 ## Version 0.0.291 (January 6, 2026)
 - Improve streaming for final_message
 - Fix multi bar chart rendering bug 
