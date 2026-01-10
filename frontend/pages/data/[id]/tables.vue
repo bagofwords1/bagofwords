@@ -12,7 +12,7 @@
 <script setup lang="ts">
 definePageMeta({ auth: true, layout: 'data' })
 import TablesSelector from '@/components/datasources/TablesSelector.vue'
-import { useCan } from '~/composables/usePermissions'
+import { useCan, usePermissionsLoaded } from '~/composables/usePermissions'
 import type { Ref } from 'vue'
 
 const toast = useToast()
@@ -26,18 +26,15 @@ const injectedFetchError = inject<Ref<number | null>>('fetchError', ref(null))
 const loading = ref(false)
 const schemaMode = ref<'full' | 'user'>('full')
 
+const permissionsLoaded = usePermissionsLoaded()
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 
 // Tables state is managed by TablesSelector component
 
-// Set schema mode based on injected data
-watch(injectedIntegration, (ds) => {
-    if (ds) {
-        if (canUpdateDataSource.value) {
-            schemaMode.value = 'full'
-        } else {
-            schemaMode.value = 'user'
-        }
+// Set schema mode based on permissions - wait for permissions to load
+watch([injectedIntegration, permissionsLoaded], ([ds, loaded]) => {
+    if (ds && loaded) {
+        schemaMode.value = canUpdateDataSource.value ? 'full' : 'user'
     }
 }, { immediate: true })
 

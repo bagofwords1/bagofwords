@@ -12,6 +12,7 @@ from app.models.user import User
 from app.core.auth import current_user
 from app.models.organization import Organization
 from app.models.datasource_table import DataSourceTable
+from app.models.connection_table import ConnectionTable
 from app.dependencies import get_current_organization
 from app.services.connection_service import ConnectionService
 from app.core.permissions_decorator import requires_permission
@@ -43,21 +44,24 @@ async def list_connections(
     
     result = []
     for conn in connections:
-        # Count tables using SQL COUNT query instead of loading all tables
-        # This is critical for data sources with many tables (e.g., 25K+)
-        table_count = 0
-        if conn.data_sources:
+        # Count tables from ConnectionTable (all available tables in the database)
+        count_result = await db.execute(
+            select(func.count(ConnectionTable.id))
+            .where(ConnectionTable.connection_id == str(conn.id))
+        )
+        table_count = count_result.scalar() or 0
+
+        # Fallback for legacy connections: if ConnectionTable is empty,
+        # count from DataSourceTable (existing domains using this connection)
+        if table_count == 0 and conn.data_sources:
             ds_ids = [str(ds.id) for ds in conn.data_sources]
             if ds_ids:
-                count_result = await db.execute(
+                fallback_result = await db.execute(
                     select(func.count(DataSourceTable.id))
-                    .where(
-                        DataSourceTable.datasource_id.in_(ds_ids),
-                        DataSourceTable.is_active == True
-                    )
+                    .where(DataSourceTable.datasource_id.in_(ds_ids))
                 )
-                table_count = count_result.scalar() or 0
-        
+                table_count = fallback_result.scalar() or 0
+
         result.append(ConnectionSchema(
             id=str(conn.id),
             name=conn.name,

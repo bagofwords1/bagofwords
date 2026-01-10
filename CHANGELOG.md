@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.293 (January 10, 2026)
+- Fix tables page not showing all tables when navigating between pages
+
 ## Version 0.0.292 (January 9, 2026)
 - Fix demo data sources not loading in Docker container
 
