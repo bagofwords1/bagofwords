@@ -348,6 +348,7 @@ class DemoDataSourceService:
                 organization=organization,
                 should_set_active=True,
                 current_user=current_user,
+                force_all_active=True,  # Demo data sources should have all tables active
             )
             logger.info(f"Loaded tables for demo data source: {data_source.name}")
         except Exception as e:

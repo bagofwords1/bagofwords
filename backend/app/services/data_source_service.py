@@ -1816,12 +1816,13 @@ class DataSourceService:
     # Onboarding: auto-select a focused set of tables
     ONBOARDING_MAX_TABLES = 0
 
-    async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None, should_set_active: bool = True, current_user: User | None = None):
+    async def save_or_update_tables(self, db: AsyncSession, data_source: DataSource, organization: Organization = None, should_set_active: bool = True, current_user: User | None = None, force_all_active: bool = False):
         """Diff-based upsert of datasource tables.
         - Insert new tables
         - Update changed tables
         - Deactivate missing tables (keep history)
         - If should_set_active and > ONBOARDING_MAX_TABLES, auto-select top tables via SQL
+        - If force_all_active=True, bypass smart selection and activate all tables (for demos)
         """
         from sqlalchemy import text, update
         import json as json_module
@@ -1859,7 +1860,8 @@ class DataSourceService:
                     }
 
             total_tables = len(incoming)
-            needs_smart_selection = should_set_active and total_tables > self.ONBOARDING_MAX_TABLES
+            # Skip smart selection if force_all_active (e.g., demo data sources)
+            needs_smart_selection = should_set_active and total_tables > self.ONBOARDING_MAX_TABLES and not force_all_active
 
             # Load existing table names only (not full objects for efficiency)
             existing_q = await db.execute(
