@@ -32,8 +32,9 @@ def test_schema_refresh_discovers_new_tables(
         org_id=org_id,
     )
 
-    # 2. Get initial schema
-    initial_schema = get_schema(
+    # 2. Refresh to get initial schema (refresh_schema returns all tables including inactive)
+    # Note: Tables are not auto-activated during onboarding (ONBOARDING_MAX_TABLES=0)
+    initial_schema = refresh_schema(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
@@ -49,14 +50,14 @@ def test_schema_refresh_discovers_new_tables(
     conn.commit()
     conn.close()
 
-    # 4. Refresh schema - returns all discovered tables including inactive
+    # 4. Refresh schema again - should discover the new table
     refreshed_tables = refresh_schema(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
 
-    # 5. Verify new table is discovered (refresh_schema returns all tables including inactive)
+    # 5. Verify new table is discovered
     refreshed_table_names = {t["name"] for t in refreshed_tables}
 
     assert "products" in refreshed_table_names, f"Expected 'products' in {refreshed_table_names}"
@@ -189,19 +190,14 @@ def test_schema_refresh_updates_column_changes(
         org_id=org_id,
     )
 
-    # 2. Refresh to load tables
-    refresh_schema(
+    # 2. Refresh to load tables (refresh_schema returns all tables including inactive)
+    initial_schema = refresh_schema(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
 
-    # 3. Get initial schema and count columns in users table
-    initial_schema = get_schema(
-        data_source_id=domain["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
+    # 3. Get initial column count in users table
     users_table = next((t for t in initial_schema if t["name"] == "users"), None)
     assert users_table is not None
     initial_column_count = len(users_table.get("columns", []))
@@ -436,19 +432,14 @@ def test_connection_schema_sync_to_domains(
         org_id=org_id,
     )
 
-    # 3. Refresh domain to get tables
-    refresh_schema(
+    # 3. Refresh domain to get tables (refresh_schema returns all tables including inactive)
+    initial_schema = refresh_schema(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
 
-    # 4. Get initial domain schema
-    initial_schema = get_schema(
-        data_source_id=domain["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
+    # 4. Get initial count
     initial_count = len(initial_schema)
 
     # 5. Add a new table to the database

@@ -2055,26 +2055,31 @@ class DataSourceService:
             from app.services.connection_service import ConnectionService
             connection_service = ConnectionService()
             logger.info(f"refresh_data_source_schema: Found {len(data_source.connections)} connections for data_source {data_source_id}")
+            has_system_only_conn = False
             for conn in data_source.connections:
                 logger.info(f"refresh_data_source_schema: Connection {conn.id} has auth_policy={conn.auth_policy}")
                 if conn.auth_policy == "system_only":
+                    has_system_only_conn = True
                     logger.info(f"refresh_data_source_schema: Calling refresh_schema for connection {conn.id}")
                     await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
                     logger.info(f"refresh_data_source_schema: refresh_schema completed for connection {conn.id}")
 
-            # Then sync from ConnectionTable to DataSourceTable
-            # This ensures any new tables from the connection are added to the domain
-            for conn in data_source.connections:
-                await self.sync_domain_tables_from_connection(
-                    db, data_source, conn,
-                    max_auto_select=None  # Don't auto-select, keep existing is_active state
-                )
+            if has_system_only_conn:
+                # Then sync from ConnectionTable to DataSourceTable
+                # This ensures any new tables from the connection are added to the domain
+                for conn in data_source.connections:
+                    if conn.auth_policy == "system_only":
+                        await self.sync_domain_tables_from_connection(
+                            db, data_source, conn,
+                            max_auto_select=None  # Don't auto-select, keep existing is_active state
+                        )
 
-            # Get updated schema
-            schemas = await data_source.get_schemas(db=db, include_inactive=True)
-            return schemas
+                # Get updated schema
+                schemas = await data_source.get_schemas(db=db, include_inactive=True)
+                return schemas
 
-        # Fallback to legacy behavior if no connections
+        # Fallback to legacy behavior for user_required connections or if no connections
+        # This uses data_source_service.resolve_credentials which has owner/admin fallback
         schemas = await self.save_or_update_tables(db=db, data_source=data_source, organization=organization, should_set_active=False, current_user=current_user)
         return schemas
     
@@ -2499,7 +2504,7 @@ class DataSourceService:
         existing_by_name = {t.name: t for t in existing.scalars().all()}
         
         total_tables = len(conn_tables)
-        
+
         # Determine initial activation:
         # - If max_auto_select is None: all tables start inactive (user must select)
         # - If max_auto_select is set and total <= limit: activate all
@@ -2510,7 +2515,7 @@ class DataSourceService:
         else:
             should_activate = total_tables <= max_auto_select
             needs_smart_selection = total_tables > max_auto_select
-        
+
         for conn_table in conn_tables:
             if conn_table.name in existing_by_name:
                 # Update existing - link to connection table and refresh schema data
@@ -2543,9 +2548,23 @@ class DataSourceService:
                     metrics_computed_at=conn_table.metrics_computed_at,
                 )
                 db.add(domain_table)
-        
+
+        # Deactivate domain tables that no longer exist in the connection
+        # (table was deleted from the database)
+        conn_table_names = {t.name for t in conn_tables}
+        missing_tables = set(existing_by_name.keys()) - conn_table_names
+        if missing_tables:
+            from sqlalchemy import update
+            for table_name in missing_tables:
+                domain_table = existing_by_name[table_name]
+                await db.execute(
+                    update(DataSourceTable)
+                    .where(DataSourceTable.id == domain_table.id)
+                    .values(is_active=False)
+                )
+
         await db.commit()
-        
+
         # If too many tables for auto-select, use smart selection algorithm
         if needs_smart_selection and max_auto_select:
             await self._select_active_tables_sql(db, str(data_source.id), max_auto_select)

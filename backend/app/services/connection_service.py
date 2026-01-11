@@ -410,6 +410,15 @@ class ConnectionService:
 
             logger.info(f"refresh_schema: Created {created_count}, updated {updated_count} ConnectionTable records")
 
+            # Delete ConnectionTable entries for tables that no longer exist in the database
+            deleted_count = 0
+            for existing_name, existing_table in existing_tables.items():
+                if existing_name not in incoming:
+                    await db.delete(existing_table)
+                    deleted_count += 1
+            if deleted_count > 0:
+                logger.info(f"refresh_schema: Deleted {deleted_count} ConnectionTable records for tables no longer in database")
+
             # Update last_synced_at
             # NOTE: our SQLAlchemy DateTime columns are stored as TIMESTAMP WITHOUT TIME ZONE,
             # so we must write naive UTC datetimes (asyncpg will error on tz-aware datetimes).
