@@ -48,8 +48,8 @@
 											</div>
 										</div>
 									</div>
-									<!-- User avatar on the right -->
-									<div class="w-[28px] flex-shrink-0">
+									<!-- User avatar on the right (hidden on mobile) -->
+									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
 										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
 											{{ report.user.name.charAt(0) }}
 										</div>
@@ -59,7 +59,8 @@
 
 							<!-- System / assistant message (left-aligned, keep existing styling) -->
 							<template v-else>
-								<div class="w-[28px] mr-2 flex-shrink-0">
+								<!-- AI avatar (hidden on mobile) -->
+								<div class="w-[28px] mr-2 flex-shrink-0 hidden md:block">
 									<div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
 									</div>
 								</div>
