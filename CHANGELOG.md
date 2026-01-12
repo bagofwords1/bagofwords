@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.295 (January 12, 2026)
+- Fix Dockerfile
+
 ## Version 0.0.294 (January 12, 2026)
 - improve streaming performance
 - support heatmap charts
