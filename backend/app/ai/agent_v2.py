@@ -807,66 +807,21 @@ class AgentV2:
                         
                     elif evt.type == "planner.decision.partial":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
-                        
-                        # Get next sequence number for SSE event ordering (in-memory, no DB)
+
+                        # Store latest decision in memory for final persist (NO DB writes during streaming)
+                        current_plan_decision_data = decision
+
+                        # Get sequence for SSE ordering (in-memory, no DB)
                         event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        
-                        # Save partial decision (Pydantic model) using stable decision_seq
                         if decision_seq is None:
                             decision_seq = event_seq
-                        current_plan_decision = await self.project_manager.save_plan_decision_from_model(
-                            self.db,
-                            agent_execution=self.current_execution,
-                            seq=decision_seq,
-                            loop_index=loop_index,
-                            planner_decision_model=decision,
-                        )
-                        # Persist partial content/reasoning to the decision block so a stop retains text
-                        try:
-                            await self.project_manager.upsert_block_for_decision(
-                                self.db, self.system_completion, self.current_execution, current_plan_decision
-                            )
-                        except Exception:
-                            pass
-                        # Ensure a block exists if pre-creation failed; emit one snapshot once
-                        if current_block_id is None:
-                            try:
-                                block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
-                                await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
-                                current_block_id = str(block.id)
-                                try:
-                                    block_schema = await serialize_block_v2(self.db, block)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.upsert",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=event_seq,
-                                        data={"block": block_schema.model_dump()}
-                                    ))
-                                except Exception:
-                                    pass
-                                # Initialize or update streamer with block id
-                                if plan_streamer is None:
-                                    async def _next_seq():
-                                        return await self.project_manager.next_seq(self.db, self.current_execution)
-                                    plan_streamer = PlanningTextStreamer(
-                                        emit=self._emit_sse_event,
-                                        seq_fn=_next_seq,
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        block_id=current_block_id,
-                                    )
-                                else:
-                                    plan_streamer.set_block(current_block_id)
-                            except Exception:
-                                pass
 
                         # Emit incremental, throttled token deltas for reasoning/content
                         # When analysis_complete=true, the LLM puts the response in final_answer, not assistant_message
                         # So we need to stream final_answer as content when assistant is empty
                         try:
-                            new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
-                            new_content = getattr(current_plan_decision, "assistant", None) or getattr(current_plan_decision, "final_answer", None) or ""
+                            new_reasoning = getattr(decision, "reasoning_message", None) or ""
+                            new_content = getattr(decision, "assistant_message", None) or getattr(decision, "final_answer", None) or ""
                             if plan_streamer:
                                 await plan_streamer.update(new_reasoning, new_content)
                         except Exception:

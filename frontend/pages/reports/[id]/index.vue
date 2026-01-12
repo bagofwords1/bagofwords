@@ -169,9 +169,11 @@
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
 
-											<!-- 4. Final answer (or fallback to assistant when analysis complete but no explicit final_answer) -->
-											<div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper">
-												<MDC :value="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
+											<!-- 4. Final answer - only show if NOT already rendered in section 2 above -->
+											<!-- Section 2 shows: block.content OR plan_decision.assistant OR plan_decision.final_answer (when not complete) -->
+											<!-- So section 4 only shows when: analysis_complete AND final_answer exists AND nothing was shown in section 2 -->
+											<div v-if="block.plan_decision?.analysis_complete && block.plan_decision?.final_answer && !block.content && !block.plan_decision?.assistant" class="mt-2 markdown-wrapper">
+												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
 											</div>
 										</div>
 
