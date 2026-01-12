@@ -5,6 +5,7 @@
 - support heatmap charts
 - block sending prompts if no llm or data source/file were set
 - improve conversation layout for mobile presentation
+- add delete connection
 
 ## Version 0.0.293 (January 10, 2026)
 - Fix tables page not showing all tables when navigating between pages

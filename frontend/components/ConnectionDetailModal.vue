@@ -81,6 +81,50 @@
       <div v-if="testResult" class="mt-3 text-xs text-center" :class="testResult.success ? 'text-green-600' : 'text-red-600'">
         {{ testResult.message }}
       </div>
+
+      <!-- Delete Section (only for admins) -->
+      <div v-if="canUpdateDataSource" class="pt-4 mt-4 border-t border-gray-100">
+        <div v-if="!confirmingDelete">
+          <button
+            @click="domainCount === 0 ? confirmingDelete = true : null"
+            :disabled="domainCount > 0"
+            :class="[
+              'w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors',
+              domainCount === 0
+                ? 'text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer'
+                : 'text-gray-400 bg-gray-50 border border-gray-200 cursor-not-allowed'
+            ]"
+          >
+            <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
+            Delete Connection
+          </button>
+          <p v-if="domainCount > 0" class="text-[10px] text-gray-400 text-center mt-1.5">
+            Remove all domains first to delete this connection
+          </p>
+        </div>
+
+        <!-- Confirm delete -->
+        <div v-else class="space-y-2">
+          <p class="text-xs text-gray-600 text-center">Are you sure? This cannot be undone.</p>
+          <div class="flex gap-2">
+            <button
+              @click="confirmingDelete = false"
+              :disabled="deleting"
+              class="flex-1 px-3 py-2 text-xs text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              @click="deleteConnection"
+              :disabled="deleting"
+              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
+            >
+              <Spinner v-if="deleting" class="w-3.5 h-3.5" />
+              {{ deleting ? 'Deleting...' : 'Delete' }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </UModal>
 
@@ -154,9 +198,11 @@ const showEditModal = ref(false)
 const loadingDetails = ref(false)
 const connectionDetails = ref<any>(null)
 const showCredentialsModal = ref(false)
+const confirmingDelete = ref(false)
+const deleting = ref(false)
 
 // Permission and auth checks
-const canUpdateDataSource = useCan('update_data_source')
+const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
 
 const isConnected = computed(() => {
@@ -256,10 +302,31 @@ function handleCredentialsSaved() {
   emit('updated')
 }
 
-// Reset test result when modal closes
+async function deleteConnection() {
+  if (!props.connection?.id || deleting.value) return
+  deleting.value = true
+  try {
+    const { error } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'DELETE' })
+    if (error.value) {
+      testResult.value = { success: false, message: error.value.message || 'Delete failed' }
+      confirmingDelete.value = false
+    } else {
+      isOpen.value = false
+      emit('updated')
+    }
+  } catch (e: any) {
+    testResult.value = { success: false, message: e.message || 'Delete failed' }
+    confirmingDelete.value = false
+  } finally {
+    deleting.value = false
+  }
+}
+
+// Reset state when modal closes
 watch(isOpen, (val) => {
   if (!val) {
     testResult.value = null
+    confirmingDelete.value = false
   }
 })
 </script>
