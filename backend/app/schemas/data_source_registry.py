@@ -26,6 +26,7 @@ from app.schemas.data_sources.configs import (
     ClickhouseConfig,
     PinotConfig,
     MongoDBConfig,
+    PostHogConfig,
     # DuckDB
     DuckDBConfig,
     DuckDBNoAuthCredentials,
@@ -56,6 +57,7 @@ from app.schemas.data_sources.configs import (
     TableauPATCredentials,
     SalesforceCredentials,
     MongoDBCredentials,
+    PostHogCredentials,
 )
 
 from app.settings.config import settings
@@ -361,6 +363,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.mongodb_client.MongodbClient",
         is_document_based=True,
+    ),
+    "posthog": DataSourceRegistryEntry(
+        type="posthog",
+        title="PostHog",
+        description="Product analytics platform - query events, users, sessions, and more with HogQL.",
+        config_schema=PostHogConfig,
+        credentials_auth=AuthOptions(
+            default="api_key",
+            by_auth={
+                "api_key": AuthVariant(
+                    title="Personal API Key",
+                    schema=PostHogCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.posthog_client.PostHogClient",
+        version="beta",
     ),
 }
 

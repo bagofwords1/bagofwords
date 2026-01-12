@@ -1,6 +1,7 @@
 # Release Notes
 
-## Version 0.0.295 (January 12, 2026)
+## Version 0.0.296 (January 12, 2026)
+- Added PostHog integration for analytics
 - Fix Dockerfile
 
 ## Version 0.0.294 (January 12, 2026)
