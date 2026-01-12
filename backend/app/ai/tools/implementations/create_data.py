@@ -159,11 +159,23 @@ def build_view_from_data_model(
         value_key = base.get("value")
         if not x_key or not y_key or not value_key:
             return None
+        # Determine color scheme from series config or default to blue
+        color_scheme = base.get("colorScheme") or base.get("color_scheme") or "blue"
+        if color_scheme not in ("blue", "green", "red", "violet", "orange"):
+            color_scheme = "blue"
+        # Check if values should be shown (default True)
+        show_values = base.get("showValues", True)
+        if show_values is None:
+            show_values = True
         view = HeatmapView(
             title=title,
             x=str(x_key),
             y=str(y_key),
             value=str(value_key),
+            colorScheme=color_scheme,
+            showValues=bool(show_values),
+            axisX=AxisOptions(rotate=45, interval=0),
+            axisY=AxisOptions(rotate=0, interval=0),
         )
         return ViewSchema(view=view)
 
@@ -355,7 +367,9 @@ Series contracts:
 - bar/line/area: [{{"name", "key", "value"}}] - BOTH key AND value are REQUIRED!
 - pie/map: [{{"name", "key", "value"}}]
 - scatter: [{{"name", "x", "y"}}] (+ size optional)
-- heatmap: [{{"name", "x", "y", "value"}}]
+- heatmap: [{{"name", "x", "y", "value", "colorScheme", "showValues"}}]
+  - colorScheme: "blue" | "green" | "red" | "violet" | "orange" (default: "blue")
+  - showValues: true | false (default: true) - whether to show values in cells
 - table: series: []
 
 CRITICAL FOR BAR/LINE/AREA CHARTS:
@@ -392,13 +406,20 @@ CORRECT:
 WRONG (missing key - will break the chart):
 {{"type": "bar_chart", "series": [{{"name": "Max Bitcoin Price", "value": "max_bitcoin_price"}}]}}
 
+HEATMAP EXAMPLE:
+Columns: ["day_of_week", "hour", "activity_count"]
+Data pattern: Each combination of day_of_week and hour has a value
+CORRECT:
+{{"type": "heatmap", "series": [{{"name": "Activity", "x": "hour", "y": "day_of_week", "value": "activity_count", "colorScheme": "blue", "showValues": true}}]}}
+
 DECISION LOGIC:
 1. Single numeric value → metric_card
 2. Multiple rows with time column + numeric value → metric_card WITH sparkline
 3. Category + values → bar_chart or pie_chart
 4. Two numeric columns → scatter_plot
 5. Time series for trends → line_chart or area_chart
-6. Raw data display → table
+6. Two categorical columns + numeric value (matrix/grid data) → heatmap
+7. Raw data display → table
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
