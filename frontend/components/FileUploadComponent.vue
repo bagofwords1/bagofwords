@@ -205,6 +205,8 @@ const isDragging = ref(false);
 
   onMounted(async () => {
     await getReportFiles();
+    // Emit existing files so parent knows about them
+    emit('update:uploadedFiles', allFiles.value.filter(f => f.status === 'uploaded'));
   });
   
   </script>

@@ -266,6 +266,49 @@ class PostHogClient(DataSourceClient):
 
 This connector allows querying PostHog product analytics data using HogQL (PostHog's SQL dialect over ClickHouse).
 
+### How to Query Data
+
+Use the `execute_query` method with a HogQL query string:
+
+```python
+# Example: Get daily active users
+df = client.execute_query('''
+    SELECT toDate(timestamp) as date, count(DISTINCT distinct_id) as dau
+    FROM events
+    WHERE timestamp >= now() - INTERVAL 7 DAY
+    GROUP BY date
+    ORDER BY date
+''')
+
+# Example: Top events by count
+df = client.execute_query('''
+    SELECT event, count() as count
+    FROM events
+    WHERE timestamp >= now() - INTERVAL 30 DAY
+    GROUP BY event
+    ORDER BY count DESC
+    LIMIT 10
+''')
+
+# Example: Session metrics by channel
+df = client.execute_query('''
+    SELECT $channel_type, count() as sessions, avg($session_duration) as avg_duration
+    FROM sessions
+    WHERE $start_timestamp >= now() - INTERVAL 7 DAY
+    GROUP BY $channel_type
+''')
+
+# Example: Page views by URL
+df = client.execute_query('''
+    SELECT properties.$current_url as url, count() as views
+    FROM events
+    WHERE event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY
+    GROUP BY url
+    ORDER BY views DESC
+    LIMIT 20
+''')
+```
+
 ### Available Tables:
 
 1. **events** - All tracked events
@@ -287,76 +330,16 @@ This connector allows querying PostHog product analytics data using HogQL (PostH
 
 6. **session_replay_events** - Session recording metadata
 
-### Query Examples:
-
-```sql
--- Daily active users last 7 days
-SELECT
-    toDate(timestamp) as date,
-    count(DISTINCT distinct_id) as dau
-FROM events
-WHERE timestamp >= now() - INTERVAL 7 DAY
-GROUP BY date
-ORDER BY date
-
--- Top events by count
-SELECT event, count() as count
-FROM events
-WHERE timestamp >= now() - INTERVAL 30 DAY
-GROUP BY event
-ORDER BY count DESC
-LIMIT 10
-
--- Session metrics by channel
-SELECT
-    $channel_type,
-    count() as sessions,
-    avg($session_duration) as avg_duration_seconds,
-    countIf($is_bounce = true) * 100.0 / count() as bounce_rate_pct
-FROM sessions
-WHERE $start_timestamp >= now() - INTERVAL 7 DAY
-GROUP BY $channel_type
-ORDER BY sessions DESC
-
--- Page views by URL
-SELECT
-    properties.$current_url as url,
-    count() as views
-FROM events
-WHERE event = '$pageview'
-  AND timestamp >= now() - INTERVAL 7 DAY
-GROUP BY url
-ORDER BY views DESC
-LIMIT 20
-
--- User acquisition by initial referrer
-SELECT
-    person.properties.$initial_referrer as referrer,
-    count(DISTINCT distinct_id) as users
-FROM events
-WHERE timestamp >= now() - INTERVAL 30 DAY
-GROUP BY referrer
-ORDER BY users DESC
-LIMIT 10
-
--- Funnel: signup to purchase
-SELECT
-    count(DISTINCT if(event = 'signup', distinct_id, NULL)) as signups,
-    count(DISTINCT if(event = 'purchase', distinct_id, NULL)) as purchases
-FROM events
-WHERE timestamp >= now() - INTERVAL 30 DAY
-```
-
 ### Property Access Patterns:
 - Event properties: `properties.$property_name` or `properties.custom_property`
 - Person properties: `person.properties.$initial_browser`, `person.properties.email`
 - Session fields use $ prefix: `$session_duration`, `$is_bounce`, `$channel_type`
 
 ### Important Notes:
+- ALWAYS use `execute_query("YOUR SQL HERE")` to run queries
 - Timestamps use ClickHouse functions: `now()`, `toDate()`, `INTERVAL N DAY/HOUR/MONTH`
 - Default query limit is 100 rows; use `LIMIT` clause for more
 - Use `distinct_id` for user identification in events
-- Person properties are denormalized on events for efficiency
 - The `$` prefix indicates PostHog-defined properties vs custom ones
 """
 
