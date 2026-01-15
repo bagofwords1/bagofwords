@@ -54,15 +54,8 @@ def test_data_source_creation(
     assert isinstance(refreshed_tables, list)
     assert len(refreshed_tables) > 0
 
-    schema_tables = get_schema(
-        data_source_id=data_source["id"],
-        user_token=user_token,
-        org_id=org_id
-    )
-
-    assert isinstance(schema_tables, list)
-    assert len(schema_tables) > 0
-    table_names = [ row["name"] for row in schema_tables]
+    # Check that refresh_schema returns tables (tables are inactive by default)
+    table_names = [row["name"] for row in refreshed_tables]
     assert "Album" in table_names
 
     # Update data source metadata

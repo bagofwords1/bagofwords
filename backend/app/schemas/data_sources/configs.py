@@ -456,12 +456,37 @@ class AzureDataExplorerCredentials(BaseModel):
 
 class AzureDataExplorerConfig(BaseModel):
     cluster_url: str = Field(
-        ..., 
-        title="Cluster URL", 
+        ...,
+        title="Cluster URL",
         description="Azure Data Explorer cluster URL (e.g., https://mycluster.region.kusto.windows.net)",
         json_schema_extra={"ui:type": "string"}
     )
     database: str = Field(..., title="Database", description="Database name", json_schema_extra={"ui:type": "string"})
+
+
+# PostHog
+class PostHogCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="Personal API Key",
+        description="PostHog Personal API Key with query:read and project:read scopes",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class PostHogConfig(BaseModel):
+    host: str = Field(
+        "https://us.posthog.com",
+        title="Host",
+        description="PostHog instance URL (us.posthog.com, eu.posthog.com, or self-hosted)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    project_id: str = Field(
+        ...,
+        title="Project ID",
+        description="PostHog Project ID (found in project settings)",
+        json_schema_extra={"ui:type": "string"}
+    )
 
 __all__ = [
     # Configs
@@ -483,6 +508,7 @@ __all__ = [
     "DuckDBConfig",
     "PinotConfig",
     "MongoDBConfig",
+    "PostHogConfig",
     "DuckDBNoAuthCredentials",
     "DuckDBAwsCredentials",
     "DuckDBGcpCredentials",
@@ -511,4 +537,5 @@ __all__ = [
     "AzureDataExplorerCredentials",
     "AzureDataExplorerConfig",
     "MongoDBCredentials",
+    "PostHogCredentials",
 ]

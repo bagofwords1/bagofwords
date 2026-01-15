@@ -47,6 +47,7 @@ const selectedDomains = ref<string[]>(loadFromStorage())
 const domains = ref<Domain[]>([])
 const loading = ref(false)
 let watcherInitialized = false
+let domainsWatcherInitialized = false
 
 export function useDomain() {
   // Set up watcher to persist selection changes (only once)
@@ -55,6 +56,32 @@ export function useDomain() {
       saveToStorage(newSelection)
     }, { deep: true })
     watcherInitialized = true
+  }
+
+  // Watch for domains list changes and clean up stale selections
+  // This handles the case when a user signs up, has no domains, then connects their first one
+  if (!domainsWatcherInitialized && typeof window !== 'undefined') {
+    watch(domains, (newDomains, oldDomains) => {
+      const oldCount = oldDomains?.length || 0
+      const newCount = newDomains?.length || 0
+
+      // If domains were added (e.g., user connected first data source)
+      if (newCount > oldCount && oldCount === 0) {
+        // Reset to "All Domains" so the new domains are included
+        selectedDomains.value = []
+        return
+      }
+
+      // Clean up any stale selections (domain IDs that no longer exist)
+      if (selectedDomains.value.length > 0) {
+        const validIds = new Set(newDomains.map(d => d.id))
+        const filtered = selectedDomains.value.filter(id => validIds.has(id))
+        if (filtered.length !== selectedDomains.value.length) {
+          selectedDomains.value = filtered
+        }
+      }
+    }, { deep: true })
+    domainsWatcherInitialized = true
   }
 
   // Computed: check if there are any domains

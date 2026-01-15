@@ -129,14 +129,16 @@
                     >
                         <Icon name="heroicons-stop-solid" class="w-3.5 h-3.5" />
                     </button>
-                    <button
-                        v-else
-                        class="text-white bg-gray-700 hover:cursor-pointer hover:bg-black w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1"
-                        :disabled="!canSubmit"
-                        @click="submit"
-                    >
-                        <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
-                    </button>
+                    <UTooltip v-else :text="submitTooltip" :popper="{ strategy: 'fixed', placement: 'top' }" :disabled="canSubmit">
+                        <button
+                            class="text-white w-7 h-7 rounded-full flex items-center justify-center transition-colors ml-1"
+                            :class="canSubmit ? 'bg-gray-700 hover:cursor-pointer hover:bg-black' : 'bg-gray-300 cursor-not-allowed'"
+                            :disabled="!canSubmit"
+                            @click="submit"
+                        >
+                            <Icon name="heroicons-arrow-right" class="w-3.5 h-3.5" />
+                        </button>
+                    </UTooltip>
                 </div>
             </div>
         </div>
@@ -442,7 +444,33 @@ function onInput() {
     emit('update:modelValue', text.value)
 }
 
-const canSubmit = computed(() => text.value.trim().length > 0 && !props.latestInProgressCompletion && !isHydratingDataSources.value)
+const hasDataSourceOrFile = computed(() => {
+    return selectedDataSources.value.length > 0 || uploadedFiles.value.length > 0
+})
+
+const canSubmit = computed(() => {
+    return text.value.trim().length > 0
+        && !props.latestInProgressCompletion
+        && !isHydratingDataSources.value
+        && !!selectedModel.value
+        && hasDataSourceOrFile.value
+})
+
+const submitTooltip = computed(() => {
+    if (!selectedModel.value && !hasDataSourceOrFile.value) {
+        return 'First connect LLM and data'
+    }
+    if (!selectedModel.value) {
+        return 'First connect LLM'
+    }
+    if (!hasDataSourceOrFile.value) {
+        return 'Connect data or upload a file'
+    }
+    if (!text.value.trim()) {
+        return 'Enter a message'
+    }
+    return ''
+})
 
 function submit() {
     if (!canSubmit.value) return

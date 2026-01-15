@@ -48,8 +48,8 @@
 											</div>
 										</div>
 									</div>
-									<!-- User avatar on the right -->
-									<div class="w-[28px] flex-shrink-0">
+									<!-- User avatar on the right (hidden on mobile) -->
+									<div class="flex-shrink-0 hidden md:block md:w-[28px]">
 										<div class="h-7 w-7 uppercase flex items-center justify-center text-xs border border-blue-200 bg-blue-100 rounded-full inline-block">
 											{{ report.user.name.charAt(0) }}
 										</div>
@@ -59,7 +59,8 @@
 
 							<!-- System / assistant message (left-aligned, keep existing styling) -->
 							<template v-else>
-								<div class="w-[28px] mr-2 flex-shrink-0">
+								<!-- AI avatar (hidden on mobile) -->
+								<div class="w-[28px] mr-2 flex-shrink-0 hidden md:block">
 									<div class="h-7 w-7 flex font-bold items-center justify-center text-xs rounded-lg inline-block bg-contain bg-center bg-no-repeat" style="background-image: url('/assets/logo-128.png')">
 									</div>
 								</div>
@@ -101,11 +102,12 @@
 											</div>
 
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
-							<!-- Fallback to plan_decision.assistant if block.content is empty (e.g., streaming tokens missed) -->
-							<div v-if="(block.content || block.plan_decision?.assistant) && !block.plan_decision?.final_answer && block.status !== 'error'" class="block-content markdown-wrapper">
+							<!-- Fallback to plan_decision.assistant or final_answer if block.content is empty (e.g., streaming tokens missed) -->
+							<!-- Show content section when: content exists OR assistant exists OR (final_answer exists but analysis not complete yet, i.e. still streaming) -->
+							<div v-if="(block.content || block.plan_decision?.assistant || (block.plan_decision?.final_answer && !block.plan_decision?.analysis_complete)) && block.status !== 'error'" class="block-content markdown-wrapper">
 								<!-- Finalized: show only MDC -->
 								<template v-if="isBlockFinalized(block)">
-									<MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
+									<MDC :value="block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer || ''" class="markdown-content" />
 								</template>
 												<!-- Streaming: hybrid layer approach with rolling window -->
 												<template v-else>
@@ -117,18 +119,18 @@
 											<!-- Committed text (no animation, already shown) -->
 											<span class="committed-text">{{ getCommittedText(`${block.id}:content`) }}</span>
 											<!-- Active chunks with fade-in animation -->
-											<span 
-												v-for="chunk in getBlockChunks(`${block.id}:content`)" 
-												:key="chunk.id" 
+											<span
+												v-for="chunk in getBlockChunks(`${block.id}:content`)"
+												:key="chunk.id"
 												class="chunk-fade"
 											>{{ chunk.text }}</span>
 										</template>
-										<template v-else>{{ block.content || block.plan_decision?.assistant }}</template>
+										<template v-else>{{ block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer }}</template>
 															</div>
 														</div>
 									<!-- Layer 2: MDC preview (hidden, pre-rendering for instant switch) -->
 									<div class="streaming-layer streaming-layer--mdc-preview" aria-hidden="true">
-										<MDC :value="block.content || block.plan_decision?.assistant || ''" class="markdown-content" />
+										<MDC :value="block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer || ''" class="markdown-content" />
 									</div>
 													</div>
 												</template>
@@ -167,9 +169,11 @@
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
 
-											<!-- 4. Final answer (or fallback to assistant when analysis complete but no explicit final_answer) -->
-											<div v-if="block.plan_decision?.analysis_complete && (block.plan_decision?.final_answer || (!block.content && !block.tool_execution))" class="mt-2 markdown-wrapper">
-												<MDC :value="block.plan_decision?.final_answer || block.plan_decision?.assistant || block.content || ''" class="markdown-content" />
+											<!-- 4. Final answer - only show if NOT already rendered in section 2 above -->
+											<!-- Section 2 shows: block.content OR plan_decision.assistant OR plan_decision.final_answer (when not complete) -->
+											<!-- So section 4 only shows when: analysis_complete AND final_answer exists AND nothing was shown in section 2 -->
+											<div v-if="block.plan_decision?.analysis_complete && block.plan_decision?.final_answer && !block.content && !block.plan_decision?.assistant" class="mt-2 markdown-wrapper">
+												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
 											</div>
 										</div>
 

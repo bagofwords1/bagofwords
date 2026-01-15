@@ -1,5 +1,26 @@
 # Release Notes
 
+## Version 0.0.296 (January 12, 2026)
+- Added PostHog integration for analytics
+- Fix Dockerfile
+
+## Version 0.0.294 (January 12, 2026)
+- improve streaming performance
+- support heatmap charts
+- block sending prompts if no llm or data source/file were set
+- improve conversation layout for mobile presentation
+- add delete connection
+
+## Version 0.0.293 (January 10, 2026)
+- Fix tables page not showing all tables when navigating between pages
+
+## Version 0.0.292 (January 9, 2026)
+- Fix demo data sources not loading in Docker container
+
+## Version 0.0.291 (January 6, 2026)
+- Improve streaming for final_message
+- Fix multi bar chart rendering bug 
+
 ## Version 0.0.290 (January 1, 2026)
 - Happy new year!
 - Connections and data sources are now decoupled. You can attach multiple data sources to a single connection, each with its own tables, instructions, and evals. This brings much greater flexibility, reliability, and organization to your workspace.

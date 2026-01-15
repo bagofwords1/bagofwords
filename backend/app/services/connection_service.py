@@ -327,10 +327,17 @@ class ConnectionService:
     ) -> List[ConnectionTable]:
         """Refresh schema and update ConnectionTable records."""
         try:
+            logger.info(f"refresh_schema: Starting for connection {connection.id} (type={connection.type}, auth_policy={connection.auth_policy})")
             client = await self.construct_client(db, connection, current_user)
+            logger.info(f"refresh_schema: Client constructed successfully, calling get_schemas()...")
             fresh_tables = client.get_schemas()
-            
+
+            logger.info(f"refresh_schema: Got {len(fresh_tables) if fresh_tables else 0} tables from database")
+            if fresh_tables and len(fresh_tables) > 0:
+                logger.info(f"refresh_schema: First table name: {getattr(fresh_tables[0], 'name', 'N/A')}")
+
             if not fresh_tables:
+                logger.warning(f"refresh_schema: No tables returned from get_schemas()")
                 return []
 
             # Normalize incoming tables
@@ -364,14 +371,20 @@ class ConnectionService:
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
 
-            # Get existing tables
+            # Get existing tables - ensure connection_id is string
+            connection_id_str = str(connection.id)
+            logger.info(f"refresh_schema: Looking for existing tables with connection_id={connection_id_str}")
+
             existing_q = await db.execute(
                 select(ConnectionTable)
-                .filter(ConnectionTable.connection_id == connection.id)
+                .filter(ConnectionTable.connection_id == connection_id_str)
             )
             existing_tables = {t.name: t for t in existing_q.scalars().all()}
+            logger.info(f"refresh_schema: Found {len(existing_tables)} existing ConnectionTable records")
 
             # Upsert tables
+            created_count = 0
+            updated_count = 0
             for name, payload in incoming.items():
                 if name in existing_tables:
                     # Update existing
@@ -380,11 +393,12 @@ class ConnectionService:
                     table.pks = payload["pks"]
                     table.fks = payload["fks"]
                     table.metadata_json = payload.get("metadata_json")
+                    updated_count += 1
                 else:
                     # Create new
                     table = ConnectionTable(
                         name=name,
-                        connection_id=connection.id,
+                        connection_id=connection_id_str,
                         columns=payload["columns"],
                         pks=payload["pks"],
                         fks=payload["fks"],
@@ -392,22 +406,38 @@ class ConnectionService:
                         no_rows=0,
                     )
                     db.add(table)
+                    created_count += 1
+
+            logger.info(f"refresh_schema: Created {created_count}, updated {updated_count} ConnectionTable records")
+
+            # Delete ConnectionTable entries for tables that no longer exist in the database
+            deleted_count = 0
+            for existing_name, existing_table in existing_tables.items():
+                if existing_name not in incoming:
+                    await db.delete(existing_table)
+                    deleted_count += 1
+            if deleted_count > 0:
+                logger.info(f"refresh_schema: Deleted {deleted_count} ConnectionTable records for tables no longer in database")
 
             # Update last_synced_at
             # NOTE: our SQLAlchemy DateTime columns are stored as TIMESTAMP WITHOUT TIME ZONE,
             # so we must write naive UTC datetimes (asyncpg will error on tz-aware datetimes).
             connection.last_synced_at = datetime.utcnow()
+            logger.info(f"refresh_schema: Committing {created_count} new tables to database...")
             await db.commit()
+            logger.info(f"refresh_schema: Commit successful")
 
             # Return all tables
             result = await db.execute(
                 select(ConnectionTable)
-                .filter(ConnectionTable.connection_id == connection.id)
+                .filter(ConnectionTable.connection_id == connection_id_str)
             )
-            return result.scalars().all()
+            final_tables = result.scalars().all()
+            logger.info(f"refresh_schema: Final query returned {len(final_tables)} ConnectionTable records")
+            return final_tables
 
         except Exception as e:
-            logger.error(f"Error refreshing schema for connection {connection.id}: {e}")
+            logger.error(f"Error refreshing schema for connection {connection.id}: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to refresh schema: {e}")
 
     async def construct_client(
@@ -417,17 +447,22 @@ class ConnectionService:
         current_user: User = None,
     ):
         """Construct a database client for this connection."""
+        logger.info(f"construct_client: Building client for connection {connection.id} (type={connection.type})")
         ClientClass = resolve_client_class(connection.type)
-        
+        logger.info(f"construct_client: Resolved ClientClass={ClientClass.__name__}")
+
         config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+        logger.info(f"construct_client: Config keys={list(config.keys()) if config else []}")
+
         creds = await self.resolve_credentials(db, connection, current_user)
-        
+        logger.info(f"construct_client: Credentials resolved, keys={list(creds.keys()) if creds else []}")
+
         params = {**(config or {}), **(creds or {})}
-        
+
         # Strip meta keys
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
-        
+
         # Narrow to constructor signature
         try:
             import inspect
@@ -435,7 +470,8 @@ class ConnectionService:
             allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
         except Exception:
             allowed = params
-            
+
+        logger.info(f"construct_client: Final param keys={list(allowed.keys())}")
         return ClientClass(**allowed)
 
     async def resolve_credentials(

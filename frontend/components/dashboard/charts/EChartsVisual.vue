@@ -419,15 +419,22 @@ function buildScatterOptions(rows: any[], dm: any): EChartsOption {
 
 function buildHeatmapOptions(rows: any[], dm: any): EChartsOption {
   const cfg = dm?.series?.[0] || {}
-  const xKey = (cfg?.x || cfg?.key || '').toLowerCase()
-  const yKey = (cfg?.y || '').toLowerCase()
-  const vKey = (cfg?.value || '').toLowerCase()
+  const viewV2 = props.view?.view
+
+  // Get field mappings from v2 view schema or fall back to data_model series
+  const xKey = (viewV2?.x || cfg?.x || cfg?.key || '').toLowerCase()
+  const yKey = (viewV2?.y || cfg?.y || '').toLowerCase()
+  const vKey = (viewV2?.value || cfg?.value || '').toLowerCase()
   if (!xKey || !yKey || !vKey) return {}
-  
+
   const xCats = Array.from(new Set(rows.map((r: any) => String(r[xKey] ?? '')).filter(Boolean)))
   const yCats = Array.from(new Set(rows.map((r: any) => String(r[yKey] ?? '')).filter(Boolean)))
-  const { interval, rotate, hideOverlap } = getAxisLabelConfig(xCats.length)
-  
+
+  // Use view axis options if available
+  const xAxisConfig = viewV2?.axisX
+  const yAxisConfig = viewV2?.axisY
+  const { interval: defaultInterval, rotate: defaultRotate, hideOverlap } = getAxisLabelConfig(xCats.length)
+
   const seriesData = rows
     .map((r: any) => {
       const xi = xCats.indexOf(String(r[xKey] ?? ''))
@@ -437,21 +444,83 @@ function buildHeatmapOptions(rows: any[], dm: any): EChartsOption {
       return [xi, yi, val]
     })
     .filter(Boolean)
-  
+
   const maxVal = seriesData.reduce((m: number, d: any) => Math.max(m, d![2]), 0)
-  const colors = getColors()
-  const heatColors = colors.slice(0, 4).map((c: any, idx: number) => {
-    if (typeof c === 'string') return c
-    if (c?.colorStops?.[0]?.color) return c.colorStops[0].color
-    return ['#22d3ee','#38bdf8','#a78bfa','#fbbf24'][idx] || '#22d3ee'
-  })
-  
+  const minVal = seriesData.reduce((m: number, d: any) => Math.min(m, d![2]), maxVal)
+
+  // Color scheme mapping for heatmap gradients
+  const colorSchemes: Record<string, string[]> = {
+    blue: ['#e0f2fe', '#38bdf8', '#0284c7', '#075985'],
+    green: ['#dcfce7', '#4ade80', '#16a34a', '#166534'],
+    red: ['#fee2e2', '#f87171', '#dc2626', '#991b1b'],
+    violet: ['#ede9fe', '#a78bfa', '#7c3aed', '#5b21b6'],
+    orange: ['#ffedd5', '#fb923c', '#ea580c', '#c2410c'],
+  }
+
+  // Get color scheme from view or fall back to palette colors
+  const colorScheme = viewV2?.colorScheme || 'blue'
+  let heatColors = colorSchemes[colorScheme] || colorSchemes.blue
+
+  // Override with custom palette if provided
+  const customColors = getColors()
+  if (props.view?.view?.palette?.custom || (props.view as any)?.encoding?.colors) {
+    heatColors = customColors.slice(0, 4).map((c: any, idx: number) => {
+      if (typeof c === 'string') return c
+      if (c?.colorStops?.[0]?.color) return c.colorStops[0].color
+      return colorSchemes.blue[idx]
+    })
+  }
+
+  // Check showValues from view schema (default true for heatmaps)
+  const showValues = viewV2?.showValues !== false
+
+  // Axis visibility from view schema
+  const xVisible = viewV2?.axisX?.show !== false
+  const yVisible = viewV2?.axisY?.show !== false
+
   return {
-    tooltip: { position: 'top' },
-    xAxis: { type: 'category', data: xCats, axisLabel: { interval, rotate, hideOverlap } },
-    yAxis: { type: 'category', data: yCats },
-    visualMap: { min: 0, max: maxVal, orient: 'horizontal', left: 'center', bottom: '5%', inRange: { color: heatColors } },
-    series: [{ type: 'heatmap', data: seriesData, label: { show: true, formatter: '{@[2]}' } }]
+    tooltip: { position: 'top', formatter: (params: any) => `${xCats[params.data[0]]}, ${yCats[params.data[1]]}: ${params.data[2]}` },
+    xAxis: {
+      type: 'category',
+      data: xCats,
+      show: xVisible,
+      name: xAxisConfig?.label || undefined,
+      axisLabel: {
+        interval: xAxisConfig?.interval ?? defaultInterval,
+        rotate: xAxisConfig?.rotate ?? defaultRotate,
+        hideOverlap
+      }
+    },
+    yAxis: {
+      type: 'category',
+      data: yCats,
+      show: yVisible,
+      name: yAxisConfig?.label || undefined,
+      axisLabel: {
+        interval: yAxisConfig?.interval ?? 0,
+        rotate: yAxisConfig?.rotate ?? 0
+      }
+    },
+    visualMap: {
+      min: minVal,
+      max: maxVal,
+      orient: 'horizontal',
+      left: 'center',
+      bottom: '5%',
+      inRange: { color: heatColors },
+      calculable: true
+    },
+    series: [{
+      type: 'heatmap',
+      data: seriesData,
+      label: { show: showValues, formatter: '{@[2]}' },
+      emphasis: {
+        itemStyle: {
+          shadowBlur: 10,
+          shadowColor: 'rgba(0, 0, 0, 0.5)'
+        }
+      }
+    }]
   }
 }
 

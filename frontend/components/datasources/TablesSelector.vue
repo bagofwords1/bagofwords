@@ -590,7 +590,7 @@ async function fetchTables() {
       if (props.showStats) {
         params.set('with_stats', 'true')
       }
-      
+
       const res = await useMyFetch(`/data_sources/${props.dsId}/${endpoint}?${params.toString()}`, { method: 'GET' })
       
       if ((res as any)?.status?.value === 'success') {
@@ -819,18 +819,18 @@ async function onSave() {
 async function onRefresh() {
   if (loading.value || refreshing.value) return
   refreshing.value = true
-  
+
   try {
     if (endpointForSchema() === 'full_schema') {
       await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
     }
-    
+
     // Clear all tracking on refresh
     pendingBulkActions.value = []
     originalActiveState.value.clear()
     currentActiveState.value.clear()
     page.value = 1
-    
+
     await fetchTables()
   } catch (e) {
     // Swallow refresh errors

@@ -159,11 +159,23 @@ def build_view_from_data_model(
         value_key = base.get("value")
         if not x_key or not y_key or not value_key:
             return None
+        # Determine color scheme from series config or default to blue
+        color_scheme = base.get("colorScheme") or base.get("color_scheme") or "blue"
+        if color_scheme not in ("blue", "green", "red", "violet", "orange"):
+            color_scheme = "blue"
+        # Check if values should be shown (default True)
+        show_values = base.get("showValues", True)
+        if show_values is None:
+            show_values = True
         view = HeatmapView(
             title=title,
             x=str(x_key),
             y=str(y_key),
             value=str(value_key),
+            colorScheme=color_scheme,
+            showValues=bool(show_values),
+            axisX=AxisOptions(rotate=45, interval=0),
+            axisY=AxisOptions(rotate=0, interval=0),
         )
         return ViewSchema(view=view)
 
@@ -355,7 +367,9 @@ Series contracts:
 - bar/line/area: [{{"name", "key", "value"}}] - BOTH key AND value are REQUIRED!
 - pie/map: [{{"name", "key", "value"}}]
 - scatter: [{{"name", "x", "y"}}] (+ size optional)
-- heatmap: [{{"name", "x", "y", "value"}}]
+- heatmap: [{{"name", "x", "y", "value", "colorScheme", "showValues"}}]
+  - colorScheme: "blue" | "green" | "red" | "violet" | "orange" (default: "blue")
+  - showValues: true | false (default: true) - whether to show values in cells
 - table: series: []
 
 CRITICAL FOR BAR/LINE/AREA CHARTS:
@@ -363,13 +377,40 @@ CRITICAL FOR BAR/LINE/AREA CHARTS:
 - "value" = the NUMERIC column (y-axis) - REQUIRED, the metric to display
 - You MUST include BOTH "key" and "value" in every series entry!
 
-EXAMPLE - Bar chart with date and price:
+DETECTING GROUP_BY (for multi-series grouped bar/line/area charts):
+- If the data has a CATEGORICAL column that creates MULTIPLE ROWS per x-axis value, use "group_by"
+- Look at unique_count in the data profile: if a column has few unique values (2-10) that repeat across x-axis categories, it's likely a grouping column
+- Common group_by column names: category, type, group, segment, channel, region, product, source, status
+- When group_by is used, each unique value in that column becomes a separate series (colored bar/line)
+
+EXAMPLE 1 - Simple bar chart (one value per x-axis category):
 Columns: ["date", "max_bitcoin_price"]
 CORRECT:
 {{"type": "bar_chart", "series": [{{"name": "Max Bitcoin Price", "key": "date", "value": "max_bitcoin_price"}}]}}
 
+EXAMPLE 2 - Grouped bar chart (multiple categories per x-axis value):
+Columns: ["month", "revenue_group", "revenue"]
+Data pattern: Each month has multiple rows (one per revenue_group: CARDS, FX, SAAS, etc.)
+CORRECT (with group_by):
+{{"type": "bar_chart", "series": [{{"name": "Revenue", "key": "month", "value": "revenue"}}], "group_by": "revenue_group"}}
+
+WRONG (missing group_by - all bars will show same value!):
+{{"type": "bar_chart", "series": [{{"name": "Revenue", "key": "month", "value": "revenue"}}]}}
+
+EXAMPLE 3 - Line chart with multiple series by category:
+Columns: ["date", "channel", "sales"]
+Data pattern: Each date has rows for different channels (online, retail, wholesale)
+CORRECT:
+{{"type": "line_chart", "series": [{{"name": "Sales", "key": "date", "value": "sales"}}], "group_by": "channel"}}
+
 WRONG (missing key - will break the chart):
 {{"type": "bar_chart", "series": [{{"name": "Max Bitcoin Price", "value": "max_bitcoin_price"}}]}}
+
+HEATMAP EXAMPLE:
+Columns: ["day_of_week", "hour", "activity_count"]
+Data pattern: Each combination of day_of_week and hour has a value
+CORRECT:
+{{"type": "heatmap", "series": [{{"name": "Activity", "x": "hour", "y": "day_of_week", "value": "activity_count", "colorScheme": "blue", "showValues": true}}]}}
 
 DECISION LOGIC:
 1. Single numeric value → metric_card
@@ -377,14 +418,17 @@ DECISION LOGIC:
 3. Category + values → bar_chart or pie_chart
 4. Two numeric columns → scatter_plot
 5. Time series for trends → line_chart or area_chart
-6. Raw data display → table
+6. Two categorical columns + numeric value (matrix/grid data) → heatmap
+7. Raw data display → table
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
 Return ONLY valid JSON:
-{{"type": "...", "series": [...]}}
+{{"type": "...", "series": [...], "group_by": "column_name_or_null"}}
+
+Include "group_by" when the data has multiple rows per x-axis category that should be shown as separate colored series.
 
 REMEMBER: Use EXACT column names from: {column_names}
 Do NOT use generic placeholders like "value" unless that's the actual column name."""

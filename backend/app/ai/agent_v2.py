@@ -159,8 +159,8 @@ class AgentV2:
             await self.context_hub.refresh_warm()
             try:
                 await self.context_hub.build_context()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to build context during token estimation: {e}", exc_info=True)
             prompt_text = await self._build_planner_prompt_text()
             prompt_tokens = count_tokens(prompt_text, getattr(self.model, "model_id", None))
 
@@ -177,8 +177,8 @@ class AgentV2:
         finally:
             try:
                 websocket_manager.remove_handler(self._handle_completion_update)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to remove websocket handler during cleanup: {e}")
 
     async def _run_early_scoring_background(self, planner_input: PlannerInput):
         """Run instructions/context scoring in a fresh DB session to avoid concurrency conflicts."""
@@ -197,11 +197,10 @@ class AgentV2:
                     completion = await session.get(Completion, str(self.head_completion.id))
                     if completion is not None:
                         await self.project_manager.update_completion_scores(session, completion, instructions_score, context_score)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to score instructions/context in background: {e}", exc_info=True)
         except Exception as e:
-
-            pass
+            logger.error(f"Critical error in early scoring background task: {e}", exc_info=True)
 
     async def _run_late_scoring_background(self, messages_context: str, observation_data: dict):
         """Run response scoring in a fresh DB session to avoid concurrency conflicts."""
@@ -218,10 +217,10 @@ class AgentV2:
                     completion = await session.get(Completion, str(self.head_completion.id))
                     if completion is not None:
                         await self.project_manager.update_completion_response_score(session, completion, response_score)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to score response quality in background: {e}", exc_info=True)
         except Exception as e:
-            pass
+            logger.error(f"Critical error in late scoring background task: {e}", exc_info=True)
 
     async def _stream_suggestions_inline(self, prev_tool_name: Optional[str], conditions: list):
         """Stream instruction suggestions inline before the SSE stream closes.
@@ -242,8 +241,8 @@ class AgentV2:
                     seq=seq_si,
                     data={}
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to emit suggestion started event: {e}")
 
             try:
                 if self.suggest_instructions is not None and self.report_type == 'regular':
@@ -314,8 +313,8 @@ class AgentV2:
                                 seq=seq_si_p,
                                 data={"instruction": draft_payload}
                             ))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.debug(f"Failed to emit suggestion progress event: {e}")
                     
                     # === Finalize Build ===
                     # Submit the AI build for admin approval (don't auto-publish)
@@ -338,9 +337,10 @@ class AgentV2:
                             seq=seq_si_f,
                             data={"instructions": drafts}
                         ))
-                    except Exception:
-                        pass
-            except Exception:
+                    except Exception as e:
+                        logger.debug(f"Failed to emit suggestion finished event: {e}")
+            except Exception as e:
+                logger.warning(f"Error during instruction suggestion generation: {e}", exc_info=True)
                 try:
                     seq_si_e = await self.project_manager.next_seq(self.db, self.current_execution)
                     await self._emit_sse_event(SSEEvent(
@@ -350,11 +350,11 @@ class AgentV2:
                         seq=seq_si_e,
                         data={"instructions": []}
                     ))
-                except Exception:
-                    pass
-        except Exception:
+                except Exception as e2:
+                    logger.debug(f"Failed to emit error suggestion finished event: {e2}")
+        except Exception as e:
             # Best-effort; don't fail on suggestion errors
-            pass
+            logger.info(f"Instruction suggestion process failed (non-critical): {e}")
 
     async def _generate_title_background(self, messages_context: str, plan_info: list):
         """Generate report title in background after completion.finished is sent."""
@@ -809,73 +809,31 @@ class AgentV2:
                         
                     elif evt.type == "planner.decision.partial":
                         decision = evt.data  # Already validated PlannerDecision from planner_v2
-                        
-                        # Get next sequence number for SSE event ordering (in-memory, no DB)
+
+                        # Store latest decision in memory for final persist (NO DB writes during streaming)
+                        current_plan_decision_data = decision
+
+                        # Get sequence for SSE ordering (in-memory, no DB)
                         event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
-                        
-                        # Save partial decision (Pydantic model) using stable decision_seq
                         if decision_seq is None:
                             decision_seq = event_seq
-                        current_plan_decision = await self.project_manager.save_plan_decision_from_model(
-                            self.db,
-                            agent_execution=self.current_execution,
-                            seq=decision_seq,
-                            loop_index=loop_index,
-                            planner_decision_model=decision,
-                        )
-                        # Persist partial content/reasoning to the decision block so a stop retains text
-                        try:
-                            await self.project_manager.upsert_block_for_decision(
-                                self.db, self.system_completion, self.current_execution, current_plan_decision
-                            )
-                        except Exception:
-                            pass
-                        # Ensure a block exists if pre-creation failed; emit one snapshot once
-                        if current_block_id is None:
-                            try:
-                                block = await self.project_manager.upsert_block_for_decision(self.db, self.system_completion, self.current_execution, current_plan_decision)
-                                await self.project_manager.rebuild_completion_from_blocks(self.db, self.system_completion, self.current_execution)
-                                current_block_id = str(block.id)
-                                try:
-                                    block_schema = await serialize_block_v2(self.db, block)
-                                    await self._emit_sse_event(SSEEvent(
-                                        event="block.upsert",
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        seq=event_seq,
-                                        data={"block": block_schema.model_dump()}
-                                    ))
-                                except Exception:
-                                    pass
-                                # Initialize or update streamer with block id
-                                if plan_streamer is None:
-                                    async def _next_seq():
-                                        return await self.project_manager.next_seq(self.db, self.current_execution)
-                                    plan_streamer = PlanningTextStreamer(
-                                        emit=self._emit_sse_event,
-                                        seq_fn=_next_seq,
-                                        completion_id=str(self.system_completion.id),
-                                        agent_execution_id=str(self.current_execution.id),
-                                        block_id=current_block_id,
-                                    )
-                                else:
-                                    plan_streamer.set_block(current_block_id)
-                            except Exception:
-                                pass
 
                         # Emit incremental, throttled token deltas for reasoning/content
+                        # When analysis_complete=true, the LLM puts the response in final_answer, not assistant_message
+                        # So we need to stream final_answer as content when assistant is empty
                         try:
-                            new_reasoning = getattr(current_plan_decision, "reasoning", None) or ""
-                            new_content = getattr(current_plan_decision, "assistant", None) or ""
+                            new_reasoning = getattr(decision, "reasoning_message", None) or ""
+                            new_content = getattr(decision, "assistant_message", None) or getattr(decision, "final_answer", None) or ""
                             if plan_streamer:
                                 await plan_streamer.update(new_reasoning, new_content)
                         except Exception:
                             pass
-                        
-                        # Emit SSE event only if there is content in reasoning or assistant
+
+                        # Emit SSE event only if there is content in reasoning, assistant, or final_answer
                         reasoning_text = (getattr(decision, "reasoning_message", None) or "").strip()
                         assistant_text = (getattr(decision, "assistant_message", None) or "").strip()
-                        if reasoning_text or assistant_text:
+                        final_answer_text = (getattr(decision, "final_answer", None) or "").strip()
+                        if reasoning_text or assistant_text or final_answer_text:
                             await self._emit_sse_event(SSEEvent(
                                 event="decision.partial",
                                 completion_id=str(self.system_completion.id),
@@ -885,6 +843,7 @@ class AgentV2:
                                     "plan_type": decision.plan_type,
                                     "reasoning": decision.reasoning_message,
                                     "assistant": decision.assistant_message,
+                                    "final_answer": decision.final_answer,
                                     "action": decision.action.model_dump() if decision.action else None,
                                 }
                             ))
