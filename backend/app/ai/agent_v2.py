@@ -114,11 +114,11 @@ class AgentV2:
         )
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
-        
-        # Start with all available tools for the planner to see
-        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization)
-        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization))
-        
+
+        # Start with all available tools for the planner to see, filtered by mode
+        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization, mode=self.mode)
+        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization, mode=self.mode))
+
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
         unique_catalog = []
@@ -126,7 +126,7 @@ class AgentV2:
             if tool['name'] not in seen_tools:
                 unique_catalog.append(tool)
                 seen_tools.add(tool['name'])
-        
+
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
         self.planner = PlannerV2(
             model=self.model,

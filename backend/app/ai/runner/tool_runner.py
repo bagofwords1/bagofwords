@@ -26,6 +26,20 @@ class ToolRunner:
         self.max_validation_failures = 2   # Max before giving up
 
     async def run(self, tool, arguments: Dict[str, Any], runtime_ctx: Dict[str, Any], emit) -> Dict[str, Any]:
+        # Runtime mode access control - check if tool is allowed in current mode
+        tool_allowed_modes = getattr(tool.metadata, 'allowed_modes', None) if hasattr(tool, 'metadata') else None
+        current_mode = runtime_ctx.get('mode')
+        if tool_allowed_modes is not None and current_mode not in tool_allowed_modes:
+            return {
+                "summary": f"Tool '{tool.name}' is not available in '{current_mode}' mode",
+                "error": {
+                    "type": "mode_not_allowed",
+                    "message": f"Tool '{tool.name}' is only available in modes: {tool_allowed_modes}",
+                    "allowed_modes": tool_allowed_modes,
+                    "current_mode": current_mode,
+                },
+            }
+
         # Validate input if tool declares schema
         try:
             if getattr(tool, "input_model", None) is not None:
