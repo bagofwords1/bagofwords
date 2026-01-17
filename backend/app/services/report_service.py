@@ -213,7 +213,7 @@ class ReportService:
             report.theme_overrides = report_data.theme_overrides
         # Persist mode update if present in payload
         if hasattr(report_data, 'mode') and report_data.mode is not None:
-            # Block training mode if allow_llm_see_data is disabled
+            # Block training mode if enable_training_mode or allow_llm_see_data is disabled
             if report_data.mode == 'training':
                 from app.models.organization_settings import OrganizationSettings
                 settings_result = await db.execute(
@@ -221,15 +221,32 @@ class ReportService:
                 )
                 org_settings = settings_result.scalar_one_or_none()
                 if org_settings:
+                    # Check enable_training_mode flag
+                    enable_training_mode = org_settings.get_config("enable_training_mode")
+                    training_mode_disabled = False
+                    if enable_training_mode is not None:
+                        if hasattr(enable_training_mode, 'value'):
+                            training_mode_disabled = enable_training_mode.value is False
+                        elif isinstance(enable_training_mode, dict):
+                            training_mode_disabled = enable_training_mode.get('value') is False
+                    else:
+                        # Default to disabled if not set
+                        training_mode_disabled = True
+                    if training_mode_disabled:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Training mode is not enabled for this organization"
+                        )
+
+                    # Check allow_llm_see_data flag
                     allow_llm_see_data = org_settings.get_config("allow_llm_see_data")
-                    # Check if feature is disabled (value=False or state='disabled')
-                    is_disabled = False
+                    llm_see_data_disabled = False
                     if allow_llm_see_data is not None:
                         if hasattr(allow_llm_see_data, 'value'):
-                            is_disabled = allow_llm_see_data.value is False
+                            llm_see_data_disabled = allow_llm_see_data.value is False
                         elif isinstance(allow_llm_see_data, dict):
-                            is_disabled = allow_llm_see_data.get('value') is False
-                    if is_disabled:
+                            llm_see_data_disabled = allow_llm_see_data.get('value') is False
+                    if llm_see_data_disabled:
                         raise HTTPException(
                             status_code=400,
                             detail="Training mode is not available when 'Allow LLM to see data' is disabled"

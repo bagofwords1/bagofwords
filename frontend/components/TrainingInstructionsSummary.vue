@@ -7,8 +7,8 @@
     >
       <Icon name="heroicons-academic-cap" class="w-3 h-3 mr-1.5 text-gray-400" />
       <span class="text-gray-600">Training summary</span>
-      <span v-if="instructions.length > 0" class="text-gray-400 ml-1.5">
-        {{ instructions.length }} instruction{{ instructions.length === 1 ? '' : 's' }}
+      <span v-if="toolExecutions.length > 0" class="text-gray-400 ml-1.5">
+        {{ toolExecutions.length }} instruction{{ toolExecutions.length === 1 ? '' : 's' }}
       </span>
       <Icon
         :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
@@ -18,7 +18,7 @@
 
     <!-- Expandable content -->
     <Transition name="slide">
-      <div v-if="isExpanded" class="mt-2 space-y-2">
+      <div v-if="isExpanded" class="mt-2 space-y-1">
         <!-- Loading -->
         <div v-if="isLoading" class="flex items-center text-[11px] text-gray-500">
           <Spinner class="w-3 h-3 mr-1.5" />
@@ -26,79 +26,34 @@
         </div>
 
         <!-- Empty state -->
-        <div v-else-if="instructions.length === 0" class="text-[11px] text-gray-400 italic">
+        <div v-else-if="toolExecutions.length === 0" class="text-[11px] text-gray-400 italic">
           No instructions created
         </div>
 
-        <!-- Instructions list - card style like InstructionSuggestions -->
+        <!-- Instructions list using appropriate tool component -->
         <template v-else>
-          <div
-            v-for="instruction in instructions"
-            :key="instruction.id"
-            class="hover:bg-gray-50 border border-gray-150 rounded-md p-3 transition-colors"
-          >
-            <!-- Instruction text with MDC -->
-            <div class="instruction-content text-[12px] text-gray-800 leading-relaxed mb-2">
-              <MDC :value="instruction.text" class="markdown-content" />
-            </div>
-
-            <!-- Metadata row: category, load mode, tables -->
-            <div class="flex flex-wrap items-center gap-2 text-[10px] mb-2">
-              <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
-                {{ instruction.category }}
-              </span>
-              <span class="text-gray-400">
-                {{ instruction.load_mode || 'intelligent' }}
-              </span>
-              <span v-if="instruction.references?.length" class="text-gray-400">
-                {{ instruction.references.length }} table{{ instruction.references.length > 1 ? 's' : '' }}
-              </span>
-            </div>
-
-            <!-- Action buttons -->
-            <div class="flex justify-start gap-2 pt-2 border-t border-gray-200">
-              <button
-                @click="handleEdit(instruction)"
-                class="flex items-center text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-              >
-                <Icon name="heroicons:pencil" class="w-3 h-3 text-blue-600 mr-1" />
-                <span>Edit</span>
-              </button>
-              <button
-                @click="handleDelete(instruction)"
-                class="flex items-center text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-                :disabled="isDeleting === instruction.id"
-              >
-                <Spinner
-                  v-if="isDeleting === instruction.id"
-                  class="w-3 h-3 text-red-600 mr-1"
-                />
-                <Icon
-                  v-else
-                  name="heroicons:trash"
-                  class="w-3 h-3 text-red-600 mr-1"
-                />
-                <span>{{ isDeleting === instruction.id ? 'Deleting...' : 'Delete' }}</span>
-              </button>
-            </div>
-          </div>
+          <template v-for="te in toolExecutions" :key="te.id">
+            <EditInstructionTool
+              v-if="te.tool_name === 'edit_instruction'"
+              :tool-execution="te"
+              @instruction-updated="handleInstructionUpdated"
+            />
+            <CreateInstructionTool
+              v-else
+              :tool-execution="te"
+              @instruction-updated="handleInstructionUpdated"
+            />
+          </template>
         </template>
       </div>
     </Transition>
-
-    <!-- Instruction Modal -->
-    <InstructionModalComponent
-      v-model="showInstructionModal"
-      :instruction="editingInstruction"
-      :initial-type="'global'"
-      @instruction-saved="handleInstructionSaved"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
+import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
+import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import Spinner from '~/components/Spinner.vue'
 
 interface Instruction {
@@ -113,29 +68,136 @@ interface Instruction {
   references?: Array<{ id: string; object_type: string; display_text?: string }>
 }
 
+interface ToolExecution {
+  id: string
+  tool_name: string
+  status: string
+  result_json: any
+  arguments_json: any
+}
+
 interface Report {
   id: string
   mode?: string
 }
 
+interface ChatMessage {
+  id: string
+  role: string
+  completion_blocks?: Array<{
+    tool_execution?: {
+      id?: string
+      tool_name: string
+      status: string
+      result_json?: any
+      arguments_json?: any
+    }
+  }>
+}
+
 interface Props {
   report: Report
   isStreaming?: boolean
+  messages?: ChatMessage[]
 }
 
 const props = defineProps<Props>()
 
-const toast = useToast()
-const instructions = ref<Instruction[]>([])
+const apiInstructions = ref<Instruction[]>([])
 const isLoading = ref(false)
 const isExpanded = ref(false)
-const showInstructionModal = ref(false)
-const editingInstruction = ref<Instruction | null>(null)
-const isDeleting = ref<string | null>(null)
 
 const shouldShow = computed(() => {
-  // Only show for training mode reports when not streaming
-  return props.report?.mode === 'training' && !props.isStreaming
+  // Only show for training mode reports when not streaming AND has instructions
+  return props.report?.mode === 'training' && !props.isStreaming && toolExecutions.value.length > 0
+})
+
+// Extract tool executions from messages (both create and edit)
+const extractedToolExecutions = computed<ToolExecution[]>(() => {
+  if (!props.messages) return []
+
+  const executions: ToolExecution[] = []
+
+  for (const message of props.messages) {
+    if (!message.completion_blocks) continue
+
+    for (const block of message.completion_blocks) {
+      const te = block.tool_execution
+      // Handle create_instruction
+      if (te?.tool_name === 'create_instruction' && te.status === 'success') {
+        const rj = te.result_json || {}
+        // Only include successfully created instructions
+        if (rj.success === true && rj.instruction_id) {
+          executions.push({
+            id: te.id || `te-${rj.instruction_id}`,
+            tool_name: 'create_instruction',
+            status: 'success',
+            result_json: rj,
+            arguments_json: te.arguments_json || {}
+          })
+        }
+      }
+      // Handle edit_instruction
+      if (te?.tool_name === 'edit_instruction' && te.status === 'success') {
+        const rj = te.result_json || {}
+        if (rj.success === true && rj.instruction_id) {
+          executions.push({
+            id: te.id || `te-edit-${rj.instruction_id}`,
+            tool_name: 'edit_instruction',
+            status: 'success',
+            result_json: rj,
+            arguments_json: te.arguments_json || {}
+          })
+        }
+      }
+    }
+  }
+
+  return executions
+})
+
+// Convert API instructions to tool execution format
+const apiToolExecutions = computed<ToolExecution[]>(() => {
+  return apiInstructions.value.map(inst => ({
+    id: `api-${inst.id}`,
+    tool_name: 'create_instruction',
+    status: 'success',
+    result_json: {
+      success: true,
+      instruction_id: inst.id,
+      global_status: inst.global_status,
+      status: inst.status
+    },
+    arguments_json: {
+      text: inst.text,
+      category: inst.category,
+      load_mode: inst.load_mode || 'intelligent',
+      table_names: inst.references?.map(r => r.display_text) || []
+    }
+  }))
+})
+
+// Combine extracted and API tool executions (dedupe by instruction_id)
+const toolExecutions = computed<ToolExecution[]>(() => {
+  const byInstructionId = new Map<string, ToolExecution>()
+
+  // API instructions take precedence (more complete data)
+  for (const te of apiToolExecutions.value) {
+    const instId = te.result_json.instruction_id
+    if (instId) {
+      byInstructionId.set(instId, te)
+    }
+  }
+
+  // Add extracted ones if not already present
+  for (const te of extractedToolExecutions.value) {
+    const instId = te.result_json.instruction_id
+    if (instId && !byInstructionId.has(instId)) {
+      byInstructionId.set(instId, te)
+    }
+  }
+
+  return Array.from(byInstructionId.values())
 })
 
 function toggleExpanded() {
@@ -149,59 +211,13 @@ async function fetchInstructions() {
   try {
     const { data, error } = await useMyFetch(`/reports/${props.report.id}/instructions`)
     if (!error.value && data.value) {
-      instructions.value = data.value as Instruction[]
+      apiInstructions.value = data.value as Instruction[]
     }
   } catch (e) {
     console.error('Failed to fetch training instructions:', e)
   } finally {
     isLoading.value = false
   }
-}
-
-async function handleEdit(instruction: Instruction) {
-  try {
-    const { data, error } = await useMyFetch(`/instructions/${instruction.id}`)
-    if (!error.value && data.value) {
-      editingInstruction.value = data.value as Instruction
-    } else {
-      editingInstruction.value = instruction
-    }
-  } catch {
-    editingInstruction.value = instruction
-  }
-  showInstructionModal.value = true
-}
-
-async function handleDelete(instruction: Instruction) {
-  if (!confirm('Delete this instruction?')) return
-
-  isDeleting.value = instruction.id
-  try {
-    const { error } = await useMyFetch(`/instructions/${instruction.id}`, { method: 'DELETE' })
-    if (!error.value) {
-      instructions.value = instructions.value.filter(i => i.id !== instruction.id)
-      toast.add({ title: 'Deleted', description: 'Instruction deleted', color: 'orange' })
-    } else {
-      throw new Error('Failed to delete')
-    }
-  } catch (e) {
-    console.error('Failed to delete instruction:', e)
-    toast.add({ title: 'Error', description: 'Failed to delete instruction', color: 'red' })
-  } finally {
-    isDeleting.value = null
-  }
-}
-
-function handleInstructionSaved(data: any) {
-  const updated = data?.data || data
-  if (updated?.id) {
-    const idx = instructions.value.findIndex(i => i.id === updated.id)
-    if (idx !== -1) {
-      instructions.value[idx] = { ...instructions.value[idx], ...updated }
-    }
-  }
-  showInstructionModal.value = false
-  toast.add({ title: 'Success', description: 'Instruction saved', color: 'green' })
 }
 
 onMounted(() => {
@@ -221,6 +237,18 @@ watch(() => props.isStreaming, (newVal, oldVal) => {
     fetchInstructions()
   }
 })
+
+// Emit for parent components
+const emit = defineEmits<{
+  (e: 'instruction-updated'): void
+}>()
+
+function handleInstructionUpdated() {
+  // Refresh the instructions list when any instruction is updated
+  fetchInstructions()
+  // Propagate the event up if needed
+  emit('instruction-updated')
+}
 </script>
 
 <style scoped>
@@ -234,46 +262,6 @@ watch(() => props.isStreaming, (newVal, oldVal) => {
 }
 .slide-enter-to, .slide-leave-from {
   opacity: 1;
-  max-height: 500px;
-}
-
-/* Markdown content styling for instructions */
-.instruction-content :deep(.markdown-content) {
-  font-size: 10px;
-  line-height: 1.5;
-}
-
-.instruction-content :deep(.markdown-content p) {
-  margin: 0 0 0.5em 0;
-}
-
-.instruction-content :deep(.markdown-content p:last-child) {
-  margin-bottom: 0;
-}
-
-.instruction-content :deep(.markdown-content code) {
-  font-size: 9px;
-  padding: 0.1em 0.3em;
-  background: rgba(0, 0, 0, 0.05);
-  border-radius: 3px;
-}
-
-.instruction-content :deep(.markdown-content pre) {
-  font-size: 9px;
-  padding: 0.5em;
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: 4px;
-  overflow-x: auto;
-  margin: 0.5em 0;
-}
-
-.instruction-content :deep(.markdown-content ul),
-.instruction-content :deep(.markdown-content ol) {
-  margin: 0.5em 0;
-  padding-left: 1.5em;
-}
-
-.instruction-content :deep(.markdown-content li) {
-  margin: 0.2em 0;
+  max-height: 1000px;
 }
 </style>

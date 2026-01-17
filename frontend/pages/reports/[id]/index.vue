@@ -207,10 +207,10 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="(m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading" class="mt-3">
-										<InstructionSuggestions 
-											:tool-execution="{ 
-												id: `suggestions-${m.id}`, 
+									<div v-if="report?.mode !== 'training' && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+										<InstructionSuggestions
+											:tool-execution="{
+												id: `suggestions-${m.id}`,
 												tool_name: 'suggest_instructions',
 												status: m.instruction_suggestions_loading ? 'running' : 'success',
 												result_json: { drafts: m.instruction_suggestions || [] }
@@ -237,6 +237,7 @@
 						<TrainingInstructionsSummary
 							:report="report"
 							:isStreaming="isStreaming"
+							:messages="messages"
 						/>
 					</li>
 			</ul>
@@ -349,6 +350,7 @@ import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
 import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
+import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
 import TrainingInstructionsSummary from '~/components/TrainingInstructionsSummary.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -631,6 +633,8 @@ function getToolComponent(toolName: string) {
 			return InstructionSuggestions
 		case 'create_instruction':
 			return CreateInstructionTool
+		case 'edit_instruction':
+			return EditInstructionTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
