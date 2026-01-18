@@ -432,7 +432,6 @@ class StreamingCodeExecutor:
         excel_files: List,
         code_context_builder: 'CodeContextBuilder',
         code_generator_fn: Callable,
-        validator_fn: Optional[Callable] = None,
         max_retries: int = 2,
         sigkill_event=None,
     ):
@@ -480,36 +479,6 @@ class StreamingCodeExecutor:
                 if retries < max_retries:
                     yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
                 continue
-
-            # Optional validation
-            if validator_fn:
-                try:
-                    yield {"type": "progress", "payload": {"stage": "validating_code", "attempt": retries}}
-                    validation = await validator_fn(final_code, data_model)
-                    
-                    if not validation.get("valid", True):
-                        error_msg = validation.get('reasoning', 'Validation failed')
-                        if self.logger:
-                            self.logger.warning(f"Validation failed (attempt {retries+1}/{max_retries}): {error_msg}")
-                        # Create validation failed message
-                        yield {"type":"progress", "payload": {"stage": "validated_code", "valid": False, "error": error_msg, "attempt": retries}}
-                        code_and_error_messages.append((final_code, error_msg))
-                        retries += 1
-                        if retries < max_retries:
-                            yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
-                        continue
-                    else:
-                        # Validation succeeded; emit event and proceed to execution without looping
-                        yield {"type": "progress", "payload": {"stage": "validated_code", "valid": True, "attempt": retries}}
-                        # Do not continue; fall through to execution stage below
-                except Exception as e:
-                    msg = f"Validation error: {str(e)}"
-                    code_and_error_messages.append((final_code, msg))
-                    yield {"type": "stdout", "payload": msg}
-                    retries += 1
-                    if retries < max_retries:
-                        yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
-                    continue
 
             # Executing code
             yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
@@ -576,7 +545,6 @@ class StreamingCodeExecutor:
         excel_files: List,
         code_context_builder: Optional['CodeContextBuilder'] = None,
         code_generator_fn: Callable = None,
-        validator_fn: Optional[Callable] = None,
         sigkill_event=None,
     ):
         """
@@ -629,29 +597,6 @@ class StreamingCodeExecutor:
                     yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries}}
                 continue
 
-            if validator_fn:
-                try:
-                    yield {"type": "progress", "payload": {"stage": "validating_code", "attempt": retries}}
-                    validation = await validator_fn(final_code, {})
-                    if not validation.get("valid", True):
-                        error_msg = validation.get('reasoning', 'Validation failed')
-                        yield {"type": "progress", "payload": {"stage": "validated_code", "valid": False, "error": error_msg, "attempt": retries}}
-                        code_and_error_messages.append((final_code, error_msg))
-                        retries += 1
-                        if retries < max_retries:
-                            yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
-                        continue
-                    else:
-                        yield {"type": "progress", "payload": {"stage": "validated_code", "valid": True, "attempt": retries}}
-                except Exception as e:
-                    msg = f"Validation error: {str(e)}"
-                    code_and_error_messages.append((final_code, msg))
-                    yield {"type": "stdout", "payload": msg}
-                    retries += 1
-                    if retries < max_retries:
-                        yield {"type": "progress", "payload": {"stage": "validating_code.retry", "attempt": retries}}
-                    continue
-
             yield {"type": "progress", "payload": {"stage": "executing_code", "attempt": retries}}
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
@@ -703,26 +648,24 @@ class StreamingCodeExecutor:
                     },
                 }
 
-    async def execute_and_update_step(self, 
+    async def execute_and_update_step(self,
                               data_model: Dict,
                               code_generator_fn: Callable,
-                              validator_fn: Optional[Callable] = None,
                               db_clients: Dict = None,
                               excel_files: List = None,
                               step=None,  # Optional override for current step
                               **generator_kwargs) -> bool:
         """
-        Execute code generation/validation/execution process and update the step with results
-        
+        Execute code generation/execution process and update the step with results
+
         Args:
             data_model: The data model to generate code for
             code_generator_fn: Function that generates code
-            validator_fn: Optional function to validate code
             db_clients: Database clients
             excel_files: Excel files
             step: Override for the step object (uses self.step if None)
             **generator_kwargs: Additional arguments to pass to code_generator_fn
-            
+
         Returns:
             Boolean indicating if execution was successful
         """
@@ -732,11 +675,10 @@ class StreamingCodeExecutor:
             if self.logger:
                 self.logger.error("No step provided for execute_and_update_step")
             return False
-        
+
         df, final_code, code_and_error_messages = await self.generate_and_execute_with_retries(
             data_model=data_model,
             code_generator_fn=code_generator_fn,
-            validator_fn=validator_fn,
             db_clients=db_clients,
             excel_files=excel_files,
             step=current_step,

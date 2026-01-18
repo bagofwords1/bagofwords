@@ -2,6 +2,7 @@
 
 ## Version 0.0.298 (January 18, 2026)
 - Added guardrails around code execution
+- Removed code validation flag, as it's now determinstic and built-in 
 
 ## Version 0.0.297 (January 18, 2026)
 - Introducing: Training Mode

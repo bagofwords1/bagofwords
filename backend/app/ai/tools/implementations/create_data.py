@@ -877,17 +877,12 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         exec_df = None
         output_log = ""
 
-        # Validation function reused from Coder (permissive for now)
-        async def _validator_fn(code, data_model_unused):
-            return await coder.validate_code(code, data_model_unused)
-
         async for e in streamer.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=codegen_context, retries=2),
             ds_clients=runtime_ctx.get("ds_clients", {}),
             excel_files=runtime_ctx.get("excel_files", []),
             code_context_builder=None,
             code_generator_fn=coder.generate_code,
-            validator_fn=_validator_fn,
             sigkill_event=runtime_ctx.get("sigkill_event"),
         ):
             if e["type"] == "progress":
