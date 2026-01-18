@@ -1036,7 +1036,6 @@ class AgentV2:
                             if tool_name in [
                                 "create_widget",
                                 "create_data",
-                                "create_and_execute_code",
                                 "describe_entity",
                             ]:
                                 self.current_query = None
@@ -2016,7 +2015,7 @@ class AgentV2:
             return  # Don't process failed tool executions
             
         try:
-            if tool_name in ["create_and_execute_code", "create_widget", "create_data", "describe_entity"]:
+            if tool_name in ["create_widget", "create_data", "describe_entity"]:
                 # Update current step with code and data using tool_output
                 if not tool_output:
                     return
