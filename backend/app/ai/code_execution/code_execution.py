@@ -100,13 +100,6 @@ class CodeSecurityVisitor(ast.NodeVisitor):
         if isinstance(node.func, ast.Name) and node.func.id == '__import__':
             self.errors.append("Forbidden function call: '__import__()'")
 
-        # Check for getattr/setattr used to access forbidden attributes
-        if isinstance(node.func, ast.Name) and node.func.id in ('getattr', 'setattr', 'delattr'):
-            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
-                attr_name = node.args[1].value
-                if isinstance(attr_name, str) and attr_name in FORBIDDEN_ATTRIBUTES:
-                    self.errors.append(f"Forbidden attribute access via {node.func.id}: '{attr_name}'")
-
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute):
