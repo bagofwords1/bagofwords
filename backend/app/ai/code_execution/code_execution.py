@@ -1,5 +1,7 @@
 import io
 import sys
+import ast
+import re
 import pandas as pd
 import numpy as np
 import datetime
@@ -12,6 +14,204 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+
+
+# =============================================================================
+# Security Exceptions
+# =============================================================================
+
+class CodeSecurityError(Exception):
+    """Base exception for code security violations."""
+    pass
+
+
+class UnsafePythonError(CodeSecurityError):
+    """Raised when Python code contains dangerous constructs."""
+    pass
+
+
+class UnsafeSQLError(CodeSecurityError):
+    """Raised when SQL query contains dangerous operations."""
+    pass
+
+
+# =============================================================================
+# AST-based Python Code Validation
+# =============================================================================
+
+# Modules that should never be imported
+FORBIDDEN_MODULES = frozenset({
+    'os', 'subprocess', 'sys', 'shutil', 'importlib', 'builtins',
+    'code', 'pty', 'socket', 'requests', 'urllib', 'http', 'ftplib',
+    'telnetlib', 'smtplib', 'poplib', 'imaplib', 'nntplib',
+    'multiprocessing', 'threading', 'concurrent', 'asyncio',
+    'ctypes', 'cffi', 'pickle', 'shelve', 'marshal',
+    'tempfile', 'pathlib', 'glob', 'fnmatch',
+    'signal', 'resource', 'sysconfig', 'platform',
+    'webbrowser', 'antigravity', 'this',
+})
+
+# Built-in functions that should never be called
+FORBIDDEN_BUILTINS = frozenset({
+    'eval', 'exec', 'compile', 'open', 'input',
+    '__import__', 'globals', 'locals', 'vars',
+    'getattr', 'setattr', 'delattr', 'hasattr',
+    'breakpoint', 'exit', 'quit',
+    'memoryview', 'bytearray',
+})
+
+# Attribute access patterns that indicate sandbox escape attempts
+FORBIDDEN_ATTRIBUTES = frozenset({
+    '__class__', '__bases__', '__mro__', '__subclasses__',
+    '__globals__', '__code__', '__closure__', '__func__',
+    '__self__', '__dict__', '__builtins__', '__import__',
+    '__loader__', '__spec__', '__path__', '__file__',
+    '__cached__', '__annotations__',
+})
+
+
+class CodeSecurityVisitor(ast.NodeVisitor):
+    """AST visitor that checks for dangerous code patterns."""
+
+    def __init__(self):
+        self.errors: List[str] = []
+
+    def visit_Import(self, node: ast.Import):
+        for alias in node.names:
+            module_name = alias.name.split('.')[0]
+            if module_name in FORBIDDEN_MODULES:
+                self.errors.append(f"Forbidden import: '{alias.name}'")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        if node.module:
+            module_name = node.module.split('.')[0]
+            if module_name in FORBIDDEN_MODULES:
+                self.errors.append(f"Forbidden import: 'from {node.module}'")
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call):
+        # Check for forbidden built-in calls like eval(), exec(), open()
+        if isinstance(node.func, ast.Name):
+            if node.func.id in FORBIDDEN_BUILTINS:
+                self.errors.append(f"Forbidden function call: '{node.func.id}()'")
+
+        # Check for __import__('os') style calls
+        if isinstance(node.func, ast.Name) and node.func.id == '__import__':
+            self.errors.append("Forbidden function call: '__import__()'")
+
+        # Check for getattr/setattr used to access forbidden attributes
+        if isinstance(node.func, ast.Name) and node.func.id in ('getattr', 'setattr', 'delattr'):
+            if len(node.args) >= 2 and isinstance(node.args[1], ast.Constant):
+                attr_name = node.args[1].value
+                if isinstance(attr_name, str) and attr_name in FORBIDDEN_ATTRIBUTES:
+                    self.errors.append(f"Forbidden attribute access via {node.func.id}: '{attr_name}'")
+
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute):
+        # Check for direct access to forbidden attributes like obj.__class__
+        if node.attr in FORBIDDEN_ATTRIBUTES:
+            self.errors.append(f"Forbidden attribute access: '{node.attr}'")
+        self.generic_visit(node)
+
+    def visit_Constant(self, node: ast.Constant):
+        # Check string literals for dangerous SQL operations
+        if isinstance(node.value, str) and len(node.value) > 5:
+            match = _FORBIDDEN_SQL_REGEX.search(node.value)
+            if match:
+                # Extract a snippet for context (first 50 chars)
+                snippet = node.value[:50].replace('\n', ' ')
+                self.errors.append(
+                    f"Forbidden SQL operation '{match.group()}' in string: \"{snippet}...\""
+                )
+        self.generic_visit(node)
+
+    def visit_JoinedStr(self, node: ast.JoinedStr):
+        # Check f-string parts for dangerous SQL
+        for part in node.values:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                match = _FORBIDDEN_SQL_REGEX.search(part.value)
+                if match:
+                    snippet = part.value[:50].replace('\n', ' ')
+                    self.errors.append(
+                        f"Forbidden SQL operation '{match.group()}' in f-string: \"{snippet}...\""
+                    )
+        self.generic_visit(node)
+
+
+def validate_python_code(code: str) -> None:
+    """
+    Validate Python code for security issues using AST analysis.
+
+    Raises:
+        UnsafePythonError: If the code contains dangerous constructs.
+    """
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as e:
+        # Let syntax errors pass through - they'll fail at exec() time
+        # with a more descriptive error
+        return
+
+    visitor = CodeSecurityVisitor()
+    visitor.visit(tree)
+
+    if visitor.errors:
+        raise UnsafePythonError(
+            f"Code contains forbidden constructs: {'; '.join(visitor.errors)}"
+        )
+
+
+# =============================================================================
+# SQL Query Validation
+# =============================================================================
+
+# SQL keywords that indicate write/modify operations
+FORBIDDEN_SQL_PATTERNS = [
+    r'\bINSERT\b',
+    r'\bUPDATE\b',
+    r'\bDELETE\b',
+    r'\bDROP\b',
+    r'\bTRUNCATE\b',
+    r'\bALTER\b',
+    r'\bCREATE\b',
+    r'\bGRANT\b',
+    r'\bREVOKE\b',
+    r'\bEXEC\b',
+    r'\bEXECUTE\b',
+    r'\bMERGE\b',
+    r'\bCALL\b',
+    r'\bREPLACE\b',
+    r'\bLOAD\b',
+    r'\bINTO\s+OUTFILE\b',
+    r'\bINTO\s+DUMPFILE\b',
+]
+
+# Pre-compile regex for performance
+_FORBIDDEN_SQL_REGEX = re.compile(
+    '|'.join(FORBIDDEN_SQL_PATTERNS),
+    re.IGNORECASE
+)
+
+
+def validate_sql_query(query: str) -> None:
+    """
+    Validate SQL query to ensure it's read-only.
+
+    Raises:
+        UnsafeSQLError: If the query contains write/modify operations.
+    """
+    if not isinstance(query, str):
+        return
+
+    match = _FORBIDDEN_SQL_REGEX.search(query)
+    if match:
+        raise UnsafeSQLError(
+            f"SQL query contains forbidden operation: '{match.group()}'. "
+            "Only SELECT queries are allowed."
+        )
+
 
 class CodeExecutionManager:
     """
@@ -45,7 +245,19 @@ class StreamingCodeExecutor:
         self.context_hub = context_hub
 
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List) -> Tuple[pd.DataFrame, str]:
-        """Execute Python code and return the resulting DataFrame and captured stdout log."""
+        """Execute Python code and return the resulting DataFrame and captured stdout log.
+
+        Security:
+            - Validates Python code via AST analysis before execution
+            - Checks all string literals for dangerous SQL operations (INSERT, DELETE, DROP, etc.)
+
+        Raises:
+            UnsafePythonError: If code contains forbidden imports, calls, or attributes
+            UnsafeSQLError: If code contains SQL strings with write/modify operations
+        """
+        # Security: Validate Python code and SQL strings before execution
+        validate_python_code(code)
+
         output_log = ""
         local_namespace = {
             'pd': pd,

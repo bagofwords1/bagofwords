@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.298 (January 18, 2026)
+- Added guardrails around code execution
+
 ## Version 0.0.297 (January 18, 2026)
 - Introducing: Training Mode
   - A dedicated mode for documenting and managing your data domain knowledge
