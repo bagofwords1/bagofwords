@@ -254,7 +254,6 @@
 import RenderTable from '../RenderTable.vue'
 import ContextBrowser from './ContextBrowser.vue'
 import GenericTool from '../tools/GenericTool.vue'
-import ExecuteCodeTool from '../tools/ExecuteCodeTool.vue'
 import CreateWidgetTool from '../tools/CreateWidgetTool.vue'
 import CreateDataTool from '../tools/CreateDataTool.vue'
 import InspectDataTool from '../tools/InspectDataTool.vue'
@@ -581,10 +580,6 @@ function getToolComponent(toolName: string) {
             return CreateDataTool
         case 'inspect_data':
             return InspectDataTool
-        case 'create_and_execute_code':
-        case 'execute_code':
-        case 'execute_sql':
-            return ExecuteCodeTool
         default:
             return null
     }

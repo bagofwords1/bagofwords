@@ -140,25 +140,20 @@ class CreateDataMCPTool(MCPTool):
             logger=None,
             context_hub=rich_ctx.context_hub,
         )
-        
-        # Validator function
-        async def _validator_fn(code, data_model):
-            return await coder.validate_code(code, data_model)
-        
+
         # Execute code generation
         output_log = ""
         generated_code = ""
         exec_df = None
         code_errors = []
-        
+
         sigkill_event = asyncio.Event()
-        
+
         async for e in streamer.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=codegen_context, retries=2),
             ds_clients=rich_ctx.ds_clients,
             excel_files=[],
             code_generator_fn=coder.generate_code,
-            validator_fn=_validator_fn,
             sigkill_event=sigkill_event,
         ):
             if e["type"] == "stdout":

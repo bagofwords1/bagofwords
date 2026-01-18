@@ -360,16 +360,6 @@ CRITICAL:
         code_errors = []
         output_log = ""
 
-        # Define validator before use to avoid scope errors
-        async def _validator_fn(code, data_model):
-            validator_coder = Coder(
-                model=runtime_ctx.get("model"),
-                organization_settings=organization_settings,
-                context_hub=context_hub,
-                usage_session_maker=async_session_maker,
-            )
-            return await validator_coder.validate_code(code, data_model)
-
         async for e in streamer.generate_and_execute_stream(
             data_model=final_data_model,
             prompt=data.interpreted_prompt or data.user_prompt,
@@ -378,7 +368,6 @@ CRITICAL:
             excel_files=runtime_ctx.get("excel_files", []),
             code_context_builder=code_context_builder,
             code_generator_fn=coder.data_model_to_code,
-            validator_fn=_validator_fn,
             max_retries=2,
             sigkill_event=runtime_ctx.get("sigkill_event"),
         ):

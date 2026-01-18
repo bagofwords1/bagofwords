@@ -1,7 +1,6 @@
 # Tool schemas - centralized contract definitions
 from .answer_question import AnswerQuestionInput, AnswerQuestionOutput
 from .create_data_model import DataModel, DataModelColumn, SeriesBarLinePieArea, SeriesCandlestick, SeriesHeatmap, SeriesScatter, SeriesMap, SeriesTreemap, SeriesRadar, SortSpec
-from .create_and_execute_code import CreateAndExecuteCodeInput, CreateAndExecuteCodeOutput
 from .create_widget import CreateWidgetInput, CreateWidgetOutput
 from .create_data import CreateDataInput, CreateDataOutput
 from .inspect_data import InspectDataInput, InspectDataOutput
@@ -25,8 +24,6 @@ from .events import (
 __all__ = [
     "AnswerQuestionInput",
     "AnswerQuestionOutput",
-    "CreateAndExecuteCodeInput",
-    "CreateAndExecuteCodeOutput",
     "CreateWidgetInput",
     "CreateWidgetOutput",
     "CreateDataInput",

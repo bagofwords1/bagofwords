@@ -894,45 +894,5 @@ class Coder:
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
         result = re.sub(r'(?m)^\s*```\s*$', '', result)
         result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
-        
-        return result
-    
-    async def validate_code(self, code, data_model):
-        text = f"""
-        You are a highly skilled data engineer and data scientist.
 
-        Your goal: Given a data model, content and a generated code, validate the code.
-
-        **Context and Inputs**:
-        - Data Model:
-        <data_model>
-        {data_model}
-        </data_model>
-
-        - Generated Code:
-        <generated_code>
-        {code}
-        </generated_code>
-
-        **Guidelines**:
-        1. There can be multiple dataframes as transformations steps
-        2. There should only be one final dataframe as output
-        3. Validate only read operations on the data sources. No insert/delete/add/update/put/drop.
-        4. Validate the code is close enough to the data model. It doesnt need to be exactly the same.
-        5. Do not be strict around code style.
-
-        Response format:
-        {{
-            "valid": true,
-            "reasoning": "Reasoning for the failed validation" (if valid is false)
-        }}
-
-        Now produce ONLY the JSON response as described. Do not output anything else besides the JSON response. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
-        """
-
-        #result = self.llm.inference(text)
-        #result = re.sub(r'^```json\n|^```\n|```$', '', result.strip())
-        #result = json.loads(result)
-        result = {"valid": True, "reasoning": "Validation passed"}
-        
         return result
