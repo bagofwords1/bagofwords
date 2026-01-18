@@ -102,12 +102,12 @@
 											</div>
 
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
-							<!-- Fallback to plan_decision.assistant or final_answer if block.content is empty (e.g., streaming tokens missed) -->
-							<!-- Show content section when: content exists OR assistant exists OR (final_answer exists but analysis not complete yet, i.e. still streaming) -->
-							<div v-if="(block.content || block.plan_decision?.assistant || (block.plan_decision?.final_answer && !block.plan_decision?.analysis_complete)) && block.status !== 'error'" class="block-content markdown-wrapper">
+							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
+							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper">
 								<!-- Finalized: show only MDC -->
 								<template v-if="isBlockFinalized(block)">
-									<MDC :value="block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer || ''" class="markdown-content" />
+									<MDC :value="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" class="markdown-content" />
 								</template>
 												<!-- Streaming: hybrid layer approach with rolling window -->
 												<template v-else>
@@ -125,12 +125,12 @@
 												class="chunk-fade"
 											>{{ chunk.text }}</span>
 										</template>
-										<template v-else>{{ block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer }}</template>
+										<template v-else>{{ block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant }}</template>
 															</div>
 														</div>
 									<!-- Layer 2: MDC preview (hidden, pre-rendering for instant switch) -->
 									<div class="streaming-layer streaming-layer--mdc-preview" aria-hidden="true">
-										<MDC :value="block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer || ''" class="markdown-content" />
+										<MDC :value="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" class="markdown-content" />
 									</div>
 													</div>
 												</template>
@@ -169,9 +169,9 @@
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
 
-											<!-- 4. Final answer - only show if NOT already rendered in section 2 above -->
-											<!-- Section 2 shows: block.content OR plan_decision.assistant OR plan_decision.final_answer (when not complete) -->
-											<!-- So section 4 only shows when: analysis_complete AND final_answer exists AND nothing was shown in section 2 -->
+											<!-- 4. Final answer fallback - only show if NOT already rendered in section 2 above -->
+											<!-- Section 2 shows: block.content OR plan_decision.final_answer OR plan_decision.assistant -->
+											<!-- So section 4 is rarely needed (fallback for edge cases) -->
 											<div v-if="block.plan_decision?.analysis_complete && block.plan_decision?.final_answer && !block.content && !block.plan_decision?.assistant" class="mt-2 markdown-wrapper">
 												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
 											</div>
@@ -207,10 +207,10 @@
 									</div>
 
 									<!-- Instruction Suggestions (below thumbs) - show when loading or has suggestions -->
-									<div v-if="(m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading" class="mt-3">
-										<InstructionSuggestions 
-											:tool-execution="{ 
-												id: `suggestions-${m.id}`, 
+									<div v-if="report?.mode !== 'training' && ((m.instruction_suggestions && m.instruction_suggestions.length > 0) || m.instruction_suggestions_loading)" class="mt-3">
+										<InstructionSuggestions
+											:tool-execution="{
+												id: `suggestions-${m.id}`,
 												tool_name: 'suggest_instructions',
 												status: m.instruction_suggestions_loading ? 'running' : 'success',
 												result_json: { drafts: m.instruction_suggestions || [] }
@@ -231,6 +231,14 @@
 								</div>
 							</template>
 						</div>
+					</li>
+					<!-- Training Mode Summary - shows all instructions created in this session -->
+					<li v-if="report?.mode === 'training'" class="mt-4">
+						<TrainingInstructionsSummary
+							:report="report"
+							:isStreaming="isStreaming"
+							:messages="messages"
+						/>
 					</li>
 			</ul>
 			<div v-else class="w-full mt-32 fade-in" :class="isSplitScreen ? 'w-full' : 'md:w-1/2'">
@@ -273,10 +281,11 @@
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
 			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
-				<PromptBoxV2 
+				<PromptBoxV2
 					ref="promptBoxRef"
 					:report_id="report_id"
 					:initialSelectedDataSources="report?.data_sources || []"
+					:initialMode="report?.mode || 'chat'"
 					:latestInProgressCompletion="isStreaming ? {} : undefined"
 					:isStopping="false"
 					@submitCompletion="onSubmitCompletion"
@@ -340,6 +349,9 @@ import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import InstructionSuggestions from '@/components/InstructionSuggestions.vue'
+import CreateInstructionTool from '~/components/tools/CreateInstructionTool.vue'
+import EditInstructionTool from '~/components/tools/EditInstructionTool.vue'
+import TrainingInstructionsSummary from '~/components/TrainingInstructionsSummary.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
@@ -619,6 +631,10 @@ function getToolComponent(toolName: string) {
 			return InspectDataTool
 		case 'suggest_instructions':
 			return InstructionSuggestions
+		case 'create_instruction':
+			return CreateInstructionTool
+		case 'edit_instruction':
+			return EditInstructionTool
 		case 'execute_code':
 		case 'execute_sql':
 			return ExecuteCodeTool
@@ -937,7 +953,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				if (!sysMessage.completion_blocks) {
 					sysMessage.completion_blocks = []
 				}
-				
+
 				// Find existing block or insert in-order by block_index (avoid resorting array)
 				const existingIndex = sysMessage.completion_blocks.findIndex(b => b.id === block.id)
 				if (existingIndex >= 0) {
@@ -953,6 +969,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					}
 					sysMessage.completion_blocks.splice(insertPos, 0, block)
+				}
+				// Clear streaming chunks when block is finalized so it shows the final content
+				if (block.plan_decision?.analysis_complete || block.status === 'completed') {
+					clearBlockChunks(`${block.id}:content`)
+					clearBlockChunks(`${block.id}:reasoning`)
 				}
 			}
 			break

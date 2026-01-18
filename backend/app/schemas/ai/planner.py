@@ -14,6 +14,7 @@ class ToolDescriptor(BaseModel):
     tags: Optional[List[str]] = None
     is_active: Optional[bool] = True
     observation_policy: Optional[Literal["never", "on_trigger", "always"]] = None
+    allowed_modes: Optional[List[str]] = None
 
 
 class TokenUsage(BaseModel):

@@ -348,30 +348,56 @@ class BuildService:
         source: str = 'user',
         user_id: Optional[str] = None,
         metadata_indexing_job_id: Optional[str] = None,
+        agent_execution_id: Optional[str] = None,
         commit_sha: Optional[str] = None,
         branch: Optional[str] = None,
     ) -> InstructionBuild:
         """
         Get an existing draft build or create a new one.
         Used for accumulating user changes before submission.
-        
+
         For git syncs, creates a new build per job (no reuse).
+        For ai source, creates a new build per agent execution (training session).
         For user changes, reuses existing draft build if available.
         """
         # For git source with a job ID, always create a new build (one per sync job)
         # Git syncs copy from main to preserve user-created instructions
         if source == 'git' and metadata_indexing_job_id:
             return await self.create_build(
-                db, org_id, 
-                source=source, 
+                db, org_id,
+                source=source,
                 user_id=user_id,
                 job_id=metadata_indexing_job_id,
                 commit_sha=commit_sha,
                 branch=branch,
                 copy_from_main=True  # Preserve user-created instructions
             )
-        
-        # For user/ai sources, check for existing draft build
+
+        # For ai source with agent_execution_id, scope to specific training session
+        if source == 'ai' and agent_execution_id:
+            result = await db.execute(
+                select(InstructionBuild)
+                .where(
+                    and_(
+                        InstructionBuild.organization_id == org_id,
+                        InstructionBuild.status == 'draft',
+                        InstructionBuild.source == source,
+                        InstructionBuild.agent_execution_id == agent_execution_id,
+                        InstructionBuild.deleted_at == None
+                    )
+                )
+                .limit(1)
+            )
+            existing = result.scalar_one_or_none()
+
+            if existing:
+                return existing
+
+            return await self.create_build(
+                db, org_id, source=source, user_id=user_id, agent_id=agent_execution_id
+            )
+
+        # For user sources (or ai without execution id), check for existing draft build
         result = await db.execute(
             select(InstructionBuild)
             .where(
@@ -386,10 +412,10 @@ class BuildService:
             .limit(1)
         )
         existing = result.scalar_one_or_none()
-        
+
         if existing:
             return existing
-        
+
         return await self.create_build(db, org_id, source=source, user_id=user_id)
     
     # ==================== Draft Editing ====================

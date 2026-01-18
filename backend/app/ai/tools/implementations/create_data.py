@@ -657,6 +657,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             idempotent=False,
             required_permissions=[],
             tags=["data", "code", "execution"],
+            allowed_modes=["chat", "deep"],
         )
 
     @property

@@ -172,7 +172,7 @@ function openInstructionModal() { showInstructionCreate.value = true }
 async function fetchInstructions() {
   isLoadingInstructions.value = true
   try {
-    const params: any = { limit: 100 }
+    const params: any = { limit: 100, include_global: false }
     if (dsId.value) params.data_source_id = dsId.value
     const { data, error } = await useMyFetch<{ items: any[]; total: number }>('/instructions', { method: 'GET', query: params })
     if (!error.value && data.value) {

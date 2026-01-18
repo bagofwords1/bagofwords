@@ -17,6 +17,7 @@ class ToolCatalogFilter:
     required_permissions: Optional[Set[str]] = None
     tags: Optional[Set[str]] = None
     max_research_steps: int = 3  # Prevent infinite research loops
+    mode: Optional[str] = None  # "chat", "deep", "training", etc.
 
 
 class ToolRegistry:
@@ -91,11 +92,11 @@ class ToolRegistry:
         
         return filtered_tools
 
-    def get_catalog_for_plan_type(self, plan_type: str, organization: Optional[str] = None) -> List[Dict]:
+    def get_catalog_for_plan_type(self, plan_type: str, organization: Optional[str] = None, mode: Optional[str] = None) -> List[Dict]:
         """Get tool catalog filtered by plan type with enhanced metadata."""
-        filter_obj = ToolCatalogFilter(plan_type=plan_type, organization=organization)
+        filter_obj = ToolCatalogFilter(plan_type=plan_type, organization=organization, mode=mode)
         metadata_list = self.list_tools(filter_obj)
-        
+
         catalog = []
         for metadata in metadata_list:
             # Skip inactive tools from catalog
@@ -113,8 +114,9 @@ class ToolRegistry:
                 "tags": metadata.tags,
                 "is_active": getattr(metadata, "is_active", True),
                 "observation_policy": getattr(metadata, "observation_policy", None),
+                "allowed_modes": getattr(metadata, "allowed_modes", None),
             })
-        
+
         return catalog
 
     def get_catalog(self, organization: Optional[str] = None, plan_type: str = "action") -> List[Dict]:
@@ -143,27 +145,32 @@ class ToolRegistry:
 
     def _matches_filter(self, metadata: ToolMetadata, filter_obj: ToolCatalogFilter) -> bool:
         """Enhanced filter matching with research loop prevention."""
-        
+
         # Plan type filtering
         if filter_obj.plan_type:
             if filter_obj.plan_type == "research" and metadata.category not in ["research", "both"]:
                 return False
             elif filter_obj.plan_type == "action" and metadata.category not in ["action", "both"]:
                 return False
-        
-        # Organization filtering  
+
+        # Organization filtering
         if filter_obj.organization and metadata.enabled_for_orgs is not None:
             if filter_obj.organization not in metadata.enabled_for_orgs:
                 return False
-        
+
+        # Mode filtering - if tool has allowed_modes, current mode must be in that list
+        if filter_obj.mode and metadata.allowed_modes is not None:
+            if filter_obj.mode not in metadata.allowed_modes:
+                return False
+
         # Permission filtering
         if filter_obj.required_permissions:
             if not filter_obj.required_permissions.issubset(set(metadata.required_permissions)):
                 return False
-        
+
         # Tag filtering
         if filter_obj.tags:
             if not filter_obj.tags.intersection(set(metadata.tags)):
                 return False
-        
+
         return True

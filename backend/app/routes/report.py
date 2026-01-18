@@ -112,6 +112,26 @@ async def get_public_conversation(
 async def schedule_report(report_id: str, cron_expression: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await report_service.set_report_schedule(db, report_id, cron_expression, current_user, organization)
 
+# --- Training Mode Instructions ---
+
+@router.get("/reports/{report_id}/instructions")
+@requires_permission('view_reports', model=Report, owner_only=True)
+async def get_report_instructions(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Get all instructions created during this report's training sessions.
+
+    Returns instructions that were created by the AI agent during training mode.
+    These are the instructions that were auto-generated and published to the
+    training session's build.
+    """
+    from app.services.instruction_service import InstructionService
+    instruction_service = InstructionService()
+    return await instruction_service.get_instructions_by_report(db, report_id, organization)
+
 # --- Dashboard Layout Routes ---
 
 @router.get("/reports/{report_id}/layouts", response_model=List[DashboardLayoutVersionSchema])

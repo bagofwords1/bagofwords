@@ -10,6 +10,8 @@ from .clarify import ClarifyInput, ClarifyOutput
 from .describe_tables import DescribeTablesInput, DescribeTablesOutput
 from .describe_entity import DescribeEntityInput, DescribeEntityOutput
 from .read_resources import ReadResourcesInput, ReadResourcesOutput
+from .create_instruction import CreateInstructionInput, CreateInstructionOutput
+from .edit_instruction import EditInstructionInput, EditInstructionOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -34,16 +36,20 @@ __all__ = [
     "CreateDashboardInput",
     "CreateDashboardOutput",
     "ClarifyInput",
-    "ClarifyOutput", 
+    "ClarifyOutput",
     "DescribeTablesInput",
     "DescribeTablesOutput",
     "DescribeEntityInput",
     "DescribeEntityOutput",
     "ReadResourcesInput",
     "ReadResourcesOutput",
+    "CreateInstructionInput",
+    "CreateInstructionOutput",
+    "EditInstructionInput",
+    "EditInstructionOutput",
     "ToolEvent",
     "ToolStartEvent",
-    "ToolProgressEvent", 
+    "ToolProgressEvent",
     "ToolPartialEvent",
     "ToolStdoutEvent",
     "ToolEndEvent",

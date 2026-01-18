@@ -11,7 +11,7 @@ class PlanningTextStreamer:
     - Emits small token deltas for typing effect (block.delta.token)
     - Periodically emits snapshots for robustness (block.delta.text)
     - Sends completion markers when finished (block.delta.text.complete)
-    
+
     Streaming is optimized for smoothness:
     - Low time threshold (16ms = ~60fps) for responsive feel
     - Character threshold (5 chars) to emit on small batches regardless of time
@@ -109,7 +109,7 @@ class PlanningTextStreamer:
             pending_chars = len(reasoning) - len(self.prev_reasoning)
             time_ready = (now - self.last_emit["reasoning"]) >= self.throttle_ms
             char_ready = pending_chars >= self.char_threshold
-            
+
             if time_ready or char_ready:
                 rdelta = self._delta(self.prev_reasoning, reasoning)
                 if rdelta:
@@ -123,7 +123,7 @@ class PlanningTextStreamer:
             pending_chars = len(content) - len(self.prev_content)
             time_ready = (now - self.last_emit["content"]) >= self.throttle_ms
             char_ready = pending_chars >= self.char_threshold
-            
+
             if time_ready or char_ready:
                 cdelta = self._delta(self.prev_content, content)
                 if cdelta:
@@ -205,5 +205,3 @@ class PlanningTextStreamer:
                     "is_final": True,
                 }
             ))
-
-

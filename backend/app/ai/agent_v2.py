@@ -51,7 +51,7 @@ class AgentV2:
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
         self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
         self.mode = mode
-
+        self.training_build_id = None  # Track build ID for training mode instruction creation
 
         self.ai_analyst_name = organization_settings.config.get('general', {}).get('ai_analyst_name', "AI Analyst")
 
@@ -114,11 +114,11 @@ class AgentV2:
         )
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
-        
-        # Start with all available tools for the planner to see
-        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization)
-        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization))
-        
+
+        # Start with all available tools for the planner to see, filtered by mode
+        all_catalog_dicts = self.registry.get_catalog_for_plan_type("action", self.organization, mode=self.mode)
+        all_catalog_dicts.extend(self.registry.get_catalog_for_plan_type("research", self.organization, mode=self.mode))
+
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
         unique_catalog = []
@@ -126,7 +126,7 @@ class AgentV2:
             if tool['name'] not in seen_tools:
                 unique_catalog.append(tool)
                 seen_tools.add(tool['name'])
-        
+
         tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
         self.planner = PlannerV2(
             model=self.model,
@@ -267,9 +267,10 @@ class AgentV2:
                         logger.warning(f"Failed to create AI build: {build_error}")
                     
                     async for draft in self.suggest_instructions.stream_suggestions(
-                        context_view=view_for_suggest, 
-                        context_hub=self.context_hub, 
-                        conditions=conditions
+                        context_view=view_for_suggest,
+                        context_hub=self.context_hub,
+                        conditions=conditions,
+                        mode=self.mode
                     ):
                         # Persist immediately and stream back full instruction object
                         inst = await self.project_manager.create_instruction_from_draft(
@@ -626,7 +627,8 @@ class AgentV2:
             instructions = inst_section.render() if inst_section else ""
 
             observation: Optional[dict] = None
-            step_limit = 10
+            # Training mode needs more iterations for thorough exploration
+            step_limit = 20 if self.mode == "training" else 10
 
             current_plan_decision = None
             invalid_retry_count = 0
@@ -817,11 +819,11 @@ class AgentV2:
                             decision_seq = event_seq
 
                         # Emit incremental, throttled token deltas for reasoning/content
-                        # When analysis_complete=true, the LLM puts the response in final_answer, not assistant_message
-                        # So we need to stream final_answer as content when assistant is empty
+                        # Prioritize final_answer over assistant_message - final_answer is the actual response
+                        # assistant_message is just a brief status message
                         try:
                             new_reasoning = getattr(decision, "reasoning_message", None) or ""
-                            new_content = getattr(decision, "assistant_message", None) or getattr(decision, "final_answer", None) or ""
+                            new_content = getattr(decision, "final_answer", None) or getattr(decision, "assistant_message", None) or ""
                             if plan_streamer:
                                 await plan_streamer.update(new_reasoning, new_content)
                         except Exception:
@@ -964,17 +966,21 @@ class AgentV2:
                                     ))
                                 completion_finished_emitted = True
                             
-                            # === INLINE: Post-analysis tasks (suggestions) ===
-                            # Run suggestions inline so SSE events reach the frontend before stream closes
-                            res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
-                            should_trigger_suggestions = res.get("decision", False)
-                            conditions = res.get("conditions", [])
+                            # === INLINE: Post-analysis tasks ===
+                            if self.mode == "training":
+                                # Training mode: finalize the build with all created instructions
+                                await self._finalize_training_build()
+                            else:
+                                # Normal mode: Run suggestions inline so SSE events reach the frontend before stream closes
+                                res = await self._should_suggest_instructions(prev_tool_name_before_last_user)
+                                should_trigger_suggestions = res.get("decision", False)
+                                conditions = res.get("conditions", [])
 
-                            if should_trigger_suggestions:
-                                await self._stream_suggestions_inline(
-                                    prev_tool_name_before_last_user,
-                                    conditions
-                                )
+                                if should_trigger_suggestions:
+                                    await self._stream_suggestions_inline(
+                                        prev_tool_name_before_last_user,
+                                        conditions
+                                    )
                             break
                         # Retry flow: action plan with missing action
                         if (getattr(decision, "plan_type", None) == "action") and not action:
@@ -1097,6 +1103,7 @@ class AgentV2:
                         runtime_ctx = {
                             "db": self.db,
                             "organization": self.organization,
+                            "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                             "settings": self.organization_settings,
                             "report": self.report,
                             "head_completion": self.head_completion,
@@ -1114,7 +1121,9 @@ class AgentV2:
                             "context_view": view,
                             "context_hub": self.context_hub,
                             "ds_clients": self.clients,
-                            "excel_files": self.files
+                            "excel_files": self.files,
+                            "training_build_id": self.training_build_id,  # For training mode instruction creation
+                            "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                         }
 
                         # Emit generic output event for tools that stream results (inspect_data, answer_question)
@@ -1140,6 +1149,10 @@ class AgentV2:
                                 ))
 
                         tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
+
+                        # Capture training_build_id if set by create_instruction tool
+                        if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                            self.training_build_id = runtime_ctx["training_build_id"]
 
                         # Extract observation and output from tool result
                         if isinstance(tool_result, dict) and "observation" in tool_result:
@@ -1604,6 +1617,66 @@ class AgentV2:
         except Exception as e:
             print(f"Error emitting SSE event: {e}")
 
+    async def _finalize_training_build(self):
+        """Finalize the training build by publishing it (approve + promote to main).
+
+        Called at the end of a training mode session to make all created instructions live.
+        """
+        if not self.training_build_id:
+            logger.info("Training mode ended with no instructions created - no build to finalize")
+            return
+
+        try:
+            from app.services.build_service import BuildService
+
+            build_service = BuildService()
+            user_id = str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+
+            result = await build_service.publish_build(
+                db=self.db,
+                build_id=self.training_build_id,
+                user_id=user_id,
+            )
+
+            build = result.get("build")
+            merged = result.get("merged", False)
+
+            logger.info(
+                f"Training build {self.training_build_id} published successfully "
+                f"(merged={merged}, new_build_id={build.id if build else 'N/A'})"
+            )
+
+            # Emit SSE event to notify frontend that training build was finalized
+            if self.event_queue:
+                try:
+                    await self.event_queue.put(SSEEvent(
+                        event="training.build_finalized",
+                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                        data={
+                            "build_id": str(build.id) if build else self.training_build_id,
+                            "merged": merged,
+                            "status": "published",
+                        }
+                    ))
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.exception(f"Failed to finalize training build {self.training_build_id}: {e}")
+            # Still emit an error event so frontend knows something went wrong
+            if self.event_queue:
+                try:
+                    await self.event_queue.put(SSEEvent(
+                        event="training.build_error",
+                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                        data={
+                            "build_id": self.training_build_id,
+                            "error": str(e),
+                        }
+                    ))
+                except Exception:
+                    pass
+
     async def _should_suggest_instructions(self, prev_tool_name_before_last_user: Optional[str]) -> Dict[str, object]:
         """Decide whether to run suggest_instructions based on report history.
 
@@ -1622,6 +1695,7 @@ class AgentV2:
                 report_id=str(self.report.id) if self.report else None,
                 current_execution_id=str(self.current_execution.id) if self.current_execution else None,
                 user_message=user_message,
+                mode=self.mode,
             )
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:

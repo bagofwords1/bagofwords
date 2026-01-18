@@ -83,7 +83,7 @@ class TriggerCondition:
 
 class InstructionTriggerEvaluator:
     """Evaluates whether to trigger instruction suggestions based on conversation history.
-    
+
     Conditions:
     - A) clarify_then_create_data: Previous tool was 'clarify', current has create_data
     - B) retry_recovery: create_data succeeded after internal retries/errors
@@ -91,7 +91,8 @@ class InstructionTriggerEvaluator:
     - D) failed_then_fixed: Previous create_data failed, user message, current create_data succeeded (same tables)
     - E) user_provided_code: User provided code after a create_data
     - F) inspect_then_create_data: successful inspect_data in same execution, then create_data succeeded (with table overlap)
-    
+    - G) training_mode_complete: Training mode completed with suggested instructions in final_answer
+
     Returns a structured result with decision and list of met conditions.
     """
 
@@ -102,18 +103,20 @@ class InstructionTriggerEvaluator:
         report_id: Optional[str],
         current_execution_id: Optional[str],
         user_message: Optional[str] = None,
+        mode: Optional[str] = None,
     ):
         self.db = db
         self.organization_settings = organization_settings
         self.report_id = report_id
         self.current_execution_id = current_execution_id
         self.user_message = user_message or ""
+        self.mode = mode
 
     async def evaluate(
         self, prev_tool_name_before_last_user: Optional[str] = None
     ) -> Dict[str, object]:
         """Evaluate all trigger conditions and return structured result.
-        
+
         Returns:
             {
                 "decision": bool,
@@ -127,6 +130,21 @@ class InstructionTriggerEvaluator:
 
         if not self.report_id:
             return {"decision": False, "conditions": []}
+
+        # Training mode always triggers - instructions are in final_answer
+        if self.mode == "training":
+            return {
+                "decision": True,
+                "conditions": [{
+                    "name": "training_mode_complete",
+                    "hint": (
+                        "Training mode flow: The agent completed a systematic exploration of the "
+                        "data domain and produced suggested instructions in its final_answer. "
+                        "Extract the instructions from the 'Suggested Instructions for Future Analysis' "
+                        "section of the final_answer. These are already well-formed reusable instructions."
+                    )
+                }]
+            }
 
         met_conditions: List[Dict[str, str]] = []
         

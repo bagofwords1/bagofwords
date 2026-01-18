@@ -55,7 +55,7 @@ class SuggestInstructions:
         return "\n".join(lines)
 
     async def stream_suggestions(
-        self, context_view: Any = None, context_hub: Any = None, conditions: List[Dict[str, str]] = None
+        self, context_view: Any = None, context_hub: Any = None, conditions: List[Dict[str, str]] = None, mode: str = None
     ) -> AsyncIterator[Dict[str, Any]]:
         """Stream instruction suggestions as they become valid.
 
@@ -63,9 +63,16 @@ class SuggestInstructions:
             context_view: The context view containing static/warm context sections.
             context_hub: The context hub for accessing observation history.
             conditions: List of trigger conditions that fired, each with {"name", "hint"}.
+            mode: The mode that triggered this (e.g., "training" for training mode).
 
         Yields dicts with keys {"text", "category", "confidence"}.
         """
+        # Check if this is training mode - use specialized prompt
+        if mode == "training":
+            async for item in self._stream_training_suggestions(context_view, context_hub, conditions):
+                yield item
+            return
+
         # Build context from provided view/hub
         schemas_excerpt = getattr(getattr(context_view, "static", None), "schemas", None)
         schemas_excerpt = schemas_excerpt.render() if schemas_excerpt else ""
@@ -331,6 +338,84 @@ Return a single JSON object matching this schema exactly:
         
         # Log summary only
         logger.debug(f"[{usage_scope}] Stream complete: {chunk_count} chunks, {yielded_count} items yielded")
+
+    async def _stream_training_suggestions(
+        self, context_view: Any = None, context_hub: Any = None, conditions: List[Dict[str, str]] = None
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """Stream instruction suggestions from training mode final_answer.
+
+        Training mode produces a structured summary with a "Suggested Instructions for Future Analysis" section.
+        This method extracts those instructions and converts them to the standard format.
+
+        Yields dicts with keys {"text", "category", "confidence"}.
+        """
+        # Get the final_answer from the last observation (training mode output)
+        last_observation = None
+        if context_hub and getattr(context_hub, "observation_builder", None):
+            try:
+                last_observation = context_hub.observation_builder.get_latest_observation()
+            except Exception:
+                last_observation = None
+
+        # Get existing instructions to avoid duplicates
+        instructions_section = getattr(getattr(context_view, "static", None), "instructions", None)
+        instructions_context = instructions_section.render() if instructions_section else ""
+
+        # Extract training summary from last observation or final_answer
+        training_summary = ""
+        if last_observation:
+            if isinstance(last_observation, dict):
+                training_summary = last_observation.get("final_answer", "") or last_observation.get("result", "") or ""
+            elif isinstance(last_observation, str):
+                training_summary = last_observation
+
+        if not training_summary:
+            logger.warning("[suggest_instructions.training] No training summary found in last observation")
+            return
+
+        category_desc = self._build_category_description()
+
+        header = f"""
+You are a helpful analytics assistant. Your goal is to extract and format instruction suggestions from a training mode exploration summary.
+
+TRAINING MODE CONTEXT:
+The AI analyst just completed a systematic exploration of the data domain in "Training Mode". It produced a comprehensive summary of findings including a "Suggested Instructions for Future Analysis" section.
+
+Your task is to:
+1. Extract the suggested instructions from the training summary
+2. Format each as a clear, actionable instruction
+3. Assign the appropriate category
+4. Assign confidence based on how well-supported the instruction is by the exploration findings
+
+IMPORTANT RULES:
+- Extract ONLY instructions that are explicitly suggested or strongly implied in the training summary
+- Do NOT invent new instructions beyond what the training discovered
+- Each instruction must be specific, actionable, and reusable
+- Avoid duplicating existing instructions (see below)
+- Focus on the most valuable, generalizable learnings
+- Maximum 5 instructions (prioritize the most impactful ones)
+
+Existing instructions (DO NOT duplicate these):
+{instructions_context[:5000] if instructions_context else 'No existing instructions'}
+
+Categories (choose the most appropriate one):
+{category_desc}
+
+TRAINING SUMMARY TO EXTRACT FROM:
+{training_summary[:15000]}
+
+Return a single JSON object matching this schema exactly:
+{{
+  "instructions": [
+    {{"text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
+  ]
+}}
+
+Extract the most valuable instructions from the training summary. Each instruction should end with a period.
+"""
+
+        async for item in self._stream_and_parse(header, "suggest_instructions.training"):
+            yield item
 
     async def enhance_instruction(
         self,

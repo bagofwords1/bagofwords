@@ -16,6 +16,7 @@ class Report(BaseSchema):
     report_type = Column(String, nullable=False, default='regular', index=True)
     theme_name = Column(String, nullable=True, default=None)
     theme_overrides = Column(JSON, nullable=True, default=dict)
+    mode = Column(String, nullable=False, default='chat')  # 'chat' | 'deep' | 'training'
     
     #privacy = Column(String, nullable=False, default='private') # private, internal, public
     cron_schedule = Column(String, nullable=True)

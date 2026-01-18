@@ -85,6 +85,7 @@ class CreateDashboardTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["dashboard", "report", "layout"],
+            allowed_modes=["chat", "deep"],
         )
 
     @property

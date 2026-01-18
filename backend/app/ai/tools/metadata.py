@@ -27,6 +27,12 @@ class ToolMetadata(BaseModel):
         default="on_trigger", description="History persistence policy"
     )
     
+    # Mode access control
+    allowed_modes: Optional[List[str]] = Field(
+        default=None,
+        description="Modes where tool is available (None = all modes). E.g., ['training'] for training-only tools."
+    )
+
     # Discovery and UI
     tags: List[str] = Field(default_factory=list, description="Searchable tags")
     examples: List[Dict[str, Any]] = Field(default_factory=list, description="Usage examples")

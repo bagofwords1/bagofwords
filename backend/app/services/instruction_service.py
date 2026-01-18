@@ -60,14 +60,15 @@ class InstructionService:
         self.version_service = InstructionVersionService()
     
     async def create_instruction(
-        self, 
-        db: AsyncSession, 
-        instruction_data: InstructionCreate, 
-        current_user: User, 
+        self,
+        db: AsyncSession,
+        instruction_data: InstructionCreate,
+        current_user: User,
         organization: Organization,
         force_global: bool = False,
         build = None,  # Optional: use existing build instead of creating new one
         auto_finalize: bool = True,  # If False, skip auto-finalization (for batching)
+        agent_execution_id: str = None,  # Optional: link instruction to agent execution (for training mode)
     ) -> InstructionSchema:
         """Create a new instruction. Approval workflow is handled by builds, not instruction status."""
         
@@ -87,6 +88,8 @@ class InstructionService:
         instruction = Instruction(**raw)
         instruction.user_id = current_user.id
         instruction.organization_id = organization.id
+        if agent_execution_id:
+            instruction.agent_execution_id = agent_execution_id
         
         # SIMPLIFIED: All instructions are "published" (content ready)
         # Approval workflow is handled by builds, not instruction status
@@ -1198,10 +1201,46 @@ class InstructionService:
         instructions = result.scalars().all()
         return [InstructionSchema.from_orm(instruction) for instruction in instructions]
 
+    async def get_instructions_by_report(
+        self,
+        db: AsyncSession,
+        report_id: str,
+        organization: Organization,
+    ) -> List[InstructionSchema]:
+        """Get all instructions created during a report's training sessions.
+
+        This queries instructions that were created by the AI agent during
+        training mode sessions associated with the given report.
+        """
+        from app.models.agent_execution import AgentExecution
+
+        query = (
+            select(Instruction)
+            .options(
+                selectinload(Instruction.user),
+                selectinload(Instruction.data_sources),
+                selectinload(Instruction.references),
+                selectinload(Instruction.labels),
+            )
+            .join(AgentExecution, Instruction.agent_execution_id == AgentExecution.id)
+            .where(
+                and_(
+                    AgentExecution.report_id == report_id,
+                    Instruction.organization_id == organization.id,
+                    Instruction.deleted_at == None,
+                )
+            )
+            .order_by(Instruction.created_at.asc())
+        )
+
+        result = await db.execute(query)
+        instructions = result.scalars().all()
+        return [InstructionSchema.from_orm(instruction) for instruction in instructions]
+
     async def _validate_data_sources(
-        self, 
-        db: AsyncSession, 
-        data_source_ids: List[str], 
+        self,
+        db: AsyncSession,
+        data_source_ids: List[str],
         organization: Organization
     ):
         """Validate that all data source IDs exist and belong to the organization"""

@@ -84,6 +84,8 @@ export const useOrgSettings = () => {
   const canUploadFiles = computed(() => featureEnabled(getFeature('enable_file_upload')))
   const canEditCode = computed(() => featureEnabled(getFeature('enable_code_editing')))
   const isMcpEnabled = computed(() => featureEnabled(getFeature('mcp_enabled')))
+  const allowLlmSeeData = computed(() => featureEnabled(getFeature('allow_llm_see_data')))
+  const isTrainingModeEnabled = computed(() => featureEnabled(getFeature('enable_training_mode')))
 
   return {
     settings,
@@ -95,6 +97,8 @@ export const useOrgSettings = () => {
     canUploadFiles,
     canEditCode,
     isMcpEnabled,
+    allowLlmSeeData,
+    isTrainingModeEnabled,
     // raw accessor
     getFeature,
   }
