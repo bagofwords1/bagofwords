@@ -6,7 +6,8 @@
   - Explore schemas, inspect data, and create instructions to guide AI behavior
   - New tools: `create_instruction` and `edit_instruction` for real-time instruction management
   - Instructions are versioned and tracked in draft builds until finalized
-  - HBD!
+- Improve DuckDB system prormpt
+- HBD!
 
 ## Version 0.0.296 (January 12, 2026)
 - Added PostHog integration for analytics

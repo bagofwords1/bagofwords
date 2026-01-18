@@ -239,12 +239,30 @@ class DuckDBClient(DataSourceClient):
 
     @property
     def description(self):
+        system_prompt = """
+        You can call the execute_query method to run SQL queries using DuckDB syntax.
+
+        The below are examples for how to use the execute_query method. Note that the actual SQL will vary based on the schema.
+        Notice only the SQL syntax and instructions on how to use the execute_query method, not the actual SQL queries.
+
+        ```python
+        df = client.execute_query("SELECT * FROM sales LIMIT 10")
+        ```
+        or:
+        ```python
+        df = client.execute_query("SELECT product, SUM(amount) AS total FROM sales GROUP BY ALL")
+        ```
+
+        """
         if self.database:
-            return f"DuckDB database: {self.database}"
-        sample = ", ".join(self.uri_patterns[:2])
-        if len(self.uri_patterns) > 2:
-            sample += ", ..."
-        return f"DuckDB over files. URIs: {sample}"
+            description = f"DuckDB database: {self.database}\n\n"
+        else:
+            sample = ", ".join(self.uri_patterns[:2])
+            if len(self.uri_patterns) > 2:
+                sample += ", ..."
+            description = f"DuckDB over files. URIs: {sample}\n\n"
+        description += system_prompt
+        return description
 
 # Compatibility alias for dynamic resolver expecting 'DuckdbClient'
 DuckdbClient = DuckDBClient
