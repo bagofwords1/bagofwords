@@ -2,7 +2,10 @@
 
 ## Version 0.0.297 (January 18, 2026)
 - Introducing: Training Mode
-  - Special
+  - A dedicated mode for documenting and managing your data domain knowledge
+  - Explore schemas, inspect data, and create instructions to guide AI behavior
+  - New tools: `create_instruction` and `edit_instruction` for real-time instruction management
+  - Instructions are versioned and tracked in draft builds until finalized
 
 ## Version 0.0.296 (January 12, 2026)
 - Added PostHog integration for analytics
