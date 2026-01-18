@@ -104,6 +104,7 @@ class OrganizationSettingsConfig(BaseModel):
 
     # Update defaults to use 'value' instead of 'enabled'
     allow_llm_see_data: FeatureConfig = FeatureConfig(value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
+    enable_training_mode: FeatureConfig = FeatureConfig(value=True, name="Training Mode", description="Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines ", is_lab=False, editable=True)
     enable_file_upload: FeatureConfig = FeatureConfig(value=True, name="Allow file upload", description="Allow users to upload spreadsheets and docuemnts (xls/pdf) and push their content to the LLM", is_lab=False, editable=True)
     enable_code_editing: FeatureConfig = FeatureConfig(value=True, name="Allow users to edit and execute the LLM generated code", description="Allow users to edit and execute the LLM generated code", is_lab=False, editable=True)
     enable_llm_judgement: FeatureConfig = FeatureConfig(value=True, name="Enable LLM Judge", description="Enable LLM to judge the quality of the analysis and user queries", is_lab=False, editable=True)
@@ -116,7 +117,6 @@ class OrganizationSettingsConfig(BaseModel):
     top_k_metadata_resources: FeatureConfig = FeatureConfig(value=10, name="Top K metadata resources", description="The number of metadata resources to sample from the data source in the Agent", is_lab=False, editable=True) # Assuming value is int here
     mcp_enabled: FeatureConfig = FeatureConfig(value=True, name="MCP", description="Enable Model Context Protocol (MCP) endpoint for integration with AI assistants like Cursor, Claude, or others", is_lab=False, editable=True)
     max_instructions_in_context: FeatureConfig = FeatureConfig(value=50, name="Max instructions in context", description="Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'intelligent' instructions fill remaining slots.", is_lab=False, editable=True)
-    enable_training_mode: FeatureConfig = FeatureConfig(value=False, name="Training Mode", description="Enable training mode for admins to teach the AI by creating instructions during conversations", is_lab=False, editable=True)
 
     ai_features: Dict[str, FeatureConfig] = {
         # Update defaults to use 'value' instead of 'enabled'

@@ -28,7 +28,7 @@ class ToolRunner:
     async def run(self, tool, arguments: Dict[str, Any], runtime_ctx: Dict[str, Any], emit) -> Dict[str, Any]:
         # Runtime mode access control - check if tool is allowed in current mode
         tool_allowed_modes = getattr(tool.metadata, 'allowed_modes', None) if hasattr(tool, 'metadata') else None
-        current_mode = runtime_ctx.get('mode')
+        current_mode = runtime_ctx.get('mode') or 'chat'  # Default to 'chat' if mode is None
         if tool_allowed_modes is not None and current_mode not in tool_allowed_modes:
             return {
                 "summary": f"Tool '{tool.name}' is not available in '{current_mode}' mode",

@@ -53,9 +53,13 @@ Do not rely on any external parameter; decide the final reasoning level in real 
 Deep Analytics mode: If selected, you are expected to perform heavier planning, run multiple iterations of widgets/observations, and end with a create_dashboard call to present findings. Acknowledge deep mode in both reasoning_message and assistant_message.
 """
 
+        # Determine mode label for prompt
+        mode_label = "Deep Analytics" if planner_input.mode == "deep" else "Chat"
+
         prompt= f"""
 SYSTEM
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
+Mode: {mode_label}
 
 You are an AI Analytics Agent. You work for {planner_input.organization_name}. Your name is {planner_input.organization_ai_analyst_name}.
 You are an expert in business, product and data analysis. You are familiar with popular (product/business) data analysis KPIs, measures, metrics and patterns -- but you also know that each business is unique and has its own unique data analysis patterns. When in doubt, use the clarify tool.
@@ -260,6 +264,7 @@ The tool needs to execute first before analysis can be complete.
         prompt = f"""
 SYSTEM
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
+Mode: Training
 
 You are an AI Data Domain Expert in TRAINING MODE. You work for {planner_input.organization_name}. Your name is {planner_input.organization_ai_analyst_name}.
 
@@ -451,21 +456,20 @@ INPUT ENVELOPE
 </context>
 
 EXPECTED JSON OUTPUT (strict):
-{{{{
-  "analysis_complete": boolean,
+{{
+  "analysis_complete": boolean,  // true ONLY if NO tool call is needed and you have a final answer
   "plan_type": "research" | "action" | null,
   "reasoning_message": string | null,
-  "assistant_message": string,  // REQUIRED - always describe what you're doing
-  "action": {{{{
+  "assistant_message": string | null,
+  "action": {{  // Set this if you need to call a tool. If action is set, analysis_complete should be false.
     "type": "tool_call",
     "name": string,
     "arguments": object
-  }}}} | null,
-  "final_answer": string | null  // Required when analysis_complete=true
-}}}}
+  }} | null,
+  "final_answer": string | null  // Only set if analysis_complete is true
+}}
 
 CRITICAL
-- **assistant_message is REQUIRED** - always tell the user what you're doing
 - When creating instructions, use **markdown formatting** (headers, bullets, tables, backticks)
 - Use `\\n` for line breaks in instruction text
 - ALWAYS include table_names for intelligent loading

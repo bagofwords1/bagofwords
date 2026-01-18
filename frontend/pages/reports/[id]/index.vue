@@ -102,12 +102,12 @@
 											</div>
 
 							<!-- 2. Block content - assistant message (hybrid streaming) -->
-							<!-- Fallback to plan_decision.assistant or final_answer if block.content is empty (e.g., streaming tokens missed) -->
-							<!-- Show content section when: content exists OR assistant exists OR (final_answer exists but analysis not complete yet, i.e. still streaming) -->
-							<div v-if="(block.content || block.plan_decision?.assistant || (block.plan_decision?.final_answer && !block.plan_decision?.analysis_complete)) && block.status !== 'error'" class="block-content markdown-wrapper">
+							<!-- Prioritize final_answer over assistant - final_answer is the actual response -->
+							<!-- Show content section when: content exists OR final_answer exists OR assistant exists -->
+							<div v-if="(block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant) && block.status !== 'error'" class="block-content markdown-wrapper">
 								<!-- Finalized: show only MDC -->
 								<template v-if="isBlockFinalized(block)">
-									<MDC :value="block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer || ''" class="markdown-content" />
+									<MDC :value="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" class="markdown-content" />
 								</template>
 												<!-- Streaming: hybrid layer approach with rolling window -->
 												<template v-else>
@@ -125,12 +125,12 @@
 												class="chunk-fade"
 											>{{ chunk.text }}</span>
 										</template>
-										<template v-else>{{ block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer }}</template>
+										<template v-else>{{ block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant }}</template>
 															</div>
 														</div>
 									<!-- Layer 2: MDC preview (hidden, pre-rendering for instant switch) -->
 									<div class="streaming-layer streaming-layer--mdc-preview" aria-hidden="true">
-										<MDC :value="block.content || block.plan_decision?.assistant || block.plan_decision?.final_answer || ''" class="markdown-content" />
+										<MDC :value="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" class="markdown-content" />
 									</div>
 													</div>
 												</template>
@@ -169,9 +169,9 @@
 												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
 											</div>
 
-											<!-- 4. Final answer - only show if NOT already rendered in section 2 above -->
-											<!-- Section 2 shows: block.content OR plan_decision.assistant OR plan_decision.final_answer (when not complete) -->
-											<!-- So section 4 only shows when: analysis_complete AND final_answer exists AND nothing was shown in section 2 -->
+											<!-- 4. Final answer fallback - only show if NOT already rendered in section 2 above -->
+											<!-- Section 2 shows: block.content OR plan_decision.final_answer OR plan_decision.assistant -->
+											<!-- So section 4 is rarely needed (fallback for edge cases) -->
 											<div v-if="block.plan_decision?.analysis_complete && block.plan_decision?.final_answer && !block.content && !block.plan_decision?.assistant" class="mt-2 markdown-wrapper">
 												<MDC :value="block.plan_decision?.final_answer || ''" class="markdown-content" />
 											</div>
@@ -953,7 +953,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 				if (!sysMessage.completion_blocks) {
 					sysMessage.completion_blocks = []
 				}
-				
+
 				// Find existing block or insert in-order by block_index (avoid resorting array)
 				const existingIndex = sysMessage.completion_blocks.findIndex(b => b.id === block.id)
 				if (existingIndex >= 0) {
@@ -969,6 +969,11 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						}
 					}
 					sysMessage.completion_blocks.splice(insertPos, 0, block)
+				}
+				// Clear streaming chunks when block is finalized so it shows the final content
+				if (block.plan_decision?.analysis_complete || block.status === 'completed') {
+					clearBlockChunks(`${block.id}:content`)
+					clearBlockChunks(`${block.id}:reasoning`)
 				}
 			}
 			break

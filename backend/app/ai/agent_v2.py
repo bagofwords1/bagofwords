@@ -819,11 +819,11 @@ class AgentV2:
                             decision_seq = event_seq
 
                         # Emit incremental, throttled token deltas for reasoning/content
-                        # When analysis_complete=true, the LLM puts the response in final_answer, not assistant_message
-                        # So we need to stream final_answer as content when assistant is empty
+                        # Prioritize final_answer over assistant_message - final_answer is the actual response
+                        # assistant_message is just a brief status message
                         try:
                             new_reasoning = getattr(decision, "reasoning_message", None) or ""
-                            new_content = getattr(decision, "assistant_message", None) or getattr(decision, "final_answer", None) or ""
+                            new_content = getattr(decision, "final_answer", None) or getattr(decision, "assistant_message", None) or ""
                             if plan_streamer:
                                 await plan_streamer.update(new_reasoning, new_content)
                         except Exception:
