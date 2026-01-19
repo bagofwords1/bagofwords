@@ -10,6 +10,8 @@ class PromptSchema(BaseModel):
     widget_id: Optional[str] = None  # Default to None
     step_id: Optional[str] = None  # Default to None
     mentions: Optional[List[dict]] = None  # Default to None
+    model_id: Optional[str] = None  # Optional model override
+    mode: Optional[str] = None  # Optional mode for agent execution
 
     class Config:
         from_attributes = True

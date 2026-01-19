@@ -784,7 +784,60 @@ class DataSourceService:
                     continue
             items.append(s)
         return items
-    
+
+    async def get_public_data_sources(self, db: AsyncSession, organization: Organization) -> List[DataSourceListItemSchema]:
+        """
+        Get only public active data sources with system_only auth for an organization.
+        Used for Slack channel mentions where we can't rely on individual user credentials.
+        Only includes data sources that use system-level credentials (auth_policy="system_only").
+        """
+        stmt = (
+            select(DataSource)
+            .options(
+                selectinload(DataSource.data_source_memberships),
+                selectinload(DataSource.connections),
+            )
+            .where(
+                DataSource.organization_id == organization.id,
+                DataSource.is_active == True,
+                DataSource.is_public == True  # Only public data sources
+            )
+        )
+
+        result = await db.execute(stmt)
+        data_sources = result.scalars().all()
+
+        items: list[DataSourceListItemSchema] = []
+        for d in data_sources:
+            conn = d.connections[0] if d.connections else None
+            # Only include data sources with system_only auth policy
+            # Skip user_required data sources since channel mentions can't use individual user credentials
+            auth_policy = conn.auth_policy if conn else "system_only"
+            if auth_policy == "user_required":
+                continue
+
+            connection_embedded = await self._build_connection_embedded(
+                db=db,
+                data_source=d,
+                current_user=None,
+                live_test=False
+            )
+
+            s = DataSourceListItemSchema(
+                id=str(d.id),
+                name=d.name,
+                conversation_starters=getattr(d, "conversation_starters", None),
+                description=getattr(d, "description", None),
+                created_at=d.created_at,
+                status=("active" if bool(d.is_active) else "inactive"),
+                connection=connection_embedded,
+                type=conn.type if conn else None,
+                auth_policy=auth_policy,
+                user_status=connection_embedded.user_status if connection_embedded else None,
+            )
+            items.append(s)
+        return items
+
     async def get_data_source_fields(self, db: AsyncSession, data_source_type: str, organization: Organization, current_user: User, auth_type: str | None = None, auth_policy: str | None = None):
         try:
             # Resolve schemas via registry

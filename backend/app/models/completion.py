@@ -66,6 +66,10 @@ class Completion(BaseSchema):
     external_platform = Column(String, nullable=True)  # 'slack', 'teams', 'email', null
     external_message_id = Column(String, nullable=True)  # Platform-specific message ID
     external_user_id = Column(String, nullable=True)  # Platform-specific user ID
+    external_thread_ts = Column(String, nullable=True, index=True)  # Thread parent timestamp for Slack threading
+    external_message_ts = Column(String, nullable=True)  # User's message timestamp for reactions
+    external_channel_id = Column(String, nullable=True)  # Channel ID for reactions and thread replies
+    external_channel_type = Column(String, nullable=True)  # 'im' for DM, 'channel' for public channel (future use)
 
 # New async function to handle sending the DM safely
 async def send_final_slack_dm(completion_id: str):
@@ -155,9 +159,13 @@ def after_insert_completion(mapper, connection, target):
             "report_id": str(target.report_id),
             "external_platform": target.external_platform,
             "external_message_id": target.external_message_id,
-            "external_user_id": target.external_user_id
+            "external_user_id": target.external_user_id,
+            "external_thread_ts": target.external_thread_ts,
+            "external_message_ts": target.external_message_ts,
+            "external_channel_id": target.external_channel_id,
+            "external_channel_type": target.external_channel_type
         }
-        
+
 
         if target.widget_id:
             data["widget_id"] = str(target.widget_id)
@@ -188,7 +196,11 @@ def after_update_completion(mapper, connection, target):
             "sigkill": target.sigkill.isoformat() if target.sigkill else None,
             "external_platform": target.external_platform,
             "external_message_id": target.external_message_id,
-            "external_user_id": target.external_user_id
+            "external_user_id": target.external_user_id,
+            "external_thread_ts": target.external_thread_ts,
+            "external_message_ts": target.external_message_ts,
+            "external_channel_id": target.external_channel_id,
+            "external_channel_type": target.external_channel_type
         }
 
         if target.widget_id:

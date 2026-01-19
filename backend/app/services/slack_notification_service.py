@@ -139,42 +139,46 @@ def df_to_csv(data: dict) -> str:
         print(f"Error creating CSV file: {e}")
         return None
 
-async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step'):
-    """Handles sending table data to Slack."""
+async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
+    """Handles sending table data to Slack, optionally in a thread."""
     title = step.title or "Table Data"
-    
+
     file_path = df_to_csv(step.data)
     if not file_path:
         return False
-    
+
     success = False
     try:
-        success = await adapter.send_file_in_dm(external_user_id, file_path, title)
+        success = await adapter.send_file_in_thread(external_user_id, file_path, title, thread_ts, channel_id=channel_id)
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
     return success
 
-async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step'):
-    """Handles sending chart data (as an image) to Slack."""
+async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
+    """Handles sending chart data (as an image) to Slack, optionally in a thread."""
     title = step.title or "Chart"
     file_path = create_plot(step.data_model, step.data, title)
-    
+
+    if not file_path:
+        return False
+
     success = False
     try:
-        success = await adapter.send_image_in_dm(external_user_id, file_path, title)
+        success = await adapter.send_file_in_thread(external_user_id, file_path, title, thread_ts, channel_id=channel_id)
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
     return success
 
-async def send_step_result_to_slack(step_id: str, external_user_id: str | None = None, organization_id: str | None = None):
+async def send_step_result_to_slack(step_id: str, external_user_id: str | None = None, organization_id: str | None = None, thread_ts: str | None = None, channel_id: str | None = None):
     """
-    Sends a step's data as a DM on Slack. Prefer caller-provided routing
-    details (external_user_id and organization_id). If not provided, falls
-    back to discovering them from the latest completion associated with the
-    step. This makes the function resilient when the Completion "step_id"
-    linkage is not populated by the agent runtime.
+    Sends a step's data to Slack, optionally in a thread.
+    If channel_id is provided, sends directly to that channel (for channel mentions).
+    Otherwise, opens a DM with the user.
+    Prefer caller-provided routing details (external_user_id and organization_id).
+    If not provided, falls back to discovering them from the latest completion
+    associated with the step.
     """
     session_maker = create_async_session_factory()
     async with session_maker() as db:
@@ -200,6 +204,10 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
 
                 external_user_id = external_user_id or completion.external_user_id
                 organization_id = organization_id or step.widget.report.organization_id
+                # Also get thread_ts from completion if not provided
+                if thread_ts is None:
+                    thread_ts = completion.external_thread_ts
+
             platform_stmt = select(ExternalPlatform).where(
                 ExternalPlatform.organization_id == organization_id, ExternalPlatform.platform_type == "slack")
             platform_result = await db.execute(platform_stmt)
@@ -212,16 +220,16 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
             adapter = PlatformAdapterFactory.create_adapter(platform)
             success = False
             if step.data_model.get('type') == "table":
-                success = await _handle_table_step_dm(adapter, external_user_id, step)
+                success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
             elif step.data_model.get('type') == "count":
                 if step.data and 'rows' in step.data and step.data['rows'] and 'columns' in step.data and step.data['columns']:
                     count_value = step.data['rows'][0].get(step.data['columns'][0].get('field', ''))
                     message = f"*{step.title or 'Count'}*: {count_value}"
-                    success = await adapter.send_dm(external_user_id, message)
+                    success = await adapter.send_dm_in_thread(external_user_id, message, thread_ts, channel_id=channel_id)
                 else:
-                    success = await adapter.send_dm(external_user_id, f"I couldn't retrieve the value for '{step.title or 'Count'}'.")
+                    success = await adapter.send_dm_in_thread(external_user_id, f"I couldn't retrieve the value for '{step.title or 'Count'}'.", thread_ts, channel_id=channel_id)
             else:
-                success = await _handle_chart_step_dm(adapter, external_user_id, step)
+                success = await _handle_chart_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
 
             if success:
                 print(f"SLACK_NOTIFIER: Successfully sent step data to Slack user {external_user_id}")

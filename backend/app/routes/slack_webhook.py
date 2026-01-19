@@ -60,27 +60,34 @@ async def slack_webhook(
         if event.get("bot_id") or event.get("subtype") == "bot_message":
             print("Ignoring bot message to prevent loops")
             return {"ok": True}
-        
-        # Check if this is a message event
-        if event_data.get("type") != "event_callback" or event.get("type") != "message":
-            print(f"Ignoring non-message event: {event_data.get('type')} - {event.get('type')}")
+
+        # Check if this is an event_callback
+        if event_data.get("type") != "event_callback":
+            print(f"Ignoring non-event_callback: {event_data.get('type')}")
             return {"ok": True}
-        
+
+        # Accept both 'message' (DMs) and 'app_mention' (channel mentions) events
+        event_type = event.get("type")
+        if event_type not in ("message", "app_mention"):
+            print(f"Ignoring unsupported event type: {event_type}")
+            return {"ok": True}
+
         # Simple deduplication using event_id
         event_id = event_data.get('event_id')
         if event_id in processed_events:
             print(f"Event {event_id} already processed, skipping")
             return {"ok": True}
-        
+
         # Mark as processed
         processed_events.add(event_id)
-        
+
         # Clean up if set gets too large (keep only last 1000 events)
         if len(processed_events) > 1000:
             processed_events.clear()
-        
-        # Only process direct messages (DMs) and ignore other message types
-        if event.get('channel_type') != 'im':
+
+        # For DMs (message events), only process if channel_type is 'im'
+        # For app_mention events, process regardless of channel type (they come from channels)
+        if event_type == "message" and event.get('channel_type') != 'im':
             print(f"Ignoring non-DM message: {event.get('channel_type')}")
             return {"ok": True}
 
