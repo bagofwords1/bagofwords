@@ -184,7 +184,6 @@ class InspectDataMCPTool(MCPTool):
             ds_clients=rich_ctx.ds_clients,
             excel_files=[],
             code_generator_fn=_inspection_generator_fn,
-            validator_fn=_loose_validator,
             sigkill_event=sigkill_event,
         ):
             if e["type"] == "stdout":

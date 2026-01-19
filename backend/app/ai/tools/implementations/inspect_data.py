@@ -171,7 +171,6 @@ Use when:
             ds_clients=runtime_ctx.get("ds_clients", {}),
             excel_files=runtime_ctx.get("excel_files", []),
             code_generator_fn=_inspection_generator_fn,
-            validator_fn=_loose_validator,
             sigkill_event=runtime_ctx.get("sigkill_event"),
         ):
             if e["type"] == "stdout":
