@@ -786,7 +786,11 @@ class DataSourceService:
         return items
 
     async def get_public_data_sources(self, db: AsyncSession, organization: Organization) -> List[DataSourceListItemSchema]:
-        """Get only public active data sources for an organization (used for Slack channel mentions)"""
+        """
+        Get only public active data sources with system_only auth for an organization.
+        Used for Slack channel mentions where we can't rely on individual user credentials.
+        Only includes data sources that use system-level credentials (auth_policy="system_only").
+        """
         stmt = (
             select(DataSource)
             .options(
@@ -805,13 +809,19 @@ class DataSourceService:
 
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
+            conn = d.connections[0] if d.connections else None
+            # Only include data sources with system_only auth policy
+            # Skip user_required data sources since channel mentions can't use individual user credentials
+            auth_policy = conn.auth_policy if conn else "system_only"
+            if auth_policy == "user_required":
+                continue
+
             connection_embedded = await self._build_connection_embedded(
                 db=db,
                 data_source=d,
                 current_user=None,
                 live_test=False
             )
-            conn = d.connections[0] if d.connections else None
 
             s = DataSourceListItemSchema(
                 id=str(d.id),
@@ -822,7 +832,7 @@ class DataSourceService:
                 status=("active" if bool(d.is_active) else "inactive"),
                 connection=connection_embedded,
                 type=conn.type if conn else None,
-                auth_policy=conn.auth_policy if conn else None,
+                auth_policy=auth_policy,
                 user_status=connection_embedded.user_status if connection_embedded else None,
             )
             items.append(s)

@@ -29,10 +29,13 @@ def upgrade() -> None:
         batch_op.add_column(sa.Column('external_channel_id', sa.String(), nullable=True))
         batch_op.add_column(sa.Column('external_channel_type', sa.String(), nullable=True))
         batch_op.create_index('ix_completions_external_thread_ts', ['external_thread_ts'])
+        # Composite index for reaction lookups (channel_id + message_ts)
+        batch_op.create_index('ix_completions_external_channel_message', ['external_channel_id', 'external_message_ts'])
 
 
 def downgrade() -> None:
     with op.batch_alter_table('completions', schema=None) as batch_op:
+        batch_op.drop_index('ix_completions_external_channel_message')
         batch_op.drop_index('ix_completions_external_thread_ts')
         batch_op.drop_column('external_channel_type')
         batch_op.drop_column('external_channel_id')
