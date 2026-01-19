@@ -381,6 +381,7 @@ interface ToolCall {
 	created_step_id?: string
     created_widget?: any
     created_step?: any
+    created_visualizations?: any[]
 }
 
 interface CompletionBlock {
@@ -1253,6 +1254,10 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 					if (payload.created_step_id) {
 						blockWithTool.tool_execution.created_step_id = payload.created_step_id
+					}
+					// Populate created_visualizations from the IDs sent by backend
+					if (payload.created_visualization_ids && Array.isArray(payload.created_visualization_ids) && payload.created_visualization_ids.length > 0) {
+						blockWithTool.tool_execution.created_visualizations = payload.created_visualization_ids.map((id: string) => ({ id }))
 					}
 					// If the dashboard was created successfully, refresh widgets and open the dashboard pane
 					if (payload.tool_name === 'create_dashboard' && payload.status === 'success') {

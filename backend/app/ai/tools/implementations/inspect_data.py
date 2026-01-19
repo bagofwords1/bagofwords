@@ -151,10 +151,6 @@ Use when:
         async def _inspection_generator_fn(**kwargs):
             return await coder.generate_inspection_code(**kwargs)
 
-        # We define a loose validator that always passes (we just want to run the code)
-        async def _loose_validator(code, dm):
-            return {"valid": True, "reasoning": "Inspection mode - strict validation skipped"}
-
         # 4. Execute
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_inspection"})
         

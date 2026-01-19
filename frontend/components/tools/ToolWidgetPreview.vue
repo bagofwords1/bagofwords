@@ -321,6 +321,7 @@ const visualization = computed(() => {
   const list = (props.toolExecution as any)?.created_visualizations
   if (Array.isArray(list) && list.length) return list[0]
   // Fallback: build synthetic visualization from result_json (for public/readonly views)
+  // Mark as synthetic so we don't allow adding to dashboard with wrong ID
   const rj = props.toolExecution?.result_json as any
   if (rj?.view || rj?.data_model) {
     return {
@@ -328,6 +329,7 @@ const visualization = computed(() => {
       title: rj?.title || rj?.widget_title || 'Results',
       view: rj?.view || { type: rj?.data_model?.type || 'table' },
       status: 'success',
+      _isSynthetic: true,  // Flag to prevent adding to dashboard
     }
   }
   return null
@@ -426,7 +428,8 @@ const queryId = computed(() => {
 async function hydrateVisualizationIfNeeded() {
   try {
     const v = visualization.value as any
-    if (v?.id && v?.status) return
+    // Always hydrate if we only have a synthetic visualization (no real viz ID)
+    if (v?.id && v?.status && !v?._isSynthetic) return
     if (!queryId.value) return
     const { data, error } = await useMyFetch(`/api/queries/${queryId.value}`, { method: 'GET' })
     if (error.value) return
@@ -691,6 +694,8 @@ watch(layoutBlocks, () => {
 const canAdd = computed(() => {
   const viz = visualization.value
   const st = effectiveStep.value
+  // Don't allow adding synthetic visualizations (they use tool_execution ID, not real viz ID)
+  if (viz?._isSynthetic) return false
   // Consider step OK if explicit status is success OR if rows are present
   const rows = st?.data?.rows
   const stepOk = st?.status ? st.status === 'success' : Array.isArray(rows)

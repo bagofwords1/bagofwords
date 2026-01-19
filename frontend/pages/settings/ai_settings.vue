@@ -20,9 +20,10 @@
         <div v-if="!loading && !error" class="space-y-8">
       <!-- General Configuration Section -->
             <div v-if="Object.keys(configFeatures).length > 0">
-                
+
                 <div class="space-y-5">
-                    <div v-for="(feature, key) in configFeatures" :key="`config_${key}`" class="flex flex-col md:w-2/3">
+                    <!-- Regular config features (excluding allow_llm_see_data) -->
+                    <div v-for="(feature, key) in regularConfigFeatures" :key="`config_${key}`" class="flex flex-col md:w-2/3">
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
                                 {{ feature.name }}
@@ -60,6 +61,29 @@
                             </span>
                         </div>
                         <p class="text-sm text-gray-500 mt-2.5">{{ feature.description }}</p>
+                    </div>
+
+                    <!-- Allow LLM See Data - Special highlighted setting at the end -->
+                    <div v-if="configFeatures.allow_llm_see_data" class="flex flex-col md:w-2/3 mt-8 p-4 border-2 border-amber-300 bg-amber-50 rounded-lg">
+                        <div class="flex items-center justify-between">
+                            <div class="font-medium flex items-center">
+                                <Icon name="heroicons:shield-exclamation" class="mr-2 w-5 h-5 text-amber-600" />
+                                {{ configFeatures.allow_llm_see_data.name }}
+                                <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" text="This setting is locked and cannot be changed.">
+                                    <Icon name="heroicons:lock-closed" class="ml-2 w-4 h-4 text-gray-400" />
+                                </UTooltip>
+                            </div>
+                            <UToggle
+                                v-model="configFeatures.allow_llm_see_data.value"
+                                :disabled="!configFeatures.allow_llm_see_data.editable || configFeatures.allow_llm_see_data.state === 'locked'"
+                                @change="handleAllowLlmSeeDataChange"
+                            />
+                        </div>
+                        <p class="text-sm text-amber-700 mt-2.5">{{ configFeatures.allow_llm_see_data.description }}</p>
+                        <p class="text-xs text-amber-600 mt-1 font-medium">
+                            <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 mr-1" />
+                            Changing this setting affects data privacy. A confirmation will be required.
+                        </p>
                     </div>
                 </div>
             </div>
@@ -119,11 +143,81 @@
                 <p class="text-gray-500">No AI settings available.</p>
             </div>
         </div>
+
+        <!-- Confirmation Modal for Allow LLM See Data -->
+        <UModal v-model="showLlmConfirmModal" :ui="{ width: 'sm:max-w-lg' }">
+            <UCard :ui="{ body: { padding: 'p-6' }, header: { padding: 'px-6 py-4' }, footer: { padding: 'px-6 py-4' } }">
+                <template #header>
+                    <h3 class="text-lg font-semibold text-gray-900">
+                        {{ pendingLlmValue ? 'Enable' : 'Disable' }} LLM Data Access
+                    </h3>
+                </template>
+
+                <div class="space-y-4">
+                    <!-- Enable message -->
+                    <p v-if="pendingLlmValue" class="text-sm text-gray-600">
+                        The AI will be able to see sample rows from your data for better analysis.
+                    </p>
+
+                    <!-- Disable message with impact list -->
+                    <template v-else>
+                        <p class="text-sm text-gray-600">
+                            Disabling this setting will have the following impact:
+                        </p>
+                        <ul class="text-sm text-gray-600 space-y-2 ml-1">
+                            <li class="flex items-start gap-2">
+                                <Icon name="heroicons:x-circle" class="w-4 h-4 text-red-500 mt-0.5 flex-shrink-0" />
+                                <span><strong>Inspect Data</strong> tool will be disabled</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <Icon name="heroicons:arrow-trending-down" class="w-4 h-4 text-amber-500 mt-0.5 flex-shrink-0" />
+                                <span>Reduced analysis accuracy and performance</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <Icon name="heroicons:eye-slash" class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                                <span>AI will only see column names and statistics, not actual values</span>
+                            </li>
+                            <li class="mt-2 text-xs">
+                            <UAlert description="File uploads are unaffected by this setting and will still be visible to the AI (you can disable file uploads separately)." class="text-xs" />
+                        </li>
+                        </ul>
+                    </template>
+
+                    <div class="pt-2">
+                        <label class="block text-sm text-gray-600 mb-2">
+                            Type <span class="font-mono bg-gray-100 px-1.5 py-0.5 rounded">I AM SURE</span> to confirm
+                        </label>
+                        <UInput
+                            v-model="llmConfirmText"
+                            placeholder="I AM SURE"
+                            color="blue"
+                            class="w-full"
+                            @keyup.enter="confirmLlmChange"
+                        />
+                    </div>
+                </div>
+
+                <template #footer>
+                    <div class="flex justify-end gap-3">
+                        <UButton color="gray" variant="ghost" @click="cancelLlmChange">
+                            Cancel
+                        </UButton>
+                        <UButton
+                            :color="pendingLlmValue ? 'blue' : 'red'"
+                            :disabled="llmConfirmText !== 'I AM SURE'"
+                            @click="confirmLlmChange"
+                        >
+                            Confirm
+                        </UButton>
+                    </div>
+                </template>
+            </UCard>
+        </UModal>
     </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useToast } from '#imports'
 
 // Define feature interface matching backend FeatureConfig
@@ -148,6 +242,22 @@ definePageMeta({ auth: true, permissions: ['modify_settings'], layout: 'settings
 
 const loading = ref(true)
 const error = ref('')
+
+// Confirmation modal state
+const showLlmConfirmModal = ref(false)
+const llmConfirmText = ref('')
+const pendingLlmValue = ref(false)
+
+// Computed property to exclude allow_llm_see_data from regular features
+const regularConfigFeatures = computed(() => {
+    const features: Record<string, Feature> = {}
+    for (const key in configFeatures.value) {
+        if (key !== 'allow_llm_see_data') {
+            features[key] = configFeatures.value[key]
+        }
+    }
+    return features
+})
 const aiFeatures = ref<Record<string, Feature>>({})
 const configFeatures = ref<Record<string, Feature>>({})
 
@@ -307,6 +417,45 @@ const updateConfigFeature = async (featureKey: string, feature: Feature) => {
             icon: 'i-heroicons-exclamation-circle'
         })
     }
+}
+
+// Handle allow_llm_see_data toggle - requires confirmation
+const handleAllowLlmSeeDataChange = () => {
+    // Store the new value and revert toggle until confirmed
+    pendingLlmValue.value = configFeatures.value.allow_llm_see_data.value
+    // Revert the toggle visually until confirmed
+    configFeatures.value.allow_llm_see_data.value = !pendingLlmValue.value
+    llmConfirmText.value = ''
+    showLlmConfirmModal.value = true
+}
+
+// Confirm the allow_llm_see_data change
+const confirmLlmChange = async () => {
+    if (llmConfirmText.value !== 'I AM SURE') {
+        toast.add({
+            title: 'Confirmation Required',
+            description: 'Please type "I AM SURE" to confirm this change.',
+            color: 'amber',
+            timeout: 3000,
+            icon: 'i-heroicons-exclamation-triangle'
+        })
+        return
+    }
+
+    // Apply the pending value
+    configFeatures.value.allow_llm_see_data.value = pendingLlmValue.value
+    showLlmConfirmModal.value = false
+    llmConfirmText.value = ''
+
+    // Now update the setting
+    await updateConfigFeature('allow_llm_see_data', configFeatures.value.allow_llm_see_data)
+}
+
+// Cancel the allow_llm_see_data change
+const cancelLlmChange = () => {
+    showLlmConfirmModal.value = false
+    llmConfirmText.value = ''
+    // Toggle stays at original value (already reverted in handleAllowLlmSeeDataChange)
 }
 
 // Fetch settings when the component is mounted

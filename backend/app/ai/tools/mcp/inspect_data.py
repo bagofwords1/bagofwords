@@ -166,11 +166,7 @@ class InspectDataMCPTool(MCPTool):
         # Wrap generate_inspection_code
         async def _inspection_generator_fn(**kwargs):
             return await coder.generate_inspection_code(**kwargs)
-        
-        # Loose validator for inspection
-        async def _loose_validator(code, dm):
-            return {"valid": True, "reasoning": "Inspection mode - strict validation skipped"}
-        
+
         # Execute inspection
         output_log = ""
         generated_code = ""
