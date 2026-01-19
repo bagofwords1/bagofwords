@@ -318,6 +318,10 @@ class CompletionService:
         external_user_id: str = None,
         external_platform: str = None,
         build_id: str = None,
+        external_thread_ts: str = None,
+        external_message_ts: str = None,
+        external_channel_id: str = None,
+        external_channel_type: str = None,
     ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
@@ -380,7 +384,11 @@ class CompletionService:
                 status="success",
                 user_id=current_user.id,
                 external_user_id=external_user_id,
-                external_platform=external_platform
+                external_platform=external_platform,
+                external_thread_ts=external_thread_ts,
+                external_message_ts=external_message_ts,
+                external_channel_id=external_channel_id,
+                external_channel_type=external_channel_type
             )
 
             try:
@@ -410,7 +418,11 @@ class CompletionService:
                 role="system",
                 status="in_progress",
                 external_platform=external_platform,
-                external_user_id=external_user_id
+                external_user_id=external_user_id,
+                external_thread_ts=external_thread_ts,
+                external_message_ts=external_message_ts,
+                external_channel_id=external_channel_id,
+                external_channel_type=external_channel_type
             )
 
             try:

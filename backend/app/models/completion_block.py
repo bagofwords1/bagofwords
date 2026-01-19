@@ -74,16 +74,25 @@ async def send_completion_blocks_to_slack(completion_id: str):
             if not (completion.external_platform == 'slack' and completion.external_user_id):
                 return
 
+            # Get thread context from completion
+            thread_ts = completion.external_thread_ts
+            message_ts = completion.external_message_ts
+            channel_id = completion.external_channel_id
+            channel_type = completion.external_channel_type
+
+            # Determine response channel: for channel mentions, respond in channel; for DMs, open DM
+            response_channel = channel_id if channel_type == "channel" else None
+
             # Get all terminal completion blocks for this completion
             blocks_stmt = select(CompletionBlock).where(
                 CompletionBlock.completion_id == completion_id,
                 CompletionBlock.source_type.in_(['decision', 'tool', 'final']),
                 CompletionBlock.status.in_(['completed', 'success', 'error'])
             ).order_by(CompletionBlock.block_index)
-            
+
             blocks_result = await db.execute(blocks_stmt)
             blocks = blocks_result.scalars().all()
-            
+
             if not blocks:
                 return
 
@@ -103,19 +112,19 @@ async def send_completion_blocks_to_slack(completion_id: str):
 
             adapter = PlatformAdapterFactory.create_adapter(platform)
 
-            # Send each block as a separate message (text first, then tool output)
+            # Send each block as a separate message in the thread
             for block in blocks:
                 block_id_str = str(block.id)
                 lock = _block_locks.setdefault(block_id_str, asyncio.Lock())
                 async with lock:
                     content = (block.content or '').strip()
-                    # Send text for decision/final blocks once
+                    # Send text for decision/final blocks once (in thread)
                     if (block.source_type in ('decision', 'final') and
                         content and len(content) >= 10 and
                         block_id_str not in _sent_block_text_ids):
-                        await adapter.send_dm(completion.external_user_id, content)
+                        await adapter.send_dm_in_thread(completion.external_user_id, content, thread_ts, channel_id=response_channel)
                         _sent_block_text_ids.add(block_id_str)
-                    
+
                     # If this block has a tool execution that created a step, send the step result (chart/table)
                     if block.tool_execution_id:
                         try:
@@ -123,15 +132,25 @@ async def send_completion_blocks_to_slack(completion_id: str):
                             te_result = await db.execute(te_stmt)
                             te = te_result.scalar_one_or_none()
                             if te and te.created_step_id and block_id_str not in _sent_block_tool_ids:
-                                # Pass routing details explicitly and mark as sent (tool result)
+                                # Pass routing details explicitly with thread context
                                 await send_step_result_to_slack(
                                     str(te.created_step_id),
                                     completion.external_user_id,
-                                    org_id
+                                    org_id,
+                                    thread_ts=thread_ts,
+                                    channel_id=response_channel
                                 )
                                 _sent_block_tool_ids.add(block_id_str)
                         except Exception as e:
                             print(f"Error sending step result for block {block.id}: {e}")
+
+            # After sending all blocks, swap reactions: remove eyes, add checkmark
+            if channel_id and message_ts:
+                try:
+                    await adapter.remove_reaction(channel_id, message_ts, "eyes")
+                    await adapter.add_reaction(channel_id, message_ts, "white_check_mark")
+                except Exception as e:
+                    print(f"Error updating reactions for completion {completion_id}: {e}")
 
         except Exception as e:
             print(f"Error sending Slack DMs for completion {completion_id}: {e}")
@@ -160,7 +179,15 @@ async def _send_block_to_slack(block_id: str):
                 return
 
             block_id_str = str(block_id)
-            
+
+            # Get thread context from completion
+            thread_ts = completion.external_thread_ts
+            channel_id = completion.external_channel_id
+            channel_type = completion.external_channel_type
+
+            # Determine response channel: for channel mentions, respond in channel; for DMs, open DM
+            response_channel = channel_id if channel_type == "channel" else None
+
             # Resolve organization once for both tool and text sends
             org_id = completion.report.organization_id if completion.report else None
             if not org_id:
@@ -199,7 +226,8 @@ async def _send_block_to_slack(block_id: str):
                             fresh_block = fresh_result.scalar_one_or_none()
                             if fresh_block and fresh_block.updated_at == initial_updated_at:
                                 _sent_block_text_ids.add(block_id_str)
-                                await adapter.send_dm(completion.external_user_id, fresh_block.content or content)
+                                # Send in thread
+                                await adapter.send_dm_in_thread(completion.external_user_id, fresh_block.content or content, thread_ts, channel_id=response_channel)
 
                 # Tool-origin content: if a tool execution exists and finished, send the step output (chart/table/file) once
                 if getattr(block, 'tool_execution_id', None) and (block.status in ('success', 'error', 'completed')) and (block_id_str not in _sent_block_tool_ids):
@@ -210,11 +238,13 @@ async def _send_block_to_slack(block_id: str):
                     except Exception:
                         te = None
                     if te and te.created_step_id:
-                        # Pass routing details explicitly to avoid relying on Completion.step_id linkage
+                        # Pass routing details explicitly with thread context
                         await send_step_result_to_slack(
                             str(te.created_step_id),
                             completion.external_user_id,
-                            org_id
+                            org_id,
+                            thread_ts=thread_ts,
+                            channel_id=response_channel
                         )
                         _sent_block_tool_ids.add(block_id_str)
         except Exception as e:

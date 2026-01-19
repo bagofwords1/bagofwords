@@ -1,10 +1,12 @@
 # Release Notes
 
+## Version 0.0.299 (January 18, 2026)
+
 ## Version 0.0.298 (January 18, 2026)
 - Added guardrails around code execution
 - Removed code validation flag, as it's now deterministic and built-in 
 
-## Version 0.0.297 (January 18, 2026)
+# Version 0.0.297 (January 18, 2026)
 - Introducing: Training Mode
   - A dedicated mode for documenting and managing your data domain knowledge
   - Explore schemas, inspect data, and create instructions to guide AI behavior

@@ -54,28 +54,52 @@ class SlackAdapter(PlatformAdapter):
             return None
     
     async def process_incoming_message(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Process incoming Slack message"""
-        
+        """Process incoming Slack message or app_mention event"""
+
         # Extract relevant data from Slack event
         event = event_data.get("event", {})
-        
+        event_type = event.get("type")  # 'message' or 'app_mention'
+
         # Get bot user ID to filter out bot messages
         bot_user_id = await self.get_bot_user_id()
-        
+
         # Check if this is a bot message
         if event.get("user") == bot_user_id:
             print("Ignoring bot message in adapter")
             return None
-        
+
+        # Extract message timestamp and thread context
+        message_ts = event.get("ts")
+        thread_ts = event.get("thread_ts")
+        channel_id = event.get("channel")
+
+        # For app_mention events, channel_type is not provided - infer it
+        # DMs have channel_type='im', channels don't have it in app_mention events
+        channel_type = event.get("channel_type")
+        if event_type == "app_mention" and not channel_type:
+            # app_mention events come from channels, not DMs
+            channel_type = "channel"
+
+        # Determine thread context:
+        # - If this is a thread reply (thread_ts exists and != ts), use thread_ts
+        # - If this is a top-level message, we'll respond in a thread using ts as thread_ts
+        is_thread_reply = thread_ts is not None and thread_ts != message_ts
+        effective_thread_ts = thread_ts if is_thread_reply else message_ts
+
         return {
             "platform_type": "slack",
             "external_user_id": event.get("user"),
-            "external_message_id": event.get("ts"),
-            "channel_id": event.get("channel"),
+            "external_message_id": message_ts,
+            "channel_id": channel_id,
+            "channel_type": channel_type,
             "message_text": event.get("text", ""),
-            "message_type": event.get("type"),
-            "timestamp": event.get("ts"),
-            "team_id": event_data.get("team_id")
+            "message_type": event_type,
+            "timestamp": message_ts,
+            "team_id": event_data.get("team_id"),
+            # Thread context
+            "thread_ts": effective_thread_ts,
+            "message_ts": message_ts,  # Original message ts for reactions
+            "is_thread_reply": is_thread_reply
         }
     
     async def send_response(self, message_data: Dict[str, Any]) -> bool:
@@ -360,4 +384,206 @@ class SlackAdapter(PlatformAdapter):
             return await self._upload_file_v2(user_id, file_path, title)
         except Exception as e:
             print(f"Error sending file in DM: {e}")
+            return False
+
+    async def add_reaction(self, channel_id: str, timestamp: str, emoji: str) -> bool:
+        """Add an emoji reaction to a message."""
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            print("No bot token available for reaction")
+            return False
+
+        print(f"Adding reaction '{emoji}' to channel={channel_id}, ts={timestamp}")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    "https://slack.com/api/reactions.add",
+                    headers={
+                        "Authorization": f"Bearer {bot_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "channel": channel_id,
+                        "timestamp": timestamp,
+                        "name": emoji  # emoji name without colons, e.g., "eyes"
+                    }
+                )
+                result = response.json()
+                if not result.get("ok"):
+                    # already_reacted is not an error
+                    if result.get("error") != "already_reacted":
+                        print(f"Failed to add reaction: {result}")
+                return result.get("ok", False) or result.get("error") == "already_reacted"
+        except Exception as e:
+            print(f"Error adding reaction: {e}")
+            return False
+
+    async def remove_reaction(self, channel_id: str, timestamp: str, emoji: str) -> bool:
+        """Remove an emoji reaction from a message."""
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            print("No bot token available")
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    "https://slack.com/api/reactions.remove",
+                    headers={
+                        "Authorization": f"Bearer {bot_token}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "channel": channel_id,
+                        "timestamp": timestamp,
+                        "name": emoji
+                    }
+                )
+                result = response.json()
+                if not result.get("ok"):
+                    # no_reaction is not an error (reaction already removed or never existed)
+                    if result.get("error") != "no_reaction":
+                        print(f"Failed to remove reaction: {result}")
+                return result.get("ok", False) or result.get("error") == "no_reaction"
+        except Exception as e:
+            print(f"Error removing reaction: {e}")
+            return False
+
+    async def send_dm_in_thread(self, user_id: str, text: str, thread_ts: str = None, channel_id: str = None) -> bool:
+        """
+        Send a message, optionally in a thread.
+        If channel_id is provided, sends directly to that channel (for channel mentions).
+        Otherwise, opens a DM with the user.
+        If thread_ts is provided, the message will be sent as a reply in that thread.
+        """
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            print("No bot token available")
+            return False
+
+        try:
+            # If no channel_id provided, open a DM with the user
+            if not channel_id:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    open_resp = await client.post(
+                        "https://slack.com/api/conversations.open",
+                        headers={
+                            "Authorization": f"Bearer {bot_token}",
+                            "Content-Type": "application/json"
+                        },
+                        json={"users": user_id}
+                    )
+                    open_data = open_resp.json()
+                    if not open_data.get("ok"):
+                        print(f"Failed to open DM: {open_data}")
+                        return False
+                    channel_id = open_data["channel"]["id"]
+
+            # Build message payload
+            message_data = {
+                "channel": channel_id,
+                "text": text,
+                "blocks": [{
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": text
+                    }
+                }]
+            }
+
+            # Add thread_ts if provided
+            if thread_ts:
+                message_data["thread_ts"] = thread_ts
+
+            return await self.send_response(message_data)
+        except Exception as e:
+            print(f"Error sending message in thread: {e}")
+            return False
+
+    async def send_file_in_thread(self, user_id: str, file_path: str, title: str, thread_ts: str = None, channel_id: str = None) -> bool:
+        """
+        Sends a file, optionally in a thread.
+        If channel_id is provided, sends directly to that channel (for channel mentions).
+        Otherwise, opens a DM with the user.
+        """
+        bot_token = self.credentials.get("bot_token")
+        if not bot_token:
+            print("No bot token available")
+            return False
+
+        if not os.path.exists(file_path):
+            print(f"File not found at {file_path}")
+            return False
+
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                # If no channel_id provided, open a DM with the user
+                if not channel_id:
+                    open_resp = await client.post(
+                        "https://slack.com/api/conversations.open",
+                        headers={"Authorization": f"Bearer {bot_token}"},
+                        json={"users": user_id}
+                    )
+                    open_data = open_resp.json()
+                    if not open_data.get("ok"):
+                        print(f"Failed to open DM: {open_data}")
+                        return False
+                    channel_id = open_data["channel"]["id"]
+
+                # 2. Get the upload URL
+                file_size = os.path.getsize(file_path)
+                file_name = os.path.basename(file_path)
+
+                get_url_resp = await client.get(
+                    "https://slack.com/api/files.getUploadURLExternal",
+                    headers={"Authorization": f"Bearer {bot_token}"},
+                    params={"filename": file_name, "length": file_size}
+                )
+                get_url_data = get_url_resp.json()
+                if not get_url_data.get("ok"):
+                    print(f"Failed to get upload URL: {get_url_data}")
+                    return False
+
+                upload_url = get_url_data["upload_url"]
+                file_id = get_url_data["file_id"]
+
+                # 3. Upload the file
+                with open(file_path, "rb") as f:
+                    upload_resp = await client.post(
+                        upload_url,
+                        content=f.read(),
+                        headers={"Content-Type": "application/octet-stream"}
+                    )
+
+                if upload_resp.status_code != 200:
+                    print(f"Failed to upload file. Status: {upload_resp.status_code}")
+                    return False
+
+                # 4. Complete the upload with thread context
+                complete_payload = {
+                    "files": [{"id": file_id, "title": title}],
+                    "channel_id": channel_id,
+                    "initial_comment": title,
+                }
+
+                # Add thread_ts if provided
+                if thread_ts:
+                    complete_payload["thread_ts"] = thread_ts
+
+                complete_upload_resp = await client.post(
+                    "https://slack.com/api/files.completeUploadExternal",
+                    headers={"Authorization": f"Bearer {bot_token}"},
+                    json=complete_payload
+                )
+
+                complete_upload_data = complete_upload_resp.json()
+                if not complete_upload_data.get("ok"):
+                    print(f"Failed to complete file upload: {complete_upload_data}")
+                    return False
+
+                return True
+
+        except Exception as e:
+            print(f"Error in file upload with thread: {e}")
             return False
