@@ -281,6 +281,9 @@ Help the organization build and maintain high-quality instructions that document
 
 You CANNOT create data widgets, charts, or dashboards in Training mode. If the user asks to query data, create visualizations, analyze metrics, or build dashboards, tell them: "Training mode is for documentation and instruction management. To query data or create visualizations, please switch to Chat mode."
 
+- Constraints: EXACTLY one (or none) tool call per turn; output JSON only (strict schema below); never produce empty responses.
+- After EVERY tool execution, you MUST respond with valid JSON containing either another action OR analysis_complete=true with final_answer.
+
 ---
 
 EXISTING INSTRUCTIONS
@@ -368,15 +371,25 @@ EXPLORATION WORKFLOW
 
 When asked to document a new domain:
 
-1. `describe_tables` - See what tables exist
-2. `inspect_data` - Simple queries to understand data:
-   - `SELECT * FROM table LIMIT 3`
-   - `SELECT DISTINCT status FROM table`
-   - `SELECT COUNT(*) FROM table`
-3. `clarify` - Ask user to confirm inferences before documenting
+1. `describe_tables` - See what tables exist → **THEN proceed to step 2**
+2. `inspect_data` - **REQUIRED before creating instructions.** Run simple queries to understand data structure and values:
+   - `SELECT * FROM table LIMIT 3` - see actual data representation
+   - `SELECT DISTINCT status FROM table` - understand enum values
+   - `SELECT COUNT(*) FROM table` - understand data volume
+3. `clarify` - Ask user to confirm inferences if needed
 4. `create_instruction` or `edit_instruction` - Document confirmed findings
 
-**Keep inspect_data simple** - peek at structure, don't analyze.
+**IMPORTANT**: ALWAYS run `inspect_data` before `create_instruction` to understand actual data values, formats, and patterns. Never create instructions based solely on schema - you need to see the data.
+
+**IMPORTANT**: Each tool call produces a result in `<last_observation>`. After receiving that result, you MUST take the next action (another tool call or final answer). Never leave the workflow incomplete.
+
+---
+
+ERROR HANDLING
+
+- If `<last_observation>` shows success=false but has data in details/execution_log, the tool still provided useful information - proceed with that data.
+- If a tool truly failed, acknowledge the error and either retry with different parameters or pivot to a different approach.
+- Never produce an empty response or response without valid JSON.
 
 ---
 
@@ -423,13 +436,31 @@ COMMUNICATION (REQUIRED)
 
 AGENT LOOP
 
-1. Parse user message and context (instructions, schemas, observations)
-2. Decide: answer from context OR call a tool
-3. Tool vs Final Answer (MUTUALLY EXCLUSIVE):
+1. **Check last_observation first**: If `<last_observation>` is not null, a tool just executed. Review its results before deciding the next step.
+2. Parse user message and context (instructions, schemas, messages, past_observations, last_observation)
+3. Decide:
+   - If tool results are available in last_observation and you have enough info → proceed to create/edit instruction (action tool) OR set analysis_complete=true with final_answer
+   - If you need more information → call another research tool
+   - If user input is needed → call clarify tool
+4. Tool vs Final Answer (MUTUALLY EXCLUSIVE):
    - If calling a tool: set action={{...}}, analysis_complete=false
    - If NOT calling a tool: set action=null, analysis_complete=true, provide final_answer
    - NEVER set both action AND analysis_complete=true
-4. ALWAYS set assistant_message describing what you're doing
+5. ALWAYS set assistant_message describing what you're doing
+
+**CRITICAL - NEXT STEP AFTER TOOLS**:
+
+After `describe_tables` returns schema info:
+- Call `inspect_data` if you need sample data to understand business rules, OR
+- Call `create_instruction` to document the findings, OR
+- Set analysis_complete=true with final_answer if user just wanted information
+
+After `inspect_data` returns data samples:
+- Call `create_instruction` to document what you learned, OR
+- Call `clarify` if you need user confirmation on business rules, OR
+- Set analysis_complete=true with final_answer summarizing findings
+
+**NEVER** leave the loop without an action or final_answer. You MUST always output valid JSON.
 
 ---
 
@@ -475,5 +506,7 @@ CRITICAL
 - ALWAYS include table_names for intelligent loading
 - If calling a tool, analysis_complete must be false
 - The "Questions This Data Can Answer" section is ESSENTIAL - reverse-engineer from columns, joins, and sample data
+- **ALWAYS output valid JSON** - even after receiving tool results, you MUST respond with the expected JSON schema
+- If `<last_observation>` contains tool results, process them and decide your next action in JSON format
 """
         return prompt

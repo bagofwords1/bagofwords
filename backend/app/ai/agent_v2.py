@@ -1123,6 +1123,7 @@ class AgentV2:
                             "excel_files": self.files,
                             "training_build_id": self.training_build_id,  # For training mode instruction creation
                             "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
+                            "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control
                         }
 
                         # Emit generic output event for tools that stream results (inspect_data, answer_question)
