@@ -1,5 +1,13 @@
 # Release Notes
 
+## Version 0.0.300 (January 19, 2026)
+- **Slack Integration Enhancements**
+  - Thread-based responses: replies now appear in threads instead of separate messages
+  - Each thread corresponds to a single report for better conversation continuity
+  - Added support for @mentions in channels (in addition to DMs)
+  - Visual feedback via emoji reactions: 👀 when processing, ✅ when complete
+  - Data source access control: channel mentions query only public data sources, while DMs include private data sources the user has access to
+
 ## Version 0.0.299 (January 18, 2026)
 
 ## Version 0.0.298 (January 18, 2026)
