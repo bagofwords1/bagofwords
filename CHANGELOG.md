@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.302 (January 20, 2026)
+- Rename Catalog to Queries
+- Show chart and visualization in query page
+
 ## Version 0.0.301 (January 20, 2026)
 - Support for local DuckDB databases via file:// or absolute path i.e /data/myduck.db
 - Set global git repo management

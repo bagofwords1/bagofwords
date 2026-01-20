@@ -4,7 +4,7 @@
       <!-- Header -->
       <div class="px-4 py-3 bg-white border-b flex items-center justify-between flex-shrink-0">
         <div class="text-sm font-medium text-gray-800">
-          {{ canCreateEntities ? 'Save to Catalog' : 'Suggest to Catalog' }}
+          {{ canCreateEntities ? 'Save Query' : 'Suggest Query' }}
         </div>
         <button class="text-xs text-gray-500 hover:text-gray-700" @click="open = false">Close</button>
       </div>
@@ -16,14 +16,14 @@
             <div class="bg-white rounded-lg p-3">
               <!-- Info message for non-admins (suggestions) -->
               <div v-if="!canCreateEntities && canSuggestEntities" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
-                <div class="font-medium mb-1">Suggest Entity for Review</div>
-                <div>Your entity will be submitted for admin approval before being published to the global catalog.</div>
+                <div class="font-medium mb-1">Suggest Query for Review</div>
+                <div>Your query will be submitted for admin approval before being published.</div>
               </div>
-              
+
               <!-- Info message for admins -->
               <div v-if="canCreateEntities" class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-xs text-green-800">
-                <div class="font-medium mb-1">Create Global Entity</div>
-                <div>As an admin, your entity will be published directly to the global catalog.</div>
+                <div class="font-medium mb-1">Save Query</div>
+                <div>As an admin, your query will be published directly.</div>
               </div>
               
               <!-- Error message for no permissions -->

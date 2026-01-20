@@ -2,7 +2,7 @@
   <div class="py-6">
     <div class="max-w-3xl mx-auto px-4">
       <div class="mb-5">
-        <h1 class="text-lg font-semibold text-gray-900">Catalog</h1>
+        <h1 class="text-lg font-semibold text-gray-900">Queries</h1>
         
         <!-- Filter tabs -->
         <div class="mt-3 flex items-center gap-2 border-b border-gray-200">
@@ -289,7 +289,7 @@ function reload() {
 }
 
 function navigateToEntity(id: string) {
-  router.push(`/catalog/${id}`)
+  router.push(`/queries/${id}`)
 }
 
 function timeAgo(iso: string | Date | null | undefined) {

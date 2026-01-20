@@ -136,17 +136,17 @@
              'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
              isCollapsed ? 'justify-center' : 'gap-3'
            ]">
-            <UTooltip v-if="isCollapsed" text="Catalog" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" text="Queries" :popper="{ placement: 'right' }">
               <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-library-icon lucide-library"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
               </span>
-              <span v-if="showText" class="text-sm">Catalog</span>
+              <span v-if="showText" class="text-sm">Queries</span>
             </UTooltip>
             <template v-else>
               <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-library-icon lucide-library"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
               </span>
-              <span v-if="showText" class="text-sm">Catalog</span>
+              <span v-if="showText" class="text-sm">Queries</span>
             </template>
           </a>
         </li>

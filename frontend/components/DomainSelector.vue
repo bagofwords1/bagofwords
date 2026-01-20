@@ -199,16 +199,16 @@
                   <span v-if="instructionsCount > 0" class="ml-1 text-[10px] text-gray-400">({{ instructionsCount }})</span>
                 </button>
                 <button
-                  @click="flyoutTab = 'catalog'"
+                  @click="flyoutTab = 'queries'"
                   :class="[
-                    flyoutTab === 'catalog'
+                    flyoutTab === 'queries'
                       ? 'border-indigo-500 text-indigo-600'
                       : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700',
                     'whitespace-nowrap border-b-2 py-2 text-xs font-medium'
                   ]"
                 >
-                  Catalog
-                  <span v-if="catalogCount > 0" class="ml-1 text-[10px] text-gray-400">({{ catalogCount }})</span>
+                  Queries
+                  <span v-if="queriesCount > 0" class="ml-1 text-[10px] text-gray-400">({{ queriesCount }})</span>
                 </button>
               </nav>
             </div>
@@ -371,27 +371,27 @@
                   </div>
                 </div>
 
-                <!-- Catalog tab -->
-                <div v-else-if="flyoutTab === 'catalog'">
-                  <div v-if="catalogLoading" class="flex items-center justify-center py-10">
+                <!-- Queries tab -->
+                <div v-else-if="flyoutTab === 'queries'">
+                  <div v-if="queriesLoading" class="flex items-center justify-center py-10">
                     <Spinner class="w-5 h-5 text-gray-400 animate-spin" />
                   </div>
 
-                  <div v-else-if="catalogError" class="text-xs text-gray-500">
-                    {{ catalogError }}
+                  <div v-else-if="queriesError" class="text-xs text-gray-500">
+                    {{ queriesError }}
                   </div>
 
                   <div v-else>
-                    <div v-if="catalogCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
-                      No catalog entities found
+                    <div v-if="queriesCount === 0" class="text-xs text-gray-400 italic py-6 text-center">
+                      No saved queries found
                     </div>
 
                     <div v-else class="border border-gray-200 rounded-lg overflow-hidden">
                       <div class="max-h-[320px] overflow-auto">
                         <a
-                          v-for="entity in catalogResources"
+                          v-for="entity in queriesResources"
                           :key="entity.id"
-                          :href="`/catalog/${entity.id}`"
+                          :href="`/queries/${entity.id}`"
                           class="w-full px-3 py-2 text-left text-xs flex items-start gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0 block"
                         >
                           <div class="flex-1 min-w-0">
@@ -457,7 +457,7 @@ const loadingDomainDetails = ref(false)
 const domainDetailsCache = ref<Record<string, any>>({})
 const flyout = reactive({ visible: false, top: 0, left: 0 })
 let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
-const flyoutTab = ref<'overview' | 'tables' | 'instructions' | 'catalog'>('overview')
+const flyoutTab = ref<'overview' | 'tables' | 'instructions' | 'queries'>('overview')
 
 // Tables tab state (data source schema)
 const tablesCache = ref<Record<string, any[]>>({})
@@ -484,17 +484,17 @@ const instructionsResources = computed<any[]>(() => {
 })
 const instructionsCount = computed(() => instructionsResources.value.length)
 
-// Catalog tab state
-const catalogCache = ref<Record<string, any[]>>({})
-const catalogLoading = ref(false)
-const catalogError = ref<string | null>(null)
+// Queries tab state
+const queriesCache = ref<Record<string, any[]>>({})
+const queriesLoading = ref(false)
+const queriesError = ref<string | null>(null)
 
-const catalogResources = computed<any[]>(() => {
+const queriesResources = computed<any[]>(() => {
   const id = hoveredDomainId.value
   if (!id) return []
-  return catalogCache.value[id] || []
+  return queriesCache.value[id] || []
 })
-const catalogCount = computed(() => catalogResources.value.length)
+const queriesCount = computed(() => queriesResources.value.length)
 
 // Computed: check if connection is active (status === 'success')
 const isConnectionActive = computed(() => {
@@ -530,7 +530,7 @@ const onDomainHover = async (domainId: string, evt: MouseEvent) => {
   tablesError.value = null
   selectedTable.value = null
   instructionsError.value = null
-  catalogError.value = null
+  queriesError.value = null
   
   // Check cache first for domain details
   const needsDomainDetails = !domainDetailsCache.value[domainId]
@@ -565,7 +565,7 @@ const onDomainHover = async (domainId: string, evt: MouseEvent) => {
     fetchDomainDetails(),
     fetchTablesForDomain(domainId),
     fetchInstructionsForDomain(domainId),
-    fetchCatalogForDomain(domainId)
+    fetchQueriesForDomain(domainId)
   ])
 }
 
@@ -647,33 +647,33 @@ const fetchInstructionsForDomain = async (domainId: string) => {
   }
 }
 
-const fetchCatalogForDomain = async (domainId: string) => {
+const fetchQueriesForDomain = async (domainId: string) => {
   if (!domainId) return
-  if (catalogCache.value[domainId]) return
-  catalogLoading.value = true
-  catalogError.value = null
+  if (queriesCache.value[domainId]) return
+  queriesLoading.value = true
+  queriesError.value = null
   try {
-    const { data, error } = await useMyFetch('/api/entities', { 
+    const { data, error } = await useMyFetch('/api/entities', {
       method: 'GET',
       query: {
         data_source_ids: domainId
       }
     })
     if (error?.value) {
-      catalogError.value = 'Failed to load catalog'
+      queriesError.value = 'Failed to load queries'
       return
     }
     const payload: any = (data as any)?.value
     const entities = Array.isArray(payload) ? payload : []
     // Filter to only published entities
-    const filtered = entities.filter((e: any) => 
+    const filtered = entities.filter((e: any) =>
       e.status === 'published' && e.global_status === 'approved'
     )
-    catalogCache.value[domainId] = filtered
+    queriesCache.value[domainId] = filtered
   } catch (e) {
-    catalogError.value = 'Failed to load catalog'
+    queriesError.value = 'Failed to load queries'
   } finally {
-    catalogLoading.value = false
+    queriesLoading.value = false
   }
 }
 
@@ -685,8 +685,8 @@ watch(flyoutTab, async (tab) => {
     await fetchTablesForDomain(id)
   } else if (tab === 'instructions') {
     await fetchInstructionsForDomain(id)
-  } else if (tab === 'catalog') {
-    await fetchCatalogForDomain(id)
+  } else if (tab === 'queries') {
+    await fetchQueriesForDomain(id)
   }
 })
 
