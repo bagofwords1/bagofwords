@@ -970,13 +970,16 @@ class MetadataIndexingJobService:
                 )
 
                 repo_status = "completed" if job_status == "completed" else "failed"
+                repo_update_values = {
+                    "status": repo_status,
+                    "updated_at": datetime.utcnow()
+                }
+                if repo_status == "completed":
+                    repo_update_values["last_indexed_at"] = datetime.utcnow()
                 await db.execute(
                     update(GitRepository)
                     .where(GitRepository.id == repository_id)
-                    .values({
-                        "status": repo_status,
-                        "updated_at": datetime.utcnow()
-                    })
+                    .values(repo_update_values)
                 )
                 await db.commit()
 

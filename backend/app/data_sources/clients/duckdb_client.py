@@ -125,13 +125,33 @@ class DuckDBClient(DataSourceClient):
             created.append(view)
         return created
 
+    def _find_local_duckdb_file(self) -> str | None:
+        """Check if any URI pattern is a local .duckdb or .db file.
+
+        Supports both direct paths (/data/my.duckdb) and file:// URIs (file:///data/my.duckdb).
+        Returns the normalized path (strips file:// prefix if present).
+        """
+        for pattern in self.uri_patterns:
+            lower = pattern.lower()
+            if lower.endswith('.duckdb') or lower.endswith('.db'):
+                # Strip file:// prefix if present
+                if lower.startswith('file://'):
+                    return pattern[7:]  # Remove 'file://' prefix
+                return pattern
+        return None
+
     @contextmanager
     def connect(self) -> Generator[duckdb.DuckDBPyConnection, None, None]:
         con: duckdb.DuckDBPyConnection | None = None
         try:
+            local_db = self._find_local_duckdb_file()
+
             if self.database:
                 # Open local .duckdb file directly (read-only for safety)
                 con = duckdb.connect(database=self.database, read_only=True)
+            elif local_db:
+                # Direct connection to local .duckdb file specified in URIs
+                con = duckdb.connect(database=local_db, read_only=True)
             else:
                 # In-memory database with views from URI patterns
                 con = duckdb.connect(database=":memory:")
@@ -155,11 +175,15 @@ class DuckDBClient(DataSourceClient):
         except Exception as e:
             raise
 
+    def _is_direct_db_connection(self) -> bool:
+        """Check if we're connecting directly to a database file."""
+        return bool(self.database or self._find_local_duckdb_file())
+
     def get_tables(self) -> List[Table]:
         tables: List[Table] = []
         with self.connect() as con:
             # For database files, list actual tables; for URI mode, list views
-            if self.database:
+            if self._is_direct_db_connection():
                 rows = con.execute("""
                     SELECT table_name
                     FROM information_schema.tables
@@ -223,10 +247,15 @@ class DuckDBClient(DataSourceClient):
         try:
             with self.connect() as con:
                 con.execute("SELECT 1")
+                local_db = self._find_local_duckdb_file()
                 if self.database:
                     # For database files, try to list tables
-                    tables = con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' LIMIT 1").fetchall()
+                    con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' LIMIT 1").fetchall()
                     return {"success": True, "message": f"DuckDB database connected: {self.database}"}
+                elif local_db:
+                    # Local .duckdb file specified in URIs
+                    con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' LIMIT 1").fetchall()
+                    return {"success": True, "message": f"DuckDB database connected: {local_db}"}
                 elif self.uri_patterns:
                     # Try reading first pattern minimally if present
                     view_names = con.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='main' AND table_type='VIEW' ORDER BY table_name LIMIT 1").fetchall()
@@ -254,8 +283,11 @@ class DuckDBClient(DataSourceClient):
         ```
 
         """
+        local_db = self._find_local_duckdb_file()
         if self.database:
             description = f"DuckDB database: {self.database}\n\n"
+        elif local_db:
+            description = f"DuckDB database: {local_db}\n\n"
         else:
             sample = ", ".join(self.uri_patterns[:2])
             if len(self.uri_patterns) > 2:
