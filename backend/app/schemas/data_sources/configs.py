@@ -367,8 +367,8 @@ class DuckDBAzureCredentials(BaseModel):
 class DuckDBConfig(BaseModel):
     uris: str = Field(
         ...,
-        title="URIs",
-        description="One URI pattern per line for parquet/csv files. Supports wildcards. Examples: s3:// or az://",
+        title="URI/Path",
+        description="Path to local .duckdb file, or URI pattern per line for parquet/csv files. Supports wildcards. Examples: /data/my.duckdb, s3://, az://",
         json_schema_extra={"ui:type": "textarea"}
     )
 

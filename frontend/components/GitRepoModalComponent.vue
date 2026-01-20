@@ -14,8 +14,8 @@
                     <UButton icon="i-heroicons-x-mark" color="gray" variant="ghost" size="xs" @click="gitModalOpen = false" />
                 </div>
                 
-                <!-- Step Indicators (only for new connection, not data source selection) -->
-                <div v-if="!connectedRepo && !showDataSourceList && activeDatasourceId" class="flex items-center gap-1.5 mt-2">
+                <!-- Step Indicators (only for new connection wizard) -->
+                <div v-if="!connectedRepo && !showRepositoryList && isAddingNew" class="flex items-center gap-1.5 mt-2">
                     <div 
                         v-for="step in 3" 
                         :key="step"
@@ -64,57 +64,81 @@
 
             <!-- Body -->
             <div class="p-4">
-                <!-- Data Source Selection View (when no datasourceId provided) -->
-                <div v-if="showDataSourceList" class="space-y-1">
-                    <div v-if="loadingDataSources" class="py-8 flex items-center justify-center">
+                <!-- Git Repositories List View (org-level) -->
+                <div v-if="showRepositoryList" class="space-y-1">
+                    <div v-if="loadingRepositories" class="py-8 flex items-center justify-center">
                         <div class="text-center">
                             <UIcon name="i-heroicons-arrow-path" class="w-6 h-6 mx-auto mb-2 text-gray-400 animate-spin" />
-                            <p class="text-sm text-gray-500">Loading data sources...</p>
+                            <p class="text-sm text-gray-500">Loading repositories...</p>
                         </div>
                     </div>
 
-                    <div v-else-if="dataSources.length === 0" class="py-8 text-center">
-                        <UIcon name="i-heroicons-circle-stack" class="w-8 h-8 mx-auto mb-2 text-gray-300" />
-                        <p class="text-sm text-gray-500">No data sources configured.</p>
-                        <p class="text-xs text-gray-400 mt-1">Add a data source first to connect Git repositories.</p>
+                    <div v-else-if="gitRepositories.length === 0" class="py-8 text-center">
+                        <UIcon name="i-heroicons-code-bracket" class="w-8 h-8 mx-auto mb-2 text-gray-300" />
+                        <p class="text-sm text-gray-500">No Git repositories connected.</p>
+                        <p class="text-xs text-gray-400 mt-1">Connect a repository to sync instructions from Git.</p>
+                        <UButton
+                            icon="i-heroicons-plus"
+                            color="blue"
+                            size="sm"
+                            class="mt-4"
+                            @click="startNewConnection"
+                        >
+                            Add Repository
+                        </UButton>
                     </div>
 
-                    <div v-else class="divide-y divide-gray-100 -mx-4">
-                        <div 
-                            v-for="ds in dataSources" 
-                            :key="ds.id"
-                            class="px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
-                            @click="selectDataSource(ds)"
-                        >
-                            <div class="flex items-center justify-between">
-                                <!-- Left: Data source name + git status -->
-                                <div class="flex items-center gap-3 min-w-0 flex-1">
-                                    <DataSourceIcon :type="ds.type" class="w-6 h-6 flex-shrink-0" />
-                                    <div class="min-w-0">
-                                        <p class="text-sm font-medium text-gray-900 truncate">{{ ds.name }}</p>
-                                        <template v-if="ds.git_repository">
-                                            <p class="text-sm text-gray-500 flex items-center gap-1.5 mt-0.5">
-                                                <UIcon :name="getProviderIcon(ds.git_repository.provider)" class="w-4 h-4" />
-                                                {{ formatRepoName(ds.git_repository.repo_url) }}
+                    <div v-else class="space-y-3">
+                        <div class="divide-y divide-gray-100 -mx-4">
+                            <div
+                                v-for="repo in gitRepositories"
+                                :key="repo.id"
+                                class="px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+                                @click="selectRepository(repo)"
+                            >
+                                <div class="flex items-center justify-between">
+                                    <!-- Left: Provider icon + repo info -->
+                                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                                        <UIcon :name="getProviderIcon(repo.provider)" class="w-6 h-6 flex-shrink-0" />
+                                        <div class="min-w-0">
+                                            <p class="text-sm font-medium text-gray-900 truncate">{{ formatRepoName(repo.repo_url) }}</p>
+                                            <p class="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
+                                                <span>{{ repo.branch || 'main' }}</span>
+                                                <span v-if="repo.last_indexed_at" class="text-gray-400">
+                                                    • {{ formatTimeAgo(repo.last_indexed_at) }}
+                                                </span>
                                             </p>
-                                        </template>
-                                        <p v-else class="text-sm text-gray-400 mt-0.5">No git repo connected</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Right: Action button -->
+                                    <div class="flex items-center gap-2 flex-shrink-0">
+                                        <UButton
+                                            icon="i-heroicons-cog-6-tooth"
+                                            color="gray"
+                                            variant="ghost"
+                                            size="sm"
+                                            @click.stop="selectRepository(repo)"
+                                        >
+                                            Manage
+                                        </UButton>
                                     </div>
                                 </div>
-
-                                <!-- Right: Action button -->
-                                <div class="flex items-center gap-2 flex-shrink-0">
-                                    <UButton
-                                        :icon="ds.git_repository ? 'i-heroicons-cog-6-tooth' : 'i-heroicons-plus'"
-                                        :color="ds.git_repository ? 'gray' : 'blue'"
-                                        :variant="ds.git_repository ? 'ghost' : 'soft'"
-                                        size="sm"
-                                        @click.stop="selectDataSource(ds)"
-                                    >
-                                        {{ ds.git_repository ? 'Settings' : 'Connect Git Repo' }}
-                                    </UButton>
-                                </div>
                             </div>
+                        </div>
+
+                        <!-- Add new repository button -->
+                        <div class="pt-2 border-t border-gray-100">
+                            <UButton
+                                icon="i-heroicons-plus"
+                                color="blue"
+                                variant="soft"
+                                size="sm"
+                                block
+                                @click="startNewConnection"
+                            >
+                                Add Repository
+                            </UButton>
                         </div>
                     </div>
                 </div>
@@ -139,10 +163,9 @@
                             <div>
                                 <p class="text-gray-400">Status</p>
                                 <p class="font-medium" :class="statusClass">{{ statusText }}</p>
-                            </div>
-                            <div v-if="metadata_resources?.completed_at">
-                                <p class="text-gray-400">Last Indexed</p>
-                                <p class="font-medium text-gray-700">{{ formatDate(metadata_resources.completed_at) }}</p>
+                                <p v-if="statusText === 'Indexed' && (connectedRepo.last_indexed_at || metadata_resources?.completed_at)" class="text-xs text-gray-500 mt-0.5">
+                                    {{ formatDate(connectedRepo.last_indexed_at || metadata_resources.completed_at) }}
+                                </p>
                             </div>
                             <div v-if="resourceCount > 0">
                                 <p class="text-gray-400">Files Found</p>
@@ -480,19 +503,19 @@
                 <div class="flex items-center justify-between">
                     <!-- Left side -->
                     <div>
-                        <UButton 
-                            v-if="showDataSourceList && selectedDsForConnection" 
-                            color="gray" 
-                            variant="ghost" 
+                        <UButton
+                            v-if="selectedRepository || isAddingNew"
+                            color="gray"
+                            variant="ghost"
                             size="sm"
-                            @click="goBackToDataSourceList"
+                            @click="goBackToRepositoryList"
                         >
                             Back
                         </UButton>
-                        <UButton 
-                            v-else-if="!connectedRepo && !showDataSourceList && currentStep > 1" 
-                            color="gray" 
-                            variant="ghost" 
+                        <UButton
+                            v-else-if="!connectedRepo && !showRepositoryList && currentStep > 1"
+                            color="gray"
+                            variant="ghost"
                             size="sm"
                             @click="currentStep--"
                         >
@@ -502,8 +525,8 @@
 
                     <!-- Right side -->
                     <div class="flex gap-2">
-                        <!-- Data source list actions -->
-                        <template v-if="showDataSourceList && !selectedDsForConnection">
+                        <!-- Repository list actions -->
+                        <template v-if="showRepositoryList">
                             <UButton color="gray" variant="ghost" size="sm" @click="gitModalOpen = false">Close</UButton>
                         </template>
 
@@ -562,7 +585,6 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onUnmounted } from 'vue'
-import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import Spinner from '~/components/Spinner.vue'
 
 interface ConnectionStatus {
@@ -577,7 +599,7 @@ interface GitRepository {
     repo_url: string
     branch: string
     custom_host?: string
-    last_indexed?: string
+    last_indexed_at?: string | null
     last_commit?: string
     auto_publish?: boolean
     default_load_mode?: string
@@ -586,14 +608,7 @@ interface GitRepository {
     has_access_token?: boolean
     can_push?: boolean
     can_create_pr?: boolean
-}
-
-interface DataSourceWithGit {
-    id: string
-    name: string
-    type: string
-    git_repository?: GitRepository | null
-    metadata_resources?: any
+    status?: string | null  // 'pending', 'running', 'completed', 'failed'
 }
 
 const props = defineProps<{
@@ -612,32 +627,28 @@ const gitModalOpen = computed({
 
 const toast = useToast()
 
-// Data source list state (when no datasourceId provided)
-const loadingDataSources = ref(false)
-const dataSources = ref<DataSourceWithGit[]>([])
-const selectedDsForConnection = ref<DataSourceWithGit | null>(null)
+// Git repositories list state (org-level)
+const loadingRepositories = ref(false)
+const gitRepositories = ref<GitRepository[]>([])
+const selectedRepository = ref<GitRepository | null>(null)
+const isAddingNew = ref(false)
 
-// Computed: determine if we should show data source list
-const showDataSourceList = computed(() => {
-    // Show list if no datasourceId prop AND no data source selected yet
-    return !props.datasourceId && !selectedDsForConnection.value
+// Computed: determine if we should show repository list
+const showRepositoryList = computed(() => {
+    // Show list if no datasourceId prop AND no repository selected AND not adding new
+    return !props.datasourceId && !selectedRepository.value && !isAddingNew.value
 })
 
-// Active datasource ID (from props or selected)
-const activeDatasourceId = computed(() => {
-    return props.datasourceId || selectedDsForConnection.value?.id || ''
-})
-
-// Active git repository (from props or selected data source)
+// Active git repository (from props or selected repository)
 const activeGitRepository = computed(() => {
     if (props.datasourceId) return props.gitRepository
-    return selectedDsForConnection.value?.git_repository || undefined
+    return selectedRepository.value || undefined
 })
 
 // Active metadata resources
 const activeMetadataResources = computed(() => {
     if (props.datasourceId) return props.metadataResources
-    return selectedDsForConnection.value?.metadata_resources || undefined
+    return undefined // For org-level repos, metadata is fetched separately via job status
 })
 
 // State
@@ -700,13 +711,13 @@ const metadata_resources = computed(() => activeMetadataResources.value || {})
 
 // Header text
 const headerTitle = computed(() => {
-    if (showDataSourceList.value) return 'Git Repositories'
+    if (showRepositoryList.value) return 'Git Repositories'
     if (connectedRepo.value) return 'Git Repository'
     return 'Connect Git Repository'
 })
 
 const headerSubtitle = computed(() => {
-    if (showDataSourceList.value) return 'Connect Git repositories to sync dbt models, documentation, and other metadata as instructions.'
+    if (showRepositoryList.value) return 'Connect Git repositories to sync dbt models, documentation, and other metadata as instructions.'
     if (connectedRepo.value) return 'Manage your repository connection'
     return stepDescriptions[currentStep.value]
 })
@@ -716,23 +727,36 @@ const canTestConnection = computed(() => {
 })
 
 const isIndexing = computed(() => {
-    const status = metadata_resources.value?.status
+    // Check if actively reindexing
+    if (isReindexing.value) return true
+    // Check repo status or metadata_resources status
+    const repoStatus = connectedRepo.value?.status
+    const metaStatus = metadata_resources.value?.status
+    const status = repoStatus || metaStatus
     return ['pending', 'indexing', 'running'].includes(status)
 })
 
 const statusText = computed(() => {
-    const status = metadata_resources.value?.status
-    if (isIndexing.value) return 'Indexing...'
+    if (isReindexing.value) return 'Indexing...'
+    // Check repo status first (for org-level repos), then metadata_resources (for data-source-scoped)
+    const repoStatus = connectedRepo.value?.status
+    const metaStatus = metadata_resources.value?.status
+    const status = repoStatus || metaStatus
     if (status === 'completed') return 'Indexed'
     if (status === 'failed') return 'Failed'
+    if (status === 'running' || status === 'indexing') return 'Indexing...'
     return 'Pending'
 })
 
 const statusClass = computed(() => {
-    const status = metadata_resources.value?.status
-    if (isIndexing.value) return 'text-blue-600'
+    if (isReindexing.value) return 'text-blue-600'
+    // Check repo status first (for org-level repos), then metadata_resources (for data-source-scoped)
+    const repoStatus = connectedRepo.value?.status
+    const metaStatus = metadata_resources.value?.status
+    const status = repoStatus || metaStatus
     if (status === 'completed') return 'text-green-600'
     if (status === 'failed') return 'text-red-600'
+    if (status === 'running' || status === 'indexing') return 'text-blue-600'
     return 'text-gray-600'
 })
 
@@ -780,20 +804,21 @@ watch(connectedRepo, (repo) => {
 watch(gitModalOpen, async (open) => {
     if (open) {
         // Reset selection state
-        selectedDsForConnection.value = null
-        
+        selectedRepository.value = null
+        isAddingNew.value = false
+
         // Reset indexing state
         isReindexing.value = false
         indexingProgress.value = 0
         indexingPhase.value = ''
         pendingRepoId.value = null
         stopPolling()
-        
-        // If no datasourceId provided, fetch data sources
+
+        // If no datasourceId provided, fetch git repositories (org-level)
         if (!props.datasourceId) {
-            await fetchDataSources()
+            await fetchGitRepositories()
         }
-        
+
         // Reset wizard state
         if (!connectedRepo.value) {
             currentStep.value = 1
@@ -818,94 +843,65 @@ watch(gitModalOpen, async (open) => {
     }
 })
 
-// Fetch data sources when no specific datasourceId is provided
-async function fetchDataSources() {
-    loadingDataSources.value = true
-    dataSources.value = []
-    
+// Fetch git repositories (org-level)
+async function fetchGitRepositories() {
+    loadingRepositories.value = true
+    gitRepositories.value = []
+
     try {
-        // Fetch active data sources
-        const { data: sourcesData, error: sourcesError } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET' })
-        
-        if (sourcesError.value || !sourcesData.value) {
-            console.error('Failed to fetch data sources:', sourcesError.value)
+        const { data, error } = await useMyFetch<GitRepository[]>('/git/repositories', { method: 'GET' })
+
+        if (error.value) {
+            console.error('Failed to fetch git repositories:', error.value)
+            toast.add({ title: 'Failed to load repositories', color: 'red' })
             return
         }
-        
-        const sources = sourcesData.value
-        if (sources.length === 0) return
 
-        // Fetch full data source details for each
-        const enriched: DataSourceWithGit[] = []
-        
-        for (const ds of sources) {
-            const dsWithGit: DataSourceWithGit = {
-                id: ds.id,
-                name: ds.name,
-                type: ds.type,
-                git_repository: null,
-                metadata_resources: null
-            }
+        gitRepositories.value = data.value || []
 
-            // Fetch full data source object which includes git_repository
-            const { data: fullDs, error: dsError } = await useMyFetch(`/data_sources/${ds.id}`, { method: 'GET' })
-            if (!dsError.value && fullDs.value) {
-                const fullData = fullDs.value as any
-                if (fullData.git_repository) {
-                    dsWithGit.git_repository = fullData.git_repository as GitRepository
-                }
-            }
-
-            // Fetch metadata info  
-            const { data: metaData, error: metaError } = await useMyFetch(`/data_sources/${ds.id}/metadata_resources`, { method: 'GET' })
-            if (!metaError.value && metaData.value) {
-                dsWithGit.metadata_resources = metaData.value
-            }
-
-            enriched.push(dsWithGit)
-        }
-
-        dataSources.value = enriched
-        
-        // Auto-select if there's only one data source
-        if (enriched.length === 1) {
-            selectDataSource(enriched[0])
+        // Auto-select if there's only one repository
+        if (gitRepositories.value.length === 1) {
+            selectRepository(gitRepositories.value[0])
         }
     } catch (e) {
-        console.error('Failed to fetch data sources:', e)
-        toast.add({ title: 'Failed to load data sources', color: 'red' })
+        console.error('Failed to fetch git repositories:', e)
+        toast.add({ title: 'Failed to load repositories', color: 'red' })
     } finally {
-        loadingDataSources.value = false
+        loadingRepositories.value = false
     }
 }
 
-// Select a data source to configure
-function selectDataSource(ds: DataSourceWithGit) {
-    selectedDsForConnection.value = ds
-    
-    // Reset wizard state for new connection
-    if (!ds.git_repository) {
-        currentStep.value = 1
-        connectionStatus.value = null
-        selectedProvider.value = null
-        authMethod.value = 'pat'
-        formData.value = {
-            customHost: '',
-            repoUrl: '',
-            branch: 'main',
-            privateKey: '',
-            accessToken: '',
-            accessTokenUsername: '',
-            autoPublish: true,
-            defaultLoadMode: 'auto',
-            writeEnabled: true,
-        }
+// Select a repository to manage
+function selectRepository(repo: GitRepository) {
+    selectedRepository.value = repo
+    isAddingNew.value = false
+}
+
+// Start new connection wizard
+function startNewConnection() {
+    selectedRepository.value = null
+    isAddingNew.value = true
+    currentStep.value = 1
+    connectionStatus.value = null
+    selectedProvider.value = null
+    authMethod.value = 'pat'
+    formData.value = {
+        customHost: '',
+        repoUrl: '',
+        branch: 'main',
+        privateKey: '',
+        accessToken: '',
+        accessTokenUsername: '',
+        autoPublish: true,
+        defaultLoadMode: 'auto',
+        writeEnabled: true,
     }
 }
 
-// Go back to data source list
-function goBackToDataSourceList() {
-    selectedDsForConnection.value = null
+// Go back to repository list
+function goBackToRepositoryList() {
+    selectedRepository.value = null
+    isAddingNew.value = false
     currentStep.value = 1
     connectionStatus.value = null
 }
@@ -933,6 +929,20 @@ function formatDate(dateStr: string) {
         hour: '2-digit',
         minute: '2-digit'
     })
+}
+
+function formatTimeAgo(dateStr: string) {
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffMins < 1) return 'just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    return `${diffDays}d ago`
 }
 
 async function copyRepoId() {
@@ -1092,27 +1102,27 @@ async function confirmDelete() {
 
 async function executeDelete() {
     if (!connectedRepo.value?.id) return
-    
+
     isLoading.value = true
     try {
         const { error } = await useMyFetch(`/git/repositories/${connectedRepo.value.id}`, {
             method: 'DELETE'
         })
-        
+
         if (error.value) {
             const errorMessage = (error.value as any)?.data?.detail || 'Failed to disconnect'
             toast.add({ title: errorMessage, color: 'red' })
             return
         }
-        
+
         toast.add({ title: 'Repository disconnected', color: 'green' })
         showDeleteConfirmation.value = false
         emit('changed')
-        
-        // If we're in data source list mode, refresh and go back to list
-        if (!props.datasourceId && selectedDsForConnection.value) {
-            await fetchDataSources()
-            selectedDsForConnection.value = null
+
+        // If we're in repository list mode, refresh and go back to list
+        if (!props.datasourceId && selectedRepository.value) {
+            await fetchGitRepositories()
+            selectedRepository.value = null
         } else {
             gitModalOpen.value = false
         }
