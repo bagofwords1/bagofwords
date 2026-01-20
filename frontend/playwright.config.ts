@@ -38,7 +38,7 @@ export default defineConfig({
       testMatch: [
         '**/reports/**/*.spec.ts',
         '**/instructions/**/*.spec.ts',
-        '**/catalog/**/*.spec.ts',
+        '**/queries/**/*.spec.ts',
         '**/monitoring/**/*.spec.ts',
         '**/evals/**/*.spec.ts',
         '**/settings/**/*.spec.ts',

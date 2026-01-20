@@ -34,19 +34,19 @@ test.describe('Shared page visibility (both admin and member)', () => {
       .toBeVisible({ timeout: 10000 });
   });
 
-  test('admin can access catalog page', async ({ adminPage }) => {
-    await adminPage.goto('/catalog');
+  test('admin can access queries page', async ({ adminPage }) => {
+    await adminPage.goto('/queries');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    await expect(adminPage.getByRole('heading', { name: 'Catalog', exact: true }))
+    await expect(adminPage.getByRole('heading', { name: 'Queries', exact: true }))
       .toBeVisible({ timeout: 10000 });
   });
 
-  test('member can access catalog page', async ({ memberPage }) => {
-    await memberPage.goto('/catalog');
+  test('member can access queries page', async ({ memberPage }) => {
+    await memberPage.goto('/queries');
     await memberPage.waitForLoadState('domcontentloaded');
 
-    await expect(memberPage.getByRole('heading', { name: 'Catalog', exact: true }))
+    await expect(memberPage.getByRole('heading', { name: 'Queries', exact: true }))
       .toBeVisible({ timeout: 10000 });
   });
 });
