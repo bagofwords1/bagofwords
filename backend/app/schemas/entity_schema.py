@@ -29,6 +29,7 @@ class EntityBase(BaseModel):
     tags: List[str] = Field(default_factory=list)
     code: str  # SQL or expression
     data: Dict[str, Any] = Field(default_factory=dict)
+    data_model: Optional[Dict[str, Any]] = Field(default=None, alias="original_data_model")
     view: Optional[ViewSchema] = None
     status: str = "draft"  # 'draft' | 'published'
     published_at: OptionalUTCDatetime = None
@@ -92,6 +93,7 @@ class EntitySchema(EntityBase):
 
     class Config:
         from_attributes = True
+        populate_by_name = True  # Allow both 'data_model' and 'original_data_model'
     
     # Keep only essential helpers
     def is_suggested(self) -> bool:

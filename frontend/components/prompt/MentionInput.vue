@@ -135,7 +135,7 @@
             </div>
             <div v-else class="text-[12px] text-gray-400">No data available.</div>
             <div class="pt-1">
-              <NuxtLink :to="`/catalog/${expandedItem?.id}`" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50">Open page</NuxtLink>
+              <NuxtLink :to="`/queries/${expandedItem?.id}`" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 hover:bg-gray-50">Open page</NuxtLink>
             </div>
           </template>
         </div>
@@ -776,7 +776,7 @@ async function fetchAvailableMentions() {
         },
         {
           name: 'entities',
-          label: 'Catalog',
+          label: 'Queries',
           items: (apiData.entities || []).map((entity: any) => ({
             ...entity,
             name: entity.title,

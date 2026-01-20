@@ -135,19 +135,19 @@
             <div class="p-3">
               <!-- Visual Content -->
               <Transition name="fade" mode="out-in">
-                <div v-if="activeTab === 'visual'" class="bg-gray-50 rounded-sm p-2">
+                <div v-if="activeTab === 'visual'">
                   <div v-if="resolvedCompEl" :class="chartHeightClass">
                     <component
                       :is="resolvedCompEl"
                       :widget="effectiveWidget"
                       :data="detail?.data"
-                      :data_model="detail?.data_model || { type: detail?.view?.type }"
+                      :data_model="detail?.data_model || { type: viewType }"
                       :step="effectiveStep"
                       :view="detail?.view"
                     />
                   </div>
-                  <div v-else-if="chartVisualTypes.has(detail?.view?.type)" class="h-[340px]">
-                    <RenderVisual :widget="effectiveWidget" :data="detail?.data" :data_model="detail?.data_model || { type: detail?.view?.type }" />
+                  <div v-else-if="chartVisualTypes.has(viewType)" class="h-[340px]">
+                    <RenderVisual :widget="effectiveWidget" :data="detail?.data" :data_model="detail?.data_model || { type: viewType }" />
                   </div>
                 </div>
               </Transition>
@@ -265,7 +265,10 @@ const canApprove = computed(() => {
   return canApproveEntities.value && entityType.value === 'suggested'
 })
 
-const viewType = computed(() => String(detail.value?.view?.type || ''))
+const viewType = computed(() => {
+  const viewObj = detail.value?.view
+  return String(viewObj?.view?.type || viewObj?.type || '')
+})
 const shape = computed(() => {
   const d = detail.value?.data
   if (!d) return null
@@ -291,7 +294,9 @@ const chartVisualTypes = new Set<string>([
 ])
 
 const showVisual = computed(() => {
-  const vType = detail.value?.view?.type
+  // Handle both v2 format (view.view.type) and legacy format (view.type)
+  const viewObj = detail.value?.view
+  const vType = viewObj?.view?.type || viewObj?.type
   const t = vType || detail.value?.data_model?.type
   if (!t) return false
   const entry = resolveEntryByType(String(t).toLowerCase())
@@ -329,14 +334,17 @@ function getCompForType(type?: string | null) {
 }
 
 const resolvedCompEl = computed(() => {
-  const vType = detail.value?.view?.type
+  const viewObj = detail.value?.view
+  const vType = viewObj?.view?.type || viewObj?.type
   const dmType = detail.value?.data_model?.type
   return getCompForType(String(vType || dmType || ''))
 })
 
 const chartHeightClass = computed(() => {
-  const t = String((detail.value?.view?.type || detail.value?.data_model?.type || '')).toLowerCase()
-  return t === 'count' ? 'h-[120px] flex items-start' : 'h-[340px]'
+  const viewObj = detail.value?.view
+  const vType = viewObj?.view?.type || viewObj?.type
+  const t = String((vType || detail.value?.data_model?.type || '')).toLowerCase()
+  return t === 'count' || t === 'metric_card' ? 'h-[120px] flex items-start' : 'h-[340px]'
 })
 
 const effectiveWidget = computed(() => {
@@ -347,7 +355,7 @@ const effectiveStep = computed(() => {
   return {
     id: detail.value?.id,
     data: detail.value?.data,
-    data_model: detail.value?.data_model || { type: detail.value?.view?.type },
+    data_model: detail.value?.data_model || { type: viewType.value },
     code: detail.value?.code,
     status: 'success'
   } as any
@@ -427,7 +435,7 @@ async function deleteEntity() {
     const { error } = await useMyFetch(`/api/entities/${id.value}`, { method: 'DELETE' })
     if (error.value) throw error.value
     toast.add({ title: 'Deleted', description: 'Entity deleted successfully', color: 'green' })
-    router.push('/catalog')
+    router.push('/queries')
   } catch (e: any) {
     toast.add({ title: 'Error', description: e?.data?.detail || e?.message || 'Failed to delete entity', color: 'red' })
   } finally {

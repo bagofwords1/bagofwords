@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 
-test('can view catalog page', async ({ page }) => {
-  await page.goto('/catalog');
+test('can view queries page', async ({ page }) => {
+  await page.goto('/queries');
   await page.waitForLoadState('domcontentloaded');
 
   // Verify page heading
-  await expect(page.getByRole('heading', { name: 'Catalog', exact: true }))
+  await expect(page.getByRole('heading', { name: 'Queries', exact: true }))
     .toBeVisible({ timeout: 10000 });
 
   // Verify filter tabs are present
