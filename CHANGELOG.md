@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.304 (January 22, 2026)
+- SQLite data source now available in production (previously dev-only)
+- Security updates and dependency patches
+
 ## Version 0.0.303 (January 22, 2026)
 - AI-suggested instructions now show persistent "Published" status with timestamp
 - Added checkbox selection when publishing AI suggestions 

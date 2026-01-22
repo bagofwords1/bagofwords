@@ -43,7 +43,7 @@ class PostgreSQLConfig(BaseModel):
     )
 
 
-# SQLite (test/dev only)
+# SQLite (local file database)
 class SQLiteCredentials(BaseModel):
     class Config:
         extra = "allow"
@@ -51,9 +51,9 @@ class SQLiteCredentials(BaseModel):
 
 class SQLiteConfig(BaseModel):
     database: str = Field(
-        ":memory:",
+        ...,
         title="Database Path",
-        description="Use ':memory:' for in-memory DB or absolute path to .db file",
+        description="Absolute path to SQLite .db/.sqlite file. Example: /data/mydb.sqlite",
         json_schema_extra={"ui:type": "string"}
     )
 

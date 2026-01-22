@@ -651,7 +651,8 @@ import { themes } from '@/components/dashboard/themes'
                 const id = `modal-${widget.id}`;
                 const el = document.querySelector(`[gs-id="${id}"]`);
                 if (el) {
-                    modalGrid.value.addWidget(el as HTMLElement, { id, x: widget.x, y: widget.y, w: widget.width, h: widget.height, autoPosition: false });
+                    // GridStack v12: use makeWidget for existing DOM elements
+                    modalGrid.value.makeWidget(el as HTMLElement, { id, x: widget.x, y: widget.y, w: widget.width, h: widget.height, autoPosition: false });
                 }
             }
         } else if (modalGrid.value) {
@@ -1112,7 +1113,7 @@ import { themes } from '@/components/dashboard/themes'
         if (!targetGrid) return;
 
         await nextTick();
-        targetGrid.batchUpdate();
+        targetGrid.batchUpdate(true);
 
         const currentGridItems = new Map(targetGrid.engine.nodes.map(n => [n.id, n]));
         const widgetsMap = new Map(widgetsToLoad.map(w => [w.id, w]));
@@ -1146,18 +1147,19 @@ import { themes } from '@/components/dashboard/themes'
                         targetGrid.update(element as HTMLElement, gsOptions);
                     }
                 } else {
-                    targetGrid.addWidget(element as HTMLElement, gsOptions as any);
+                    // GridStack v12: use makeWidget for existing DOM elements
+                    targetGrid.makeWidget(element as HTMLElement, gsOptions);
                 }
             } else {
-                // Element might not be rendered yet if just added, `addWidget` handles this case later
+                // Element might not be rendered yet if just added, `makeWidget` handles this case later
                 // Or warn if it's an existing widget that's missing
-                if (!widget.isNew) { // Avoid warning for newly added ones before addWidget runs
+                if (!widget.isNew) { // Avoid warning for newly added ones before makeWidget runs
                      console.warn(`Element for existing widget ID ${gridItemId} not found in DOM during load.`);
                 }
             }
         }
 
-        targetGrid.commit();
+        targetGrid.batchUpdate(false);
     }
 
     // --- Watchers ---
@@ -1519,8 +1521,9 @@ import { themes } from '@/components/dashboard/themes'
 
         const element = document.querySelector(`[gs-id="${tempId}"]`);
         if (element && grid.value) {
+            // GridStack v12: use makeWidget for existing DOM elements
             // Let GridStack choose the first available slot without moving others
-            grid.value.addWidget(element as HTMLElement, { id: tempId, w: newWidget.width, h: newWidget.height, autoPosition: true } as any);
+            grid.value.makeWidget(element as HTMLElement, { id: tempId, w: newWidget.width, h: newWidget.height, autoPosition: true });
         } else {
             console.warn(`Could not find DOM element for new widget ${tempId} immediately after adding.`);
         }
@@ -1585,8 +1588,9 @@ import { themes } from '@/components/dashboard/themes'
                     const newElement = document.querySelector(`[gs-id="${savedWidget.id}"]`);
 
                     if (newElement && grid.value) {
+                         // GridStack v12: use makeWidget for existing DOM elements
                          // Ensure placement matches temporary computed position to avoid reflow
-                         grid.value.addWidget(newElement as HTMLElement, { id: savedWidget.id, x: savedWidget.x, y: savedWidget.y, w: savedWidget.width, h: savedWidget.height, autoPosition: false } as any);
+                         grid.value.makeWidget(newElement as HTMLElement, { id: savedWidget.id, x: savedWidget.x, y: savedWidget.y, w: savedWidget.width, h: savedWidget.height, autoPosition: false });
                     } else {
                          console.warn(`Could not find new element ${savedWidget.id} in DOM to add to gridstack.`);
                          // Consider fallback: await loadWidgetsIntoGrid(grid.value, allWidgets.value);

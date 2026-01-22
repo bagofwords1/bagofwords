@@ -84,8 +84,6 @@ frontend/.output/
 
 # Database files
 *.db
-*.sqlite
-*.sqlite3
 backend/db/*.db
 
 # Environment files
