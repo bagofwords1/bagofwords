@@ -17,6 +17,7 @@ from app.schemas.build_schema import (
     BuildDiffSchema,
     BuildDiffDetailedSchema,
     BuildRejectSchema,
+    BuildPublishSchema,
     PaginatedBuildResponse,
 )
 
@@ -368,42 +369,51 @@ async def rollback_to_build(
 @requires_permission('create_builds')
 async def publish_build(
     build_id: str,
+    publish_data: BuildPublishSchema = None,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
     """
     Publish a build to main with auto-merge support.
-    
+
     This is the single action to make a build live:
     - Auto-approves if draft/pending
     - If the build is based on current main: simple promote
     - If the build is stale (main changed since creation): auto-merge user's changes
     - User's changes always win for the same instruction (last-modified-wins)
-    
+
+    Optionally, pass `instruction_ids` to filter which instructions to include.
+    Instructions not in the list will be removed from the build before publishing.
+
     Ideal for CI/CD integration after a Git PR is merged.
-    
+
     Example:
     ```
     curl -X POST "https://api.bagofwords.io/builds/{build_id}/publish" \\
-         -H "Authorization: Bearer $BOW_API_KEY"
+         -H "Authorization: Bearer $BOW_API_KEY" \\
+         -H "Content-Type: application/json" \\
+         -d '{"instruction_ids": ["id1", "id2"]}'
     ```
     """
     build = await build_service.get_build(db, build_id)
-    
+
     if not build:
         raise HTTPException(status_code=404, detail="Build not found")
-    
+
     if build.organization_id != organization.id:
         raise HTTPException(status_code=403, detail="Build does not belong to this organization")
-    
+
     if build.status == 'rejected':
         raise HTTPException(status_code=400, detail="Cannot publish a rejected build")
-    
+
     if build.is_main:
         raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
-    
-    result = await build_service.publish_build(db, build_id, current_user.id)
-    
+
+    # Extract instruction_ids if provided
+    instruction_ids = publish_data.instruction_ids if publish_data else None
+
+    result = await build_service.publish_build(db, build_id, current_user.id, instruction_ids=instruction_ids)
+
     return InstructionBuildSchema.model_validate(result["build"])
 

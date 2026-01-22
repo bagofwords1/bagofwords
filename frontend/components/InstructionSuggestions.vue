@@ -18,43 +18,45 @@
 
     <!-- Instruction cards -->
     <div class="space-y-2" v-if="drafts.length">
-      <div v-for="(d, i) in drafts" :key="d.id || i" class="hover:bg-gray-50 border border-gray-150 rounded-md p-3 transition-colors">
-        <div
-          @click="!isBuildPublished ? handleEdit(d, i) : null"
-          :class="[
-            'text-[12px] text-gray-800 leading-relaxed mb-2',
-            isBuildPublished ? '' : 'cursor-pointer'
-          ]"
-        >
-          {{ d.text }}
+      <div
+        v-for="(d, i) in drafts"
+        :key="d.id || i"
+        :class="[
+          'border border-gray-150 rounded-md p-3 transition-colors',
+          !isBuildPublished && !selectedIds.has(d.id) ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50'
+        ]"
+      >
+        <div class="flex items-start gap-2">
+          <!-- Checkbox for selection (only when not published) -->
+          <UCheckbox
+            v-if="!isBuildPublished && d.id"
+            :model-value="selectedIds.has(d.id)"
+            color="blue"
+            @update:model-value="toggleSelection(d.id, $event)"
+            class="mt-0.5"
+          />
+          <div class="flex-1">
+            <div
+              @click="!isBuildPublished ? handleEdit(d, i) : null"
+              :class="[
+                'text-[12px] text-gray-800 leading-relaxed',
+                isBuildPublished ? '' : 'cursor-pointer'
+              ]"
+            >
+              {{ d.text }}
+            </div>
+            <div v-if="d.category" class="text-xs hidden text-gray-500 mt-1 font-medium">{{ d.category }}</div>
+          </div>
         </div>
-        <div v-if="d.category" class="text-xs hidden text-gray-500 mb-3 font-medium">{{ d.category }}</div>
 
         <!-- Action buttons for unpublished builds -->
-        <div v-if="!isBuildPublished" class="flex justify-start gap-2 pt-2 border-t border-gray-200">
+        <div v-if="!isBuildPublished" class="flex justify-start gap-2 pt-2 mt-2 border-t border-gray-200">
           <button
             @click="handleEdit(d, i)"
             class="flex items-center text-[9px] text-gray-500 hover:text-gray-700 transition-colors"
           >
             <Icon name="heroicons:pencil" class="w-2.5 h-2.5 mr-0.5" />
             <span>Edit</span>
-          </button>
-
-          <button
-            @click="handleRemove(d, i)"
-            class="flex items-center text-[9px] text-gray-500 hover:text-red-600 transition-colors"
-            :disabled="isRemoving && removingIndex === i"
-          >
-            <Spinner
-              v-if="isRemoving && removingIndex === i"
-              class="w-2.5 h-2.5 mr-0.5"
-            />
-            <Icon
-              v-else
-              name="heroicons:x-mark"
-              class="w-2.5 h-2.5 mr-0.5"
-            />
-            <span>{{ isRemoving && removingIndex === i ? 'Removing...' : 'Remove' }}</span>
           </button>
         </div>
       </div>
@@ -66,14 +68,14 @@
         variant="soft"
         color="blue"
         size="xs"
-        :disabled="isPublishingBuild"
+        :disabled="isPublishingBuild || selectedIds.size === 0"
         @click="handlePublishBuild"
       >
         <template #leading>
           <Spinner v-if="isPublishingBuild" class="w-3 h-3" />
           <Icon v-else name="heroicons:arrow-up-tray" class="w-3 h-3" />
         </template>
-        {{ isPublishingBuild ? 'Publishing...' : 'Publish Instructions' }}
+        {{ publishButtonText }}
       </UButton>
     </div>
 
@@ -99,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import InstructionModalComponent from '~/components/InstructionModalComponent.vue'
 import Spinner from '~/components/Spinner.vue'
 
@@ -145,7 +147,7 @@ const isPublishingBuild = ref(false)
 const isRemoving = ref(false)
 const removingIndex = ref(-1)
 const localPublishOverride = ref(false) // Used to show published state immediately after publishing
-
+const selectedIds = ref<Set<string>>(new Set())
 
 // Composables
 const toast = useToast()
@@ -217,6 +219,32 @@ const publishedAtFormatted = computed(() => {
   }
 })
 
+// Toggle selection of an instruction
+const toggleSelection = (id: string, checked: boolean) => {
+  const newSet = new Set(selectedIds.value)
+  if (checked) {
+    newSet.add(id)
+  } else {
+    newSet.delete(id)
+  }
+  selectedIds.value = newSet
+}
+
+// Button text showing selection count
+const publishButtonText = computed(() => {
+  const count = selectedIds.value.size
+  if (count === 0) return 'Publish Instructions'
+  if (count === 1) return 'Publish 1 Instruction'
+  return `Publish ${count} Instructions`
+})
+
+// Initialize selectedIds when drafts load (select all by default)
+watch(drafts, (newDrafts) => {
+  if (newDrafts.length > 0 && selectedIds.value.size === 0) {
+    selectedIds.value = new Set(newDrafts.filter(d => d.id).map(d => d.id))
+  }
+}, { immediate: true })
+
 // Publish the entire build
 const handlePublishBuild = async () => {
   isPublishingBuild.value = true
@@ -233,9 +261,12 @@ const handlePublishBuild = async () => {
     }
 
     if (targetBuildId) {
-      // Update each instruction's status to published within the build
+      // Get the selected instruction IDs
+      const selectedInstructionIds = Array.from(selectedIds.value)
+
+      // Update each selected instruction's status to published within the build
       for (const draft of drafts.value) {
-        if (!draft.id) continue
+        if (!draft.id || !selectedIds.value.has(draft.id)) continue
         await useMyFetch(`/instructions/${draft.id}`, {
           method: 'PUT',
           body: {
@@ -245,9 +276,12 @@ const handlePublishBuild = async () => {
         })
       }
 
-      // Publish the build
+      // Publish the build with selected instruction IDs (backend will filter out unselected)
       const response = await useMyFetch(`/builds/${targetBuildId}/publish`, {
         method: 'POST',
+        body: {
+          instruction_ids: selectedInstructionIds,
+        }
       })
 
       if (response.status.value === 'success') {
@@ -257,9 +291,9 @@ const handlePublishBuild = async () => {
         throw new Error('Failed to publish build')
       }
     } else {
-      // Fallback: No build found, just publish instructions directly
+      // Fallback: No build found, just publish selected instructions directly
       for (const draft of drafts.value) {
-        if (!draft.id) continue
+        if (!draft.id || !selectedIds.value.has(draft.id)) continue
         await useMyFetch(`/instructions/${draft.id}`, {
           method: 'PUT',
           body: { status: 'published' }
