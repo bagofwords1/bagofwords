@@ -554,25 +554,44 @@ class BuildService:
         instruction_ids: List[str],
     ) -> int:
         """
-        Filter build contents to only include specified instructions.
-        Removes any instructions NOT in the provided list.
+        Filter build contents to only include specified instructions from the NEW additions.
+        Only removes instructions that were added in this build and are NOT in the provided list.
+        Instructions inherited from the base build are preserved.
 
         Args:
             build_id: The build to filter
-            instruction_ids: List of instruction IDs to keep
+            instruction_ids: List of instruction IDs to keep (from the new additions)
 
         Returns:
             Number of instructions removed
         """
+        build = await self.get_build(db, build_id)
+        if not build:
+            return 0
+
+        # Get the set of instruction IDs that were inherited from the base build
+        inherited_instruction_ids: set = set()
+        if build.base_build_id:
+            base_contents_result = await db.execute(
+                select(BuildContent.instruction_id).where(BuildContent.build_id == build.base_build_id)
+            )
+            inherited_instruction_ids = set(row[0] for row in base_contents_result.fetchall())
+
         # Get all current contents
         result = await db.execute(
             select(BuildContent).where(BuildContent.build_id == build_id)
         )
         all_contents = list(result.scalars().all())
 
-        # Find contents to remove (not in the allowed list)
+        # Find contents to remove:
+        # - Only remove instructions that are NOT in the inherited set (i.e., newly added)
+        # - AND are NOT in the allowed instruction_ids list
         instruction_ids_set = set(instruction_ids)
-        to_remove = [c for c in all_contents if c.instruction_id not in instruction_ids_set]
+        to_remove = [
+            c for c in all_contents
+            if c.instruction_id not in inherited_instruction_ids  # Was added in this build
+            and c.instruction_id not in instruction_ids_set       # And not selected by user
+        ]
 
         # Remove them
         for content in to_remove:
@@ -580,20 +599,18 @@ class BuildService:
 
         # Update build stats if any were removed
         if to_remove:
-            build = await self.get_build(db, build_id)
-            if build:
-                build.total_instructions = max(0, build.total_instructions - len(to_remove))
-                build.removed_count += len(to_remove)
-                build.title = _generate_build_title(
-                    source=build.source,
-                    added=build.added_count,
-                    modified=build.modified_count,
-                    removed=build.removed_count,
-                    branch=build.branch,
-                )
+            build.total_instructions = max(0, build.total_instructions - len(to_remove))
+            build.added_count = max(0, build.added_count - len(to_remove))
+            build.title = _generate_build_title(
+                source=build.source,
+                added=build.added_count,
+                modified=build.modified_count,
+                removed=build.removed_count,
+                branch=build.branch,
+            )
 
             await db.commit()
-            logger.info(f"Filtered build {build_id}: removed {len(to_remove)} instructions not in selection")
+            logger.info(f"Filtered build {build_id}: removed {len(to_remove)} unselected new instructions (preserved {len(inherited_instruction_ids)} inherited)")
 
         return len(to_remove)
     

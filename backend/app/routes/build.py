@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -369,7 +369,7 @@ async def rollback_to_build(
 @requires_permission('create_builds')
 async def publish_build(
     build_id: str,
-    publish_data: BuildPublishSchema = None,
+    publish_data: Optional[BuildPublishSchema] = Body(None),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)

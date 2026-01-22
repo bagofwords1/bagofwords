@@ -36,8 +36,8 @@
 
         <GitRepoModalComponent v-model="showGitModal" :datasource-id="String(dsId)" :git-repository="integration?.git_repository" :metadata-resources="metadataResources" @changed="handleGitRepoChanged" />
 
-        <!-- Instructions Section (only shown when git is connected) -->
-        <div v-if="hasGitConnection" class="border border-gray-200 rounded-lg p-6">
+        <!-- Instructions Section -->
+        <div class="border border-gray-200 rounded-lg p-6">
             <!-- Header with filter bar, bulk actions, and count -->
             <div class="flex items-center justify-between gap-4 mb-3">
                 <InstructionsFilterBar
@@ -199,11 +199,11 @@ const selectedBuildId = ref<string | null>(null)
 const availableBuilds = ref<{ value: string; label: string; buildNumber: number; status: string; createdAt: string; source: string }[]>([])
 const loadingBuilds = ref(false)
 
-const repoDisplayName = computed(() => {
-  const url = integration.value?.git_repository?.repo_url || ''
-  const tail = String(url).split('/')?.pop() || ''
-  return tail.replace(/\.git$/, '') || 'Repository'
-})
+// Git connection status (org-level)
+const gitConnectedCount = ref(0)
+const gitLastIndexed = ref<string | null>(null)
+const gitConnectedRepos = ref<{ provider: string; repoName: string }[]>([])
+const hasGitConnection = computed(() => gitConnectedCount.value > 0)
 
 const repoStatus = computed(() => {
   const jobStatus = metadataResources.value?.status
@@ -211,14 +211,6 @@ const repoStatus = computed(() => {
   return integration.value?.git_repository?.status || null
 })
 const isIndexing = computed(() => ['pending', 'indexing', 'running'].includes(repoStatus.value))
-const hasGitConnection = computed(() => !!integration.value?.git_repository)
-
-// Git connected repos for the button component
-const gitConnectedRepos = computed(() => {
-  if (!hasGitConnection.value) return []
-  const provider = integration.value?.git_repository?.provider || 'custom'
-  return [{ provider, repoName: repoDisplayName.value }]
-})
 
 const gitStatusTooltip = computed(() => {
   if (!hasGitConnection.value) return 'Connect a Git repository'
@@ -241,7 +233,7 @@ const gitStatusTooltip = computed(() => {
 })
 
 const lastIndexedAt = computed(() => {
-  return metadataResources.value?.completed_at || integration.value?.git_repository?.last_indexed_at || null
+  return gitLastIndexed.value || metadataResources.value?.completed_at || integration.value?.git_repository?.last_indexed_at || null
 })
 
 async function fetchIntegration(silent = false) {
@@ -264,6 +256,44 @@ async function fetchMetadataResources(silent = false) {
     metadataResources.value = (response.data as any)?.value || { resources: [] }
   } catch (e) {
     // ignore
+  }
+}
+
+// Fetch git status (org-level repositories)
+async function fetchGitStatus() {
+  try {
+    const { data: repositories } = await useMyFetch<Array<{
+      id: string
+      provider: string
+      repo_url: string
+      last_indexed_at: string | null
+    }>>('/git/repositories', { method: 'GET' })
+
+    if (!repositories.value || repositories.value.length === 0) {
+      gitConnectedCount.value = 0
+      gitLastIndexed.value = null
+      gitConnectedRepos.value = []
+      return
+    }
+
+    const repos: { provider: string; repoName: string }[] = []
+    let latestIndexed: string | null = null
+
+    for (const repo of repositories.value) {
+      if (repo.last_indexed_at) {
+        if (!latestIndexed || new Date(repo.last_indexed_at) > new Date(latestIndexed)) {
+          latestIndexed = repo.last_indexed_at
+        }
+      }
+      const repoName = repo.repo_url.split('/').pop()?.replace(/\.git$/, '') || 'Repository'
+      repos.push({ provider: repo.provider, repoName })
+    }
+
+    gitConnectedCount.value = repositories.value.length
+    gitLastIndexed.value = latestIndexed
+    gitConnectedRepos.value = repos
+  } catch (e) {
+    console.error('Failed to fetch git status:', e)
   }
 }
 
@@ -377,6 +407,7 @@ watch(isIndexing, (val) => {
 function handleGitRepoChanged() {
   fetchIntegration()
   fetchMetadataResources()
+  fetchGitStatus()
   inst.refresh()
   setTimeout(() => {
     if (isIndexing.value) startPolling()
@@ -393,6 +424,7 @@ onMounted(async () => {
     fetchLabels()
     fetchAvailableSourceTypes()
     fetchBuilds()
+    fetchGitStatus()
   } finally {
     isLoading.value = false
   }

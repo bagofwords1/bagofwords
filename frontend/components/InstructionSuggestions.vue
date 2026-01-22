@@ -239,8 +239,11 @@ const publishButtonText = computed(() => {
 })
 
 // Initialize selectedIds when drafts load (select all by default)
-watch(drafts, (newDrafts) => {
-  if (newDrafts.length > 0 && selectedIds.value.size === 0) {
+watch(drafts, (newDrafts, oldDrafts) => {
+  // Only auto-select all if this is the initial load (no previous drafts)
+  // or if drafts changed (new suggestions arrived)
+  const hadDrafts = oldDrafts && oldDrafts.length > 0
+  if (newDrafts.length > 0 && !hadDrafts) {
     selectedIds.value = new Set(newDrafts.filter(d => d.id).map(d => d.id))
   }
 }, { immediate: true })
