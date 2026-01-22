@@ -138,7 +138,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     "sqlite": DataSourceRegistryEntry(
         type="sqlite",
         title="SQLite",
-        description="Embedded SQLite database intended for development and automated testing.",
+        description="Query local SQLite database files. Supports absolute paths.",
         config_schema=SQLiteConfig,
         credentials_auth=AuthOptions(
             default="none",
@@ -146,13 +146,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                 "none": AuthVariant(
                     title="No Auth Required",
                     schema=SQLiteCredentials,
-                    scopes=["system", "user"],
+                    scopes=["system"],
                 )
             },
         ),
         client_path="app.data_sources.clients.sqlite_client.SqliteClient",
-        version="0.1.0",
-        dev_only=True,
     ),
     "oracledb": DataSourceRegistryEntry(
         type="oracledb",

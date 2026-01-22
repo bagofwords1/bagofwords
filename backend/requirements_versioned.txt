@@ -143,6 +143,7 @@ rpds-py==0.22.3
 rsa==4.9
 s3transfer==0.10.4
 setuptools==78.1.1
+jaraco.context==6.1.0
 simple-salesforce==1.12.6
 six==1.16.0
 smmap==5.0.1
