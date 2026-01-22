@@ -19,7 +19,7 @@
     "gridstack": "^12.0.0",
     "monaco-editor": "*",
     "nuxt": "^3.13.2",
-    "nuxt-echarts": "^0.2.4",
+    "nuxt-echarts": "0.2.4",
     "nuxt-monaco-editor": "1.4.0",
     "nuxt-tiptap-editor": "^2.0.0",
     "tiptap": "^1.32.2",
@@ -30,7 +30,9 @@
     "devalue": "^5.6.2",
     "glob": "^11.1.0",
     "node-forge": ">=1.3.2",
-    "mdast-util-to-hast": "13.2.1"
+    "mdast-util-to-hast": "13.2.1",
+    "nuxt-echarts": "0.2.4",
+    "vue": "3.5.18"
   },
   "devDependencies": {
     "@nuxt/types": "^2.17.3",
