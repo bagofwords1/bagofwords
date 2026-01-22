@@ -546,6 +546,73 @@ class BuildService:
             .where(BuildContent.build_id == build_id)
         )
         return list(result.scalars().all())
+
+    async def _filter_build_contents(
+        self,
+        db: AsyncSession,
+        build_id: str,
+        instruction_ids: List[str],
+    ) -> int:
+        """
+        Filter build contents to only include specified instructions from the NEW additions.
+        Only removes instructions that were added in this build and are NOT in the provided list.
+        Instructions inherited from the base build are preserved.
+
+        Args:
+            build_id: The build to filter
+            instruction_ids: List of instruction IDs to keep (from the new additions)
+
+        Returns:
+            Number of instructions removed
+        """
+        build = await self.get_build(db, build_id)
+        if not build:
+            return 0
+
+        # Get the set of instruction IDs that were inherited from the base build
+        inherited_instruction_ids: set = set()
+        if build.base_build_id:
+            base_contents_result = await db.execute(
+                select(BuildContent.instruction_id).where(BuildContent.build_id == build.base_build_id)
+            )
+            inherited_instruction_ids = set(row[0] for row in base_contents_result.fetchall())
+
+        # Get all current contents
+        result = await db.execute(
+            select(BuildContent).where(BuildContent.build_id == build_id)
+        )
+        all_contents = list(result.scalars().all())
+
+        # Find contents to remove:
+        # - Only remove instructions that are NOT in the inherited set (i.e., newly added)
+        # - AND are NOT in the allowed instruction_ids list
+        instruction_ids_set = set(instruction_ids)
+        to_remove = [
+            c for c in all_contents
+            if c.instruction_id not in inherited_instruction_ids  # Was added in this build
+            and c.instruction_id not in instruction_ids_set       # And not selected by user
+        ]
+
+        # Remove them
+        for content in to_remove:
+            await db.delete(content)
+
+        # Update build stats if any were removed
+        if to_remove:
+            build.total_instructions = max(0, build.total_instructions - len(to_remove))
+            build.added_count = max(0, build.added_count - len(to_remove))
+            build.title = _generate_build_title(
+                source=build.source,
+                added=build.added_count,
+                modified=build.modified_count,
+                removed=build.removed_count,
+                branch=build.branch,
+            )
+
+            await db.commit()
+            logger.info(f"Filtered build {build_id}: removed {len(to_remove)} unselected new instructions (preserved {len(inherited_instruction_ids)} inherited)")
+
+        return len(to_remove)
     
     # ==================== Lifecycle ====================
     
@@ -697,25 +764,33 @@ class BuildService:
         db: AsyncSession,
         build_id: str,
         user_id: str,
+        instruction_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Publish a build with auto-merge support.
-        
+
         This is the single action to make a build live:
         - Auto-approves if draft/pending
         - Fresh build (base == current main): simple promote
         - Stale build (main changed): auto-merge user's changes onto main
         - Uses last-modified-wins: user's changes overwrite main's for same instruction
+
+        Args:
+            instruction_ids: If provided, only include these instructions. Others are removed.
         """
         build = await self.get_build(db, build_id)
         if not build:
             raise HTTPException(status_code=404, detail="Build not found")
-        
+
         if build.status == 'rejected':
             raise HTTPException(status_code=400, detail="Cannot publish a rejected build")
-        
+
         if build.status == 'approved':
             raise HTTPException(status_code=400, detail="Build is already published. Use rollback to revert to a previous build.")
+
+        # Filter build contents if instruction_ids provided
+        if instruction_ids is not None:
+            await self._filter_build_contents(db, build_id, instruction_ids)
         
         # Auto-approve if needed (reusing existing methods)
         if build.status == 'draft':

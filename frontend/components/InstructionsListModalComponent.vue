@@ -164,31 +164,38 @@ const fetchAvailableSourceTypes = async () => {
 // Fetch git status
 const fetchGitStatus = async () => {
     try {
-        if (allDataSources.value.length === 0) return
+        // Fetch all org-level git repositories
+        const { data: repositories } = await useMyFetch<Array<{
+            id: string
+            provider: string
+            repo_url: string
+            last_indexed_at: string | null
+        }>>('/git/repositories', { method: 'GET' })
 
-        const repos: { provider: string; repoName: string }[] = []
-        let connectedCount = 0
-        let latestIndexed: string | null = null
-
-        for (const ds of allDataSources.value) {
-            const { data: fullDs } = await useMyFetch(`/data_sources/${ds.id}`, { method: 'GET' })
-            if (fullDs.value && (fullDs.value as any).git_repository) {
-                connectedCount++
-                const gitRepo = (fullDs.value as any).git_repository
-                const repoName = gitRepo.repo_url?.split('/').pop()?.replace(/\.git$/, '') || 'Repository'
-                repos.push({ provider: gitRepo.provider, repoName })
-
-                const { data: metaData } = await useMyFetch(`/data_sources/${ds.id}/metadata_resources`, { method: 'GET' })
-                if (metaData.value) {
-                    const completedAt = (metaData.value as any).completed_at
-                    if (completedAt && (!latestIndexed || new Date(completedAt) > new Date(latestIndexed))) {
-                        latestIndexed = completedAt
-                    }
-                }
-            }
+        if (!repositories.value || repositories.value.length === 0) {
+            gitConnectedCount.value = 0
+            gitLastIndexed.value = null
+            gitConnectedRepos.value = []
+            return
         }
 
-        gitConnectedCount.value = connectedCount
+        const repos: { provider: string; repoName: string }[] = []
+        let latestIndexed: string | null = null
+
+        for (const repo of repositories.value) {
+            // Track latest indexed time
+            if (repo.last_indexed_at) {
+                if (!latestIndexed || new Date(repo.last_indexed_at) > new Date(latestIndexed)) {
+                    latestIndexed = repo.last_indexed_at
+                }
+            }
+
+            // Extract repo name from URL
+            const repoName = repo.repo_url.split('/').pop()?.replace(/\.git$/, '') || 'Repository'
+            repos.push({ provider: repo.provider, repoName })
+        }
+
+        gitConnectedCount.value = repositories.value.length
         gitLastIndexed.value = latestIndexed
         gitConnectedRepos.value = repos
     } catch (e) {

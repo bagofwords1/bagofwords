@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.303 (January 22, 2026)
+- AI-suggested instructions now show persistent "Published" status with timestamp
+- Added checkbox selection when publishing AI suggestions 
+- Fixed AI builds not being linked to agent executions
+
 ## Version 0.0.302 (January 20, 2026)
 - Rename Catalog to Queries
 - Show chart and visualization in query page

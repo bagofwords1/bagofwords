@@ -216,6 +216,15 @@ class BuildRollbackSchema(BaseModel):
     pass  # No additional fields needed
 
 
+class BuildPublishSchema(BaseModel):
+    """Schema for publishing a build with optional instruction filtering."""
+    instruction_ids: Optional[List[str]] = Field(
+        None,
+        description="If provided, only include these instructions in the published build. "
+                    "Instructions not in this list will be removed from the build before publishing."
+    )
+
+
 class BuildDiffRequestSchema(BaseModel):
     """Schema for requesting a diff between builds."""
     compare_to: str = Field(..., description="ID of the build to compare against")
