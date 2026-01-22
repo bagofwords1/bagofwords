@@ -59,14 +59,14 @@ from app.models.instruction import Instruction
 
 
 async def _get_instruction_suggestions_for_completion(
-    db: AsyncSession, 
-    completion: Completion, 
+    db: AsyncSession,
+    completion: Completion,
     agent_execution: AgentExecution | None
 ) -> list[dict] | None:
     """Get instruction suggestions for a specific completion if it generated them."""
     if not agent_execution or completion.role != 'system' or completion.status not in ['success', 'completed']:
         return None
-        
+
     # Check if this agent execution created any instructions - get full instruction objects
     instr_stmt = (
         select(Instruction)
@@ -76,16 +76,32 @@ async def _get_instruction_suggestions_for_completion(
     )
     instr_res = await db.execute(instr_stmt)
     instructions = instr_res.scalars().all()
-    
+
     if not instructions:
         return None
-    
+
+    # Get the AI build associated with this agent execution
+    from app.models.instruction_build import InstructionBuild
+    build_stmt = (
+        select(InstructionBuild)
+        .where(InstructionBuild.agent_execution_id == agent_execution.id)
+        .where(InstructionBuild.deleted_at == None)
+        .order_by(InstructionBuild.created_at.desc())
+        .limit(1)
+    )
+    build_res = await db.execute(build_stmt)
+    ai_build = build_res.scalar_one_or_none()
+    build_id = str(ai_build.id) if ai_build else None
+    build_status = ai_build.status if ai_build else None
+    build_is_main = ai_build.is_main if ai_build else False
+    build_approved_at = ai_build.approved_at.isoformat() if ai_build and ai_build.approved_at else None
+
     # Convert to dict format with all relevant fields
     instructions_data = []
     for instr in instructions:
         if not (instr.text or "").strip():
             continue
-            
+
         instruction_data = {
             "id": str(instr.id),
             "text": instr.text,
@@ -102,9 +118,13 @@ async def _get_instruction_suggestions_for_completion(
             "created_at": instr.created_at.isoformat() if instr.created_at else None,
             "updated_at": instr.updated_at.isoformat() if instr.updated_at else None,
             "ai_source": getattr(instr, 'ai_source', None),
+            "build_id": build_id,
+            "build_status": build_status,
+            "build_is_main": build_is_main,
+            "build_approved_at": build_approved_at,
         }
         instructions_data.append(instruction_data)
-    
+
     return instructions_data if instructions_data else None
 
 
@@ -832,11 +852,23 @@ class CompletionService:
         # 6) Batch-load instruction suggestions for all agent executions at once
         ae_id_to_suggestions: dict[str, list[dict]] = {}
         system_ae_ids = [
-            e.id for cid, e in completion_id_to_exec.items() 
-            if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed'] 
+            e.id for cid, e in completion_id_to_exec.items()
+            if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed']
                         for c in all_completions)
         ]
         if system_ae_ids:
+            # Batch-load AI builds for all agent executions
+            from app.models.instruction_build import InstructionBuild
+            build_stmt = (
+                select(InstructionBuild)
+                .where(InstructionBuild.agent_execution_id.in_(system_ae_ids))
+                .where(InstructionBuild.deleted_at == None)
+            )
+            build_res = await db.execute(build_stmt)
+            ae_id_to_build: dict[str, InstructionBuild] = {}
+            for build in build_res.scalars().all():
+                ae_id_to_build[str(build.agent_execution_id)] = build
+
             instr_stmt = (
                 select(Instruction)
                 .where(Instruction.agent_execution_id.in_(system_ae_ids))
@@ -845,13 +877,21 @@ class CompletionService:
             )
             instr_res = await db.execute(instr_stmt)
             all_instructions = instr_res.scalars().all()
-            
+
             for instr in all_instructions:
                 if not (instr.text or "").strip():
                     continue
                 ae_id = str(instr.agent_execution_id)
                 if ae_id not in ae_id_to_suggestions:
                     ae_id_to_suggestions[ae_id] = []
+
+                # Get build info for this agent execution
+                ai_build = ae_id_to_build.get(ae_id)
+                build_id = str(ai_build.id) if ai_build else None
+                build_status = ai_build.status if ai_build else None
+                build_is_main = ai_build.is_main if ai_build else False
+                build_approved_at = ai_build.approved_at.isoformat() if ai_build and ai_build.approved_at else None
+
                 ae_id_to_suggestions[ae_id].append({
                     "id": str(instr.id),
                     "text": instr.text,
@@ -868,6 +908,10 @@ class CompletionService:
                     "created_at": instr.created_at.isoformat() if instr.created_at else None,
                     "updated_at": instr.updated_at.isoformat() if instr.updated_at else None,
                     "ai_source": getattr(instr, 'ai_source', None),
+                    "build_id": build_id,
+                    "build_status": build_status,
+                    "build_is_main": build_is_main,
+                    "build_approved_at": build_approved_at,
                 })
 
         # 6b) Batch-load user feedback for all completions (avoids N+1 API calls from frontend)
@@ -1109,11 +1153,23 @@ class CompletionService:
         # Batch-load instruction suggestions
         ae_id_to_suggestions: dict[str, list[dict]] = {}
         system_ae_ids = [
-            e.id for cid, e in completion_id_to_exec.items() 
-            if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed'] 
+            e.id for cid, e in completion_id_to_exec.items()
+            if e and any(c.id == cid and c.role == 'system' and c.status in ['success', 'completed']
                         for c in all_completions)
         ]
         if system_ae_ids:
+            # Batch-load AI builds for all agent executions
+            from app.models.instruction_build import InstructionBuild
+            build_stmt = (
+                select(InstructionBuild)
+                .where(InstructionBuild.agent_execution_id.in_(system_ae_ids))
+                .where(InstructionBuild.deleted_at == None)
+            )
+            build_res = await db.execute(build_stmt)
+            ae_id_to_build: dict[str, InstructionBuild] = {}
+            for build in build_res.scalars().all():
+                ae_id_to_build[str(build.agent_execution_id)] = build
+
             instr_stmt = (
                 select(Instruction)
                 .where(Instruction.agent_execution_id.in_(system_ae_ids))
@@ -1127,6 +1183,14 @@ class CompletionService:
                 ae_id = str(instr.agent_execution_id)
                 if ae_id not in ae_id_to_suggestions:
                     ae_id_to_suggestions[ae_id] = []
+
+                # Get build info for this agent execution
+                ai_build = ae_id_to_build.get(ae_id)
+                build_id = str(ai_build.id) if ai_build else None
+                build_status = ai_build.status if ai_build else None
+                build_is_main = ai_build.is_main if ai_build else False
+                build_approved_at = ai_build.approved_at.isoformat() if ai_build and ai_build.approved_at else None
+
                 ae_id_to_suggestions[ae_id].append({
                     "id": str(instr.id),
                     "text": instr.text,
@@ -1143,6 +1207,10 @@ class CompletionService:
                     "created_at": instr.created_at.isoformat() if instr.created_at else None,
                     "updated_at": instr.updated_at.isoformat() if instr.updated_at else None,
                     "ai_source": getattr(instr, 'ai_source', None),
+                    "build_id": build_id,
+                    "build_status": build_status,
+                    "build_is_main": build_is_main,
+                    "build_approved_at": build_approved_at,
                 })
 
         # Assemble v2 objects

@@ -260,7 +260,8 @@ class AgentV2:
                             self.db,
                             str(self.organization.id),
                             source='ai',
-                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None
+                            user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
+                            agent_execution_id=str(self.current_execution.id),
                         )
                         logger.debug(f"Created AI build {ai_build.id} for agent execution {self.current_execution.id}")
                     except Exception as build_error:
@@ -301,6 +302,7 @@ class AgentV2:
                             "created_at": inst.created_at.isoformat() if getattr(inst, 'created_at', None) else None,
                             "updated_at": inst.updated_at.isoformat() if getattr(inst, 'updated_at', None) else None,
                             "ai_source": getattr(inst, 'ai_source', None),
+                            "build_id": str(ai_build.id) if ai_build else None,
                         }
                         drafts.append(draft_payload)
 

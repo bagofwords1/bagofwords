@@ -6,7 +6,7 @@
       <!-- Status icon -->
       <Spinner v-if="isLoading" class="w-3 h-3 mr-1.5 text-gray-400" />
       <Icon v-else name="heroicons-light-bulb" class="w-3 h-3 mr-1.5 text-green-500" />
-      
+
       <!-- Title with shimmer for loading -->
       <span v-if="isLoading" class="tool-shimmer">
         Suggesting Instructions...
@@ -18,87 +18,81 @@
 
     <!-- Instruction cards -->
     <div class="space-y-2" v-if="drafts.length">
-      <div v-for="(d, i) in drafts" :key="i"  class="hover:bg-gray-50 border border-gray-150 rounded-md p-3 transition-colors">
-        <div 
-          @click="d.global_status === 'approved' || d.global_status === 'rejected' ? null : handleEdit(d, i)" 
+      <div v-for="(d, i) in drafts" :key="d.id || i" class="hover:bg-gray-50 border border-gray-150 rounded-md p-3 transition-colors">
+        <div
+          @click="!isBuildPublished ? handleEdit(d, i) : null"
           :class="[
             'text-[12px] text-gray-800 leading-relaxed mb-2',
-            d.global_status === 'approved' || d.global_status === 'rejected' ? '' : 'cursor-pointer'
+            isBuildPublished ? '' : 'cursor-pointer'
           ]"
         >
           {{ d.text }}
         </div>
         <div v-if="d.category" class="text-xs hidden text-gray-500 mb-3 font-medium">{{ d.category }}</div>
-        
-        <!-- Action buttons / Status display -->
-        <div class="flex justify-start gap-2 pt-2 border-t border-gray-200">
-          <!-- Show status for approved instructions -->
-          <div v-if="d.global_status === 'approved'" class="flex items-center">
-            <Icon name="heroicons:check-circle" class="w-3 h-3 text-gray-500 mr-1" />
-            <span class="text-[10px] font-medium text-gray-500">Published</span>
-          </div>
-          
-          <!-- Show status for rejected instructions -->
-          <div v-else-if="d.global_status === 'rejected'" class="flex items-center">
-            <Icon name="heroicons:x-circle" class="w-3 h-3 text-gray-500 mr-1" />
-            <span class="text-[10px] font-medium text-gray-500">Rejected</span>
-          </div>
-          
-          <!-- Show action buttons for suggested/draft instructions -->
-          <template v-else>
-            <button 
-              v-if="canCreateInstructions"
-              @click="handlePublish(d, i)"
-              class="flex items-center text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-              :disabled="isPublishing"
-            >
-              <Spinner 
-                v-if="isPublishing && publishingIndex === i"
-                class="w-3 h-3 text-green-600 mr-1" 
-              />
-              <Icon 
-                v-else
-                name="heroicons:check" 
-                class="w-3 h-3 text-green-600 mr-1" 
-              />
-              <span>{{ isPublishing && publishingIndex === i ? 'Publishing...' : 'Publish' }}</span>
-            </button>
-            
-            <button 
-              @click="handleEdit(d, i)"
-              class="flex items-center text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-            >
-              <Icon name="heroicons:pencil" class="w-3 h-3 text-blue-600 mr-1" />
-              <span>Edit</span>
-            </button>
-            
-            <button 
-              @click="handleDelete(d, i)"
-              class="flex items-center text-[10px] font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 rounded transition-colors"
-              :disabled="isRejecting"
-            >
-              <Spinner 
-                v-if="isRejecting && rejectingIndex === i"
-                class="w-3 h-3 text-red-600 mr-1" 
-              />
-              <Icon 
-                v-else
-                name="heroicons:trash" 
-                class="w-3 h-3 text-red-600 mr-1" 
-              />
-              <span>{{ isRejecting && rejectingIndex === i ? 'Deleting...' : 'Delete' }}</span>
-            </button>
-          </template>
+
+        <!-- Action buttons for unpublished builds -->
+        <div v-if="!isBuildPublished" class="flex justify-start gap-2 pt-2 border-t border-gray-200">
+          <button
+            @click="handleEdit(d, i)"
+            class="flex items-center text-[9px] text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            <Icon name="heroicons:pencil" class="w-2.5 h-2.5 mr-0.5" />
+            <span>Edit</span>
+          </button>
+
+          <button
+            @click="handleRemove(d, i)"
+            class="flex items-center text-[9px] text-gray-500 hover:text-red-600 transition-colors"
+            :disabled="isRemoving && removingIndex === i"
+          >
+            <Spinner
+              v-if="isRemoving && removingIndex === i"
+              class="w-2.5 h-2.5 mr-0.5"
+            />
+            <Icon
+              v-else
+              name="heroicons:x-mark"
+              class="w-2.5 h-2.5 mr-0.5"
+            />
+            <span>{{ isRemoving && removingIndex === i ? 'Removing...' : 'Remove' }}</span>
+          </button>
         </div>
       </div>
     </div>
-    
+
+    <!-- Publish Instructions button -->
+    <div v-if="drafts.length > 0 && !isLoading && !isBuildPublished && canCreateInstructions" class="mt-2">
+      <UButton
+        variant="soft"
+        color="blue"
+        size="xs"
+        :disabled="isPublishingBuild"
+        @click="handlePublishBuild"
+      >
+        <template #leading>
+          <Spinner v-if="isPublishingBuild" class="w-3 h-3" />
+          <Icon v-else name="heroicons:arrow-up-tray" class="w-3 h-3" />
+        </template>
+        {{ isPublishingBuild ? 'Publishing...' : 'Publish Instructions' }}
+      </UButton>
+    </div>
+
+    <!-- Published status (shown in place of button after publishing) -->
+    <div v-if="drafts.length > 0 && !isLoading && isBuildPublished" class="mt-2 flex items-center text-xs text-green-600">
+      <Icon name="heroicons:check-circle-solid" class="w-4 h-4 mr-1.5" />
+      <span class="font-medium">Published</span>
+      <span v-if="publishedAtFormatted" class="text-gray-500 ml-1">
+        at {{ publishedAtFormatted }}
+      </span>
+    </div>
+
     <!-- Instruction Modal -->
     <InstructionModalComponent
       v-model="showInstructionModal"
       :instruction="editingInstruction"
       :initial-type="modalInitialType"
       :is-suggestion="true"
+      :target-build-id="buildId"
       @instruction-saved="handleInstructionSaved"
     />
   </div>
@@ -131,6 +125,10 @@ interface InstructionDraft {
   trigger_reason?: string | null
   created_at?: string | null
   updated_at?: string | null
+  build_id?: string | null
+  build_status?: string | null
+  build_is_main?: boolean
+  build_approved_at?: string | null
 }
 
 interface Props {
@@ -143,10 +141,11 @@ const props = defineProps<Props>()
 const showInstructionModal = ref(false)
 const editingInstruction = ref<any>(null)
 const modalInitialType = ref<'global' | 'private'>('private')
-const isPublishing = ref(false)
-const isRejecting = ref(false)
-const publishingIndex = ref(-1)
-const rejectingIndex = ref(-1)
+const isPublishingBuild = ref(false)
+const isRemoving = ref(false)
+const removingIndex = ref(-1)
+const localPublishOverride = ref(false) // Used to show published state immediately after publishing
+
 
 // Composables
 const toast = useToast()
@@ -169,10 +168,19 @@ const drafts = computed<InstructionDraft[]>(() => {
       agent_execution_id: d?.agent_execution_id || null,
       trigger_reason: d?.trigger_reason || null,
       created_at: d?.created_at || null,
-      updated_at: d?.updated_at || null
+      updated_at: d?.updated_at || null,
+      build_id: d?.build_id || null,
+      build_status: d?.build_status || null,
+      build_is_main: d?.build_is_main ?? false,
+      build_approved_at: d?.build_approved_at || null,
     })).filter(d => d.text)
   }
   return []
+})
+
+// Get build_id from first draft (all drafts in a suggestion share the same build)
+const buildId = computed(() => {
+  return drafts.value[0]?.build_id || null
 })
 
 const isLoading = computed(() => {
@@ -183,48 +191,92 @@ const canCreateInstructions = computed(() => {
   return useCan('create_instructions')
 })
 
-// Action handlers
-const handlePublish = async (draft: InstructionDraft, index: number) => {
-  isPublishing.value = true
-  publishingIndex.value = index
-  
-  try {
-    if (!draft.id) throw new Error('Missing instruction id')
-    // Approve existing suggestion → published global
-    const response = await useMyFetch(`/instructions/${draft.id}`, {
-      method: 'PUT',
-      body: {
-        status: 'published',
-        global_status: 'approved'
-      }
-    })
+// Check if build is published - from data (persists on refresh) or local override (immediate feedback)
+const isBuildPublished = computed(() => {
+  // Local override for immediate UI feedback after publishing
+  if (localPublishOverride.value) return true
+  // Check build status from backend data
+  const firstDraft = drafts.value[0]
+  return firstDraft?.build_is_main === true || firstDraft?.build_status === 'approved'
+})
 
-    if (response.status.value === 'success') {
-      // Update local view so status chip renders immediately
-      const rj: any = (props as any).toolExecution?.result_json || {}
-      const arr: any[] = Array.isArray(rj.drafts) ? rj.drafts : (Array.isArray(rj.instructions) ? rj.instructions : [])
-      if (Array.isArray(arr)) {
-        const idx = typeof index === 'number' ? index : arr.findIndex((x: any) => x?.id === draft.id)
-        if (idx > -1) {
-          arr[idx] = { ...(arr[idx] || {}), status: 'published', global_status: 'approved' }
-          if (rj.drafts) rj.drafts = [...arr]
-          if (rj.instructions) rj.instructions = [...arr]
-        }
+// Format the published timestamp
+const publishedAtFormatted = computed(() => {
+  const firstDraft = drafts.value[0]
+  if (!firstDraft?.build_approved_at) return null
+  try {
+    const date = new Date(firstDraft.build_approved_at)
+    return date.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  } catch {
+    return null
+  }
+})
+
+// Publish the entire build
+const handlePublishBuild = async () => {
+  isPublishingBuild.value = true
+
+  try {
+    let targetBuildId = buildId.value
+
+    // If no build_id in data, try to fetch it from the first instruction
+    if (!targetBuildId && drafts.value[0]?.id) {
+      const { data } = await useMyFetch<any>(`/instructions/${drafts.value[0].id}`)
+      if (data.value?.current_build_id) {
+        targetBuildId = data.value.current_build_id
       }
-      toast.add({ title: 'Success', description: 'Instruction published', color: 'green' })
+    }
+
+    if (targetBuildId) {
+      // Update each instruction's status to published within the build
+      for (const draft of drafts.value) {
+        if (!draft.id) continue
+        await useMyFetch(`/instructions/${draft.id}`, {
+          method: 'PUT',
+          body: {
+            status: 'published',
+            target_build_id: targetBuildId,
+          }
+        })
+      }
+
+      // Publish the build
+      const response = await useMyFetch(`/builds/${targetBuildId}/publish`, {
+        method: 'POST',
+      })
+
+      if (response.status.value === 'success') {
+        localPublishOverride.value = true
+        toast.add({ title: 'Success', description: 'Instructions published', color: 'green' })
+      } else {
+        throw new Error('Failed to publish build')
+      }
     } else {
-      throw new Error('Failed to publish instruction')
+      // Fallback: No build found, just publish instructions directly
+      for (const draft of drafts.value) {
+        if (!draft.id) continue
+        await useMyFetch(`/instructions/${draft.id}`, {
+          method: 'PUT',
+          body: { status: 'published' }
+        })
+      }
+      localPublishOverride.value = true
+      toast.add({ title: 'Success', description: 'Instructions published', color: 'green' })
     }
   } catch (error) {
-    console.error('Error publishing instruction:', error)
-    toast.add({ title: 'Error', description: 'Failed to publish instruction', color: 'red' })
+    console.error('Error publishing instructions:', error)
+    toast.add({ title: 'Error', description: 'Failed to publish instructions', color: 'red' })
   } finally {
-    isPublishing.value = false
-    publishingIndex.value = -1
+    isPublishingBuild.value = false
   }
 }
 
-const handleEdit = async (draft: InstructionDraft, index: number) => {
+const handleEdit = async (draft: InstructionDraft, _index: number) => {
   // Try to load full instruction (with references/data_sources) before opening modal
   let fullInst: any = null
   try {
@@ -254,21 +306,26 @@ const handleEdit = async (draft: InstructionDraft, index: number) => {
   }
 
   editingInstruction.value = base
-  
+
   // Determine modal type based on permissions
   modalInitialType.value = canCreateInstructions.value ? 'global' : 'private'
   showInstructionModal.value = true
 }
 
-const handleDelete = async (draft: InstructionDraft, index: number) => {
-  isRejecting.value = true
-  rejectingIndex.value = index
-  
+const handleRemove = async (draft: InstructionDraft, index: number) => {
+  if (!draft.id || !buildId.value) return
+
+  isRemoving.value = true
+  removingIndex.value = index
+
   try {
-    if (!draft.id) throw new Error('Missing instruction id')
-    const response = await useMyFetch(`/instructions/${draft.id}`, { method: 'DELETE' })
+    // Remove instruction from the build
+    const response = await useMyFetch(`/builds/${buildId.value}/contents/${draft.id}`, {
+      method: 'DELETE'
+    })
 
     if (response.status.value === 'success') {
+      // Update local view
       const rj: any = (props as any).toolExecution?.result_json || {}
       const arr: any[] = Array.isArray(rj.drafts) ? rj.drafts : (Array.isArray(rj.instructions) ? rj.instructions : [])
       if (Array.isArray(arr)) {
@@ -279,16 +336,16 @@ const handleDelete = async (draft: InstructionDraft, index: number) => {
           if (rj.instructions) rj.instructions = [...arr]
         }
       }
-      toast.add({ title: 'Deleted', description: 'Instruction deleted', color: 'orange' })
+      toast.add({ title: 'Removed', description: 'Instruction removed from build', color: 'orange' })
     } else {
-      throw new Error('Failed to delete instruction')
+      throw new Error('Failed to remove instruction')
     }
   } catch (error) {
-    console.error('Error deleting instruction:', error)
-    toast.add({ title: 'Error', description: 'Failed to delete instruction', color: 'red' })
+    console.error('Error removing instruction:', error)
+    toast.add({ title: 'Error', description: 'Failed to remove instruction', color: 'red' })
   } finally {
-    isRejecting.value = false
-    rejectingIndex.value = -1
+    isRemoving.value = false
+    removingIndex.value = -1
   }
 }
 
@@ -334,5 +391,3 @@ const handleInstructionSaved = (data: any) => {
   opacity: 1;
 }
 </style>
-
-

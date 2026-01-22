@@ -34,7 +34,7 @@
                         <!-- Left: Form -->
                         <div class="flex flex-col h-full overflow-y-auto min-w-0">
                             <!-- Conditional rendering based on the computed selectedInstructionType -->
-                            <InstructionGlobalCreateComponent 
+                            <InstructionGlobalCreateComponent
                                 v-if="selectedInstructionType === 'global' && useCan('create_instructions')"
                                 :instruction="instruction"
                                 :analyzing="isAnalyzing"
@@ -42,6 +42,7 @@
                                 :selected-data-sources="selectedDataSources"
                                 :is-git-sourced="isGitSourced"
                                 :is-git-synced="isGitSynced"
+                                :target-build-id="targetBuildId || undefined"
                                 @instruction-saved="handleInstructionSaved"
                                 @cancel="closeModal"
                                 @update-form="updateSharedForm"
@@ -199,6 +200,7 @@ const props = defineProps<{
     instruction?: any
     initialType?: 'global' | 'private'
     isSuggestion?: boolean
+    targetBuildId?: string | null  // If set, update instruction within this existing build
 }>()
 
 const emit = defineEmits(['update:modelValue', 'instructionSaved'])

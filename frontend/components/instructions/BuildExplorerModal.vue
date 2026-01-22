@@ -187,11 +187,14 @@
                                         color="blue"
                                         variant="solid"
                                         size="xs"
-                                        :icon="publishingBuild ? undefined : 'i-heroicons-rocket-launch'"
-                                        :loading="publishingBuild"
+                                        :disabled="publishingBuild"
                                         @click="publishBuild"
                                     >
-                                        Publish
+                                        <template #leading>
+                                            <Spinner v-if="publishingBuild" class="w-3 h-3" />
+                                            <UIcon v-else name="i-heroicons-rocket-launch" class="w-3 h-3" />
+                                        </template>
+                                        {{ publishingBuild ? 'Publishing...' : 'Publish' }}
                                     </UButton>
                                     
                                     <!-- Reject button - only for pending_approval builds -->

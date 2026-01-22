@@ -678,7 +678,7 @@ class InstructionService:
                             db, target_build.id, instruction_with_rels.id, version.id
                         )
                         await db.commit()
-                        logger.info(f"Created version {version.id} for instruction {instruction.id}, added to existing build {target_build.id}")
+                        logger.debug(f"Created version {version.id} for instruction {instruction.id}, added to existing build {target_build.id}")
                     else:
                         logger.warning(f"Target build {target_build_id} not found or not editable, skipping build update")
                 else:
@@ -698,7 +698,7 @@ class InstructionService:
                     # All instructions (including draft/suggested) are in main for UI display
                     await self._auto_finalize_build(db, build, current_user, user_permissions)
                     
-                    logger.info(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
+                    logger.debug(f"Created version {version.id} for instruction {instruction.id}, added to build {build.id}")
         except Exception as e:
             logger.warning(f"Failed to create version for updated instruction {instruction.id}: {e}")
             # Don't fail the update if versioning fails
@@ -807,9 +807,9 @@ class InstructionService:
             await db.refresh(build)
             if build.status == 'approved' and not build.is_main:
                 await self.build_service.promote_build(db, build.id)
-                logger.info(f"Auto-promoted delete build {build.id} to main")
+                logger.debug(f"Auto-promoted delete build {build.id} to main")
             
-            logger.info(f"Removed instruction {instruction_id} from build {build.id}")
+            logger.debug(f"Removed instruction {instruction_id} from build {build.id}")
         except Exception as e:
             logger.warning(f"Failed to update build for deleted instruction {instruction_id}: {e}")
             # Don't fail the deletion if build update fails
@@ -1069,7 +1069,7 @@ class InstructionService:
                 
                 # Finalize the build
                 await self._auto_finalize_build(db, bulk_build, current_user, user_permissions)
-                logger.info(f"Finalized bulk update build {bulk_build.id} with {len(modified_instructions)} instructions")
+                logger.debug(f"Finalized bulk update build {bulk_build.id} with {len(modified_instructions)} instructions")
             except Exception as version_error:
                 logger.warning(f"Failed to create versions for bulk update: {version_error}")
         
@@ -1153,7 +1153,7 @@ class InstructionService:
                 await db.refresh(bulk_build)
                 if bulk_build.status == 'approved' and not bulk_build.is_main:
                     await self.build_service.promote_build(db, bulk_build.id)
-                    logger.info(f"Auto-promoted bulk delete build {bulk_build.id} to main")
+                    logger.debug(f"Auto-promoted bulk delete build {bulk_build.id} to main")
             except Exception as finalize_error:
                 logger.warning(f"Failed to finalize/promote bulk delete build: {finalize_error}")
         
