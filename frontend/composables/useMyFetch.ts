@@ -5,9 +5,14 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
   const { token } = useAuth()
   const { organization, ensureOrganization } = useOrganization()
 
+  // IMPORTANT: Capture component instance state BEFORE any await calls
+  // After await, getCurrentInstance() may return null even in mounted components
+  const isInComponent = getCurrentInstance() !== null
+  const isClient = process.client
+
   // Ensure organization is loaded before making the request
   const orgResult = await ensureOrganization()
-  
+
   opts = opts || {}
   opts.headers = {
     ...opts.headers,
@@ -38,16 +43,13 @@ export const useMyFetch: typeof useFetch = async (request, opts?) => {
     })
   }
 
-  // Check if we're in a component that's already mounted by looking at the current instance
-  const nuxtApp = useNuxtApp()
-  const isInComponent = getCurrentInstance() !== null
-  
   // Use $fetch for post-mounted requests to avoid Nuxt warning
-  if (isInComponent && process.client) {
+  // The isInComponent check was captured before any awaits to be reliable
+  if (isInComponent && isClient) {
     try {
-      const data = await $fetch(request, { 
-        baseURL: config.public.baseURL, 
-        ...opts 
+      const data = await $fetch(request, {
+        baseURL: config.public.baseURL,
+        ...opts
       })
       return {
         data: ref(data),
