@@ -11,10 +11,12 @@
                 :currentThemeDisplay="currentThemeDisplay"
                 :visualizations="visualizationsForFilter"
                 :isLoading="isLoading"
+                :hideArtifactSwitch="props.hideArtifactSwitch"
                 @add:text="addNewTextWidgetToGrid"
                 @rerun="rerunReport"
                 @openFullscreen="openModal"
                 @toggleSplitScreen="$emit('toggleSplitScreen')"
+                @toggleArtifactView="$emit('toggleArtifactView')"
                 @update:filters="onFiltersUpdate"
                 class="flex-1"
             />
@@ -221,7 +223,7 @@ import { themes } from '@/components/dashboard/themes'
     const toast = useToast();
     const instanceId = `${Date.now()}-${Math.random().toString(36).slice(2)}`
     const filterInstanceId = `dashboard-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const emit = defineEmits(['removeWidget', 'toggleSplitScreen', 'editVisualization', 'visualizations-ready']);
+    const emit = defineEmits(['removeWidget', 'toggleSplitScreen', 'toggleArtifactView', 'editVisualization', 'visualizations-ready']);
 
     const props = defineProps<{
         report: any
@@ -230,6 +232,7 @@ import { themes } from '@/components/dashboard/themes'
         textWidgetsIds?: string[]
         isStreaming?: boolean  // Skip heavy updates during active streaming
         externalFilters?: any[]  // Filters from parent (for public page)
+        hideArtifactSwitch?: boolean  // Hide "Switch to Artifact view" for legacy reports
     }>();
 
     const reportThemeName = ref(props.report?.report_theme_name || 'default');

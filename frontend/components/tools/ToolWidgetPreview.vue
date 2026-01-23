@@ -185,38 +185,19 @@
         </template>
 
         <!-- Bottom Action Buttons (hidden in readonly mode) -->
-        <div v-if="!readonly" class="mt-2 pt-2 border-t border-gray-100 flex justify-between items-center">
-          <div class="flex items-center space-x-2">
-            <button
-              v-if="!isPublished"
-              :disabled="!canAdd || isAdding"
-              @click="onAddClick"
-              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center"
-              :class="[
-                canAdd && !isAdding ? 'hover:bg-gray-50' : 'text-gray-400 cursor-not-allowed'
-              ]"
-            >
-              <Spinner v-if="isAdding" class="w-3.5 h-3.5 mr-1 text-blue-500" />
-              <Icon v-else-if="canAdd" name="heroicons-chart-pie" class="w-3.5 h-3.5 text-blue-500 mr-1" />
-              <span v-if="!canAdd && !isAdding">Generating…</span>
-              <span v-else-if="isAdding">Adding…</span>
-              <span v-else>Add to dashboard</span>
-            </button>
-            <span v-else class="text-xs flex items-center">
-              <Icon name="heroicons-check" class="w-3.5 h-3.5 mr-1 text-green-500" />
-              Added to dashboard</span>
-          </div>
+        <div v-if="!readonly" class="mt-2 pt-2 border-t border-gray-100 flex items-center">
           <div class="flex items-center space-x-2">
             <button
               v-if="!effectiveStep?.created_entity_id"
-              class="text-xs px-2 py-0.5 rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+              class="text-xs px-2 py-0.5 rounded transition-colors flex items-center hover:bg-gray-50"
               @click.stop="openEntityModal = true"
             >
-              Save
+              <Icon name="heroicons-bookmark" class="w-3.5 h-3.5 text-blue-500 mr-1" />
+              Save Query
             </button>
             <span v-else class="text-xs flex items-center">
               <Icon name="heroicons-check-badge" class="w-3.5 h-3.5 mr-1 text-green-500" />
-              Saved
+              Saved Query
             </span>
           </div>
         </div>
@@ -248,7 +229,6 @@ import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityCreateModal from '../entity/EntityCreateModal.vue'
-import Spinner from '~/components/Spinner.vue'
 import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
 import { 
   parseColumnKey, 
@@ -272,13 +252,12 @@ const props = defineProps<{
   toolExecution: ToolExecution
   readonly?: boolean
 }>()
-const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
+const emit = defineEmits(['toggleSplitScreen', 'editQuery'])
 
 const { canEditCode } = useOrgSettings()
 
 // Reactive state for collapsible behavior
 const isCollapsed = ref(false) // Start expanded
-const isAdding = ref(false)
 const layoutBlocks = ref<any[]>([])
 const route = useRoute()
 const reportId = computed(() => String(route.params.id || ''))
@@ -671,39 +650,6 @@ function broadcastDefaultStep(step: any) {
   } catch {}
 }
 
-// Add-to-dashboard gating and action
-const isPublished = computed(() => {
-  const vizId = visualization.value?.id
-  if (!vizId) return false
-  // Check for direct visualization blocks
-  if (layoutBlocks.value.some(b => b?.type === 'visualization' && b?.visualization_id === vizId)) {
-    return true
-  }
-  // Check for visualizations wrapped in card blocks
-  return layoutBlocks.value.some(b => {
-    if (b?.type === 'card' && Array.isArray(b?.children)) {
-      return b.children.some((child: any) => child?.type === 'visualization' && child?.visualization_id === vizId)
-    }
-    return false
-  })
-})
-
-watch(layoutBlocks, () => {
-  // ensure computed re-evaluates when layout membership changes
-}, { deep: true })
-const canAdd = computed(() => {
-  const viz = visualization.value
-  const st = effectiveStep.value
-  // Don't allow adding synthetic visualizations (they use tool_execution ID, not real viz ID)
-  if (viz?._isSynthetic) return false
-  // Consider step OK if explicit status is success OR if rows are present
-  const rows = st?.data?.rows
-  const stepOk = st?.status ? st.status === 'success' : Array.isArray(rows)
-  // Consider viz OK if explicit status is success OR if it has an id
-  const vizOk = viz?.status ? viz.status === 'success' : !!viz?.id
-  return !!(viz?.id && stepOk && vizOk)
-})
-
 // Keep membership state in sync when dashboard layout changes elsewhere
 onMounted(() => {
   // Listen for shared filter updates from VisualizationFilter and FilterBuilder
@@ -843,52 +789,6 @@ onUnmounted(() => {
     ;(window as any).__tw_preview_handlers__ = undefined
   }
 })
-
-async function onAddClick() {
-  if (isAdding.value) return
-  if (!visualization.value?.id) return
-  isAdding.value = true
-  try {
-    // Best-effort: patch layout directly
-    if (reportId.value) {
-      try {
-        const { error } = await useMyFetch(`/api/reports/${reportId.value}/layouts/active/blocks`, {
-          method: 'PATCH',
-          body: {
-            blocks: [{ type: 'visualization', visualization_id: visualization.value.id, x: 0, y: 0, width: 12, height: 8 }]
-          }
-        })
-        if (error.value) throw error.value
-        // Optimistically mark as published so the button flips immediately
-        // Server wraps visualization in a card, so update local state to match
-        layoutBlocks.value = [...layoutBlocks.value, { 
-          type: 'card', 
-          children: [{ type: 'visualization', visualization_id: visualization.value.id }]
-        }]
-        // Broadcast to dashboard pane to refresh membership immediately
-        try {
-          window.dispatchEvent(new CustomEvent('dashboard:layout_changed', { detail: { report_id: reportId.value, action: 'added', visualization_id: visualization.value.id } }))
-        } catch {}
-        // Ensure dashboard pane is open, but do not close if already open
-        try {
-          window.dispatchEvent(new CustomEvent('dashboard:ensure_open'))
-        } catch {}
-      } catch (e) {
-        // fallback to parent handler if exists
-        emit('addWidget', { visualization: visualization.value, step: step.value })
-        try { window.dispatchEvent(new CustomEvent('dashboard:ensure_open')) } catch {}
-      }
-    } else {
-      emit('addWidget', { visualization: visualization.value, step: step.value })
-      try { window.dispatchEvent(new CustomEvent('dashboard:ensure_open')) } catch {}
-    }
-    // Best-effort: refresh membership shortly after parent patches layout
-    setTimeout(refreshMembership, 600)
-  } finally {
-    // Let parent control final state; keep short throttle to avoid double clicks
-    setTimeout(() => { isAdding.value = false }, 800)
-  }
-}
 
 async function refreshMembership() {
   try {

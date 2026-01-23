@@ -18,18 +18,20 @@
         </div>
 
         <!-- Right (Dashboard) -->
-        <div v-if="isSplitScreen" 
-             :style="{ 
-                 width: `calc(100% - ${leftPanelWidth}px)`,
+        <div v-if="isSplitScreen"
+             :style="{
                  willChange: 'transform, width',
                  transform: 'translateX(0)',
                  transition: isResizing ? 'none' : 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
              }"
              :class="[
+                'flex-1 min-w-0 relative',
                 'bg-white border-gray-200 bg-dots',
                 'overflow-y-scroll'
              ]">
             <slot name="right" />
+            <!-- Overlay to prevent iframe from capturing mouse events during resize -->
+            <div v-if="isResizing" class="absolute inset-0 z-50" />
         </div>
     </div>
 </template>

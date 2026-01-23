@@ -71,6 +71,7 @@ from app.routes import (
     mcp,
     build,
     connection,
+    artifact,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
 
@@ -195,6 +196,7 @@ app.include_router(mentions.router, prefix="/api")
 app.include_router(api_key.router, prefix="/api")
 app.include_router(mcp.router, prefix="/api")
 app.include_router(connection.router, prefix="/api")
+app.include_router(artifact.router, prefix="/api")
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():

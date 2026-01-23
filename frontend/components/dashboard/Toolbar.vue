@@ -8,9 +8,13 @@
           </button>
         </UTooltip>
       </div>
-      <div class="font-medium text-gray-700">
-        Dashboard
-      </div>
+      <UTooltip v-if="!props.hideArtifactSwitch" text="Switch to Artifact view">
+        <button @click="$emit('toggleArtifactView')" class="font-medium text-gray-700 hover:text-blue-600 flex items-center gap-1">
+          Dashboard
+          <Icon name="heroicons:code-bracket" class="w-3.5 h-3.5 opacity-50" />
+        </button>
+      </UTooltip>
+      <span v-else class="font-medium text-gray-700">Dashboard</span>
     </div>
 
     <div class="space-x-2 flex items-center">
@@ -103,6 +107,7 @@ const props = defineProps<{
   currentThemeDisplay: string
   visualizations: Array<any>
   isLoading?: boolean
+  hideArtifactSwitch?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -111,6 +116,7 @@ const emit = defineEmits<{
   (e: 'rerun'): void
   (e: 'openFullscreen'): void
   (e: 'toggleSplitScreen'): void
+  (e: 'toggleArtifactView'): void
   (e: 'update:filters', filters: any[]): void
 }>()
 

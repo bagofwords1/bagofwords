@@ -48,3 +48,4 @@ class Report(BaseSchema):
     )
     queries = relationship("Query", back_populates="report", lazy="selectin")
     visualizations = relationship("Visualization", back_populates="report", lazy="selectin")
+    artifacts = relationship("Artifact", back_populates="report", lazy="selectin")

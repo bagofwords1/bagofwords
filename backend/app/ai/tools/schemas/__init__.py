@@ -11,6 +11,7 @@ from .describe_entity import DescribeEntityInput, DescribeEntityOutput
 from .read_resources import ReadResourcesInput, ReadResourcesOutput
 from .create_instruction import CreateInstructionInput, CreateInstructionOutput
 from .edit_instruction import EditInstructionInput, EditInstructionOutput
+from .create_artifact import CreateArtifactInput, CreateArtifactOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -44,6 +45,8 @@ __all__ = [
     "CreateInstructionOutput",
     "EditInstructionInput",
     "EditInstructionOutput",
+    "CreateArtifactInput",
+    "CreateArtifactOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent",

@@ -83,7 +83,7 @@ class CreateDashboardTool(Tool):
             timeout_seconds=60,
             idempotent=True,
             required_permissions=[],
-            is_active=True,
+            is_active=False,
             tags=["dashboard", "report", "layout"],
             allowed_modes=["chat", "deep"],
         )

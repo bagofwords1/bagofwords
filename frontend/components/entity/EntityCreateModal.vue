@@ -16,7 +16,7 @@
             <div class="bg-white rounded-lg p-3">
               <!-- Info message for non-admins (suggestions) -->
               <div v-if="!canCreateEntities && canSuggestEntities" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
-                <div class="font-medium mb-1">Suggest Query for Review</div>
+                <div class="font-medium mb-1">Suggest Saved Query for Review</div>
                 <div>Your query will be submitted for admin approval before being published.</div>
               </div>
 
@@ -87,7 +87,7 @@ const errorMsg = ref('')
 const saving = ref(false)
 const viewType = computed(() => String((props.initialView && props.initialView.type) || ''))
 
-const form = ref<{ 
+const form = ref<{
   type: string
   title: string
   description: string | null
@@ -97,7 +97,7 @@ const form = ref<{
   type: (viewType.value === 'count' ? 'metric' : 'model'),
   title: props.initialTitle || '',
   description: null,
-  status: 'draft',
+  status: canCreateEntities.value ? 'published' : 'draft',
   data_source_ids: props.initialDataSourceIds || [],
 })
 
@@ -109,7 +109,7 @@ watch(() => props.visible, (isVisible) => {
       type: (viewType.value === 'count' ? 'metric' : 'model'),
       title: props.initialTitle || '',
       description: null,
-      status: 'draft',
+      status: canCreateEntities.value ? 'published' : 'draft',
       data_source_ids: props.initialDataSourceIds || [],
     }
   }
