@@ -106,7 +106,7 @@
       </div>
 
       <!-- Empty State: Has visualizations but no artifact - show Generate Dashboard button -->
-      <div v-else-if="!hasArtifact && hasVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
+      <div v-else-if="!hasArtifact && hasSuccessfulVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
         <Icon name="heroicons:sparkles" class="w-8 h-8 text-gray-400 mb-3" />
         <h3 class="text-sm font-medium text-gray-700 mb-1">Ready to create a dashboard</h3>
         <p class="text-xs text-gray-400 mb-4 max-w-xs text-center">
@@ -343,6 +343,11 @@ const hasVisualizations = computed(() => {
   return visualizationsData.value.length > 0;
 });
 
+// Check if any visualization has a successful step status
+const hasSuccessfulVisualizations = computed(() => {
+  return visualizationsData.value.some(viz => viz.stepStatus === 'success');
+});
+
 // Generate dashboard prompt - dispatches event to update and submit prompt box
 function generateDashboardPrompt() {
   const prompt = `Create a dashboard covering the data and visualizations created in this report. Design it with a clean, modern layout and narrative that presents the insights effectively.`;
@@ -530,7 +535,8 @@ async function fetchData(artifactId?: string) {
           view: viz.view || {},
           rows: step?.data?.rows || [],
           columns: step?.data?.columns || [],
-          dataModel: step?.data_model || {}
+          dataModel: step?.data_model || {},
+          stepStatus: step?.status
         });
       }
     }
