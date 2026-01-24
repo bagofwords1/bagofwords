@@ -239,13 +239,26 @@ const publishButtonText = computed(() => {
 })
 
 // Initialize selectedIds when drafts load (select all by default)
+// Also auto-select any newly arriving drafts (e.g., from SSE streaming)
 watch(drafts, (newDrafts, oldDrafts) => {
-  // Only auto-select all if this is the initial load (no previous drafts)
-  // or if drafts changed (new suggestions arrived)
-  const hadDrafts = oldDrafts && oldDrafts.length > 0
-  if (newDrafts.length > 0 && !hadDrafts) {
-    selectedIds.value = new Set(newDrafts.filter(d => d.id).map(d => d.id))
+  const oldIds = new Set((oldDrafts || []).filter(d => d.id).map(d => d.id))
+  const newSet = new Set(selectedIds.value)
+
+  // Add any newly appeared drafts to selection
+  for (const d of newDrafts) {
+    if (d.id && !oldIds.has(d.id)) {
+      newSet.add(d.id)
+    }
   }
+
+  // Remove any drafts that no longer exist
+  for (const id of selectedIds.value) {
+    if (!newDrafts.some(d => d.id === id)) {
+      newSet.delete(id)
+    }
+  }
+
+  selectedIds.value = newSet
 }, { immediate: true })
 
 // Publish the entire build

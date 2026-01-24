@@ -51,6 +51,7 @@ class ArtifactSchema(ArtifactBase):
     content: dict
     generation_prompt: Optional[str] = None
     completion_id: Optional[str] = None
+    status: str = "completed"
     created_at: datetime
     updated_at: datetime
 
@@ -65,6 +66,7 @@ class ArtifactListSchema(BaseModel):
     title: Optional[str]
     mode: str
     version: int
+    status: str = "completed"
     created_at: datetime
     updated_at: datetime
 

@@ -107,20 +107,23 @@ class InstructionContextBuilder:
         *,
         data_source_ids: Optional[List[str]] = None,
         category: Optional[str] = None,
+        categories: Optional[List[str]] = None,
     ) -> List[Instruction]:
         """
         Load instructions with load_mode='always'.
-        
+
         These instructions are always included in the AI context.
-        
+
         Parameters
         ----------
         data_source_ids : List[str] | None, optional
             If provided, filter to instructions associated with these data sources
             or instructions without data source restrictions.
         category : str | None, optional
-            If provided, restrict to this category.
-            
+            If provided, restrict to this category (deprecated, use categories).
+        categories : List[str] | None, optional
+            If provided, restrict to these categories.
+
         Returns
         -------
         List[Instruction]
@@ -140,16 +143,86 @@ class InstructionContextBuilder:
                 )
             )
         )
-        
-        if category is not None:
+
+        # Support both single category (legacy) and multiple categories
+        if categories is not None and len(categories) > 0:
+            stmt = stmt.where(Instruction.category.in_(categories))
+        elif category is not None:
             stmt = stmt.where(Instruction.category == category)
-        
+
         # TODO: Add data source filtering when needed
         # For now, return all 'always' instructions
-        
+
         result = await self.db.execute(stmt)
         return result.scalars().all()
-    
+
+    async def load_instructions_by_ids(
+        self,
+        instruction_ids: List[str],
+        *,
+        load_mode_filter: Optional[str] = "intelligent",
+    ) -> List[InstructionItem]:
+        """
+        Load instructions by their IDs, optionally filtering by load_mode.
+
+        Parameters
+        ----------
+        instruction_ids : List[str]
+            List of instruction IDs to load.
+        load_mode_filter : str | None, optional
+            If provided, only return instructions with this load_mode.
+            Defaults to 'intelligent' to only load contextually triggered instructions.
+
+        Returns
+        -------
+        List[InstructionItem]
+            List of instruction items matching the criteria.
+        """
+        if not instruction_ids:
+            return []
+
+        stmt = (
+            select(Instruction)
+            .where(
+                and_(
+                    Instruction.id.in_(instruction_ids),
+                    Instruction.status == "published",
+                    Instruction.organization_id == self.organization.id,
+                    Instruction.deleted_at.is_(None),
+                )
+            )
+        )
+
+        if load_mode_filter:
+            stmt = stmt.where(Instruction.load_mode == load_mode_filter)
+
+        result = await self.db.execute(stmt)
+        instructions = result.scalars().all()
+
+        if not instructions:
+            return []
+
+        # Batch load usage counts
+        all_ids = [str(inst.id) for inst in instructions]
+        usage_counts = await self._batch_load_usage_counts(all_ids)
+
+        items: List[InstructionItem] = []
+        for inst in instructions:
+            inst_id = str(inst.id)
+            items.append(InstructionItem(
+                id=inst_id,
+                category=inst.category,
+                text=inst.text or "",
+                load_mode=inst.load_mode or "intelligent",
+                load_reason="table_reference",
+                source_type=inst.source_type,
+                title=inst.title,
+                labels=self._extract_labels(inst),
+                usage_count=usage_counts.get(inst_id),
+            ))
+
+        return items
+
     async def search_instructions(
         self,
         query: str,
@@ -157,13 +230,14 @@ class InstructionContextBuilder:
         limit: int = 10,
         data_source_ids: Optional[List[str]] = None,
         category: Optional[str] = None,
+        categories: Optional[List[str]] = None,
     ) -> List[Tuple[Instruction, float]]:
         """
         Search instructions with load_mode='intelligent' by keyword relevance.
-        
+
         If query is empty, returns all intelligent instructions (up to limit)
         with score 0, allowing them to fill remaining capacity.
-        
+
         Parameters
         ----------
         query : str
@@ -173,8 +247,10 @@ class InstructionContextBuilder:
         data_source_ids : List[str] | None, optional
             If provided, filter to instructions associated with these data sources.
         category : str | None, optional
-            If provided, restrict to this category.
-            
+            If provided, restrict to this category (deprecated, use categories).
+        categories : List[str] | None, optional
+            If provided, restrict to these categories.
+
         Returns
         -------
         List[Tuple[Instruction, float]]
@@ -182,7 +258,7 @@ class InstructionContextBuilder:
         """
         # Extract keywords from query
         keywords = self._extract_keywords(query) if query else set()
-        
+
         # Load all intelligent instructions
         stmt = (
             select(Instruction)
@@ -195,10 +271,13 @@ class InstructionContextBuilder:
                 )
             )
         )
-        
-        if category is not None:
+
+        # Support both single category (legacy) and multiple categories
+        if categories is not None and len(categories) > 0:
+            stmt = stmt.where(Instruction.category.in_(categories))
+        elif category is not None:
             stmt = stmt.where(Instruction.category == category)
-        
+
         result = await self.db.execute(stmt)
         all_instructions = result.scalars().all()
         
@@ -223,17 +302,18 @@ class InstructionContextBuilder:
         *,
         data_source_ids: Optional[List[str]] = None,
         category: Optional[str] = None,
+        categories: Optional[List[str]] = None,
         intelligent_limit: int = 10,
         build_id: Optional[str] = None,
     ) -> InstructionsSection:
         """
         Build instructions context with proper load tracking.
-        
+
         Load behavior:
         1. Load ALL 'always' instructions (they always take priority)
         2. Fill remaining capacity with 'intelligent' instructions matched by keywords
         3. Skip 'disabled' instructions
-        
+
         Parameters
         ----------
         query : str | None, optional
@@ -242,37 +322,40 @@ class InstructionContextBuilder:
         data_source_ids : List[str] | None, optional
             Filter by data sources.
         category : str | None, optional
-            Filter by category.
+            Filter by category (deprecated, use categories).
+        categories : List[str] | None, optional
+            Filter by multiple categories.
         intelligent_limit : int
             Deprecated - max_instructions_in_context setting is used instead.
         build_id : str | None, optional
             If provided, load instructions from this specific build.
             If None, defaults to the main build (is_main=True) if one exists,
             otherwise falls back to legacy behavior (direct instruction query).
-            
+
         Returns
         -------
         InstructionsSection
             Instructions section with proper load_mode and load_reason tracking.
         """
         max_instructions = self._get_max_instructions()
-        
+
         # Try to load from build if build_id is provided or main build exists
         build_items = await self._load_from_build(
             build_id=build_id,
             query=query or "",
             max_instructions=max_instructions,
         )
-        
+
         if build_items is not None:
             # Build-based loading - return items with version tracking
             return InstructionsSection(items=build_items)
-        
+
         # Fallback to legacy behavior (direct instruction query)
         return await self._build_legacy(
             query=query,
             data_source_ids=data_source_ids,
             category=category,
+            categories=categories,
             max_instructions=max_instructions,
         )
     
@@ -434,12 +517,13 @@ class InstructionContextBuilder:
         *,
         data_source_ids: Optional[List[str]] = None,
         category: Optional[str] = None,
+        categories: Optional[List[str]] = None,
         max_instructions: int = 50,
     ) -> InstructionsSection:
         """
         Legacy build method - loads instructions directly without build system.
         Used as fallback when no build is available.
-        
+
         Load behavior:
         1. Load ALL 'always' instructions (they take priority)
         2. Fill remaining capacity with 'intelligent' instructions (keyword-matched)
@@ -448,11 +532,12 @@ class InstructionContextBuilder:
         always_instructions = await self.load_always_instructions(
             data_source_ids=data_source_ids,
             category=category,
+            categories=categories,
         )
-        
+
         # Calculate remaining slots for intelligent instructions
         remaining_slots = max(0, max_instructions - len(always_instructions))
-        
+
         # Search intelligent instructions to fill remaining slots
         intelligent_results: List[Tuple[Instruction, float]] = []
         if remaining_slots > 0:
@@ -461,6 +546,7 @@ class InstructionContextBuilder:
                 limit=remaining_slots,
                 data_source_ids=data_source_ids,
                 category=category,
+                categories=categories,
             )
         
         # Collect all instruction IDs for batch stats loading

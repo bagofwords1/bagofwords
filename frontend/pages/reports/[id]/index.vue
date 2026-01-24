@@ -1235,6 +1235,21 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					// Progressive slide tracking for create_artifact tool
 					if (payload.tool_name === 'create_artifact' && payload.payload) {
 						const p = payload.payload
+						// Artifact created with pending status - notify frontend
+						if (p.stage === 'artifact_created' && p.artifact_id) {
+							;(lastBlock.tool_execution as any).pending_artifact_id = p.artifact_id
+							// Dispatch event so ArtifactFrame can show the pending artifact
+							hasArtifacts.value = true
+							try {
+								window.dispatchEvent(new CustomEvent('artifact:created', {
+									detail: {
+										report_id: report_id,
+										artifact_id: p.artifact_id,
+										status: 'pending'
+									}
+								}))
+							} catch {}
+						}
 						// Track generating progress
 						if (p.stage === 'generating') {
 							;(lastBlock.tool_execution as any).progress_stage = 'generating'
@@ -1818,17 +1833,21 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
 }
 
 // Handle opening an artifact from CreateArtifactTool
-function handleOpenArtifact(payload: { artifactId: string }) {
+function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
 	// Switch to artifact view and ensure split screen is open
 	if (!isSplitScreen.value) toggleSplitScreen()
 	// Switch to artifact panel
 	rightPanelView.value = 'artifact'
-	// Dispatch event to ArtifactFrame to select this artifact
-	try {
-		window.dispatchEvent(new CustomEvent('artifact:select', {
-			detail: { artifact_id: payload.artifactId }
-		}))
-	} catch {}
+	// If artifactId provided, dispatch event to ArtifactFrame to select this artifact
+	// If loading is true, just open the pane - ArtifactFrame will show loading state
+	// and artifact:created event will trigger selection when ready
+	if (payload.artifactId) {
+		try {
+			window.dispatchEvent(new CustomEvent('artifact:select', {
+				detail: { artifact_id: payload.artifactId }
+			}))
+		} catch {}
+	}
 }
 
 function abortStream() {

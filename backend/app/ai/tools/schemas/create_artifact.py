@@ -1,20 +1,20 @@
-from typing import Optional, Literal, Dict, Any
+from typing import Optional, Literal, Dict, Any, List
 from pydantic import BaseModel, Field
 
 
 class CreateArtifactInput(BaseModel):
     """Input for create_artifact tool.
 
-    - prompt: user's goal/instruction for the artifact
+    - prompt: user's goal/instruction for the artifact (can include style preferences)
     - title: optional title for the artifact
-    - mode: 'page' for single-page dashboard artifact 
-    - style_hints: optional styling preferences (e.g., "dark theme", "minimal")
+    - mode: 'page' for single-page dashboard artifact
+    - visualization_ids: ordered list of visualization IDs to include
     """
 
-    prompt: str = Field(..., description="User's instruction for what the artifact should display/visualize")
-    title: Optional[str] = Field(None, description="Title for the artifact")
+    prompt: str = Field(..., description="User's goal for what the artifact should display/visualize, including any style preferences")
+    title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users")
     mode: Literal["page"] = Field(default="page", description="Artifact mode: page (dashboard)")
-    style_hints: Optional[str] = Field(None, description="Optional styling preferences")
+    visualization_ids: List[str] = Field(..., description="Ordered list of visualization IDs to include in the artifact. Be sure to include only visualizations that are important to dashboard goal and narrative.")
 
 
 class CreateArtifactOutput(BaseModel):

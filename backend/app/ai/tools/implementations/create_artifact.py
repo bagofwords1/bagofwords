@@ -2,6 +2,7 @@ import json
 from typing import AsyncIterator, Dict, Any, Type, List
 
 from pydantic import BaseModel
+from sqlalchemy import select
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -14,6 +15,7 @@ from app.ai.tools.schemas import (
 from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArtifactOutput
 from app.ai.llm import LLM
 from app.models.artifact import Artifact
+from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
 
 
@@ -31,7 +33,12 @@ class CreateArtifactTool(Tool):
     def metadata(self) -> ToolMetadata:
         return ToolMetadata(
             name="create_artifact",
-            description="Generate a beautiful artifact (dashboard/slides) with interactive visualizations. Creates stunning, publication-ready dashboards or slides.",
+            description=(
+                "Compose multiple visualizations into a unified, interactive dashboard or slide presentation. "
+                "Use this AFTER creating visualizations with create_data to combine them into a polished layout with "
+                "KPI cards, charts, and responsive grids. Supports two modes: 'page' for interactive dashboards "
+                "Pass visualization_ids from previously created visualizations."
+            ),
             category="action",
             version="1.0.0",
             input_schema=CreateArtifactInput.model_json_schema(),
@@ -144,30 +151,69 @@ class CreateArtifactTool(Tool):
             getattr(context_hub, "instruction_builder", None) if context_hub else None
         )
 
-        # Collect visualization data from context with full data
+        # Fetch visualizations by ID from database
         visualizations: List[Dict[str, Any]] = []
+        warnings: List[str] = []
+        included_viz_ids: List[str] = []
+
+        # Build a lookup of query data from context_hub for enrichment
+        query_data_lookup: Dict[str, Dict[str, Any]] = {}
         try:
             if context_hub is not None:
                 view = context_hub.get_view()
                 qsec = getattr(getattr(view, 'warm', None), 'queries', None)
                 items = getattr(qsec, 'items', []) if qsec else []
                 for it in (items or []):
-                    for v in (getattr(it, 'visualizations', []) or []):
-                        view_dict = getattr(v, 'view', None) or {}
-                        ventry = {
-                            "id": getattr(v, 'id', None),
-                            "title": getattr(v, 'title', None),
-                            "query_id": getattr(it, 'query_id', None),
-                            "view": self._trim_none(view_dict),
-                            "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
+                    query_id = getattr(it, 'query_id', None)
+                    if query_id:
+                        query_data_lookup[str(query_id)] = {
                             "columns": list(getattr(it, 'column_names', []) or []),
                             "row_count": getattr(it, 'row_count', 0),
-                            "rows": list(getattr(it, 'rows', []) or [])[:100],  # Cap at 100 rows
+                            "rows": list(getattr(it, 'rows', []) or [])[:100],
                             "dataModel": getattr(it, 'data_model', None) or {},
                         }
-                        visualizations.append(ventry)
         except Exception:
-            visualizations = []
+            pass
+
+        # Fetch and validate visualizations from DB
+        report_id = str(report.id) if report else None
+        for viz_id in data.visualization_ids:
+            try:
+                result = await db.execute(
+                    select(Visualization).where(Visualization.id == viz_id)
+                )
+                viz = result.scalar_one_or_none()
+
+                if viz is None:
+                    warnings.append(f"Visualization {viz_id} not found")
+                    continue
+
+                # Validate viz belongs to the report
+                if report_id and str(viz.report_id) != report_id:
+                    warnings.append(f"Visualization {viz_id} does not belong to this report")
+                    continue
+
+                # Build visualization entry
+                view_dict = viz.view or {}
+                query_id = str(viz.query_id) if viz.query_id else None
+                query_data = query_data_lookup.get(query_id, {}) if query_id else {}
+
+                ventry = {
+                    "id": str(viz.id),
+                    "title": viz.title,
+                    "query_id": query_id,
+                    "view": self._trim_none(view_dict),
+                    "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
+                    "columns": query_data.get("columns", []),
+                    "row_count": query_data.get("row_count", 0),
+                    "rows": query_data.get("rows", []),
+                    "dataModel": query_data.get("dataModel", {}),
+                }
+                visualizations.append(ventry)
+                included_viz_ids.append(str(viz.id))
+
+            except Exception as e:
+                warnings.append(f"Error fetching visualization {viz_id}: {str(e)}")
 
         # Build visualization profiles (privacy-aware)
         viz_profiles = [self._build_viz_profile(v, allow_llm_see_data) for v in visualizations]
@@ -176,10 +222,36 @@ class CreateArtifactTool(Tool):
         instructions_context = ""
         try:
             if instruction_context_builder is not None:
-                inst_section = await instruction_context_builder.build(category="dashboard")
+                inst_section = await instruction_context_builder.build(categories=["dashboard", "visualization", "general"])
                 instructions_context = inst_section.render() or ""
         except Exception:
             pass
+
+        # Create artifact early with pending status so frontend can show it
+        artifact = Artifact(
+            report_id=str(report.id) if report else None,
+            user_id=str(user.id) if user else None,
+            organization_id=str(organization.id) if organization else None,
+            title=data.title or "Untitled Artifact",
+            mode=data.mode,
+            content={},  # Empty content initially
+            generation_prompt=data.prompt,
+            version=1,
+            status="pending",
+        )
+        db.add(artifact)
+        await db.commit()
+        await db.refresh(artifact)
+
+        # Notify frontend that artifact is created (pending)
+        yield ToolProgressEvent(
+            type="tool.progress",
+            payload={
+                "stage": "artifact_created",
+                "artifact_id": str(artifact.id),
+                "status": "pending",
+            }
+        )
 
         # Build the prompt for generating React code
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
@@ -188,7 +260,6 @@ class CreateArtifactTool(Tool):
             user_prompt=data.prompt,
             title=data.title,
             mode=data.mode,
-            style_hints=data.style_hints,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
             report_title=getattr(report, 'title', None) if report else None,
@@ -237,21 +308,14 @@ class CreateArtifactTool(Tool):
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
         # Build content object (slides structure is parsed from HTML at export time)
-        content: Dict[str, Any] = {"code": code}
+        content: Dict[str, Any] = {
+            "code": code,
+            "visualization_ids": included_viz_ids,
+        }
 
-        # Save to database
-        artifact = Artifact(
-            report_id=str(report.id) if report else None,
-            user_id=str(user.id) if user else None,
-            organization_id=str(organization.id) if organization else None,
-            title=data.title or "Untitled Artifact",
-            mode=data.mode,
-            content=content,
-            generation_prompt=data.prompt,
-            version=1,
-        )
-
-        db.add(artifact)
+        # Update the pending artifact with content and mark as completed
+        artifact.content = content
+        artifact.status = "completed"
         await db.commit()
         await db.refresh(artifact)
 
@@ -263,16 +327,21 @@ class CreateArtifactTool(Tool):
             version=artifact.version,
         )
 
+        observation: Dict[str, Any] = {
+            "summary": f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code",
+            "artifact_id": str(artifact.id),
+            "mode": data.mode,
+            "visualization_count": len(visualizations),
+            "visualization_ids": included_viz_ids,
+        }
+        if warnings:
+            observation["warnings"] = warnings
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
                 "output": output.model_dump(),
-                "observation": {
-                    "summary": f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of React code",
-                    "artifact_id": str(artifact.id),
-                    "mode": data.mode,
-                    "visualization_count": len(visualizations),
-                }
+                "observation": observation,
             }
         )
 
@@ -296,26 +365,59 @@ class CreateArtifactTool(Tool):
         except Exception:
             return obj
 
-    def _build_prompt(
+    def _build_slides_prompt(
         self,
         user_prompt: str,
         title: str | None,
-        mode: str,
-        style_hints: str | None,
         viz_profiles: List[Dict[str, Any]],
         instructions_context: str,
         report_title: str | None,
         allow_llm_see_data: bool,
     ) -> str:
-        """Build the prompt for generating React artifact code."""
+        """Build the prompt for generating slides (pure HTML + vanilla JS)."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
 
-        is_slides = mode == "slides"
+        return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality slide presentation.
 
-        # Slides-specific sections - Pure HTML approach (no React)
-        slides_section = ""
-        if is_slides:
-            slides_section = """
+═══════════════════════════════════════════════════════════════════════════════
+AVAILABLE (pre-loaded globally)
+═══════════════════════════════════════════════════════════════════════════════
+
+• **Tailwind CSS** - All utility classes available
+  - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
+  - Dark themes: bg-slate-900, text-white, text-slate-400
+  - Flexbox, grid, spacing utilities
+
+• **Vanilla JavaScript** - No frameworks needed
+  - DOM manipulation: querySelector, classList, addEventListener
+  - Access data via window.ARTIFACT_DATA
+
+**DO NOT USE:** React, Babel, JSX, or any framework. Pure HTML + JS only.
+
+═══════════════════════════════════════════════════════════════════════════════
+DATA ACCESS
+═══════════════════════════════════════════════════════════════════════════════
+
+Data is available via `window.ARTIFACT_DATA`:
+```javascript
+const data = window.ARTIFACT_DATA;
+const report = data.report;  // {{id, title, theme}}
+const visualizations = data.visualizations;  // Array of viz objects
+```
+
+Each visualization object contains:
+- `id`, `title` - Identification
+- `rows` - Array of data objects (the actual data)
+- `columns` - Column definitions
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR VISUALIZATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+{viz_json}
+
+{"(Full sample data included above)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
+
 ═══════════════════════════════════════════════════════════════════════════════
 SLIDES MODE - PURE HTML PRESENTATION (NO REACT)
 ═══════════════════════════════════════════════════════════════════════════════
@@ -389,39 +491,46 @@ You are creating a **slide presentation** using PURE HTML + Tailwind CSS.
 - Large typography, high contrast
 - One key insight per slide
 
-**Data Access:**
-Data is in `window.ARTIFACT_DATA` - access directly via JavaScript:
-```javascript
-const data = window.ARTIFACT_DATA;
-const visualizations = data.visualizations;
-```
-
 **Slide count:** 4-8 slides depending on data.
 
 **IMPORTANT:** Always include the pptx-* classes even if you add additional Tailwind classes.
 Example: `<h1 class="pptx-title text-6xl font-bold text-white">Title</h1>`
 
-"""
+═══════════════════════════════════════════════════════════════════════════════
+DESIGN REQUEST
+═══════════════════════════════════════════════════════════════════════════════
 
-        # Mode-specific design patterns
-        if is_slides:
-            design_patterns = """Example slide patterns:
+**Report Title:** {report_title or title or 'Dashboard'}
+**Artifact Mode:** slides
+**User Request:** {user_prompt}
+
+{f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
+
+═══════════════════════════════════════════════════════════════════════════════
+DESIGN PRINCIPLES
+═══════════════════════════════════════════════════════════════════════════════
+
+Create something BEAUTIFUL. Think:
+- **Visual hierarchy** - What's the main story? Lead with it
+- **Whitespace** - Let elements breathe, don't crowd
+- **Color harmony** - Use a cohesive palette, accent colors for emphasis
+- **Typography** - Clear hierarchy, readable sizes
+- **Cards & containers** - Group related content, subtle shadows
+- **Micro-interactions** - Hover states, smooth transitions
+- **Data storytelling** - Choose chart types that reveal insights
+
+Example slide patterns:
 - Slide 1: Title with report name, date, key metric teaser
 - Slide 2-3: Hero KPI cards with big numbers and trend indicators
 - Slide 4-5: Full-width charts with key insights as subtitles
 - Slide 6: Comparison or breakdown visualization
-- Slide 7: Summary with key takeaways as bullet points"""
-        else:
-            design_patterns = """Example design patterns:
-- Hero KPI cards at top with large numbers and sparklines
-- Main chart taking center stage with gradient backgrounds
-- Supporting charts in a responsive grid
-- Subtle animations on load
-- Consistent border-radius and spacing"""
+- Slide 7: Summary with key takeaways as bullet points
 
-        # Mode-specific output example
-        if is_slides:
-            output_example = """```html
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════════
+
+```html
 <!-- Slides Container -->
 <div id="slides-container" class="relative w-full h-screen overflow-hidden bg-slate-900">
 
@@ -495,9 +604,115 @@ Example: `<h1 class="pptx-title text-6xl font-bold text-white">Title</h1>`
     if (e.key === 'ArrowLeft') showSlide(Math.max(0, currentSlide - 1));
   }});
 </script>
-```"""
-        else:
-            output_example = """```
+```
+
+REQUIREMENTS:
+1. Output HTML code only (NO React/Babel - pure HTML + vanilla JS)
+2. Use `<section class="slide">` for each slide with `data-slide="N"` attribute
+3. First slide visible, others have `hidden` class
+4. Include navigation: dots at bottom, arrow buttons on sides
+5. Include vanilla JS for keyboard navigation (arrows, space)
+6. Access data via `window.ARTIFACT_DATA` directly (no React hooks)
+7. Each slide: `min-h-screen flex flex-col items-center justify-center`
+8. Dark theme: bg-slate-900 background, white/slate text
+9. Make it GORGEOUS - this is a presentation showcase
+
+DO NOT use React, Babel, JSX, or any framework - PURE HTML + Tailwind + vanilla JavaScript only.
+
+Now create the slide presentation:"""
+
+    def _build_page_prompt(
+        self,
+        user_prompt: str,
+        title: str | None,
+        viz_profiles: List[Dict[str, Any]],
+        instructions_context: str,
+        report_title: str | None,
+        allow_llm_see_data: bool,
+    ) -> str:
+        """Build the prompt for generating page/dashboard (React + ECharts)."""
+        viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality dashboard.
+
+═══════════════════════════════════════════════════════════════════════════════
+AVAILABLE LIBRARIES (pre-loaded globally, do NOT import)
+═══════════════════════════════════════════════════════════════════════════════
+
+• **React 18** - `React`, `ReactDOM` available globally
+  - Use hooks: useState, useEffect, useRef, useMemo, useCallback
+  - Create beautiful, reusable components
+
+• **ECharts 5** - `echarts` available globally
+  - Full charting library: bar, line, area, pie, scatter, heatmap, radar, treemap, sunburst, gauge, funnel, sankey, etc.
+  - Rich animations, tooltips, legends, gradients
+  - Responsive with chart.resize()
+
+• **Tailwind CSS** - All utility classes available
+  - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
+  - Dark/light themes, responsive grids, flexbox
+  - Animations: animate-pulse, transition-all, hover effects
+
+═══════════════════════════════════════════════════════════════════════════════
+DATA ACCESS
+═══════════════════════════════════════════════════════════════════════════════
+
+Data is available via `window.ARTIFACT_DATA`:
+```javascript
+const data = useArtifactData(); // React hook - returns null while loading
+// data = {{ report: {{id, title, theme}}, visualizations: [...] }}
+```
+
+Each visualization object contains:
+- `id`, `title` - Identification
+- `rows` - Array of data objects (the actual data)
+- `columns` - Column definitions
+- `view` - Chart configuration hints
+- `dataModel` - Series/axis configuration hints
+
+═══════════════════════════════════════════════════════════════════════════════
+YOUR VISUALIZATIONS
+═══════════════════════════════════════════════════════════════════════════════
+
+{viz_json}
+
+{"(Full sample data included above)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
+
+═══════════════════════════════════════════════════════════════════════════════
+DESIGN REQUEST
+═══════════════════════════════════════════════════════════════════════════════
+
+**Report Title:** {report_title or title or 'Dashboard'}
+**Artifact Mode:** page
+**User Request:** {user_prompt}
+
+{f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
+
+═══════════════════════════════════════════════════════════════════════════════
+DESIGN PRINCIPLES
+═══════════════════════════════════════════════════════════════════════════════
+
+Create something BEAUTIFUL. Think:
+- **Visual hierarchy** - What's the main story? Lead with it
+- **Whitespace** - Let elements breathe, don't crowd
+- **Color harmony** - Use a cohesive palette, accent colors for emphasis
+- **Typography** - Clear hierarchy, readable sizes
+- **Cards & containers** - Group related content, subtle shadows
+- **Micro-interactions** - Hover states, smooth transitions
+- **Data storytelling** - Choose chart types that reveal insights
+
+Example design patterns:
+- Hero KPI cards at top with large numbers and sparklines
+- Main chart taking center stage with gradient backgrounds
+- Supporting charts in a responsive grid
+- Subtle animations on load
+- Consistent border-radius and spacing
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT
+═══════════════════════════════════════════════════════════════════════════════
+
+```
 <script type="text/babel">
 // Your React code here
 
@@ -515,150 +730,46 @@ function App() {{
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 </script>
-```"""
+```
 
-        # Mode-specific requirements
-        if is_slides:
-            requirements = """REQUIREMENTS:
-1. Output HTML code only (NO React/Babel - pure HTML + vanilla JS)
-2. Use `<section class="slide">` for each slide with `data-slide="N"` attribute
-3. First slide visible, others have `hidden` class
-4. Include navigation: dots at bottom, arrow buttons on sides
-5. Include vanilla JS for keyboard navigation (arrows, space)
-6. Access data via `window.ARTIFACT_DATA` directly (no React hooks)
-7. Each slide: `min-h-screen flex flex-col items-center justify-center`
-8. Dark theme: bg-slate-900 background, white/slate text
-9. Make it GORGEOUS - this is a presentation showcase
-
-DO NOT use React, Babel, JSX, or any framework - PURE HTML + Tailwind + vanilla JavaScript only."""
-        else:
-            requirements = """REQUIREMENTS:
+REQUIREMENTS:
 1. Start with `<script type="text/babel">` and end with `</script>`
 2. Use the `useArtifactData()` hook for reactive data access
 3. Handle loading state gracefully (animated skeleton or spinner)
 4. Initialize ECharts in useEffect, dispose on cleanup, handle resize
 5. Make it responsive (works on mobile and desktop)
-6. Make it GORGEOUS - this is a showcase piece"""
+6. Make it GORGEOUS - this is a showcase piece
 
-        artifact_type = "slide presentation" if is_slides else "dashboard"
+Now create the dashboard:"""
 
-        # Different library sections for slides vs dashboard
-        if is_slides:
-            libraries_section = """═══════════════════════════════════════════════════════════════════════════════
-AVAILABLE (pre-loaded globally)
-═══════════════════════════════════════════════════════════════════════════════
-
-• **Tailwind CSS** - All utility classes available
-  - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
-  - Dark themes: bg-slate-900, text-white, text-slate-400
-  - Flexbox, grid, spacing utilities
-
-• **Vanilla JavaScript** - No frameworks needed
-  - DOM manipulation: querySelector, classList, addEventListener
-  - Access data via window.ARTIFACT_DATA
-
-**DO NOT USE:** React, Babel, JSX, or any framework. Pure HTML + JS only."""
-
-            data_access_section = """═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS
-═══════════════════════════════════════════════════════════════════════════════
-
-Data is available via `window.ARTIFACT_DATA`:
-```javascript
-const data = window.ARTIFACT_DATA;
-const report = data.report;  // {{id, title, theme}}
-const visualizations = data.visualizations;  // Array of viz objects
-```
-
-Each visualization object contains:
-- `id`, `title` - Identification
-- `rows` - Array of data objects (the actual data)
-- `columns` - Column definitions"""
-        else:
-            libraries_section = """═══════════════════════════════════════════════════════════════════════════════
-AVAILABLE LIBRARIES (pre-loaded globally, do NOT import)
-═══════════════════════════════════════════════════════════════════════════════
-
-• **React 18** - `React`, `ReactDOM` available globally
-  - Use hooks: useState, useEffect, useRef, useMemo, useCallback
-  - Create beautiful, reusable components
-
-• **ECharts 5** - `echarts` available globally
-  - Full charting library: bar, line, area, pie, scatter, heatmap, radar, treemap, sunburst, gauge, funnel, sankey, etc.
-  - Rich animations, tooltips, legends, gradients
-  - Responsive with chart.resize()
-
-• **Tailwind CSS** - All utility classes available
-  - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
-  - Dark/light themes, responsive grids, flexbox
-  - Animations: animate-pulse, transition-all, hover effects"""
-
-            data_access_section = """═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS
-═══════════════════════════════════════════════════════════════════════════════
-
-Data is available via `window.ARTIFACT_DATA`:
-```javascript
-const data = useArtifactData(); // React hook - returns null while loading
-// data = {{ report: {{id, title, theme}}, visualizations: [...] }}
-```
-
-Each visualization object contains:
-- `id`, `title` - Identification
-- `rows` - Array of data objects (the actual data)
-- `columns` - Column definitions
-- `view` - Chart configuration hints
-- `dataModel` - Series/axis configuration hints"""
-
-        return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality {artifact_type}.
-
-{libraries_section}
-
-{data_access_section}
-
-═══════════════════════════════════════════════════════════════════════════════
-YOUR VISUALIZATIONS
-═══════════════════════════════════════════════════════════════════════════════
-
-{viz_json}
-
-{"(Full sample data included above)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
-{slides_section}
-═══════════════════════════════════════════════════════════════════════════════
-DESIGN REQUEST
-═══════════════════════════════════════════════════════════════════════════════
-
-**Report Title:** {report_title or title or 'Dashboard'}
-**Artifact Mode:** {mode}
-**User Request:** {user_prompt}
-**Style Hints:** {style_hints or 'Modern, clean, professional'}
-
-{f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
-
-═══════════════════════════════════════════════════════════════════════════════
-DESIGN PRINCIPLES
-═══════════════════════════════════════════════════════════════════════════════
-
-Create something BEAUTIFUL. Think:
-- **Visual hierarchy** - What's the main story? Lead with it
-- **Whitespace** - Let elements breathe, don't crowd
-- **Color harmony** - Use a cohesive palette, accent colors for emphasis
-- **Typography** - Clear hierarchy, readable sizes
-- **Cards & containers** - Group related content, subtle shadows
-- **Micro-interactions** - Hover states, smooth transitions
-- **Data storytelling** - Choose chart types that reveal insights
-
-{design_patterns}
-
-═══════════════════════════════════════════════════════════════════════════════
-OUTPUT FORMAT
-═══════════════════════════════════════════════════════════════════════════════
-
-{output_example}
-
-{requirements}
-
-Now create the {artifact_type}:"""
+    def _build_prompt(
+        self,
+        user_prompt: str,
+        title: str | None,
+        mode: str,
+        viz_profiles: List[Dict[str, Any]],
+        instructions_context: str,
+        report_title: str | None,
+        allow_llm_see_data: bool,
+    ) -> str:
+        """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
+        if mode == "slides":
+            return self._build_slides_prompt(
+                user_prompt=user_prompt,
+                title=title,
+                viz_profiles=viz_profiles,
+                instructions_context=instructions_context,
+                report_title=report_title,
+                allow_llm_see_data=allow_llm_see_data,
+            )
+        return self._build_page_prompt(
+            user_prompt=user_prompt,
+            title=title,
+            viz_profiles=viz_profiles,
+            instructions_context=instructions_context,
+            report_title=report_title,
+            allow_llm_see_data=allow_llm_see_data,
+        )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:
         """Extract the code from the LLM response.

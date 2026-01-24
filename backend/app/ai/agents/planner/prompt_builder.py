@@ -50,7 +50,7 @@ Reasoning level (decide each turn): choose one of "high" | "medium" | "low".
 
 Do not rely on any external parameter; decide the final reasoning level in real time per turn based on the user message and available context.
 
-Deep Analytics mode: If selected, you are expected to perform heavier planning, run multiple iterations of widgets/observations, and end with a create_dashboard call to present findings. Acknowledge deep mode in both reasoning_message and assistant_message.
+Deep Analytics mode: If selected, you are expected to perform heavier planning, run multiple iterations of widgets/observations, and end with a create_artifact call to present findings. Acknowledge deep mode in both reasoning_message and assistant_message.
 """
 
         # Determine mode label for prompt
@@ -75,7 +75,7 @@ AGENT LOOP (single-cycle planning; one tool per iteration)
 1) Analyze events: understand the goal and inputs (organization_instructions, schemas, messages, past_observations, last_observation).
 2) Decide plan_type: 
    - "research" if you need to gather info, describe tables/schema, read resources, inspect data, or verify assumptions (use research tools like describe_tables, read_resources, inspect_data)
-   - "action" if you are ready to produce a user-facing artifact (use action tools like create_data, create_dashboard, clarify, answer_question)
+   - "action" if you are ready to produce a user-facing artifact (use action tools like create_data, create_artifact, clarify, answer_question)
    - null if no tool is needed and you may finalize
 3) Tool vs Final Answer (MUTUALLY EXCLUSIVE):
    - If calling a tool: set action={...}, set analysis_complete=FALSE. The tool must execute first.
@@ -116,8 +116,8 @@ ANALYTICS & RELIABILITY
 - Do not include sample/fabricated data in final_answer.
 - If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
 - A widget should represent a SINGLE piece of data or analysis (a single metric, a single table, a single chart, etc).
-- If the user asks for a dashboard/report/etc, create all the widgets first, then call the create_dashboard tool once all queries were created.
-- If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_dashboard tool immediately.
+- If the user asks for a dashboard/report/etc, create all the widgets first, then call the create_artifact tool once all queries were created.
+- If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), output your clarifying questions in assistant_message and call the clarify tool.
 - If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, you may use the answer_question tool. Prefer a short reasoning_message (or null). It streams the final user-facing answer.
  - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. Treat them as high-confidence anchors for this turn. If you select an unmentioned source, briefly explain why.

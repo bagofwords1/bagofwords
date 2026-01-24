@@ -105,9 +105,22 @@
         </div>
       </div>
 
-      <!-- Iframe (hidden while loading) -->
+      <!-- Pending Artifact State (generating) -->
+      <div v-else-if="isPendingArtifact" class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
+        <div class="flex flex-col items-center gap-4 text-center px-8">
+          <div class="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center">
+            <Spinner class="w-8 h-8 text-blue-500" />
+          </div>
+          <div>
+            <h3 class="text-lg font-semibold text-gray-900">{{ selectedArtifact?.title || 'Generating Dashboard' }}</h3>
+            <p class="text-sm text-gray-500 mt-1">Creating your visualization...</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Iframe (hidden while loading or pending) -->
       <iframe
-        v-show="!isLoading && selectedArtifact"
+        v-show="!isLoading && selectedArtifact && !isPendingArtifact"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
@@ -162,6 +175,7 @@ interface ArtifactItem {
   version: number;
   created_at: string;
   mode: string;
+  status?: string;
 }
 
 const props = defineProps<{
@@ -296,6 +310,11 @@ const isLatestSelected = computed(() => {
   return artifactsList.value[0].id === selectedArtifactId.value;
 });
 
+// Check if selected artifact is pending (still generating)
+const isPendingArtifact = computed(() => {
+  return selectedArtifact.value?.status === 'pending';
+});
+
 // State for "Use this version" action
 const isDuplicating = ref(false);
 
@@ -340,6 +359,8 @@ async function handleArtifactCreated(event: Event) {
   await fetchArtifactsList();
   if (artifactId) {
     selectedArtifactId.value = artifactId;
+    // Force refetch in case same artifact transitioned from pending to completed
+    await fetchSelectedArtifact();
   }
 }
 

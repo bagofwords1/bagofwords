@@ -44,6 +44,9 @@ def upgrade() -> None:
 
         # Generation tracking
         sa.Column('generation_prompt', sa.Text(), nullable=True),
+
+        # Status: 'pending', 'completed', 'failed'
+        sa.Column('status', sa.String(20), nullable=False, default='completed', index=True),
     )
 
     # Add index for common queries

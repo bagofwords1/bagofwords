@@ -70,9 +70,9 @@
           <span v-if="progressChars" class="ml-1">({{ progressChars }} chars)</span>
         </div>
 
-        <!-- Preview Card (on success) -->
+        <!-- Preview Card (on success or running for dashboard mode) -->
         <div
-          v-if="status === 'success' && createdArtifact"
+          v-if="(status === 'success' && createdArtifact) || (status === 'running' && artifactMode === 'page')"
           class="mt-1 cursor-pointer group"
           @click="openArtifact"
         >
@@ -84,7 +84,9 @@
                 artifactMode === 'slides' ? 'bg-slate-800' : 'bg-blue-50'
               ]"
             >
+              <Spinner v-if="status === 'running'" class="w-4 h-4 text-blue-500" />
               <Icon
+                v-else
                 :name="artifactMode === 'slides' ? 'heroicons:presentation-chart-bar' : 'heroicons:chart-bar-square'"
                 :class="[
                   'w-4 h-4',
@@ -95,7 +97,10 @@
             <!-- Title and action -->
             <div class="flex-1 min-w-0">
               <div class="text-xs font-medium text-gray-700 truncate">{{ artifactTitle || 'Untitled' }}</div>
-              <div class="text-[10px] text-gray-400">{{ artifactMode === 'slides' ? 'Presentation' : 'Dashboard' }}</div>
+              <div class="text-[10px] text-gray-400">
+                <span v-if="status === 'running'">Generating...</span>
+                <span v-else>{{ artifactMode === 'slides' ? 'Presentation' : 'Dashboard' }}</span>
+              </div>
             </div>
             <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 flex-shrink-0" />
           </div>
@@ -157,6 +162,7 @@ const artifactMode = computed(() =>
   'page'
 )
 const createdArtifact = computed(() => props.toolExecution.result_json?.artifact_id)
+const pendingArtifactId = computed(() => (props.toolExecution as any).pending_artifact_id)
 
 // Slide progress tracking
 const slideProgress = computed(() => {
@@ -200,10 +206,16 @@ function toggleCollapsed() {
 }
 
 function openArtifact() {
-  if (!createdArtifact.value) return
-
-  // Always open in artifact pane (for both slides and pages)
-  emit('openArtifact', { artifactId: createdArtifact.value })
+  if (createdArtifact.value) {
+    // Artifact is ready - open it directly
+    emit('openArtifact', { artifactId: createdArtifact.value })
+  } else if (status.value === 'running' && pendingArtifactId.value) {
+    // Still generating but pending artifact exists - open it
+    emit('openArtifact', { artifactId: pendingArtifactId.value })
+  } else if (status.value === 'running') {
+    // Still generating, no artifact yet - open pane with loading state
+    emit('openArtifact', { loading: true })
+  }
 }
 </script>
 

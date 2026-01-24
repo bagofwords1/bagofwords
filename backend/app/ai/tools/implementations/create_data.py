@@ -292,7 +292,7 @@ class CreateDataTool(Tool):
         context_hub = runtime_ctx.get("context_hub")
         if context_hub and getattr(context_hub, "instruction_builder", None):
             try:
-                viz_section = await context_hub.instruction_builder.build(category="visualizations")
+                viz_section = await context_hub.instruction_builder.build(categories=["visualizations", "visualization", "general"])
                 viz_instructions = viz_section.render() or ""
             except Exception:
                 viz_instructions = ""
