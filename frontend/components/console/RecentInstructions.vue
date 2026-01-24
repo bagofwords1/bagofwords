@@ -23,8 +23,8 @@
                     <!-- Content -->
                     <div class="flex-1 min-w-0">
                         <!-- Instruction Text -->
-                        <div class="text-sm text-gray-900 truncate" :title="instruction.text">
-                            {{ instruction.text }}
+                        <div class="text-sm text-gray-900 line-clamp-2" :title="instruction.text">
+                            {{ getDisplayText(instruction) }}
                         </div>
                         
                         <!-- Data Sources -->
@@ -99,6 +99,7 @@ interface User {
 interface Instruction {
     id: string
     text: string
+    title?: string | null
     thumbs_up: number
     status: 'draft' | 'published' | 'archived'
     category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
@@ -108,7 +109,7 @@ interface Instruction {
     data_sources: DataSource[]
     created_at: string
     updated_at: string
-    
+
     // Dual-status lifecycle fields
     private_status: string | null
     global_status: string | null
@@ -248,6 +249,18 @@ const formatDate = (dateString: string) => {
     if (!dateString) return ''
     const date = new Date(dateString)
     return date.toLocaleDateString()
+}
+
+const getDisplayText = (instruction: Instruction) => {
+    // Prefer title if available, otherwise use trimmed text
+    if (instruction.title && instruction.title.trim()) {
+        return instruction.title.trim()
+    }
+    if (instruction.text && instruction.text.trim()) {
+        const text = instruction.text.trim()
+        return text.length > 150 ? text.slice(0, 150) + '...' : text
+    }
+    return 'No content'
 }
 
 // Watch for dateRange changes (though instructions might not be date-filtered)

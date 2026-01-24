@@ -272,11 +272,29 @@ class DescribeTablesTool(Tool):
 
         output["related_instructions"] = related_instructions
 
+        # Build instructions excerpt for observation (same format as context builder)
+        instructions_excerpt = ""
+        if related_instructions:
+            from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem as InstructionSectionItem
+            instruction_items = [
+                InstructionSectionItem(
+                    id=inst["id"],
+                    category=inst.get("category"),
+                    text=inst.get("text") or "",
+                    load_mode=inst.get("load_mode"),
+                    load_reason="table_reference",
+                )
+                for inst in related_instructions
+            ]
+            instructions_section = InstructionsSection(items=instruction_items)
+            instructions_excerpt = instructions_section.render()
+
         observation = {
             "summary": f"Described {matched_tables_total} tables across {searched_sources} data sources.",
             "analysis_complete": False,
             "final_answer": None,
             "schemas_excerpt": schemas_excerpt,
+            "instructions_excerpt": instructions_excerpt,
         }
 
         yield ToolEndEvent(

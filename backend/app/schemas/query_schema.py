@@ -40,3 +40,13 @@ class QueryRunRequest(BaseModel):
     tool_execution_id: Optional[str] = None
 
 
+class PublicQuerySchema(BaseModel):
+    """Minimal schema for public/unauthenticated access to published reports."""
+    id: str
+    title: str
+    default_step_id: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+

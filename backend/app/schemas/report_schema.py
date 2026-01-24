@@ -42,6 +42,7 @@ class ReportSchema(ReportBase):
     user: UserSchema
     created_at: datetime
     updated_at: datetime
+    last_run_at: Optional[datetime] = None
     cron_schedule: Optional[str] = None
     app_version: Optional[str] = None  # Version for routing decisions
     general: Optional[PublicGeneralSettings] = None

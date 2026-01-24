@@ -99,13 +99,64 @@ async def get_public_report(report_id: str, db: AsyncSession = Depends(get_async
 
 @router.get("/c/{token}")
 async def get_public_conversation(
-    token: str, 
+    token: str,
     limit: int = 10,
     before: str | None = None,
     db: AsyncSession = Depends(get_async_db)
 ):
     """Public endpoint to fetch a shared conversation by its token. Supports pagination."""
     return await report_service.get_public_conversation(db, token, limit=limit, before=before)
+
+
+# --- Public Query/Step Routes (for published reports) ---
+
+from app.schemas.query_schema import PublicQuerySchema
+from app.schemas.step_schema import PublicStepSchema
+
+
+@router.get("/r/{report_id}/queries", response_model=List[PublicQuerySchema])
+async def get_public_queries(
+    report_id: str,
+    artifact_id: str | None = Query(None, description="Filter queries to only those used by this artifact"),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get queries for a published report (no auth required).
+
+    If artifact_id is provided, only returns queries for visualizations used by that artifact.
+    """
+    return await report_service.get_public_queries(db, report_id, artifact_id=artifact_id)
+
+
+@router.get("/r/{report_id}/queries/{query_id}/step", response_model=PublicStepSchema)
+async def get_public_query_step(
+    report_id: str,
+    query_id: str,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get the default step for a query in a published report (no auth required)."""
+    return await report_service.get_public_step(db, report_id, query_id)
+
+
+# --- Public Artifact Routes (for published reports) ---
+
+from app.schemas.artifact_schema import ArtifactListSchema, ArtifactSchema
+
+
+@router.get("/r/{report_id}/artifacts", response_model=List[ArtifactListSchema])
+async def get_public_artifacts(report_id: str, db: AsyncSession = Depends(get_async_db)):
+    """List artifacts for a published report (no auth required)."""
+    return await report_service.get_public_artifacts(db, report_id)
+
+
+@router.get("/r/{report_id}/artifacts/{artifact_id}", response_model=ArtifactSchema)
+async def get_public_artifact(
+    report_id: str,
+    artifact_id: str,
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Get a specific artifact for a published report (no auth required)."""
+    return await report_service.get_public_artifact(db, report_id, artifact_id)
+
 
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)

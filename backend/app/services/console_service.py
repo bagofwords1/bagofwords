@@ -808,13 +808,14 @@ class ConsoleService:
             # Internal tools
             'create_data': 'Create Data',
             'clarify': 'Request Clarification',
-            'answer_question': 'Search Context',
             'create_dashboard': 'Create Dashboard',
             'inspect_data': 'Inspect Data',
             'describe_tables': 'Describe Tables',
             'describe_entity': 'Describe Entity',
-            'read_resources': 'Read Resources',
         }
+
+        # Query tools including create_artifact which will be merged with create_dashboard
+        query_tools = list(target_labels.keys()) + ['create_artifact']
 
         q = (
             select(ToolExecution.tool_name, func.count(ToolExecution.id))
@@ -823,7 +824,7 @@ class ConsoleService:
                 AgentExecution.organization_id == organization.id,
                 ToolExecution.created_at >= start_date,
                 ToolExecution.created_at <= end_date,
-                ToolExecution.tool_name.in_(list(target_labels.keys()))
+                ToolExecution.tool_name.in_(query_tools)
             )
             .group_by(ToolExecution.tool_name)
         )
@@ -832,7 +833,12 @@ class ConsoleService:
 
         counts = {name: 0 for name in target_labels.keys()}
         for name, cnt in rows:
-            counts[str(name)] = int(cnt or 0)
+            tool_name = str(name)
+            # Merge create_artifact counts into create_dashboard
+            if tool_name == 'create_artifact':
+                counts['create_dashboard'] += int(cnt or 0)
+            elif tool_name in counts:
+                counts[tool_name] = int(cnt or 0)
 
         items = [
             ToolUsageItem(tool_name=name, label=target_labels[name], count=counts[name])

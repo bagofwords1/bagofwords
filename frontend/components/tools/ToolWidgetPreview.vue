@@ -248,16 +248,17 @@ interface ToolExecution {
   created_visualizations?: Array<{ id: string; title?: string; status?: string; report_id?: string; query_id?: string; view?: Record<string, any> }>
 }
 
-const props = defineProps<{ 
+const props = defineProps<{
   toolExecution: ToolExecution
   readonly?: boolean
+  initialCollapsed?: boolean
 }>()
 const emit = defineEmits(['toggleSplitScreen', 'editQuery'])
 
 const { canEditCode } = useOrgSettings()
 
 // Reactive state for collapsible behavior
-const isCollapsed = ref(false) // Start expanded
+const isCollapsed = ref(props.initialCollapsed ?? false)
 const layoutBlocks = ref<any[]>([])
 const route = useRoute()
 const reportId = computed(() => String(route.params.id || ''))

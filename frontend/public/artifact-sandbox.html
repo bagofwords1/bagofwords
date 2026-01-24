@@ -27,6 +27,25 @@
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     }
+    /* Global loading overlay */
+    #global-loader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+      color: #9ca3af;
+      z-index: 9999;
+      transition: opacity 0.2s ease-out;
+    }
+    #global-loader.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
     /* Loading state */
     .artifact-loading {
       display: flex;
@@ -47,9 +66,17 @@
   </style>
 </head>
 <body>
-  <div id="root">
-    <div class="artifact-loading">Loading artifact...</div>
+  <!-- Global loading overlay - shown until data is received -->
+  <div id="global-loader">
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z" opacity=".5"/>
+      <path fill="currentColor" d="M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z">
+        <animateTransform attributeName="transform" dur="1s" from="0 12 12" repeatCount="indefinite" to="360 12 12" type="rotate"/>
+      </path>
+    </svg>
   </div>
+
+  <div id="root"></div>
 
   <script>
     // ===========================================
@@ -68,6 +95,12 @@
         // Handle data payload
         if (event.data && event.data.type === 'ARTIFACT_DATA') {
           window.ARTIFACT_DATA = event.data.payload;
+
+          // Hide global loader
+          var loader = document.getElementById('global-loader');
+          if (loader) {
+            loader.classList.add('hidden');
+          }
 
           // Dispatch custom event for React components to listen to
           window.dispatchEvent(new CustomEvent('artifactdata', {
@@ -109,6 +142,39 @@
         }, []);
 
         return data;
+      };
+
+      // LoadingSpinner React component - available globally for LLM-generated code
+      window.LoadingSpinner = function(props) {
+        var size = props && props.size ? props.size : 24;
+        var className = props && props.className ? props.className : '';
+
+        return React.createElement('svg', {
+          xmlns: 'http://www.w3.org/2000/svg',
+          width: size,
+          height: size,
+          viewBox: '0 0 24 24',
+          className: className
+        }, [
+          React.createElement('path', {
+            key: 'track',
+            fill: 'currentColor',
+            d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z',
+            opacity: '.5'
+          }),
+          React.createElement('path', {
+            key: 'spinner',
+            fill: 'currentColor',
+            d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z'
+          }, React.createElement('animateTransform', {
+            attributeName: 'transform',
+            dur: '1s',
+            from: '0 12 12',
+            repeatCount: 'indefinite',
+            to: '360 12 12',
+            type: 'rotate'
+          }))
+        ]);
       };
 
       // Error handler for uncaught errors

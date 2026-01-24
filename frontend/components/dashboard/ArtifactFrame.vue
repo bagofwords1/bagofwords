@@ -106,16 +106,8 @@
       </div>
 
       <!-- Pending Artifact State (generating) -->
-      <div v-else-if="isPendingArtifact" class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-        <div class="flex flex-col items-center gap-4 text-center px-8">
-          <div class="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center">
-            <Spinner class="w-8 h-8 text-blue-500" />
-          </div>
-          <div>
-            <h3 class="text-lg font-semibold text-gray-900">{{ selectedArtifact?.title || 'Generating Dashboard' }}</h3>
-            <p class="text-sm text-gray-500 mt-1">Creating your visualization...</p>
-          </div>
-        </div>
+      <div v-else-if="isPendingArtifact" class="absolute inset-0 flex items-center justify-center bg-white">
+        <Spinner class="w-6 h-6 text-gray-400" />
       </div>
 
       <!-- Iframe (hidden while loading or pending) -->
@@ -855,6 +847,20 @@ const iframeSrcdoc = computed(() => {
     window.useArtifactData = function() {
       return window.ARTIFACT_DATA;
     };
+    // Fix ECharts 0-height issue: resize all charts after render
+    window.resizeAllCharts = function() {
+      if (typeof echarts !== 'undefined') {
+        var charts = document.querySelectorAll('[_echarts_instance_]');
+        charts.forEach(function(el) {
+          var chart = echarts.getInstanceByDom(el);
+          if (chart) chart.resize();
+        });
+      }
+    };
+    // Auto-resize after React renders
+    setTimeout(window.resizeAllCharts, 100);
+    setTimeout(window.resizeAllCharts, 500);
+    window.addEventListener('resize', window.resizeAllCharts);
     console.log('[Artifact] Data loaded:', window.ARTIFACT_DATA?.visualizations?.length || 0, 'visualizations');
   ${SC}
 

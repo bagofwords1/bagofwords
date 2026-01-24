@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 from app.models.step import Step
 
 from sqlalchemy.orm import Session

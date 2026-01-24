@@ -1,5 +1,61 @@
 <template>
-    <div class="h-screen w-screen relative bg-gray-50">
+    <div class="h-screen w-screen relative bg-gray-50 flex flex-col">
+        <!-- Top Bar -->
+        <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white border-b border-gray-200 relative">
+            <!-- Left: Back to app (absolute) -->
+            <a
+                href="/"
+                class="absolute left-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+                <Icon name="heroicons:arrow-left" class="w-3.5 h-3.5" />
+                <span>Back to app</span>
+            </a>
+
+            <!-- Center: Tab Menu + Refreshed (matching dashboard content padding) -->
+            <div class="h-full flex-1 flex items-center">
+                <div class="w-full flex items-center justify-between px-[200px]">
+                    <!-- Tab Menu -->
+                    <div class="flex items-center gap-1">
+                        <button
+                            @click="activeTab = 'report'"
+                            :class="[
+                                'px-3 py-1.5 text-xs font-medium rounded transition-colors',
+                                activeTab === 'report'
+                                    ? 'bg-gray-100 text-gray-900'
+                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                            ]"
+                        >
+                            Report
+                        </button>
+                        <button
+                            @click="activeTab = 'data'"
+                            :class="[
+                                'px-3 py-1.5 text-xs font-medium rounded transition-colors',
+                                activeTab === 'data'
+                                    ? 'bg-gray-100 text-gray-900'
+                                    : 'text-gray-500 hover:text-gray-700 hover:bg-gray-50'
+                            ]"
+                        >
+                            Data ({{ visualizationsData.length }})
+                        </button>
+                    </div>
+
+                    <!-- Refreshed text -->
+                    <span v-if="lastRefreshedAt" class="text-[11px] text-gray-400">
+                        Refreshed {{ formatTime(lastRefreshedAt) }}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Right: Close (absolute) -->
+            <button
+                @click="showTopBar = false"
+                class="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+            >
+                <Icon name="heroicons:x-mark" class="w-4 h-4" />
+            </button>
+        </div>
+
         <!-- Made with Bag of words badge -->
         <a v-if="report.general?.bow_credit !== false"
            href="https://bagofwords.com"
@@ -8,58 +64,122 @@
             Made with <span class="font-bold text-white">Bag of words</span>
         </a>
 
-        <!-- Artifact Content - Full screen (modern reports with artifacts) -->
-        <iframe
-            v-if="hasArtifacts && iframeSrcdoc"
-            :srcdoc="iframeSrcdoc"
-            sandbox="allow-scripts allow-same-origin"
-            class="absolute inset-0 w-full h-full border-0 bg-white"
-        />
+        <!-- Main Content Area -->
+        <div class="flex-1 min-h-0 relative">
+            <!-- Report Tab: Artifact/Dashboard Content -->
+            <template v-if="activeTab === 'report'">
+                <!-- Artifact Content - Full screen (modern reports with artifacts) -->
+                <iframe
+                    v-if="hasArtifacts && iframeSrcdoc"
+                    :srcdoc="iframeSrcdoc"
+                    sandbox="allow-scripts allow-same-origin"
+                    class="absolute inset-0 w-full h-full border-0 bg-white"
+                />
 
-        <!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
-        <DashboardComponent
-            v-else-if="hasLegacyLayout && !hasArtifacts && reportLoaded"
-            :report="report"
-            :edit="false"
-            class="absolute inset-0 w-full h-full"
-        />
+                <!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
+                <DashboardComponent
+                    v-else-if="hasLegacyLayout && !hasArtifacts && reportLoaded"
+                    :report="report"
+                    :edit="false"
+                    class="absolute inset-0 w-full h-full"
+                />
 
-        <!-- Loading state -->
-        <div v-else-if="!reportLoaded" class="absolute inset-0 flex items-center justify-center text-gray-400">
-            <div class="text-center">
-                <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>Loading...</p>
-            </div>
-        </div>
+                <!-- Loading state -->
+                <div v-else-if="!reportLoaded" class="absolute inset-0 flex items-center justify-center text-gray-400">
+                    <div class="text-center">
+                        <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>Loading...</p>
+                    </div>
+                </div>
 
-        <!-- Empty state (no artifacts, no legacy layout) -->
-        <div v-else class="absolute inset-0 flex items-center justify-center text-gray-400">
-            <div class="text-center">
-                <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
-                <p>No dashboard available</p>
+                <!-- Empty state (no artifacts, no legacy layout) -->
+                <div v-else class="absolute inset-0 flex items-center justify-center text-gray-400">
+                    <div class="text-center">
+                        <Icon name="heroicons:document-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>No dashboard available</p>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Data Tab: Visualizations List -->
+            <div v-else-if="activeTab === 'data'" class="absolute inset-0 overflow-y-auto bg-gray-50 p-4">
+                <div v-if="visualizationsData.length === 0" class="flex items-center justify-center h-full text-gray-400">
+                    <p>No visualizations available</p>
+                </div>
+                <div v-else class="max-w-4xl mx-auto space-y-2">
+                    <ToolWidgetPreview
+                        v-for="viz in toolExecutions"
+                        :key="viz.id"
+                        :tool-execution="viz"
+                        :readonly="true"
+                        :initial-collapsed="true"
+                    />
+                </div>
             </div>
         </div>
     </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import DashboardComponent from '~/components/DashboardComponent.vue';
+import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 
 const route = useRoute();
 const report_id = route.params.id;
 
-const report = ref({
+const report = ref<any>({
     title: '',
     id: '',
     user: { name: '' },
     general: {}
 });
 
-const artifact = ref(null);
-const visualizationsData = ref([]);
+const artifact = ref<any>(null);
+const visualizationsData = ref<any[]>([]);
 const hasArtifacts = ref(false);
 const hasLegacyLayout = ref(false);
 const reportLoaded = ref(false);
+const dataReady = ref(false);
+
+// Top bar state
+const showTopBar = ref(true);
+const activeTab = ref<'report' | 'data'>('report');
+const lastRefreshedAt = ref<Date | null>(null);
+
+// Format time for display
+function formatTime(date: Date | null) {
+    if (!date) return '';
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const minutes = Math.floor(diff / 60000);
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return date.toLocaleDateString();
+}
+
+// Transform visualizationsData to toolExecution format for ToolWidgetPreview
+const toolExecutions = computed(() => {
+    return visualizationsData.value.map(viz => ({
+        id: viz.id,
+        tool_name: 'query',
+        status: 'success',
+        created_step: {
+            id: viz.id,
+            title: viz.title,
+            data: { rows: viz.rows, columns: viz.columns },
+            data_model: viz.dataModel || { type: 'table' },
+            code: viz.code || ''
+        },
+        created_visualizations: [{
+            id: viz.id,
+            title: viz.title,
+            view: viz.view,
+            status: 'success'
+        }]
+    }));
+});
 
 definePageMeta({
     layout: false,
@@ -81,15 +201,17 @@ async function loadReport() {
     }
 }
 
-// Fetch the latest artifact for this report
+// Fetch the latest artifact for this report (using public endpoints)
 async function loadArtifact() {
     try {
-        const { data } = await useMyFetch(`/api/artifacts/report/${report_id}`);
+        // Use public endpoint - no auth required
+        const { data } = await useMyFetch(`/api/r/${report_id}/artifacts`);
         if (data.value && Array.isArray(data.value) && data.value.length > 0) {
             hasArtifacts.value = true;
             // Get the most recent artifact (first in list)
             const latestArtifactId = data.value[0].id;
-            const { data: fullArtifact } = await useMyFetch(`/api/artifacts/${latestArtifactId}`);
+            // Use public artifact endpoint
+            const { data: fullArtifact } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
             if (fullArtifact.value) {
                 artifact.value = fullArtifact.value;
             }
@@ -116,25 +238,29 @@ async function checkLegacyLayout() {
     }
 }
 
-// Fetch visualization data for the artifact
-async function loadVisualizationData() {
+// Fetch visualization data for the artifact (using public endpoints)
+async function loadVisualizationData(artifactId?: string) {
     try {
-        const { data: queriesRes } = await useMyFetch(`/api/queries?report_id=${report_id}`);
+        // Use public endpoint - no auth required
+        // If artifactId provided, filter to only queries used by that artifact
+        const queryParams = artifactId ? `?artifact_id=${artifactId}` : '';
+        const { data: queriesRes } = await useMyFetch(`/api/r/${report_id}/queries${queryParams}`);
         const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
         const vizData = [];
         for (const query of queries) {
-            const { data: stepRes } = await useMyFetch(`/api/queries/${query.id}/default_step`);
-            const step = stepRes.value?.step;
+            // Use public step endpoint - returns PublicStepSchema directly
+            const { data: step } = await useMyFetch(`/api/r/${report_id}/queries/${query.id}/step`);
 
-            for (const viz of query.visualizations || []) {
+            if (step.value) {
                 vizData.push({
-                    id: viz.id,
-                    title: viz.title || query.title || 'Untitled',
-                    view: viz.view || {},
-                    rows: step?.data?.rows || [],
-                    columns: step?.data?.columns || [],
-                    dataModel: step?.data_model || {}
+                    id: query.id,
+                    title: query.title || 'Untitled',
+                    view: (step.value as any).view || {},
+                    rows: (step.value as any).data?.rows || [],
+                    columns: (step.value as any).data?.columns || [],
+                    dataModel: (step.value as any).data_model || {},
+                    code: (step.value as any).code || ''
                 });
             }
         }
@@ -145,8 +271,14 @@ async function loadVisualizationData() {
 }
 
 
-// Build the iframe srcdoc
+// Build the iframe srcdoc - only compute once all data is ready
 const iframeSrcdoc = computed(() => {
+    // Wait until all data is loaded to prevent multiple iframe reloads
+    if (!dataReady.value) return null;
+
+    const artifactCode = artifact.value?.content?.code;
+    if (!artifactCode) return null;
+
     const embeddedData = JSON.stringify({
         report: {
             id: report.value.id,
@@ -155,9 +287,6 @@ const iframeSrcdoc = computed(() => {
         },
         visualizations: visualizationsData.value
     });
-
-    const artifactCode = artifact.value?.content?.code;
-    if (!artifactCode) return null;
     const artifactMode = artifact.value?.mode || 'page';
 
     const SC = '</' + 'script>';
@@ -210,6 +339,20 @@ const iframeSrcdoc = computed(() => {
     window.useArtifactData = function() {
       return window.ARTIFACT_DATA;
     };
+    // Fix ECharts 0-height issue: resize all charts after render
+    window.resizeAllCharts = function() {
+      if (typeof echarts !== 'undefined') {
+        var charts = document.querySelectorAll('[_echarts_instance_]');
+        charts.forEach(function(el) {
+          var chart = echarts.getInstanceByDom(el);
+          if (chart) chart.resize();
+        });
+      }
+    };
+    // Auto-resize after React renders
+    setTimeout(window.resizeAllCharts, 100);
+    setTimeout(window.resizeAllCharts, 500);
+    window.addEventListener('resize', window.resizeAllCharts);
   ${SC}
 
   ${artifactCode}
@@ -218,17 +361,32 @@ const iframeSrcdoc = computed(() => {
 });
 
 onMounted(async () => {
+    // Load report and artifact in parallel first
     await Promise.all([
         loadReport(),
-        loadArtifact(),
-        loadVisualizationData()
+        loadArtifact()
     ]);
+
+    // Load visualization data with artifact filter (if artifact exists)
+    // This ensures we only fetch queries used by the artifact
+    const artifactId = artifact.value?.id;
+    await loadVisualizationData(artifactId);
 
     // If no artifacts, check for legacy layout
     if (!hasArtifacts.value) {
         await checkLegacyLayout();
     }
 
+    // Mark data as ready - this triggers iframeSrcdoc to compute once with all data
+    dataReady.value = true;
     reportLoaded.value = true;
+    // Use the report's last_run_at timestamp (when data was actually refreshed)
+    // Append 'Z' to treat as UTC since backend stores UTC without timezone info
+    if (report.value.last_run_at) {
+        const ts = report.value.last_run_at;
+        lastRefreshedAt.value = new Date(ts.endsWith('Z') ? ts : ts + 'Z');
+    } else {
+        lastRefreshedAt.value = null;
+    }
 });
 </script>

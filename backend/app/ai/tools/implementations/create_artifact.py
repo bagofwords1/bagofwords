@@ -36,8 +36,10 @@ class CreateArtifactTool(Tool):
             description=(
                 "Compose multiple visualizations into a unified, interactive dashboard or slide presentation. "
                 "Use this AFTER creating visualizations with create_data to combine them into a polished layout with "
-                "KPI cards, charts, and responsive grids. Supports two modes: 'page' for interactive dashboards "
-                "Pass visualization_ids from previously created visualizations."
+                "KPI cards, charts, and responsive grids. Supports two modes: 'page' for interactive dashboards. "
+                "Pass visualization_ids from previously created visualizations. "
+                "IMPORTANT: Only use visualizations with successful step status (step.status == 'success'). "
+                "Visualizations with failed or pending steps will be automatically excluded."
             ),
             category="action",
             version="1.0.0",
@@ -191,6 +193,18 @@ class CreateArtifactTool(Tool):
                 # Validate viz belongs to the report
                 if report_id and str(viz.report_id) != report_id:
                     warnings.append(f"Visualization {viz_id} does not belong to this report")
+                    continue
+
+                # Check if the associated step is successful
+                step_status = None
+                if viz.query and viz.query.default_step:
+                    step_status = viz.query.default_step.status
+                elif viz.query and viz.query.steps:
+                    # Fallback to the latest step if no default_step
+                    step_status = viz.query.steps[-1].status if viz.query.steps else None
+
+                if step_status != "success":
+                    warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
                     continue
 
                 # Build visualization entry
@@ -404,6 +418,8 @@ const data = window.ARTIFACT_DATA;
 const report = data.report;  // {{id, title, theme}}
 const visualizations = data.visualizations;  // Array of viz objects
 ```
+
+**Note:** A global loading spinner is shown until data arrives. You do NOT need to implement loading state.
 
 Each visualization object contains:
 - `id`, `title` - Identification
@@ -653,6 +669,11 @@ AVAILABLE LIBRARIES (pre-loaded globally, do NOT import)
   - Dark/light themes, responsive grids, flexbox
   - Animations: animate-pulse, transition-all, hover effects
 
+• **LoadingSpinner** - `<LoadingSpinner />` available globally
+  - Props: `size` (number, default 24), `className` (string)
+  - Inherits text color via currentColor
+  - Use for loading states instead of building your own
+
 ═══════════════════════════════════════════════════════════════════════════════
 DATA ACCESS
 ═══════════════════════════════════════════════════════════════════════════════
@@ -735,10 +756,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 REQUIREMENTS:
 1. Start with `<script type="text/babel">` and end with `</script>`
 2. Use the `useArtifactData()` hook for reactive data access
-3. Handle loading state gracefully (animated skeleton or spinner)
+3. Use `<LoadingSpinner size={{32}} />` for loading state (do NOT build your own spinner)
 4. Initialize ECharts in useEffect, dispose on cleanup, handle resize
 5. Make it responsive (works on mobile and desktop)
 6. Make it GORGEOUS - this is a showcase piece
+
+Example loading state:
+```jsx
+if (!data) {{
+  return (
+    <div className="flex items-center justify-center h-screen text-gray-400">
+      <LoadingSpinner size={{32}} />
+    </div>
+  );
+}}
+```
 
 Now create the dashboard:"""
 
