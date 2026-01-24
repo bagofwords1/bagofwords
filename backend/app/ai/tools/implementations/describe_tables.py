@@ -1,7 +1,8 @@
 import re
-from typing import AsyncIterator, Dict, Any, Type
+from typing import AsyncIterator, Dict, Any, Type, List
 
 from pydantic import BaseModel
+from sqlalchemy import select, and_
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -13,6 +14,8 @@ from app.ai.tools.schemas import (
     ToolProgressEvent,
     ToolEndEvent,
 )
+from app.models.instruction_reference import InstructionReference
+from app.models.datasource_table import DataSourceTable
 
 
 class DescribeTablesTool(Tool):
@@ -21,7 +24,9 @@ class DescribeTablesTool(Tool):
         return ToolMetadata(
             name="describe_tables",
             description=(
-                "Describe specific tables to get more information about them. Returns tables, columns, usage metrics, etc. Use this to ensure you have the right tables and columns for your analysis."
+                "Describe specific tables to get more information about them. Returns tables, columns, usage metrics, etc. "
+                "Use this to ensure you have the right tables and columns for your analysis. "
+                "Also returns instructions and rules associated with the tables."
             ),
             category="research",
             version="1.0.0",
@@ -194,11 +199,102 @@ class DescribeTablesTool(Tool):
         except Exception:
             pass
 
+        # Load related instructions via table references (only intelligent load_mode)
+        related_instructions: List[dict[str, Any]] = []
+        try:
+            db = runtime_ctx.get("db")
+            organization = runtime_ctx.get("organization")
+            if db and organization and ctx is not None:
+                yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_instructions"})
+
+                # Collect matched table names and their data source IDs
+                matched_table_info: List[tuple[str, str]] = []  # (table_name, ds_id)
+                for ds in (getattr(ctx, "data_sources", []) or []):
+                    ds_info = getattr(ds, "info", None)
+                    ds_id = getattr(ds_info, "id", None)
+                    if ds_id:
+                        for t in (getattr(ds, "tables", []) or []):
+                            t_name = getattr(t, "name", None)
+                            if t_name:
+                                matched_table_info.append((t_name, str(ds_id)))
+
+                if matched_table_info:
+                    # Query DataSourceTable to get IDs for the matched tables
+                    table_names_list = [name for name, _ in matched_table_info]
+                    ds_ids_list = list(set(ds_id for _, ds_id in matched_table_info))
+
+                    table_query = select(DataSourceTable.id).where(
+                        and_(
+                            DataSourceTable.name.in_(table_names_list),
+                            DataSourceTable.datasource_id.in_(ds_ids_list),
+                            DataSourceTable.deleted_at.is_(None),
+                        )
+                    )
+                    table_result = await db.execute(table_query)
+                    table_ids = [str(row[0]) for row in table_result.fetchall()]
+
+                    if table_ids:
+                        # Query InstructionReference for these table IDs
+                        ref_query = select(InstructionReference.instruction_id).where(
+                            and_(
+                                InstructionReference.object_type == "datasource_table",
+                                InstructionReference.object_id.in_(table_ids),
+                                InstructionReference.deleted_at.is_(None),
+                            )
+                        )
+                        ref_result = await db.execute(ref_query)
+                        instruction_ids = list(set(str(row[0]) for row in ref_result.fetchall()))
+
+                        if instruction_ids:
+                            # Load instructions via InstructionContextBuilder (only intelligent)
+                            from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
+
+                            instruction_builder = InstructionContextBuilder(
+                                db=db,
+                                organization=organization,
+                            )
+                            instruction_items = await instruction_builder.load_instructions_by_ids(
+                                instruction_ids=instruction_ids,
+                                load_mode_filter="intelligent",
+                            )
+
+                            # Convert to output format
+                            for item in instruction_items:
+                                related_instructions.append({
+                                    "id": item.id,
+                                    "title": item.title,
+                                    "category": item.category,
+                                    "text": item.text,
+                                    "load_mode": item.load_mode,
+                                })
+        except Exception as e:
+            errors.append(f"Failed to load related instructions: {str(e)}")
+
+        output["related_instructions"] = related_instructions
+
+        # Build instructions excerpt for observation (same format as context builder)
+        instructions_excerpt = ""
+        if related_instructions:
+            from app.ai.context.sections.instructions_section import InstructionsSection, InstructionItem as InstructionSectionItem
+            instruction_items = [
+                InstructionSectionItem(
+                    id=inst["id"],
+                    category=inst.get("category"),
+                    text=inst.get("text") or "",
+                    load_mode=inst.get("load_mode"),
+                    load_reason="table_reference",
+                )
+                for inst in related_instructions
+            ]
+            instructions_section = InstructionsSection(items=instruction_items)
+            instructions_excerpt = instructions_section.render()
+
         observation = {
             "summary": f"Described {matched_tables_total} tables across {searched_sources} data sources.",
             "analysis_complete": False,
             "final_answer": None,
             "schemas_excerpt": schemas_excerpt,
+            "instructions_excerpt": instructions_excerpt,
         }
 
         yield ToolEndEvent(

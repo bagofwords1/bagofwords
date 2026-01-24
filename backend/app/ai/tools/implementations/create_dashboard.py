@@ -83,7 +83,7 @@ class CreateDashboardTool(Tool):
             timeout_seconds=60,
             idempotent=True,
             required_permissions=[],
-            is_active=True,
+            is_active=False,
             tags=["dashboard", "report", "layout"],
             allowed_modes=["chat", "deep"],
         )
@@ -191,7 +191,7 @@ class CreateDashboardTool(Tool):
         entities_context = ""
         try:
             if instruction_context_builder is not None:
-                inst_section = await instruction_context_builder.build(category="dashboard")
+                inst_section = await instruction_context_builder.build(categories=["dashboard", "visualization", "general"])
                 instructions_context = inst_section.render() or ""
             if context_hub is not None:
                 view = context_hub.get_view()

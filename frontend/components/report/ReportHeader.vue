@@ -40,7 +40,7 @@ const props = defineProps<{
     isStreaming: boolean,
 }>()
 
-defineEmits(['toggleSplitScreen', 'rerun', 'stop'])
+defineEmits(['toggleSplitScreen', 'stop'])
 
 const route = useRoute()
 const report_id = route.params.id

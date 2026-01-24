@@ -684,6 +684,7 @@ class DataSourceService:
             s = DataSourceListItemSchema(
                 id=str(d.id),
                 name=d.name,
+                conversation_starters=getattr(d, "conversation_starters", None),
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),

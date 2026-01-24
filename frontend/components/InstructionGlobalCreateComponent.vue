@@ -859,10 +859,8 @@ const enhanceInstruction = async () => {
 const categoryOptions = [
     { label: 'General', value: 'general' },
     { label: 'Code Generation', value: 'code_gen' },
-    { label: 'Data Modeling', value: 'data_modeling' },
     { label: 'System', value: 'system' },
-    { label: 'Visualizations', value: 'visualizations' },
-    { label: 'Dashboard', value: 'dashboard' }
+    { label: 'Visualizations', value: 'visualizations' }
 ]
 
 // Data source methods

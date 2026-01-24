@@ -371,24 +371,9 @@
   })
   const { version, environment, app_url, intercom } = useRuntimeConfig().public
   
-  // Sidebar collapse state
-  const isCollapsed = ref(false)
-  const showText = ref(true) // Controls text visibility during transitions
+  // Sidebar collapse state (shared via composable)
+  const { isCollapsed, showText, toggle: toggleSidebar } = useSidebar()
   const creatingReport = ref(false)
-  
-  const toggleSidebar = () => {
-    if (!isCollapsed.value) {
-      // Collapsing: hide text immediately
-      showText.value = false
-      isCollapsed.value = true
-    } else {
-      // Expanding: show sidebar first, then text after transition
-      isCollapsed.value = false
-      setTimeout(() => {
-        showText.value = true
-      }, 300) // Match the transition duration
-    }
-  }
   
   const currentUserName = computed<string>(() => {
     const user = currentUser.value as any

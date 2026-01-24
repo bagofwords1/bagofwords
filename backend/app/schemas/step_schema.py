@@ -47,3 +47,17 @@ class StepCreate(StepBase):
 class StepUpdate(StepBase):
     pass
 
+
+class PublicStepSchema(BaseModel):
+    """Minimal schema for public/unauthenticated access to published reports."""
+    id: str
+    title: str
+    type: str
+    code: str
+    data_model: dict = Field(default_factory=dict)
+    data: dict = Field(default_factory=dict)
+    view: Optional[dict] = Field(default_factory=dict)
+
+    class Config:
+        from_attributes = True
+

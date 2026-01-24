@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Boolean, JSON
+from sqlalchemy import Column, String, ForeignKey, Boolean, JSON, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
@@ -20,6 +20,7 @@ class Report(BaseSchema):
     
     #privacy = Column(String, nullable=False, default='private') # private, internal, public
     cron_schedule = Column(String, nullable=True)
+    last_run_at = Column(DateTime, nullable=True, default=None)
     
     # Conversation sharing (separate from dashboard publishing)
     conversation_share_token = Column(String, nullable=True, unique=True, index=True)
@@ -48,3 +49,4 @@ class Report(BaseSchema):
     )
     queries = relationship("Query", back_populates="report", lazy="selectin")
     visualizations = relationship("Visualization", back_populates="report", lazy="selectin")
+    artifacts = relationship("Artifact", back_populates="report", lazy="selectin")

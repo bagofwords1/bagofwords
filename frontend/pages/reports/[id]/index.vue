@@ -20,7 +20,6 @@
 			:isSplitScreen="isSplitScreen"
 			:isStreaming="isStreaming"
 			@toggleSplitScreen="toggleSplitScreen"
-			@rerun="rerunReport"
 			@stop="abortStream"
 		/>
 
@@ -138,7 +137,7 @@
 
 											<!-- 3. Tool execution (ALWAYS visible outside thinking) -->
 											<div v-if="block.tool_execution" class="tool-execution-container">
-												<component 
+												<component
 													v-if="shouldUseToolComponent(block.tool_execution)"
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
@@ -147,6 +146,7 @@
 													@refreshDashboard="refreshDashboardFast"
 													@toggleSplitScreen="toggleSplitScreen"
 													@editQuery="handleEditQuery"
+													@openArtifact="handleOpenArtifact"
 												/>
 												<!-- Fallback to generic expandable tool display -->
 												<div v-else>
@@ -298,19 +298,47 @@
 		</template>
 		<template #right>
 			<div class="h-screen flex flex-col overflow-hidden">
-				<DashboardComponent 
+				<!-- Grid View (DashboardComponent - Edit Mode) -->
+				<DashboardComponent
+					v-if="rightPanelView === 'grid' && reportLoaded && (visualizations || []).length >= 0"
 					ref="dashboardRef"
-					v-if="reportLoaded && (visualizations || []).length >= 0"
-					:report="report" 
-					:edit="true" 
+					:report="report"
+					:edit="true"
 					:visualizations="visualizations"
 					:textWidgetsIds="textWidgetsIds"
 					:isStreaming="isStreaming"
 					@toggleSplitScreen="toggleSplitScreen"
 					@editVisualization="handleEditQuery"
+					@toggleArtifactView="rightPanelView = 'artifact'"
 					class="flex-1 min-h-0"
 				/>
-				<div v-else-if="reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500">
+
+				<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
+				<DashboardComponent
+					v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
+					ref="dashboardRef"
+					:report="report"
+					:edit="true"
+					:visualizations="visualizations"
+					:textWidgetsIds="textWidgetsIds"
+					:isStreaming="isStreaming"
+					:hideArtifactSwitch="true"
+					@toggleSplitScreen="toggleSplitScreen"
+					@editVisualization="handleEditQuery"
+					class="flex-1 min-h-0"
+				/>
+
+				<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
+				<ArtifactFrame
+					v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
+					:report-id="report.id"
+					:report="report"
+					@close="toggleSplitScreen"
+					class="flex-1 min-h-0"
+				/>
+
+				<!-- Empty state for grid view -->
+				<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 flex-1">
 					No dashboard items yet.
 				</div>
 			</div>
@@ -343,6 +371,7 @@ import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
+import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -358,6 +387,7 @@ import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
+import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
@@ -480,6 +510,13 @@ const leftPanelWidth = ref(450)
 const isResizing = ref(false)
 const initialMouseX = ref(0)
 const initialPanelWidth = ref(0)
+
+// Right panel view mode: 'grid' or 'artifact' - default to artifact
+const rightPanelView = ref<'grid' | 'artifact'>('artifact')
+
+// Legacy report detection: has artifacts vs legacy dashboard_layout_versions
+const hasArtifacts = ref(false)
+const hasLegacyLayout = ref(false)
 
 // Toggle states
 const collapsedReasoning = ref<Set<string>>(new Set())
@@ -624,6 +661,8 @@ function getToolComponent(toolName: string) {
 			return ExecuteCodeTool
 		case 'create_dashboard':
 			return CreateDashboardTool
+		case 'create_artifact':
+			return CreateArtifactTool
 		case 'answer_question':
 			return AnswerQuestionTool
 		case 'read_resources':
@@ -1088,6 +1127,12 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 							lastBlock.tool_execution.result_summary = `Loading from catalog: "${nameOrId}"…`
 						}
+						if (payload.tool_name === 'create_artifact' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
+							;(lastBlock.tool_execution as any).report_id = report_id
+							const modeLabel = payload.arguments.mode === 'slides' ? 'presentation' : 'dashboard'
+							lastBlock.tool_execution.result_summary = `Creating ${modeLabel}: "${payload.arguments.title || 'Untitled'}"…`
+						}
 					} catch {}
 					lastBlock.status = 'in_progress'
 				}
@@ -1180,6 +1225,50 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						} catch {}
 					}
 
+					// Progressive slide tracking for create_artifact tool
+					if (payload.tool_name === 'create_artifact' && payload.payload) {
+						const p = payload.payload
+						// Artifact created with pending status - notify frontend
+						if (p.stage === 'artifact_created' && p.artifact_id) {
+							;(lastBlock.tool_execution as any).pending_artifact_id = p.artifact_id
+							// Dispatch event so ArtifactFrame can show the pending artifact
+							hasArtifacts.value = true
+							try {
+								window.dispatchEvent(new CustomEvent('artifact:created', {
+									detail: {
+										report_id: report_id,
+										artifact_id: p.artifact_id,
+										status: 'pending'
+									}
+								}))
+							} catch {}
+						}
+						// Track generating progress
+						if (p.stage === 'generating') {
+							;(lastBlock.tool_execution as any).progress_stage = 'generating'
+							;(lastBlock.tool_execution as any).progress_payload = { chars: p.chars }
+						}
+						// Track slides as they're generated
+						if (p.stage === 'slide_generated') {
+							;(lastBlock.tool_execution as any).progress_stage = 'generating_slides'
+							const slides = (lastBlock.tool_execution as any).progress_slides || []
+							// Mark previous slides as done
+							for (let i = 0; i < slides.length; i++) {
+								slides[i].status = 'done'
+							}
+							// Add new slide as generating
+							while (slides.length <= p.slide_index) {
+								slides.push({ status: slides.length === p.slide_index ? 'generating' : 'done' })
+							}
+							;(lastBlock.tool_execution as any).progress_slides = slides
+						}
+						// Store artifact info from arguments
+						if (p.title) {
+							lastBlock.tool_execution.arguments_json = lastBlock.tool_execution.arguments_json || {}
+							;(lastBlock.tool_execution.arguments_json as any).title = p.title
+						}
+					}
+
 					lastBlock.status = 'in_progress'
 				}
 			}
@@ -1263,6 +1352,24 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.tool_name === 'create_dashboard' && payload.status === 'success') {
 						try { await loadVisualizations() } catch (e) { /* noop */ }
 						if (!isSplitScreen.value) toggleSplitScreen()
+					}
+					// If the artifact was created successfully, mark all slides as done and dispatch event
+					if (payload.tool_name === 'create_artifact' && payload.status === 'success') {
+						// Mark all slides as done
+						const slides = (blockWithTool.tool_execution as any).progress_slides || []
+						for (const slide of slides) {
+							slide.status = 'done'
+						}
+						// Update hasArtifacts state and dispatch event to notify ArtifactFrame
+						hasArtifacts.value = true
+						try {
+							window.dispatchEvent(new CustomEvent('artifact:created', {
+								detail: {
+									report_id: report_id,
+									artifact_id: payload.result_json?.artifact_id
+								}
+							}))
+						} catch {}
 					}
 				}
 			}
@@ -1583,17 +1690,37 @@ async function loadActiveLayoutHasBlocks(): Promise<boolean> {
         const { data } = await useMyFetch(`/api/reports/${report_id}/layouts`)
         const layouts = Array.isArray(data.value) ? (data.value as any[]) : []
         const active = layouts.find((l: any) => l.is_active)
-        return !!(active && Array.isArray(active.blocks) && active.blocks.length > 0)
+        const result = !!(active && Array.isArray(active.blocks) && active.blocks.length > 0)
+        hasLegacyLayout.value = result
+        return result
     } catch (e) {
+        hasLegacyLayout.value = false
         return false
     }
 }
+
+// Check if the report has any artifacts
+async function checkHasArtifacts(): Promise<boolean> {
+    try {
+        const { data } = await useMyFetch(`/artifacts/report/${report_id}`)
+        const artifacts = Array.isArray(data.value) ? data.value : []
+        hasArtifacts.value = artifacts.length > 0
+        return hasArtifacts.value
+    } catch (e) {
+        hasArtifacts.value = false
+        return false
+    }
+}
+
+// Sidebar control (for collapsing when entering split screen)
+const { collapse: collapseSidebar } = useSidebar()
 
 function toggleSplitScreen() {
 	nextTick(() => {
 		isSplitScreen.value = !isSplitScreen.value
 		if (isSplitScreen.value) {
 			leftPanelWidth.value = 460
+			collapseSidebar()
 		}
         safeScrollToBottom()
 	})
@@ -1650,11 +1777,6 @@ onUnmounted(() => {
 	reasoningRefs.value.clear()
 })
 
-function rerunReport() {
-	useMyFetch(`/api/reports/${report_id}/rerun`, { method: 'POST' }).then(() => {
-		loadVisualizations()
-	})
-}
 
 // Handle Add to dashboard from ToolWidgetPreview
 async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, visualization?: any }) {
@@ -1701,6 +1823,24 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
     } catch (e) {
         console.error('Failed to add widget from preview:', e)
     }
+}
+
+// Handle opening an artifact from CreateArtifactTool
+function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
+	// Switch to artifact view and ensure split screen is open
+	if (!isSplitScreen.value) toggleSplitScreen()
+	// Switch to artifact panel
+	rightPanelView.value = 'artifact'
+	// If artifactId provided, dispatch event to ArtifactFrame to select this artifact
+	// If loading is true, just open the pane - ArtifactFrame will show loading state
+	// and artifact:created event will trigger selection when ready
+	if (payload.artifactId) {
+		try {
+			window.dispatchEvent(new CustomEvent('artifact:select', {
+				detail: { artifact_id: payload.artifactId }
+			}))
+		} catch {}
+	}
 }
 
 function abortStream() {
@@ -2017,9 +2157,10 @@ async function startPollingInProgressCompletion() {
 				stopPollingInProgressCompletion()
 				return
 			}
+			// Schedule next tick only if we should continue polling
+			pollHandle = window.setTimeout(tick, pollIntervalMs)
 		} catch (e) {
 			// keep polling on transient errors
-		} finally {
 			pollHandle = window.setTimeout(tick, pollIntervalMs)
 		}
 	}
@@ -2032,15 +2173,15 @@ onMounted(async () => {
 		loadReport(),
 		loadVisualizations(),
 		loadCompletions(),
-		
-		loadActiveLayoutHasBlocks().then(hasBlocks => {
-			if (hasBlocks) {
-				isSplitScreen.value = true
-			}
-		})
-
+		checkHasArtifacts(),
+		loadActiveLayoutHasBlocks()
 	])
-	
+
+	// Open split screen if report has artifacts or legacy layout
+	if (hasArtifacts.value || hasLegacyLayout.value) {
+		isSplitScreen.value = true
+	}
+
 	// Handle new_message query parameter after everything is loaded
 	if (route.query.new_message && messages.value.length == 0) {
 		let mentions: any[] = []

@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOW Artifact</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+  <!-- Babel Standalone for JSX transpilation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- ECharts -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+
+  <style>
+    html, body, #root {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    /* Global loading overlay */
+    #global-loader {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+      color: #9ca3af;
+      z-index: 9999;
+      transition: opacity 0.2s ease-out;
+    }
+    #global-loader.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+    /* Loading state */
+    .artifact-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #9ca3af;
+    }
+    .artifact-error {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #ef4444;
+      padding: 1rem;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <!-- Global loading overlay - shown until data is received -->
+  <div id="global-loader">
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z" opacity=".5"/>
+      <path fill="currentColor" d="M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z">
+        <animateTransform attributeName="transform" dur="1s" from="0 12 12" repeatCount="indefinite" to="360 12 12" type="rotate"/>
+      </path>
+    </svg>
+  </div>
+
+  <div id="root"></div>
+
+  <script>
+    // ===========================================
+    // BOW Artifact Runtime - Data Bridge
+    // ===========================================
+
+    (function() {
+      'use strict';
+
+      // Store for artifact data received from parent
+      window.ARTIFACT_DATA = null;
+      window.ARTIFACT_READY = false;
+
+      // Listen for data from parent window
+      window.addEventListener('message', function(event) {
+        // Handle data payload
+        if (event.data && event.data.type === 'ARTIFACT_DATA') {
+          window.ARTIFACT_DATA = event.data.payload;
+
+          // Hide global loader
+          var loader = document.getElementById('global-loader');
+          if (loader) {
+            loader.classList.add('hidden');
+          }
+
+          // Dispatch custom event for React components to listen to
+          window.dispatchEvent(new CustomEvent('artifactdata', {
+            detail: event.data.payload
+          }));
+
+          console.log('[Artifact] Received data:', Object.keys(event.data.payload));
+        }
+      });
+
+      // Signal to parent that iframe is ready to receive data
+      window.ARTIFACT_READY = true;
+
+      try {
+        window.parent.postMessage({ type: 'ARTIFACT_READY' }, '*');
+        console.log('[Artifact] Ready signal sent to parent');
+      } catch (e) {
+        console.error('[Artifact] Failed to send ready signal:', e);
+      }
+
+      // Helper hook for React components
+      window.useArtifactData = function() {
+        const [data, setData] = React.useState(window.ARTIFACT_DATA);
+
+        React.useEffect(function() {
+          var handler = function(e) {
+            setData(e.detail);
+          };
+          window.addEventListener('artifactdata', handler);
+
+          // In case data was already received before component mounted
+          if (window.ARTIFACT_DATA && !data) {
+            setData(window.ARTIFACT_DATA);
+          }
+
+          return function() {
+            window.removeEventListener('artifactdata', handler);
+          };
+        }, []);
+
+        return data;
+      };
+
+      // LoadingSpinner React component - available globally for LLM-generated code
+      window.LoadingSpinner = function(props) {
+        var size = props && props.size ? props.size : 24;
+        var className = props && props.className ? props.className : '';
+
+        return React.createElement('svg', {
+          xmlns: 'http://www.w3.org/2000/svg',
+          width: size,
+          height: size,
+          viewBox: '0 0 24 24',
+          className: className
+        }, [
+          React.createElement('path', {
+            key: 'track',
+            fill: 'currentColor',
+            d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z',
+            opacity: '.5'
+          }),
+          React.createElement('path', {
+            key: 'spinner',
+            fill: 'currentColor',
+            d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z'
+          }, React.createElement('animateTransform', {
+            attributeName: 'transform',
+            dur: '1s',
+            from: '0 12 12',
+            repeatCount: 'indefinite',
+            to: '360 12 12',
+            type: 'rotate'
+          }))
+        ]);
+      };
+
+      // Error handler for uncaught errors
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        console.error('[Artifact Error]', msg, error);
+        var root = document.getElementById('root');
+        if (root) {
+          root.innerHTML = '<div class="artifact-error"><div><strong>Error:</strong><br>' +
+            (msg || 'Unknown error') + '</div></div>';
+        }
+        return false;
+      };
+
+    })();
+  </script>
+
+  <!-- LLM_GENERATED_CODE -->
+</body>
+</html>

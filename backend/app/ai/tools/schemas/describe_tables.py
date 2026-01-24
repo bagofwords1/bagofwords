@@ -55,4 +55,14 @@ class DescribeTablesOutput(BaseModel):
 
     top_tables: List[TablePreview] = Field(default_factory=list, description="Flattened sample of top tables with basic columns and usage")
 
+    # Related instructions loaded via table references (only for load_mode='intelligent')
+    class InstructionPreview(BaseModel):
+        id: str
+        title: Optional[str] = None
+        category: Optional[str] = None
+        text: Optional[str] = None
+        load_mode: Optional[str] = None
+
+    related_instructions: List[InstructionPreview] = Field(default_factory=list, description="Instructions referencing the matched tables (intelligent load_mode only)")
+
 

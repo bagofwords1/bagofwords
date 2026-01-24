@@ -149,7 +149,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
@@ -514,7 +514,26 @@ function openInstructions() {
     instructionsListModalRef.value?.openModal?.(dataSourceIds)
 }
 
+// Handle prompt prefill event from other components (e.g., ArtifactFrame)
+function handlePromptPrefill(event: Event) {
+    const detail = (event as CustomEvent).detail
+    if (detail?.text) {
+        text.value = detail.text
+        // Auto-submit if requested (after a brief delay to ensure text is set)
+        if (detail.autoSubmit) {
+            setTimeout(() => {
+                if (canSubmit.value) {
+                    submit()
+                }
+            }, 50)
+        }
+    }
+}
+
 onMounted(async () => {
+    // Listen for prompt prefill events
+    window.addEventListener('prompt:prefill', handlePromptPrefill)
+
     await loadModels()
     await refreshContextEstimate(false)
     if (props.report_id) {
@@ -533,6 +552,10 @@ onMounted(async () => {
         isCompactPrompt.value = w > 0 && w < 420
     })
     if (root) ro.observe(root)
+})
+
+onBeforeUnmount(() => {
+    window.removeEventListener('prompt:prefill', handlePromptPrefill)
 })
 
 watch(() => props.report_id, async (newId, oldId) => {

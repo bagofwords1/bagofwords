@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.305 (January 24, 2026)
+- **Rebuilt Dashboards**: Now fully AI-generated as executable code (React/HTML) with iterative refinement based on conversation history
+- Fixed @ mention detection in prompt input (no longer triggers inside existing mentions)
+
 ## Version 0.0.304 (January 22, 2026)
 - SQLite data source now available in production (previously dev-only)
 - Security updates and dependency patches

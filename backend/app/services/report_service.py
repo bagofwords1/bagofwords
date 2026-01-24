@@ -318,18 +318,34 @@ class ReportService:
                     step = step_result.scalar_one_or_none()
 
                 if not step:
-                    raise HTTPException(status_code=400, detail=f"No step found for visualization {viz_id}")
+                    logger.warning(f"No step found for visualization {viz_id}; skipping")
+                    continue
                 if not step.code or not str(step.code).strip():
-                    raise HTTPException(status_code=400, detail=f"Step code is empty for visualization {viz_id}; cannot rerun")
+                    logger.warning(f"Step code is empty for visualization {viz_id}; skipping")
+                    continue
 
-                logger.info(f"Running visualization {viz_id} via step {step.id} for report {report_id}")
-                await self.widget_service.step_service.rerun_step(db, step.id)
+                try:
+                    logger.info(f"Running visualization {viz_id} via step {step.id} for report {report_id}")
+                    await self.widget_service.step_service.rerun_step(db, step.id)
+                except Exception as e:
+                    logger.warning(f"Failed to rerun step {step.id} for visualization {viz_id}: {e}; continuing")
+                    continue
         else:
             # Legacy fallback: rerun last step for each published widget
             published_widgets = await self.widget_service.get_published_widgets_for_report(db, report_id)
             for widget in published_widgets:
-                logger.info(f"Running widget {widget.id} for report {report_id}")
-                await self.widget_service.run_widget_step(db, widget, current_user, organization)
+                try:
+                    logger.info(f"Running widget {widget.id} for report {report_id}")
+                    await self.widget_service.run_widget_step(db, widget, current_user, organization)
+                except Exception as e:
+                    logger.warning(f"Failed to run widget {widget.id}: {e}; continuing")
+                    continue
+
+        # Update last_run_at timestamp on the ORM model
+        report_orm = await db.get(Report, report_id)
+        if report_orm:
+            report_orm.last_run_at = datetime.utcnow()
+            await db.commit()
 
         logger.info(f"Completed scheduled report run for report_id: {report_id}")
         return report
@@ -417,6 +433,150 @@ class ReportService:
 
         from app.schemas.dashboard_layout_version_schema import DashboardLayoutVersionSchema
         return [DashboardLayoutVersionSchema.from_orm(l) for l in layouts]
+
+    async def get_public_queries(self, db: AsyncSession, report_id: str, artifact_id: str | None = None):
+        """Get queries for a published report (public, no auth required).
+
+        If artifact_id is provided, only returns queries for visualizations used by that artifact.
+        """
+        # Verify report exists and is published
+        result = await db.execute(select(Report).where(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        if not report or report.status != 'published':
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # If artifact_id provided, filter to only queries used by that artifact
+        query_ids_filter = None
+        if artifact_id:
+            from app.models.artifact import Artifact
+            artifact_result = await db.execute(
+                select(Artifact).where(
+                    Artifact.id == artifact_id,
+                    Artifact.report_id == report_id,
+                    Artifact.deleted_at.is_(None)
+                )
+            )
+            artifact = artifact_result.scalar_one_or_none()
+            if artifact and artifact.content:
+                visualization_ids = artifact.content.get("visualization_ids", [])
+                if visualization_ids:
+                    # Get query_ids from visualizations
+                    viz_result = await db.execute(
+                        select(Visualization.query_id).where(Visualization.id.in_(visualization_ids))
+                    )
+                    query_ids_filter = [row[0] for row in viz_result.all() if row[0]]
+
+        # Fetch queries that have a successful step, eagerly load visualizations
+        query_stmt = (
+            select(Query)
+            .join(Step, Step.id == Query.default_step_id)
+            .options(selectinload(Query.visualizations))
+            .where(Query.report_id == report_id, Step.status == 'success')
+        )
+
+        # Apply artifact filter if present
+        if query_ids_filter is not None:
+            query_stmt = query_stmt.where(Query.id.in_(query_ids_filter))
+
+        queries_result = await db.execute(query_stmt)
+        queries = queries_result.scalars().all()
+
+        from app.schemas.query_schema import PublicQuerySchema
+        return [PublicQuerySchema.model_validate(q) for q in queries]
+
+    async def get_public_step(self, db: AsyncSession, report_id: str, query_id: str):
+        """Get the default step for a query in a published report (public, no auth required)."""
+        # Verify report exists and is published
+        result = await db.execute(select(Report).where(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        if not report or report.status != 'published':
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Fetch query and verify it belongs to this report
+        query_result = await db.execute(
+            select(Query).where(Query.id == query_id, Query.report_id == report_id)
+        )
+        query = query_result.scalar_one_or_none()
+        if not query:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Get the default step (or latest successful step if no default)
+        step = None
+        if query.default_step_id:
+            step_result = await db.execute(
+                select(Step).where(Step.id == query.default_step_id, Step.status == 'success')
+            )
+            step = step_result.scalar_one_or_none()
+
+        if not step:
+            # Fallback to latest successful step
+            step_result = await db.execute(
+                select(Step)
+                .where(Step.query_id == query_id, Step.status == 'success')
+                .order_by(Step.created_at.desc())
+                .limit(1)
+            )
+            step = step_result.scalar_one_or_none()
+
+        if not step:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        from app.schemas.step_schema import PublicStepSchema
+        # Convert view to dict if it's not already
+        view_dict = step.view if isinstance(step.view, dict) else (step.view.dict() if step.view else {})
+        return PublicStepSchema(
+            id=step.id,
+            title=step.title,
+            type=step.type,
+            code=step.code,
+            data_model=step.data_model or {},
+            data=step.data or {},
+            view=view_dict,
+        )
+
+    async def get_public_artifacts(self, db: AsyncSession, report_id: str):
+        """List artifacts for a published report (public, no auth required)."""
+        # Verify report exists and is published
+        result = await db.execute(select(Report).where(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        if not report or report.status != 'published':
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Fetch artifacts for this report
+        from app.models.artifact import Artifact
+        artifacts_result = await db.execute(
+            select(Artifact)
+            .where(Artifact.report_id == report_id, Artifact.deleted_at.is_(None))
+            .order_by(Artifact.created_at.desc())
+        )
+        artifacts = artifacts_result.scalars().all()
+
+        from app.schemas.artifact_schema import ArtifactListSchema
+        return [ArtifactListSchema.model_validate(a) for a in artifacts]
+
+    async def get_public_artifact(self, db: AsyncSession, report_id: str, artifact_id: str):
+        """Get a specific artifact for a published report (public, no auth required)."""
+        # Verify report exists and is published
+        result = await db.execute(select(Report).where(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        if not report or report.status != 'published':
+            raise HTTPException(status_code=404, detail="Not found")
+
+        # Fetch the artifact and verify it belongs to this report
+        from app.models.artifact import Artifact
+        artifact_result = await db.execute(
+            select(Artifact).where(
+                Artifact.id == artifact_id,
+                Artifact.report_id == report_id,
+                Artifact.deleted_at.is_(None)
+            )
+        )
+        artifact = artifact_result.scalar_one_or_none()
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Not found")
+
+        from app.schemas.artifact_schema import ArtifactSchema
+        return ArtifactSchema.model_validate(artifact)
 
     async def get_reports(
         self,

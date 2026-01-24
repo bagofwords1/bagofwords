@@ -36,6 +36,16 @@ class VisualizationSchema(VisualizationBase):
         from_attributes = True
 
 
+class PublicVisualizationSchema(BaseModel):
+    """Minimal schema for public/unauthenticated access to published reports."""
+    id: str
+    title: str
+    view: Optional[ViewSchema] = Field(default_factory=ViewSchema)
+
+    class Config:
+        from_attributes = True
+
+
 class VisualizationSpec(BaseModel):
     type: Literal[
         "table",

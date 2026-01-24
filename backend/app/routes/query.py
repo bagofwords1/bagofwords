@@ -19,13 +19,19 @@ service = QueryService()
 @requires_permission('view_reports')
 async def list_queries(
     report_id: str | None = None,
+    artifact_id: str | None = None,
     current_user: User = Depends(current_user_dep),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
+    """List queries, optionally filtered by report_id and/or artifact_id.
+
+    If artifact_id is provided, only returns queries for visualizations used by that artifact.
+    """
     queries = await service.list_queries(
         db,
         report_id=report_id,
+        artifact_id=artifact_id,
         organization_id=str(organization.id) if organization else None,
     )
     # Pydantic v2: model_validate for each

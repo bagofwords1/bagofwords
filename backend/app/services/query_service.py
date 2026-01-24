@@ -86,13 +86,48 @@ class QueryService:
         self,
         db: AsyncSession,
         report_id: Optional[str] = None,
+        artifact_id: Optional[str] = None,
         organization_id: Optional[str] = None,
     ) -> List[Query]:
+        """List queries, optionally filtered by report_id, artifact_id, and/or organization_id.
+
+        If artifact_id is provided, only returns queries for visualizations used by that artifact.
+        """
         stmt = select(Query)
         if report_id:
             stmt = stmt.where(Query.report_id == str(report_id))
         if organization_id:
             stmt = stmt.where(Query.organization_id == str(organization_id))
+
+        # If artifact_id provided, filter to only queries used by that artifact
+        if artifact_id:
+            from app.models.artifact import Artifact
+            from app.models.visualization import Visualization
+
+            artifact_result = await db.execute(
+                select(Artifact).where(
+                    Artifact.id == artifact_id,
+                    Artifact.deleted_at.is_(None)
+                )
+            )
+            artifact = artifact_result.scalar_one_or_none()
+            if artifact and artifact.content:
+                visualization_ids = artifact.content.get("visualization_ids", [])
+                if visualization_ids:
+                    # Get query_ids from visualizations
+                    viz_result = await db.execute(
+                        select(Visualization.query_id).where(Visualization.id.in_(visualization_ids))
+                    )
+                    query_ids_filter = [row[0] for row in viz_result.all() if row[0]]
+                    if query_ids_filter:
+                        stmt = stmt.where(Query.id.in_(query_ids_filter))
+                    else:
+                        # No matching queries, return empty
+                        return []
+                else:
+                    # No visualization_ids in artifact, return empty
+                    return []
+
         res = await db.execute(stmt)
         return res.scalars().all()
 

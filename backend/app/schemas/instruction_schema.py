@@ -202,10 +202,11 @@ class InstructionListSchema(BaseModel):
     load_mode: str = "always"
     title: Optional[str] = None
     structured_data: Optional[Dict[str, Any]] = None
-    
+    formatted_content: Optional[str] = None
+
     # === Build System fields ===
     current_version_id: Optional[str] = None
-    
+
     # Minimal DS projection for list view
     data_sources: List[DataSourceMinimalSchema] = []
     labels: List[InstructionLabelSchema] = []
