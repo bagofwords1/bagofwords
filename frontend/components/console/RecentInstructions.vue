@@ -100,12 +100,13 @@ interface Instruction {
     id: string
     text: string
     title?: string | null
+    formatted_content?: string | null
     thumbs_up: number
     status: 'draft' | 'published' | 'archived'
     category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
     user_id: string
     organization_id: string
-    user: User
+    user?: User
     data_sources: DataSource[]
     created_at: string
     updated_at: string
@@ -117,6 +118,9 @@ interface Instruction {
     can_user_toggle: boolean
     reviewed_by_user_id: string | null
     reviewed_by?: User
+
+    // Source info
+    source_type?: string
 }
 
 interface Props {
@@ -161,8 +165,9 @@ const fetchRecentInstructions = async () => {
             query: {
                 limit: 5, // Only fetch 5 recent items
                 include_own: true,
-                include_drafts: true,
-                include_hidden: true,
+                include_drafts: false,
+                include_hidden: false,
+                status: 'published',
                 order_by: 'created_at',
                 order_direction: 'desc'
             }
@@ -252,13 +257,20 @@ const formatDate = (dateString: string) => {
 }
 
 const getDisplayText = (instruction: Instruction) => {
-    // Prefer title if available, otherwise use trimmed text
-    if (instruction.title && instruction.title.trim()) {
-        return instruction.title.trim()
-    }
+    // Priority: text > formatted_content > title
+    // text is the main instruction content
     if (instruction.text && instruction.text.trim()) {
         const text = instruction.text.trim()
         return text.length > 150 ? text.slice(0, 150) + '...' : text
+    }
+    // formatted_content for structured/git instructions
+    if (instruction.formatted_content && instruction.formatted_content.trim()) {
+        const text = instruction.formatted_content.trim()
+        return text.length > 150 ? text.slice(0, 150) + '...' : text
+    }
+    // title as last resort
+    if (instruction.title && instruction.title.trim()) {
+        return instruction.title.trim()
     }
     return 'No content'
 }

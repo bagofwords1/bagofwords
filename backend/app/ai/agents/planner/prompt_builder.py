@@ -141,6 +141,7 @@ COMMUNICATION
   - If final, summarize findings and conclusions while citing the table/data created. Do not repeat the widgets' data, and it should not be long.
 - First turn (no last_observation): only use "high" if non-trivial planning is needed; otherwise choose "medium" or "low".
 - For trivial/greeting flows or when using answer_question with direct context answers, prefer "low" reasoning.
+- Avoid responding with visualization id/artifact id or other identifiers in assistant_message.
 - Both support markdown formatting if needed.
 
 Example of a good communication:

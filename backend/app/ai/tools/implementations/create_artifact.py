@@ -17,6 +17,7 @@ from app.ai.llm import LLM
 from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
+from sqlalchemy import desc
 
 
 class CreateArtifactTool(Tool):
@@ -153,6 +154,39 @@ class CreateArtifactTool(Tool):
             getattr(context_hub, "instruction_builder", None) if context_hub else None
         )
 
+        # Get conversation history context (similar to create_data.py)
+        context_view = runtime_ctx.get("context_view")
+        messages_context = ""
+        try:
+            _messages_section_obj = getattr(context_view.warm, "messages", None) if context_view else None
+            messages_context = _messages_section_obj.render() if _messages_section_obj else ""
+        except Exception:
+            messages_context = ""
+
+        # Fetch previous artifacts for the same report and mode (for iterative refinement)
+        previous_artifacts: List[Dict[str, Any]] = []
+        try:
+            if report:
+                result = await db.execute(
+                    select(Artifact)
+                    .where(Artifact.report_id == str(report.id))
+                    .where(Artifact.mode == data.mode)
+                    .where(Artifact.status == "completed")
+                    .order_by(desc(Artifact.created_at))
+                    .limit(3)
+                )
+                prev_artifacts = result.scalars().all()
+                for art in prev_artifacts:
+                    artifact_info = {
+                        "id": str(art.id),
+                        "title": art.title,
+                        "created_at": str(art.created_at) if art.created_at else None,
+                        "code": (art.content or {}).get("code", "")[:2000],  # Limit code length
+                    }
+                    previous_artifacts.append(artifact_info)
+        except Exception:
+            previous_artifacts = []
+
         # Fetch visualizations by ID from database
         visualizations: List[Dict[str, Any]] = []
         warnings: List[str] = []
@@ -278,6 +312,8 @@ class CreateArtifactTool(Tool):
             instructions_context=instructions_context,
             report_title=getattr(report, 'title', None) if report else None,
             allow_llm_see_data=allow_llm_see_data,
+            messages_context=messages_context,
+            previous_artifacts=previous_artifacts,
         )
 
         # Stream from LLM
@@ -387,9 +423,20 @@ class CreateArtifactTool(Tool):
         instructions_context: str,
         report_title: str | None,
         allow_llm_see_data: bool,
+        messages_context: str = "",
+        previous_artifacts: List[Dict[str, Any]] | None = None,
     ) -> str:
         """Build the prompt for generating slides (pure HTML + vanilla JS)."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        # Build previous artifacts context
+        previous_artifacts_context = ""
+        if previous_artifacts:
+            previous_artifacts_context = "\n═══════════════════════════════════════════════════════════════════════════════\nPREVIOUS ARTIFACTS (for reference/iteration)\n═══════════════════════════════════════════════════════════════════════════════\n\n"
+            for i, art in enumerate(previous_artifacts):
+                previous_artifacts_context += f"**Artifact {i+1}: {art.get('title', 'Untitled')}** (ID: {art.get('id')})\n"
+                if art.get('code'):
+                    previous_artifacts_context += f"```html\n{art.get('code')}\n```\n\n"
 
         return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality slide presentation.
 
@@ -421,10 +468,28 @@ const visualizations = data.visualizations;  // Array of viz objects
 
 **Note:** A global loading spinner is shown until data arrives. You do NOT need to implement loading state.
 
-Each visualization object contains:
-- `id`, `title` - Identification
-- `rows` - Array of data objects (the actual data)
-- `columns` - Column definitions
+Each visualization object has this EXACT structure:
+```js
+{
+  id: "uuid-string",
+  title: "Visualization Title",
+  columns: [
+    { "headerName": "AlbumId", "field": "AlbumId" },
+    { "headerName": "Album Title", "field": "AlbumTitle" },
+    { "headerName": "Total Revenue", "field": "total_revenue" }
+  ],
+  rows: [
+    { "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 },
+    { "AlbumId": 251, "AlbumTitle": "The Office", "total_revenue": 31.84 },
+    // ... more rows
+  ]
+}
+```
+
+**CRITICAL - How to access data:**
+- Use `column.field` to get the key for accessing row data: `row[column.field]`
+- Use `column.headerName` for display labels in table headers
+- Example: `rows.map(row => row[columns[0].field])` to get values for first column
 
 ═══════════════════════════════════════════════════════════════════════════════
 YOUR VISUALIZATIONS
@@ -522,6 +587,9 @@ DESIGN REQUEST
 
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 
+{f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
+
+{previous_artifacts_context}
 ═══════════════════════════════════════════════════════════════════════════════
 DESIGN PRINCIPLES
 ═══════════════════════════════════════════════════════════════════════════════
@@ -541,6 +609,11 @@ Example slide patterns:
 - Slide 4-5: Full-width charts with key insights as subtitles
 - Slide 6: Comparison or breakdown visualization
 - Slide 7: Summary with key takeaways as bullet points
+
+**DO NOT include:**
+- Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")
+- Branding badges or watermarks
+- Footer credits or attribution text
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -645,9 +718,20 @@ Now create the slide presentation:"""
         instructions_context: str,
         report_title: str | None,
         allow_llm_see_data: bool,
+        messages_context: str = "",
+        previous_artifacts: List[Dict[str, Any]] | None = None,
     ) -> str:
         """Build the prompt for generating page/dashboard (React + ECharts)."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        # Build previous artifacts context
+        previous_artifacts_context = ""
+        if previous_artifacts:
+            previous_artifacts_context = "\n═══════════════════════════════════════════════════════════════════════════════\nPREVIOUS ARTIFACTS (for reference/iteration)\n═══════════════════════════════════════════════════════════════════════════════\n\nThe user may want to modify or build upon these existing artifacts. Reference them if the user asks to change, update, or improve something:\n\n"
+            for i, art in enumerate(previous_artifacts):
+                previous_artifacts_context += f"**Artifact {i+1}: {art.get('title', 'Untitled')}** (ID: {art.get('id')})\n"
+                if art.get('code'):
+                    previous_artifacts_context += f"```jsx\n{art.get('code')}\n```\n\n"
 
         return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality dashboard.
 
@@ -675,7 +759,7 @@ AVAILABLE LIBRARIES (pre-loaded globally, do NOT import)
   - Use for loading states instead of building your own
 
 ═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS
+DATA ACCESS - CRITICAL RULES
 ═══════════════════════════════════════════════════════════════════════════════
 
 Data is available via `window.ARTIFACT_DATA`:
@@ -684,12 +768,37 @@ const data = useArtifactData(); // React hook - returns null while loading
 // data = {{ report: {{id, title, theme}}, visualizations: [...] }}
 ```
 
-Each visualization object contains:
-- `id`, `title` - Identification
-- `rows` - Array of data objects (the actual data)
-- `columns` - Column definitions
-- `view` - Chart configuration hints
-- `dataModel` - Series/axis configuration hints
+Each visualization object has this EXACT structure:
+```js
+{{
+  id: "uuid-string",
+  title: "Visualization Title",
+  columns: [
+    {{ "headerName": "AlbumId", "field": "AlbumId" }},
+    {{ "headerName": "Album Title", "field": "AlbumTitle" }},
+    {{ "headerName": "Total Revenue", "field": "total_revenue" }}
+  ],
+  rows: [
+    {{ "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }},
+    {{ "AlbumId": 251, "AlbumTitle": "The Office", "total_revenue": 31.84 }},
+    // ... more rows
+  ],
+  view: {{ /* chart config hints */ }},
+  dataModel: {{ /* series/axis config */ }}
+}}
+```
+
+**CRITICAL - How to access data:**
+- Use `column.field` to get the key for accessing row data: `row[column.field]`
+- Use `column.headerName` for display labels in table headers
+- Example: `rows.map(row => row[columns[0].field])` to get values for first column
+
+**⚠️ CRITICAL: NEVER HARDCODE DATA**
+- You MUST use `useArtifactData()` to access ALL data
+- NEVER write literal/hardcoded values like `const data = [{{name: "Product A", value: 100}}]`
+- NEVER use placeholder or example data in the output code
+- ALL chart data, KPI values, labels, and metrics MUST come from `data.visualizations[N].rows`
+- If the data structure is unclear, access it dynamically from the visualization objects
 
 ═══════════════════════════════════════════════════════════════════════════════
 YOUR VISUALIZATIONS
@@ -709,25 +818,44 @@ DESIGN REQUEST
 
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 
+{f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
+
+{previous_artifacts_context}
 ═══════════════════════════════════════════════════════════════════════════════
 DESIGN PRINCIPLES
 ═══════════════════════════════════════════════════════════════════════════════
 
-Create something BEAUTIFUL. Think:
-- **Visual hierarchy** - What's the main story? Lead with it
-- **Whitespace** - Let elements breathe, don't crowd
-- **Color harmony** - Use a cohesive palette, accent colors for emphasis
-- **Typography** - Clear hierarchy, readable sizes
-- **Cards & containers** - Group related content, subtle shadows
-- **Micro-interactions** - Hover states, smooth transitions
-- **Data storytelling** - Choose chart types that reveal insights
+**Style: Minimalist, Clean, Professional**
+
+Create a polished, executive-ready dashboard. Think:
+- Narrative is key. Use context (messages history, instructions) to create the outline/layut of the report
+- You can show data in different angles, but don't make it redundant and noisy
+- **Minimalism first** - Less is more. Remove visual clutter, no unnecessary decorations
+- **Generous whitespace** - Let elements breathe, use padding liberally
+- **Clean typography** - Simple, readable fonts. No fancy headers or badges
+- **Subtle containers** - Light borders or shadows, not heavy cards
+- **Beautiful, colorful charts** - Use vibrant but harmonious color palettes for data visualization
+- **Professional feel** - Like a Bloomberg terminal or modern analytics platform
+- **Data-focused** - The data is the star, UI should support not distract
+**Color Guidelines for Charts:**
+- Use rich, vibrant colors: blues (#3B82F6, #60A5FA), greens (#10B981, #34D399), purples (#8B5CF6), oranges (#F59E0B)
+- Apply smooth gradients for area charts and backgrounds
+- Ensure sufficient contrast for readability
+- Use color consistently across related metrics
+
+**DO NOT include:**
+- Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")
+- Branding badges or watermarks (e.g., "Built with ECharts", "Powered by React")
+- Decorative headers like "Light, minimal dashboard • ECharts + React"
+- Unnecessary icons or emoji
+- Footer credits or attribution text
+- Theme metadata or configuration blocks
 
 Example design patterns:
-- Hero KPI cards at top with large numbers and sparklines
-- Main chart taking center stage with gradient backgrounds
-- Supporting charts in a responsive grid
-- Subtle animations on load
-- Consistent border-radius and spacing
+- Clean KPI cards with large numbers and subtle trend indicators
+- Full-width charts with minimal chrome
+- Responsive grid with consistent spacing
+- Smooth, subtle animations on load
 
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT
@@ -755,11 +883,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 REQUIREMENTS:
 1. Start with `<script type="text/babel">` and end with `</script>`
-2. Use the `useArtifactData()` hook for reactive data access
+2. Use the `useArtifactData()` hook for reactive data access - NEVER hardcode any data values
 3. Use `<LoadingSpinner size={{32}} />` for loading state (do NOT build your own spinner)
 4. Initialize ECharts in useEffect, dispose on cleanup, handle resize
 5. Make it responsive (works on mobile and desktop)
-6. Make it GORGEOUS - this is a showcase piece
+6. Style: Minimalist, clean, professional - no branding badges or decorative headers -- BUT NOT BORING AND TEMPLATE LIKE!
+7. Charts must be beautiful with vibrant, harmonious colors, gradients, and smooth animations
+8. ALL displayed values must come from data.visualizations[N].rows - no placeholder data
 
 Example loading state:
 ```jsx
@@ -772,6 +902,11 @@ if (!data) {{
 }}
 ```
 
+**FINAL REMINDERS:**
+- Extract ALL values from `data.visualizations` - never write literal numbers or strings
+- Keep it minimal and professional - no decorative text, badges, or branding
+- Use beautiful, colorful charts with vibrant palettes
+
 Now create the dashboard:"""
 
     def _build_prompt(
@@ -783,6 +918,8 @@ Now create the dashboard:"""
         instructions_context: str,
         report_title: str | None,
         allow_llm_see_data: bool,
+        messages_context: str = "",
+        previous_artifacts: List[Dict[str, Any]] | None = None,
     ) -> str:
         """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
         if mode == "slides":
@@ -793,6 +930,8 @@ Now create the dashboard:"""
                 instructions_context=instructions_context,
                 report_title=report_title,
                 allow_llm_see_data=allow_llm_see_data,
+                messages_context=messages_context,
+                previous_artifacts=previous_artifacts,
             )
         return self._build_page_prompt(
             user_prompt=user_prompt,
@@ -801,6 +940,8 @@ Now create the dashboard:"""
             instructions_context=instructions_context,
             report_title=report_title,
             allow_llm_see_data=allow_llm_see_data,
+            messages_context=messages_context,
+            previous_artifacts=previous_artifacts,
         )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:

@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full w-full flex flex-col bg-gray-50">
+  <div class="h-full w-full flex flex-col bg-white">
     <!-- Header / Toolbar -->
     <div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-white border-b">
       <div class="flex items-center gap-3">
@@ -96,23 +96,49 @@
     </div>
 
     <!-- Iframe Container -->
-    <div class="flex-1 min-h-0 relative">
+    <div class="flex-1 min-h-0 relative bg-white">
       <!-- Loading State -->
-      <div v-if="isLoading || !selectedArtifact" class="absolute inset-0 flex items-center justify-center bg-white">
+      <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white">
         <div class="flex flex-col items-center gap-3">
           <Spinner class="w-6 h-6 text-gray-400" />
-          <span class="text-sm text-gray-400">Loading artifact...</span>
+          <span class="text-sm text-gray-400">Loading...</span>
         </div>
+      </div>
+
+      <!-- Empty State: Has visualizations but no artifact - show Generate Dashboard button -->
+      <div v-else-if="!hasArtifact && hasVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
+        <Icon name="heroicons:sparkles" class="w-8 h-8 text-gray-400 mb-3" />
+        <h3 class="text-sm font-medium text-gray-700 mb-1">Ready to create a dashboard</h3>
+        <p class="text-xs text-gray-400 mb-4 max-w-xs text-center">
+          You have {{ visualizationsData.length }} visualization{{ visualizationsData.length !== 1 ? 's' : '' }} ready
+        </p>
+        <UButton
+          @click="generateDashboardPrompt"
+          size="xs"
+          color="blue"
+        >
+          <Icon name="heroicons:bolt" class="w-4 h-4" />
+          Generate Dashboard
+        </UButton>
+      </div>
+
+      <!-- Empty State: No visualizations and no artifact -->
+      <div v-else-if="!hasArtifact && !hasVisualizations" class="absolute inset-0 flex flex-col items-center justify-center bg-white">
+        <Icon name="heroicons:chart-bar" class="w-6 h-6 text-gray-400 mb-2" />
+        <span class="text-sm text-gray-400">No dashboard items yet</span>
       </div>
 
       <!-- Pending Artifact State (generating) -->
       <div v-else-if="isPendingArtifact" class="absolute inset-0 flex items-center justify-center bg-white">
-        <Spinner class="w-6 h-6 text-gray-400" />
+        <div class="flex flex-col items-center gap-3">
+          <Spinner class="w-6 h-6 text-gray-400" />
+          <span class="text-sm text-gray-400">Generating dashboard...</span>
+        </div>
       </div>
 
-      <!-- Iframe (hidden while loading or pending) -->
+      <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="!isLoading && selectedArtifact && !isPendingArtifact"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && iframeSrcdoc"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
@@ -137,7 +163,7 @@
           <!-- Modal Content - Full artifact iframe -->
           <div class="flex-1 min-h-0 relative bg-white">
             <iframe
-              v-if="isFullscreenOpen"
+              v-if="isFullscreenOpen && iframeSrcdoc"
               :srcdoc="iframeSrcdoc"
               sandbox="allow-scripts allow-same-origin"
               class="absolute inset-0 w-full h-full border-0"
@@ -269,7 +295,7 @@ async function exportPptx() {
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
-const dataReady = ref(false);
+const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
 const iframeReady = ref(false);
 const visualizationsData = ref<any[]>([]);
 const reportData = ref<any>(null);
@@ -306,6 +332,26 @@ const isLatestSelected = computed(() => {
 const isPendingArtifact = computed(() => {
   return selectedArtifact.value?.status === 'pending';
 });
+
+// Check if any artifacts exist
+const hasArtifact = computed(() => {
+  return artifactsList.value.length > 0;
+});
+
+// Check if visualizations data exists
+const hasVisualizations = computed(() => {
+  return visualizationsData.value.length > 0;
+});
+
+// Generate dashboard prompt - dispatches event to update and submit prompt box
+function generateDashboardPrompt() {
+  const prompt = `Create a dashboard covering the data and visualizations created in this report. Design it with a clean, modern layout and narrative that presents the insights effectively.`;
+
+  // Dispatch custom event to update and auto-submit the prompt box
+  window.dispatchEvent(new CustomEvent('prompt:prefill', {
+    detail: { text: prompt, autoSubmit: true }
+  }));
+}
 
 // State for "Use this version" action
 const isDuplicating = ref(false);
@@ -362,10 +408,11 @@ onMounted(async () => {
   window.addEventListener('artifact:select', handleArtifactSelect);
   window.addEventListener('artifact:created', handleArtifactCreated);
 
-  await Promise.all([
-    fetchArtifactsList(),
-    fetchData()
-  ]);
+  // First fetch artifact list to know which artifact is selected
+  await fetchArtifactsList();
+
+  // Then fetch visualization data filtered by the selected artifact (if any)
+  await fetchData(selectedArtifactId.value);
 });
 
 // Fetch list of all artifacts for the report
@@ -404,9 +451,13 @@ async function fetchSelectedArtifact() {
   }
 }
 
-// Watch for artifact selection changes
-watch(selectedArtifactId, async () => {
+// Watch for artifact selection changes - refetch data filtered by new artifact
+watch(selectedArtifactId, async (newId, oldId) => {
   await fetchSelectedArtifact();
+  // Only refetch data if this is a user-initiated change (not initial load)
+  if (oldId !== undefined) {
+    await fetchData(newId);
+  }
 });
 
 onUnmounted(() => {
@@ -442,8 +493,8 @@ function sendDataToIframe() {
   console.log('[ArtifactFrame] Data sent to iframe:', visualizationsData.value.length, 'visualizations');
 }
 
-// Fetch visualization data for the report
-async function fetchData() {
+// Fetch visualization data for the report (optionally filtered by artifact)
+async function fetchData(artifactId?: string) {
   isLoading.value = true;
   dataReady.value = false;
 
@@ -458,8 +509,9 @@ async function fetchData() {
       };
     }
 
-    // Fetch queries with visualizations
-    const { data: queriesRes } = await useMyFetch(`/api/queries?report_id=${props.reportId}`);
+    // Fetch queries with visualizations - filter by artifact_id if provided
+    const queryParams = artifactId ? `?report_id=${props.reportId}&artifact_id=${artifactId}` : `?report_id=${props.reportId}`;
+    const { data: queriesRes } = await useMyFetch(`/api/queries${queryParams}`);
     const queries = Array.isArray(queriesRes.value) ? queriesRes.value : [];
 
     // Build visualization data array
@@ -486,6 +538,9 @@ async function fetchData() {
     visualizationsData.value = vizData;
     console.log('[ArtifactFrame] Fetched', vizData.length, 'visualizations');
 
+    // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
+    dataReady.value = true;
+
   } catch (e) {
     console.error('[ArtifactFrame] Failed to fetch data:', e);
   } finally {
@@ -498,10 +553,8 @@ async function fetchData() {
 
 // Refresh everything
 async function refreshAll() {
-  await Promise.all([
-    fetchArtifactsList(),
-    fetchData()
-  ]);
+  await fetchArtifactsList();
+  await fetchData(selectedArtifactId.value);
 }
 
 // Called when iframe loads
@@ -784,7 +837,14 @@ ${SC}
 });
 
 // Build the full iframe srcdoc with embedded data
+// Guard: only compute once ALL data is ready to prevent iframe loading with empty data
 const iframeSrcdoc = computed(() => {
+  // Wait for visualization data to be loaded
+  if (!dataReady.value) return undefined;
+
+  // If artifacts exist, wait for the selected artifact to be fully loaded
+  if (artifactsList.value.length > 0 && !selectedArtifact.value?.content?.code) return undefined;
+
   const embeddedData = JSON.stringify({
     report: reportData.value,
     visualizations: visualizationsData.value

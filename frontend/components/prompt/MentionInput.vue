@@ -293,6 +293,48 @@ function getCaretPosition(element: HTMLElement): number {
   return 0
 }
 
+// Find the last @ character that is NOT inside a .mention span
+// Returns the position in the flattened text (innerText), or -1 if not found
+function findLastAtOutsideMentions(element: HTMLElement): number {
+  let lastAtIndex = -1
+  let currentPos = 0
+
+  function traverse(node: Node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent || ''
+      // Check if this text node is inside a mention
+      const isInsideMention = (node.parentElement?.classList.contains('mention') ||
+                               node.parentElement?.closest('.mention'))
+
+      if (!isInsideMention) {
+        // Find all @ in this text node (search from end to get last one)
+        for (let i = text.length - 1; i >= 0; i--) {
+          if (text[i] === '@') {
+            const absolutePos = currentPos + i
+            if (absolutePos > lastAtIndex) {
+              lastAtIndex = absolutePos
+            }
+          }
+        }
+      }
+      currentPos += text.length
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      // For mention spans, just add their text length but don't search inside
+      if ((node as HTMLElement).classList.contains('mention')) {
+        currentPos += node.textContent?.length || 0
+      } else {
+        // Traverse children
+        for (const child of Array.from(node.childNodes)) {
+          traverse(child)
+        }
+      }
+    }
+  }
+
+  traverse(element)
+  return lastAtIndex
+}
+
 function setCaretPosition(element: HTMLElement, position: number) {
   const range = document.createRange()
   const sel = window.getSelection()
@@ -353,27 +395,36 @@ function handleInput(event: Event) {
   textContent.value = target.innerText
   
   const cursorPosition = getCaretPosition(target)
-  const textBeforeCursor = textContent.value.slice(0, cursorPosition)
-  const lastAtIndex = textBeforeCursor.lastIndexOf('@')
-  
-  // Check if we're typing a mention (@ followed by text without space)
-  if (lastAtIndex !== -1 && !textBeforeCursor.slice(lastAtIndex + 1).includes(' ')) {
-    // Make sure we're not inside an existing mention
-    const selection = window.getSelection()
-    if (selection && selection.rangeCount > 0) {
-      const range = selection.getRangeAt(0)
-      const container = range.startContainer
-      const isInsideMention = container.parentElement?.classList.contains('mention') ||
-                             container.parentElement?.closest('.mention')
-      
-      if (!isInsideMention) {
-        currentMentionStartIndex.value = lastAtIndex
-        showDropdown.value = true
-        selectedIndex.value = 0
-      } else {
-        showDropdown.value = false
-        currentMentionStartIndex.value = -1
+
+  // Find the last @ that is NOT inside a mention span
+  const lastAtIndex = findLastAtOutsideMentions(target)
+
+  // Only consider @ characters that are before the cursor
+  if (lastAtIndex !== -1 && lastAtIndex < cursorPosition) {
+    const textAfterAt = textContent.value.slice(lastAtIndex + 1, cursorPosition)
+
+    // Check if we're typing a mention (@ followed by text without space)
+    if (!textAfterAt.includes(' ')) {
+      // Make sure we're not inside an existing mention
+      const selection = window.getSelection()
+      if (selection && selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0)
+        const container = range.startContainer
+        const isInsideMention = container.parentElement?.classList.contains('mention') ||
+                               container.parentElement?.closest('.mention')
+
+        if (!isInsideMention) {
+          currentMentionStartIndex.value = lastAtIndex
+          showDropdown.value = true
+          selectedIndex.value = 0
+        } else {
+          showDropdown.value = false
+          currentMentionStartIndex.value = -1
+        }
       }
+    } else {
+      showDropdown.value = false
+      currentMentionStartIndex.value = -1
     }
   } else {
     showDropdown.value = false
@@ -454,8 +505,8 @@ function handleKeydown(event: KeyboardEvent) {
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0)
       const node = range.startContainer
-      
-      // Check if we're inside or adjacent to a mention
+
+      // Check if we're inside a mention (cursor is within the mention span)
       const mentionElement = node.parentElement?.closest('.mention')
       if (mentionElement) {
         event.preventDefault()
@@ -465,27 +516,49 @@ function handleKeydown(event: KeyboardEvent) {
         updateMentionsList()
         return
       }
-      
-      // Check if we're adjacent to a mention (for delete key)
-      if (event.key === 'Backspace' && node.previousSibling?.nodeType === Node.ELEMENT_NODE &&
-          (node.previousSibling as HTMLElement).classList.contains('mention')) {
-        event.preventDefault()
-        node.previousSibling.remove()
-        textContent.value = inputRef.value?.innerText || ''
-        emit('update:modelValue', textContent.value)
-        updateMentionsList()
-        return
+
+      // Check if cursor is immediately after a mention (for backspace)
+      // Only delete mention if: cursor is collapsed AND at position 0 in the text node
+      if (event.key === 'Backspace' && range.collapsed && range.startOffset === 0) {
+        // Check if previous sibling is a mention
+        if (node.previousSibling?.nodeType === Node.ELEMENT_NODE &&
+            (node.previousSibling as HTMLElement).classList.contains('mention')) {
+          event.preventDefault()
+          node.previousSibling.remove()
+          textContent.value = inputRef.value?.innerText || ''
+          emit('update:modelValue', textContent.value)
+          updateMentionsList()
+          return
+        }
+        // Also check if the node itself is right after a mention (when node is the inputRef)
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const lastChild = (node as HTMLElement).lastChild
+          if (lastChild?.nodeType === Node.ELEMENT_NODE &&
+              (lastChild as HTMLElement).classList.contains('mention')) {
+            event.preventDefault()
+            lastChild.remove()
+            textContent.value = inputRef.value?.innerText || ''
+            emit('update:modelValue', textContent.value)
+            updateMentionsList()
+            return
+          }
+        }
       }
-      
-      // Check for delete key on next sibling
-      if (event.key === 'Delete' && node.nextSibling?.nodeType === Node.ELEMENT_NODE &&
-          (node.nextSibling as HTMLElement).classList.contains('mention')) {
-        event.preventDefault()
-        node.nextSibling.remove()
-        textContent.value = inputRef.value?.innerText || ''
-        emit('update:modelValue', textContent.value)
-        updateMentionsList()
-        return
+
+      // Check if cursor is immediately before a mention (for delete key)
+      // Only delete mention if: cursor is collapsed AND at end of the text node
+      if (event.key === 'Delete' && range.collapsed) {
+        const nodeLength = node.textContent?.length || 0
+        if (range.startOffset === nodeLength &&
+            node.nextSibling?.nodeType === Node.ELEMENT_NODE &&
+            (node.nextSibling as HTMLElement).classList.contains('mention')) {
+          event.preventDefault()
+          node.nextSibling.remove()
+          textContent.value = inputRef.value?.innerText || ''
+          emit('update:modelValue', textContent.value)
+          updateMentionsList()
+          return
+        }
       }
     }
   }

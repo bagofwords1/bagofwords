@@ -1720,6 +1720,7 @@ class InstructionService:
                     load_mode=getattr(inst, "load_mode", "always") or "always",
                     title=getattr(inst, "title", None),
                     structured_data=getattr(inst, "structured_data", None),
+                    formatted_content=getattr(inst, "formatted_content", None),
                     # Build System fields
                     current_version_id=getattr(inst, "current_version_id", None),
                 )

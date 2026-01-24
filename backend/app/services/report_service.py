@@ -466,10 +466,11 @@ class ReportService:
                     )
                     query_ids_filter = [row[0] for row in viz_result.all() if row[0]]
 
-        # Fetch queries that have a successful step
+        # Fetch queries that have a successful step, eagerly load visualizations
         query_stmt = (
             select(Query)
             .join(Step, Step.id == Query.default_step_id)
+            .options(selectinload(Query.visualizations))
             .where(Query.report_id == report_id, Step.status == 'success')
         )
 

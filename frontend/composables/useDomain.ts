@@ -61,19 +61,35 @@ export function useDomain() {
   // Watch for domains list changes and clean up stale selections
   // This handles the case when a user signs up, has no domains, then connects their first one
   if (!domainsWatcherInitialized && typeof window !== 'undefined') {
+    let isFirstDomainsChange = true  // Track inside watcher to avoid async timing issues
+
     watch(domains, (newDomains, oldDomains) => {
       const oldCount = oldDomains?.length || 0
       const newCount = newDomains?.length || 0
 
-      // If domains were added (e.g., user connected first data source)
+      // First population (page load): skip reset to preserve persisted selection
+      // The flag is managed inside the watcher to avoid Vue's async scheduling issues
+      if (isFirstDomainsChange && oldCount === 0 && newCount > 0) {
+        isFirstDomainsChange = false
+        // Still clean up any stale selections (IDs that no longer exist)
+        if (selectedDomains.value.length > 0) {
+          const validIds = new Set(newDomains.map(d => d.id))
+          const filtered = selectedDomains.value.filter(id => validIds.has(id))
+          if (filtered.length !== selectedDomains.value.length) {
+            selectedDomains.value = filtered
+          }
+        }
+        return
+      }
+
+      // Subsequent 0->N changes (user connected first data source): reset to "All"
       if (newCount > oldCount && oldCount === 0) {
-        // Reset to "All Domains" so the new domains are included
         selectedDomains.value = []
         return
       }
 
       // Clean up any stale selections (domain IDs that no longer exist)
-      if (selectedDomains.value.length > 0) {
+      if (selectedDomains.value.length > 0 && newDomains?.length > 0) {
         const validIds = new Set(newDomains.map(d => d.id))
         const filtered = selectedDomains.value.filter(id => validIds.has(id))
         if (filtered.length !== selectedDomains.value.length) {

@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
-from app.schemas.visualization_schema import VisualizationSchema
+from app.schemas.visualization_schema import VisualizationSchema, PublicVisualizationSchema
 from app.schemas.step_schema import StepSchema
 
 
@@ -45,6 +45,7 @@ class PublicQuerySchema(BaseModel):
     id: str
     title: str
     default_step_id: Optional[str] = None
+    visualizations: Optional[List[PublicVisualizationSchema]] = None
 
     class Config:
         from_attributes = True

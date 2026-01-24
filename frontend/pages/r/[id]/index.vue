@@ -252,7 +252,22 @@ async function loadVisualizationData(artifactId?: string) {
             // Use public step endpoint - returns PublicStepSchema directly
             const { data: step } = await useMyFetch(`/api/r/${report_id}/queries/${query.id}/step`);
 
-            if (step.value) {
+            // Process each visualization in the query (matches ArtifactFrame.vue structure)
+            const visualizations = (query as any).visualizations || [];
+            for (const viz of visualizations) {
+                vizData.push({
+                    id: viz.id,  // Use visualization ID, not query ID
+                    title: viz.title || query.title || 'Untitled',
+                    view: viz.view || {},  // Use visualization's view config
+                    rows: (step.value as any)?.data?.rows || [],
+                    columns: (step.value as any)?.data?.columns || [],
+                    dataModel: (step.value as any)?.data_model || {},
+                    code: (step.value as any)?.code || ''
+                });
+            }
+
+            // Fallback: if no visualizations, create entry from query (legacy support)
+            if (visualizations.length === 0 && step.value) {
                 vizData.push({
                     id: query.id,
                     title: query.title || 'Untitled',

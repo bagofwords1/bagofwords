@@ -26,7 +26,7 @@
              }"
              :class="[
                 'flex-1 min-w-0 relative',
-                'bg-white border-gray-200 bg-dots',
+                'bg-white border-gray-200',
                 'overflow-y-scroll'
              ]">
             <slot name="right" />

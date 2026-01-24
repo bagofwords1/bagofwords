@@ -313,15 +313,6 @@
 					class="flex-1 min-h-0"
 				/>
 
-				<!-- Artifact View (modern reports with artifacts) -->
-				<ArtifactFrame
-					v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && hasArtifacts"
-					:report-id="report.id"
-					:report="report"
-					@close="toggleSplitScreen"
-					class="flex-1 min-h-0"
-				/>
-
 				<!-- Legacy Dashboard View (reports with dashboard_layout_versions but no artifacts) -->
 				<DashboardComponent
 					v-else-if="rightPanelView === 'artifact' && reportLoaded && hasLegacyLayout && !hasArtifacts"
@@ -337,12 +328,14 @@
 					class="flex-1 min-h-0"
 				/>
 
-				<!-- Empty state for new reports (no artifacts, no legacy layout) -->
-				<div v-else-if="rightPanelView === 'artifact' && reportLoaded && !hasArtifacts && !hasLegacyLayout" class="flex-1 flex flex-col items-center justify-center text-gray-400">
-					<Icon name="heroicons:sparkles" class="w-12 h-12 mb-4 opacity-50" />
-					<p class="text-lg font-medium text-gray-500">Write a prompt to create your dashboard</p>
-					<p class="text-sm mt-1">Ask the AI to analyze your data and build visualizations</p>
-				</div>
+				<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
+				<ArtifactFrame
+					v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
+					:report-id="report.id"
+					:report="report"
+					@close="toggleSplitScreen"
+					class="flex-1 min-h-0"
+				/>
 
 				<!-- Empty state for grid view -->
 				<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 flex-1">
