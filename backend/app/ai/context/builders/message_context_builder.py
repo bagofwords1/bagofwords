@@ -194,12 +194,35 @@ class MessageContextBuilder:
                                             digest_parts.append(f"chart: {dm_type}")
                                     except Exception:
                                         pass
+                                    # Surface visualization_id if available (added by orchestrator)
+                                    try:
+                                        viz_ids = rj.get('created_visualization_ids') or []
+                                        if viz_ids:
+                                            digest_parts.append(f"viz_id: {viz_ids[0]}")
+                                    except Exception:
+                                        pass
                                     if sample_row:
                                         try:
                                             digest_parts.append(f"top row: {json.dumps(sample_row)}")
                                         except Exception:
                                             pass
                                     tool_info += " - " + "; ".join(digest_parts)
+                                # Digest for describe_entity results
+                                elif tool_execution.tool_name == 'describe_entity' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    digest_parts = []
+                                    entity_title = rj.get('title')
+                                    if entity_title:
+                                        digest_parts.append(f"entity: {entity_title}")
+                                    # Surface visualization_id if created
+                                    try:
+                                        viz_ids = rj.get('created_visualization_ids') or []
+                                        if viz_ids:
+                                            digest_parts.append(f"viz_id: {viz_ids[0]}")
+                                    except Exception:
+                                        pass
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
                                     # Show table names extracted from schemas excerpt; fallback to query/arguments
                                     rj = tool_execution.result_json or {}
@@ -556,7 +579,30 @@ class MessageContextBuilder:
                                         digest_parts.append(f"chart: {dm_type}")
                                 except Exception:
                                     pass
+                                # Surface visualization_id if available (added by orchestrator)
+                                try:
+                                    viz_ids = rj.get('created_visualization_ids') or []
+                                    if viz_ids:
+                                        digest_parts.append(f"viz_id: {viz_ids[0]}")
+                                except Exception:
+                                    pass
                                 tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'describe_entity' and tool_execution.result_json:
+                                # Digest for describe_entity results
+                                rj = tool_execution.result_json or {}
+                                digest_parts = []
+                                entity_title = rj.get('title')
+                                if entity_title:
+                                    digest_parts.append(f"entity: {entity_title}")
+                                # Surface visualization_id if created
+                                try:
+                                    viz_ids = rj.get('created_visualization_ids') or []
+                                    if viz_ids:
+                                        digest_parts.append(f"viz_id: {viz_ids[0]}")
+                                except Exception:
+                                    pass
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'describe_tables' and tool_execution.result_json:
                                 # Show table names extracted from schemas excerpt; fallback to query/arguments
                                 rj = tool_execution.result_json or {}

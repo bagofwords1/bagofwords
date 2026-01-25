@@ -14,7 +14,7 @@ class CreateArtifactInput(BaseModel):
     prompt: str = Field(..., description="User's goal for what the artifact should display/visualize, including any style preferences")
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users")
     mode: Literal["page"] = Field(default="page", description="Artifact mode: page (dashboard)")
-    visualization_ids: List[str] = Field(..., description="Ordered list of visualization IDs to include in the artifact. Be sure to include only visualizations that are important to dashboard goal and narrative.")
+    visualization_ids: List[str] = Field(..., min_length=1, description="Ordered list of visualization IDs to include in the artifact. Must contain at least one visualization. Be sure to include only visualizations that are important to dashboard goal and narrative.")
 
 
 class CreateArtifactOutput(BaseModel):

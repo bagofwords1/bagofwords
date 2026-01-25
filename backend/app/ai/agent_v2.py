@@ -1344,7 +1344,7 @@ class AgentV2:
                                 "status": "success" if observation and not observation.get("error") else "error",
                                 "result_summary": observation.get("summary", "") if observation else "",
                                 # Include query_id for hydration in frontend previews when available
-                                "result_json": ({**safe_result_json, "query_id": (str(self.current_query.id) if getattr(self, "current_query", None) else None)} if isinstance(safe_result_json, dict) else safe_result_json),
+                                "result_json": ({**safe_result_json, "query_id": (str(self.current_query.id) if getattr(self, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
                                 "duration_ms": tool_execution.duration_ms,
                                 "created_widget_id": created_widget_id,
                                 "created_step_id": created_step_id,

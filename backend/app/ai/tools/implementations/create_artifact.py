@@ -1,10 +1,25 @@
+import asyncio
+import base64
 import json
-from typing import AsyncIterator, Dict, Any, Type, List
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import AsyncIterator, Dict, Any, Type, List, Optional
 
 from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.ai.tools.base import Tool
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ValidationResult:
+    """Result of validating artifact code via headless browser."""
+    success: bool
+    errors: List[str] = field(default_factory=list)
+    screenshot_base64: Optional[str] = None
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
     ToolEvent,
@@ -62,6 +77,269 @@ class CreateArtifactTool(Tool):
     @property
     def output_model(self) -> Type[BaseModel]:
         return CreateArtifactOutput
+
+    # Path to the sandbox HTML file (relative to project root)
+    # __file__ -> implementations -> tools -> ai -> app -> backend -> project_root
+    SANDBOX_HTML_PATH = Path(__file__).parent.parent.parent.parent.parent.parent / "frontend" / "public" / "artifact-sandbox.html"
+
+    # Validation-specific script to inject (replaces message-based data loading)
+    VALIDATION_SCRIPT = """
+    <script>
+      // ===========================================
+      // Validation Mode Overrides
+      // ===========================================
+      (function() {
+        // Inject artifact data directly (no message passing needed in validation)
+        window.ARTIFACT_DATA = __ARTIFACT_DATA_JSON__;
+
+        // Track errors for validation
+        window.__ARTIFACT_ERRORS__ = [];
+
+        // Augment existing error handler to track errors
+        var originalOnError = window.onerror;
+        window.onerror = function(msg, url, lineNo, columnNo, error) {
+          window.__ARTIFACT_ERRORS__.push({
+            type: 'error',
+            message: msg,
+            line: lineNo,
+            column: columnNo,
+            stack: error ? error.stack : null
+          });
+          if (originalOnError) {
+            return originalOnError(msg, url, lineNo, columnNo, error);
+          }
+          return false;
+        };
+
+        window.addEventListener('unhandledrejection', function(event) {
+          window.__ARTIFACT_ERRORS__.push({
+            type: 'unhandledrejection',
+            message: event.reason ? event.reason.message || String(event.reason) : 'Unknown rejection'
+          });
+        });
+
+        // Signal when render is complete
+        window.__ARTIFACT_RENDER_COMPLETE__ = false;
+
+        // Hide global loader immediately since we have data
+        var loader = document.getElementById('global-loader');
+        if (loader) loader.classList.add('hidden');
+      })();
+    </script>
+    """
+
+    def _build_validation_html(self, artifact_data: dict, code: str) -> str:
+        """Build HTML for validation by reading sandbox file and injecting validation code.
+
+        Args:
+            artifact_data: The data to inject as window.ARTIFACT_DATA
+            code: The LLM-generated artifact code
+
+        Returns:
+            Complete HTML string ready for headless browser rendering
+        """
+        # Read the sandbox HTML file
+        try:
+            sandbox_html = self.SANDBOX_HTML_PATH.read_text()
+        except FileNotFoundError:
+            logger.error(f"Sandbox HTML not found at {self.SANDBOX_HTML_PATH}")
+            raise
+
+        # Prepare the validation script with data injected
+        data_json = json.dumps(artifact_data, default=str)
+        validation_script = self.VALIDATION_SCRIPT.replace("__ARTIFACT_DATA_JSON__", data_json)
+
+        # Insert validation script after <body> tag
+        html = sandbox_html.replace("<body>", f"<body>\n{validation_script}")
+
+        # Replace the LLM_GENERATED_CODE placeholder with actual code
+        html = html.replace("<!-- LLM_GENERATED_CODE -->", code)
+
+        # Add render complete signal at the end
+        render_complete_script = """
+    <script>
+      // Mark render complete after a short delay to allow React to mount
+      setTimeout(function() {
+        window.__ARTIFACT_RENDER_COMPLETE__ = true;
+      }, 100);
+    </script>
+    """
+        html = html.replace("</body>", f"{render_complete_script}</body>")
+
+        return html
+
+    async def _validate_artifact(
+        self,
+        code: str,
+        mode: str,
+        visualizations: List[Dict[str, Any]],
+        report: Any,
+        allow_llm_see_data: bool = True,
+    ) -> ValidationResult:
+        """Validate artifact code by rendering in a headless browser.
+
+        Args:
+            code: The generated artifact code
+            mode: 'page' or 'slides'
+            visualizations: List of visualization data dicts
+            report: The report object (for building ARTIFACT_DATA)
+            allow_llm_see_data: If False, skip screenshot capture for privacy
+
+        Returns:
+            ValidationResult with success status, errors, and optional screenshot
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            logger.warning("Playwright not installed, skipping artifact validation")
+            return ValidationResult(
+                success=True,
+                errors=["Playwright not installed - validation skipped"]
+            )
+
+        # Build the artifact data structure
+        artifact_data = {
+            "report": {
+                "id": str(report.id) if report else None,
+                "title": getattr(report, 'title', None) if report else None,
+                "theme": getattr(report, 'theme', None) if report else None,
+            },
+            "visualizations": visualizations,
+        }
+
+        # Build the HTML to render using the sandbox file
+        html = self._build_validation_html(artifact_data, code)
+
+        errors: List[str] = []
+        screenshot_base64: Optional[str] = None
+
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page(viewport={"width": 1280, "height": 720})
+
+                # Capture console errors
+                def handle_console(msg):
+                    if msg.type == "error":
+                        errors.append(f"Console error: {msg.text}")
+
+                page.on("console", handle_console)
+
+                # Capture page errors
+                def handle_page_error(error):
+                    errors.append(f"Page error: {str(error)}")
+
+                page.on("pageerror", handle_page_error)
+
+                # Load the HTML content directly (no network request needed)
+                await page.set_content(html, wait_until="networkidle")
+
+                # Wait for render to complete (with timeout)
+                try:
+                    await page.wait_for_function(
+                        "window.__ARTIFACT_RENDER_COMPLETE__ === true",
+                        timeout=10000
+                    )
+                except Exception as e:
+                    errors.append(f"Render timeout: {str(e)}")
+
+                # Give React/ECharts a bit more time to fully render
+                await asyncio.sleep(1.0)
+
+                # Collect any errors captured by our error handlers
+                captured_errors = await page.evaluate("window.__ARTIFACT_ERRORS__")
+                for err in captured_errors:
+                    err_msg = err.get("message", "Unknown error")
+                    if err.get("line"):
+                        err_msg += f" (line {err.get('line')})"
+                    errors.append(err_msg)
+
+                # Take screenshot only if allow_llm_see_data is True (privacy setting)
+                if allow_llm_see_data:
+                    screenshot_bytes = await page.screenshot(type="png", full_page=False)
+                    screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+
+                await browser.close()
+
+        except Exception as e:
+            logger.exception("Error during artifact validation")
+            errors.append(f"Validation error: {str(e)}")
+
+        return ValidationResult(
+            success=len(errors) == 0,
+            errors=errors,
+            screenshot_base64=screenshot_base64,
+        )
+
+    async def _fix_code(
+        self,
+        code: str,
+        errors: List[str],
+        mode: str,
+        runtime_ctx: Dict[str, Any],
+        prompt_context: Dict[str, Any],
+    ) -> str:
+        """Attempt to fix code errors using the same prompt with error context.
+
+        Args:
+            code: The broken code
+            errors: List of error messages
+            mode: 'page' or 'slides'
+            runtime_ctx: Runtime context for LLM access
+            prompt_context: Context needed to rebuild the original prompt
+                (user_prompt, title, viz_profiles, instructions_context,
+                 report_title, allow_llm_see_data, messages_context, previous_artifacts)
+
+        Returns:
+            Fixed code string
+        """
+        error_text = "\n".join(f"- {e}" for e in errors[:5])  # Limit to first 5 errors
+
+        # Rebuild the original prompt with full context
+        base_prompt = self._build_prompt(
+            user_prompt=prompt_context["user_prompt"],
+            title=prompt_context["title"],
+            mode=mode,
+            viz_profiles=prompt_context["viz_profiles"],
+            instructions_context=prompt_context["instructions_context"],
+            report_title=prompt_context["report_title"],
+            allow_llm_see_data=prompt_context["allow_llm_see_data"],
+            messages_context=prompt_context.get("messages_context", ""),
+            previous_artifacts=prompt_context.get("previous_artifacts"),
+        )
+
+        # Append error context and the broken code
+        fix_prompt = f"""{base_prompt}
+
+═══════════════════════════════════════════════════════════════════════════════
+CRITICAL: FIX THESE ERRORS
+═══════════════════════════════════════════════════════════════════════════════
+
+The previous code attempt had the following runtime errors that MUST be fixed:
+
+{error_text}
+
+Previous broken code:
+```
+{code}
+```
+
+Fix these errors while keeping the same design and functionality. Output the corrected code now:"""
+
+        # Use the same model for fixes
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+
+        try:
+            response = await llm.inference(
+                fix_prompt,
+                usage_scope="create_artifact_fix",
+                usage_scope_ref_id=None,
+            )
+            return self._extract_code(response, mode=mode)
+        except Exception as e:
+            logger.exception("Error fixing code")
+            # Return original code if fix fails
+            return code
 
     def _build_viz_profile(self, viz: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
         """Build a privacy-aware profile of a visualization's data."""
@@ -130,6 +408,27 @@ class CreateArtifactTool(Tool):
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateArtifactInput(**tool_input)
+
+        # Early validation: fail immediately if no visualization_ids provided
+        if not data.visualization_ids or len(data.visualization_ids) == 0:
+            yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Artifact"})
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "error": "No visualization_ids provided. At least one visualization is required to create an artifact.",
+                    },
+                    "observation": {
+                        "summary": "Failed to create artifact: no visualization_ids provided",
+                        "error": {
+                            "type": "validation_error",
+                            "message": "visualization_ids is required and must contain at least one visualization ID. Create visualizations using create_data first, then use their IDs here.",
+                        },
+                    },
+                },
+            )
+            return
 
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Artifact"})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
@@ -304,13 +603,25 @@ class CreateArtifactTool(Tool):
         # Build the prompt for generating React code
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
 
+        # Store prompt context for potential fix iterations
+        prompt_context = {
+            "user_prompt": data.prompt,
+            "title": data.title,
+            "viz_profiles": viz_profiles,
+            "instructions_context": instructions_context,
+            "report_title": getattr(report, 'title', None) if report else None,
+            "allow_llm_see_data": allow_llm_see_data,
+            "messages_context": messages_context,
+            "previous_artifacts": previous_artifacts,
+        }
+
         prompt = self._build_prompt(
             user_prompt=data.prompt,
             title=data.title,
             mode=data.mode,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
-            report_title=getattr(report, 'title', None) if report else None,
+            report_title=prompt_context["report_title"],
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
             previous_artifacts=previous_artifacts,
@@ -355,6 +666,52 @@ class CreateArtifactTool(Tool):
         # Extract the code from the response
         code = self._extract_code(buffer, mode=data.mode)
 
+        # ═══════════════════════════════════════════════════════════════════════
+        # Validation loop: render in headless browser and fix errors if needed
+        # ═══════════════════════════════════════════════════════════════════════
+        max_validation_attempts = 3
+        validation_result: Optional[ValidationResult] = None
+
+        for attempt in range(max_validation_attempts):
+            yield ToolProgressEvent(
+                type="tool.progress",
+                payload={
+                    "stage": "validating",
+                    "attempt": attempt + 1,
+                    "max_attempts": max_validation_attempts,
+                }
+            )
+
+            validation_result = await self._validate_artifact(
+                code=code,
+                mode=data.mode,
+                visualizations=visualizations,
+                report=report,
+                allow_llm_see_data=allow_llm_see_data,
+            )
+
+            if validation_result.success:
+                # Validation passed
+                break
+
+            if attempt < max_validation_attempts - 1:
+                # Try to fix the code
+                yield ToolProgressEvent(
+                    type="tool.progress",
+                    payload={
+                        "stage": "fixing_errors",
+                        "attempt": attempt + 1,
+                        "errors": validation_result.errors[:3],  # Show first 3 errors
+                    }
+                )
+                code = await self._fix_code(
+                    code=code,
+                    errors=validation_result.errors,
+                    mode=data.mode,
+                    runtime_ctx=runtime_ctx,
+                    prompt_context=prompt_context,
+                )
+
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
         # Build content object (slides structure is parsed from HTML at export time)
@@ -365,7 +722,7 @@ class CreateArtifactTool(Tool):
 
         # Update the pending artifact with content and mark as completed
         artifact.content = content
-        artifact.status = "completed"
+        artifact.status = "completed" if (validation_result and validation_result.success) else "completed"
         await db.commit()
         await db.refresh(artifact)
 
@@ -384,6 +741,16 @@ class CreateArtifactTool(Tool):
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
         }
+
+        # Add validation info to observation
+        if validation_result:
+            observation["validation"] = {
+                "success": validation_result.success,
+                "errors": validation_result.errors if not validation_result.success else [],
+            }
+            if validation_result.screenshot_base64:
+                observation["screenshot_base64"] = validation_result.screenshot_base64
+
         if warnings:
             observation["warnings"] = warnings
 
