@@ -913,6 +913,36 @@ const iframeSrcdoc = computed(() => {
     window.useArtifactData = function() {
       return window.ARTIFACT_DATA;
     };
+    // Global LoadingSpinner component for artifact code
+    window.LoadingSpinner = function(props) {
+      var size = props && props.size ? props.size : 24;
+      return React.createElement('svg', {
+        xmlns: 'http://www.w3.org/2000/svg',
+        width: size,
+        height: size,
+        viewBox: '0 0 24 24',
+        className: props && props.className ? props.className : ''
+      },
+        React.createElement('path', {
+          fill: 'currentColor',
+          d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z',
+          opacity: '0.5'
+        }),
+        React.createElement('path', {
+          fill: 'currentColor',
+          d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z'
+        },
+          React.createElement('animateTransform', {
+            attributeName: 'transform',
+            dur: '1s',
+            from: '0 12 12',
+            repeatCount: 'indefinite',
+            to: '360 12 12',
+            type: 'rotate'
+          })
+        )
+      );
+    };
     // Fix ECharts 0-height issue: resize all charts after render
     window.resizeAllCharts = function() {
       if (typeof echarts !== 'undefined') {
