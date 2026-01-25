@@ -8,6 +8,7 @@ from typing import AsyncIterator, Dict, Any, Type, List, Optional
 
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.ai.tools.base import Tool
 
@@ -511,11 +512,19 @@ Fix these errors while keeping the same design and functionality. Output the cor
             pass
 
         # Fetch and validate visualizations from DB
+        from app.models.query import Query
+        from app.models.step import Step
         report_id = str(report.id) if report else None
         for viz_id in data.visualization_ids:
             try:
+                # Eagerly load query -> default_step and steps to avoid async lazy loading issues
                 result = await db.execute(
-                    select(Visualization).where(Visualization.id == viz_id)
+                    select(Visualization)
+                    .options(
+                        selectinload(Visualization.query).selectinload(Query.default_step),
+                        selectinload(Visualization.query).selectinload(Query.steps),
+                    )
+                    .where(Visualization.id == viz_id)
                 )
                 viz = result.scalar_one_or_none()
 
@@ -561,6 +570,28 @@ Fix these errors while keeping the same design and functionality. Output the cor
 
             except Exception as e:
                 warnings.append(f"Error fetching visualization {viz_id}: {str(e)}")
+
+        # Early failure: if no valid visualizations were resolved, fail like create_data does with tables
+        if not visualizations:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "error": "No valid visualizations found. All requested visualization_ids were either not found, don't belong to this report, or have non-success step status.",
+                    },
+                    "observation": {
+                        "summary": "Failed to create artifact: no valid visualizations resolved",
+                        "error": {
+                            "type": "no_valid_visualizations",
+                            "message": "None of the requested visualization_ids could be used. Ensure visualizations exist, belong to this report, and have successful step status.",
+                            "requested_ids": data.visualization_ids,
+                            "warnings": warnings,
+                        },
+                    },
+                },
+            )
+            return
 
         # Build visualization profiles (privacy-aware)
         viz_profiles = [self._build_viz_profile(v, allow_llm_see_data) for v in visualizations]
