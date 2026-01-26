@@ -97,7 +97,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 
 # Copy Playwright browser binaries from builder
-COPY --from=backend-builder /root/.cache/ms-playwright /home/app/.cache/ms-playwright
+COPY --from=backend-builder --chown=app:app /root/.cache/ms-playwright /home/app/.cache/ms-playwright
 
 # Install Playwright system dependencies (runtime libs only, no browser download)
 RUN playwright install-deps chromium
