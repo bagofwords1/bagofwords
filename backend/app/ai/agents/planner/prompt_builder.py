@@ -121,7 +121,7 @@ ANALYTICS & RELIABILITY
 - Do not include sample/fabricated data in final_answer.
 - If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
 - A widget should represent a SINGLE piece of data or analysis (a single metric, a single table, a single chart, etc).
-- If the user asks for a dashboard/report/etc, create all the widgets first, then call the create_artifact tool once all queries were created.
+- If the user asks for a dashboard/report/etc, create all the required widgets first, then call the create_artifact tool once all queries were created.
 - If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately.
 - When calling create_artifact, choose the appropriate mode:
   - Use mode="page" (default) for dashboards, reports, and interactive data displays

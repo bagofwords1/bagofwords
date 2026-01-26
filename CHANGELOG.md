@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.306 (January 26, 2026)
+- **New Interactive Dashboards**: Dashboards are now generated as executable React/HTML code, enabling rich interactivity, custom styling, and dynamic visualizations
+- **Visual Feedback**: Upload screenshots or images with your prompts to show the AI exactly what you want—perfect for requesting design tweaks or pointing out issues
+- Dashboard validation now includes automatic screenshot capture, allowing the AI to visually verify the output before finalizing
+- Added vision model support for OpenAI, Anthropic, and Google Gemini LLM providers
+
 ## Version 0.0.305 (January 24, 2026)
 - **Rebuilt Dashboards**: Now fully AI-generated as executable code (React/HTML) with iterative refinement based on conversation history
 - Fixed @ mention detection in prompt input (no longer triggers inside existing mentions)
