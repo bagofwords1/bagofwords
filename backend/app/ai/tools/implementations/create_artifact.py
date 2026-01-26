@@ -54,7 +54,8 @@ class CreateArtifactTool(Tool):
             description=(
                 "Compose multiple visualizations into a unified, interactive dashboard or slide presentation. "
                 "Use this AFTER creating visualizations with create_data to combine them into a polished layout with "
-                "KPI cards, charts, and responsive grids. Supports two modes: 'page' for interactive dashboards. "
+                "KPI cards, charts, and responsive grids. Supports two modes: 'page' for interactive dashboards, "
+                "'slides' for presentation decks (exportable to PPTX). "
                 "Pass visualization_ids from previously created visualizations. "
                 "IMPORTANT: Only use visualizations with successful step status (step.status == 'success'). "
                 "Visualizations with failed or pending steps will be automatically excluded."
@@ -130,17 +131,66 @@ class CreateArtifactTool(Tool):
     </script>
     """
 
-    def _build_validation_html(self, artifact_data: dict, code: str) -> str:
+    def _build_validation_html(self, artifact_data: dict, code: str, mode: str = "page") -> str:
         """Build HTML for validation by reading sandbox file and injecting validation code.
 
         Args:
             artifact_data: The data to inject as window.ARTIFACT_DATA
             code: The LLM-generated artifact code
+            mode: 'page' for React dashboards, 'slides' for pure HTML presentations
 
         Returns:
             Complete HTML string ready for headless browser rendering
         """
-        # Read the sandbox HTML file
+        data_json = json.dumps(artifact_data, default=str)
+
+        # Slides mode: pure HTML + Tailwind (no React/Babel)
+        # Use string replacement instead of f-string to avoid JSON escaping issues
+        if mode == "slides":
+            slides_template = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; }
+    .slide { transition: opacity 0.3s ease-in-out; }
+  </style>
+</head>
+<body class="bg-slate-900">
+  <script>
+    window.ARTIFACT_DATA = __ARTIFACT_DATA_JSON__;
+    window.__ARTIFACT_ERRORS__ = [];
+    window.onerror = function(msg, url, lineNo, columnNo, error) {
+      window.__ARTIFACT_ERRORS__.push({
+        type: 'error',
+        message: msg,
+        line: lineNo,
+        column: columnNo,
+        stack: error ? error.stack : null
+      });
+      return false;
+    };
+    window.addEventListener('unhandledrejection', function(event) {
+      window.__ARTIFACT_ERRORS__.push({
+        type: 'unhandledrejection',
+        message: event.reason ? event.reason.message || String(event.reason) : 'Unknown rejection'
+      });
+    });
+    window.__ARTIFACT_RENDER_COMPLETE__ = false;
+    setTimeout(function() {
+      window.__ARTIFACT_RENDER_COMPLETE__ = true;
+    }, 500);
+  </script>
+
+  __LLM_GENERATED_CODE__
+</body>
+</html>"""
+            return slides_template.replace("__ARTIFACT_DATA_JSON__", data_json).replace("__LLM_GENERATED_CODE__", code)
+
+        # Page mode: Read the sandbox HTML file for React/Babel
         try:
             sandbox_html = self.SANDBOX_HTML_PATH.read_text()
         except FileNotFoundError:
@@ -148,7 +198,6 @@ class CreateArtifactTool(Tool):
             raise
 
         # Prepare the validation script with data injected
-        data_json = json.dumps(artifact_data, default=str)
         validation_script = self.VALIDATION_SCRIPT.replace("__ARTIFACT_DATA_JSON__", data_json)
 
         # Insert validation script after <body> tag
@@ -209,8 +258,8 @@ class CreateArtifactTool(Tool):
             "visualizations": visualizations,
         }
 
-        # Build the HTML to render using the sandbox file
-        html = self._build_validation_html(artifact_data, code)
+        # Build the HTML to render using the sandbox file (mode-aware)
+        html = self._build_validation_html(artifact_data, code, mode=mode)
 
         errors: List[str] = []
         screenshot_base64: Optional[str] = None
@@ -894,20 +943,20 @@ const visualizations = data.visualizations;  // Array of viz objects
 
 Each visualization object has this EXACT structure:
 ```js
-{
+{{
   id: "uuid-string",
   title: "Visualization Title",
   columns: [
-    { "headerName": "AlbumId", "field": "AlbumId" },
-    { "headerName": "Album Title", "field": "AlbumTitle" },
-    { "headerName": "Total Revenue", "field": "total_revenue" }
+    {{ "headerName": "AlbumId", "field": "AlbumId" }},
+    {{ "headerName": "Album Title", "field": "AlbumTitle" }},
+    {{ "headerName": "Total Revenue", "field": "total_revenue" }}
   ],
   rows: [
-    { "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 },
-    { "AlbumId": 251, "AlbumTitle": "The Office", "total_revenue": 31.84 },
+    {{ "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }},
+    {{ "AlbumId": 251, "AlbumTitle": "The Office", "total_revenue": 31.84 }},
     // ... more rows
   ]
-}
+}}
 ```
 
 **CRITICAL - How to access data:**

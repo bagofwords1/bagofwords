@@ -101,9 +101,9 @@
           </div>
         </div>
 
-        <!-- Preview Card (on success or running for dashboard mode) -->
+        <!-- Preview Card (on success or running) -->
         <div
-          v-if="(status === 'success' && createdArtifact) || (status === 'running' && artifactMode === 'page')"
+          v-if="(status === 'success' && createdArtifact) || status === 'running'"
           class="mt-1 cursor-pointer group"
           @click="openArtifact"
         >
