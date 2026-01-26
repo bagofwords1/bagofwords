@@ -805,6 +805,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     mode=data.mode,
                     runtime_ctx=runtime_ctx,
                     prompt_context=prompt_context,
+                    screenshot_base64=validation_result.screenshot_base64,
                 )
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
