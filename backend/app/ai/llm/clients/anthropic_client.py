@@ -1,9 +1,9 @@
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Optional
 
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
 
 from app.ai.llm.clients.base import LLMClient
-from app.ai.llm.types import LLMResponse, LLMUsage
+from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
 
 
 class Anthropic(LLMClient):
@@ -14,13 +14,42 @@ class Anthropic(LLMClient):
         self.max_tokens = 32768
         self.temperature = 0.3
 
-    def inference(self, model_id: str, prompt: str) -> LLMResponse:
+    @staticmethod
+    def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list[dict[str, Any]]:
+        """Build message content, either as string or multimodal content array."""
+        if not images:
+            return prompt.strip()
+
+        content: list[dict[str, Any]] = []
+        # Anthropic recommends images before text for better performance
+        for img in images:
+            if img.source_type == "url":
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "url",
+                        "url": img.data
+                    }
+                })
+            else:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": img.media_type,
+                        "data": img.data
+                    }
+                })
+        content.append({"type": "text", "text": prompt.strip()})
+        return content
+
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
         message = self.client.messages.create(
             model=model_id,
             messages=[
                 {
                     "role": "user",
-                    "content": prompt.strip(),
+                    "content": self._build_content(prompt, images),
                 }
             ],
             max_tokens=self.max_tokens,
@@ -31,13 +60,15 @@ class Anthropic(LLMClient):
         text = message.content[0].text if message.content and message.content[0].text else ""
         return LLMResponse(text=text, usage=usage)
 
-    async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
+    async def inference_stream(
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+    ) -> AsyncGenerator[str, None]:
         stream = await self.async_client.messages.create(
             model=model_id,
             messages=[
                 {
                     "role": "user",
-                    "content": prompt.strip(),
+                    "content": self._build_content(prompt, images),
                 }
             ],
             max_tokens=self.max_tokens,

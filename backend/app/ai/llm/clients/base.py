@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
+from typing import Optional
 
-from app.ai.llm.types import LLMUsage
+from app.ai.llm.types import LLMUsage, ImageInput
 
 
 class LLMClient(ABC):
@@ -8,11 +9,11 @@ class LLMClient(ABC):
         self._last_usage = LLMUsage()
 
     @abstractmethod
-    def inference(self, prompt: str):
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None):
         pass
 
     @abstractmethod
-    def inference_stream(self, prompt: str):
+    def inference_stream(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None):
         pass
 
     def _set_last_usage(self, usage: LLMUsage):

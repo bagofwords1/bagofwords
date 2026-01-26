@@ -30,6 +30,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArtifactOutput
 from app.ai.llm import LLM
+from app.ai.llm.types import ImageInput
 from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
@@ -279,6 +280,7 @@ class CreateArtifactTool(Tool):
         mode: str,
         runtime_ctx: Dict[str, Any],
         prompt_context: Dict[str, Any],
+        screenshot_base64: Optional[str] = None,
     ) -> str:
         """Attempt to fix code errors using the same prompt with error context.
 
@@ -290,6 +292,7 @@ class CreateArtifactTool(Tool):
             prompt_context: Context needed to rebuild the original prompt
                 (user_prompt, title, viz_profiles, instructions_context,
                  report_title, allow_llm_see_data, messages_context, previous_artifacts)
+            screenshot_base64: Optional screenshot of the broken render for visual context
 
         Returns:
             Fixed code string
@@ -309,6 +312,11 @@ class CreateArtifactTool(Tool):
             previous_artifacts=prompt_context.get("previous_artifacts"),
         )
 
+        # Build screenshot context if available
+        screenshot_context = ""
+        if screenshot_base64:
+            screenshot_context = "\n\nA screenshot of the current broken render is attached. Use it to understand visual issues like layout problems, missing elements, or rendering errors."
+
         # Append error context and the broken code
         fix_prompt = f"""{base_prompt}
 
@@ -318,7 +326,7 @@ CRITICAL: FIX THESE ERRORS
 
 The previous code attempt had the following runtime errors that MUST be fixed:
 
-{error_text}
+{error_text}{screenshot_context}
 
 Previous broken code:
 ```
@@ -330,9 +338,16 @@ Fix these errors while keeping the same design and functionality. Output the cor
         # Use the same model for fixes
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
 
+        # Build image input if screenshot is available and model supports vision
+        images: Optional[List[ImageInput]] = None
+        model = runtime_ctx.get("model")
+        if screenshot_base64 and model and getattr(model, "supports_vision", False):
+            images = [ImageInput(data=screenshot_base64, media_type="image/png", source_type="base64")]
+
         try:
             response = await llm.inference(
                 fix_prompt,
+                images=images,
                 usage_scope="create_artifact_fix",
                 usage_scope_ref_id=None,
             )
@@ -765,8 +780,14 @@ Fix these errors while keeping the same design and functionality. Output the cor
             version=artifact.version,
         )
 
+        # Build observation message - include screenshot context if available
+        has_screenshot = validation_result and validation_result.screenshot_base64
+        summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
+        if has_screenshot:
+            summary_msg += ". Screenshot of the rendered dashboard is attached for validation."
+
         observation: Dict[str, Any] = {
-            "summary": f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code",
+            "summary": summary_msg,
             "artifact_id": str(artifact.id),
             "mode": data.mode,
             "visualization_count": len(visualizations),
@@ -779,8 +800,13 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 "success": validation_result.success,
                 "errors": validation_result.errors if not validation_result.success else [],
             }
+            # Add screenshot as images array for vision model consumption
             if validation_result.screenshot_base64:
-                observation["screenshot_base64"] = validation_result.screenshot_base64
+                observation["images"] = [{
+                    "data": validation_result.screenshot_base64,
+                    "media_type": "image/png",
+                    "source_type": "base64",
+                }]
 
         if warnings:
             observation["warnings"] = warnings

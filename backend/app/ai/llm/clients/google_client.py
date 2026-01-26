@@ -1,10 +1,11 @@
-from typing import AsyncGenerator
+import base64
+from typing import AsyncGenerator, Optional
 
 from google import genai
 from google.genai import types
 
 from app.ai.llm.clients.base import LLMClient
-from app.ai.llm.types import LLMResponse, LLMUsage
+from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
 
 
 class Google(LLMClient):
@@ -13,12 +14,30 @@ class Google(LLMClient):
         self.client = genai.Client(api_key=api_key)
         self.temperature = 0.3
 
-    def inference(self, model_id: str, prompt: str) -> LLMResponse:
+    @staticmethod
+    def _build_contents(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list:
+        """Build contents, either as string or list with Parts for multimodal."""
+        if not images:
+            return prompt.strip()
+
+        contents = []
+        for img in images:
+            if img.source_type == "url":
+                # For URLs, use Part.from_uri (works with gs:// or https://)
+                contents.append(types.Part.from_uri(file_uri=img.data, mime_type=img.media_type))
+            else:
+                # For base64, decode and use Part.from_bytes
+                image_bytes = base64.b64decode(img.data)
+                contents.append(types.Part.from_bytes(data=image_bytes, mime_type=img.media_type))
+        contents.append(types.Part.from_text(text=prompt.strip()))
+        return contents
+
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
         thinking_budget = 128 if "pro" in model_id else 0
 
         response = self.client.models.generate_content(
             model=model_id,
-            contents=prompt.strip(),
+            contents=self._build_contents(prompt, images),
             config=types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
                 temperature=self.temperature,
@@ -33,14 +52,16 @@ class Google(LLMClient):
         text = getattr(response, "text", "") or ""
         return LLMResponse(text=text, usage=usage)
 
-    async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
+    async def inference_stream(
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+    ) -> AsyncGenerator[str, None]:
         thinking_budget = 128 if "pro" in model_id else 0
 
         prompt_tokens = 0
         completion_tokens = 0
         for chunk in self.client.models.generate_content_stream(
             model=model_id,
-            contents=[prompt.strip()],
+            contents=self._build_contents(prompt, images),
             config=types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
                 temperature=self.temperature,

@@ -1,8 +1,8 @@
 from openai import AzureOpenAI, AsyncAzureOpenAI
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Optional
 
 from app.ai.llm.clients.base import LLMClient
-from app.ai.llm.types import LLMResponse, LLMUsage
+from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
 
 
 class AzureClient(LLMClient):
@@ -21,7 +21,26 @@ class AzureClient(LLMClient):
             api_version=effective_api_version,
         )
 
-    def inference(self, model_id: str, prompt: str) -> LLMResponse:
+    @staticmethod
+    def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list[dict[str, Any]]:
+        """Build message content, either as string or multimodal content array."""
+        if not images:
+            return prompt.strip()
+
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt.strip()}]
+        for img in images:
+            if img.source_type == "url":
+                image_url = img.data
+            else:
+                # base64 data URL format
+                image_url = f"data:{img.media_type};base64,{img.data}"
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": image_url}
+            })
+        return content
+
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
         # For Azure, model_id is the deployment (deployment name)
         temperature = 0.3
         if "gpt-5" in model_id:
@@ -31,7 +50,7 @@ class AzureClient(LLMClient):
             messages=[
                 {
                     "role": "user",
-                    "content": prompt.strip(),
+                    "content": self._build_content(prompt, images),
                 }
             ],
             model=model_id,
@@ -41,8 +60,10 @@ class AzureClient(LLMClient):
         self._set_last_usage(usage)
         content = chat_completion.choices[0].message.content or ""
         return LLMResponse(text=content, usage=usage)
-    
-    async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
+
+    async def inference_stream(
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+    ) -> AsyncGenerator[str, None]:
         # For Azure, model_id is the deployment (deployment name)
         temperature = 0.3
         if "gpt-5" in model_id:
@@ -52,7 +73,7 @@ class AzureClient(LLMClient):
             messages=[
                 {
                     "role": "user",
-                    "content": prompt.strip(),
+                    "content": self._build_content(prompt, images),
                 }
             ],
             model=model_id,

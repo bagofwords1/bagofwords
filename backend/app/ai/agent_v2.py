@@ -35,6 +35,7 @@ from app.dependencies import async_session_maker
 from app.core.telemetry import telemetry
 from app.ai.utils.token_counter import count_tokens
 from app.services.instruction_usage_service import InstructionUsageService
+from app.ai.llm.types import ImageInput
 
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 
@@ -69,11 +70,15 @@ class AgentV2:
             # Handle case where data_sources or files might be None
             self.data_sources = getattr(report, 'data_sources', []) or []
             self.clients = clients
-            self.files = getattr(report, 'files', []) or []
+            all_files = getattr(report, 'files', []) or []
+            # Split files: images go to LLM vision, everything else goes through existing flow
+            self.image_files = [f for f in all_files if (getattr(f, 'content_type', '') or '').startswith('image/')]
+            self.analysis_files = [f for f in all_files if not (getattr(f, 'content_type', '') or '').startswith('image/')]
         else:
             self.data_sources = []
             self.clients = {}
-            self.files = []
+            self.image_files = []
+            self.analysis_files = []
 
         self.sigkill_event = asyncio.Event()
         websocket_manager.add_handler(self._handle_completion_update)
@@ -151,6 +156,26 @@ class AgentV2:
 
         # Initialize SuggestInstructions agent for post-analysis suggestions
         self.suggest_instructions = SuggestInstructions(model=self.small_model)
+
+    async def _load_images_as_input(self) -> list[ImageInput]:
+        """Load image files as base64-encoded ImageInput objects for vision models."""
+        import base64
+        import aiofiles
+
+        images: list[ImageInput] = []
+        for f in self.image_files:
+            try:
+                file_path = getattr(f, 'path', None)
+                if not file_path:
+                    continue
+                async with aiofiles.open(file_path, 'rb') as file:
+                    content = await file.read()
+                data = base64.b64encode(content).decode('utf-8')
+                media_type = getattr(f, 'content_type', 'image/png') or 'image/png'
+                images.append(ImageInput(data=data, media_type=media_type, source_type='base64'))
+            except Exception as e:
+                logger.warning(f"Failed to load image file {getattr(f, 'id', 'unknown')}: {e}")
+        return images
 
     async def estimate_prompt_tokens(self) -> dict:
         """Approximate the total planner prompt tokens without executing tools."""
@@ -691,6 +716,23 @@ class AgentV2:
                     # Entities context (catalog entities relevant to this turn)
                     entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
 
+                    # Load user-uploaded images for vision models (only on first loop iteration)
+                    user_images = await self._load_images_as_input() if loop_index == 0 else []
+
+                    # Extract images from observation (tool screenshots, etc.)
+                    observation_images: list[ImageInput] = []
+                    if observation and isinstance(observation, dict) and observation.get("images"):
+                        for img in observation["images"]:
+                            if isinstance(img, dict) and img.get("data"):
+                                observation_images.append(ImageInput(
+                                    data=img["data"],
+                                    media_type=img.get("media_type", "image/png"),
+                                    source_type=img.get("source_type", "base64"),
+                                ))
+
+                    # Combine user images + observation images
+                    all_images = user_images + observation_images
+
                     planner_input = PlannerInput(
                         organization_name=self.organization.name,
                         organization_ai_analyst_name=self.ai_analyst_name,
@@ -710,7 +752,8 @@ class AgentV2:
                         past_observations=self.context_hub.observation_builder.tool_observations,
                         external_platform=getattr(self.head_completion, "external_platform", None),
                         tool_catalog=self.planner.tool_catalog,
-                        mode=self.mode
+                        mode=self.mode,
+                        images=all_images if all_images else None,
                     )
                     # Kick off early scoring in background without blocking the loop (isolated DB session)
                     asyncio.create_task(self._run_early_scoring_background(planner_input))
@@ -1122,7 +1165,7 @@ class AgentV2:
                             "context_view": view,
                             "context_hub": self.context_hub,
                             "ds_clients": self.clients,
-                            "excel_files": self.files,
+                            "excel_files": self.analysis_files,
                             "training_build_id": self.training_build_id,  # For training mode instruction creation
                             "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
                             "mode": self.mode,  # Current agent mode (chat/training/deep) for tool access control

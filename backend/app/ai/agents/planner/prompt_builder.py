@@ -56,6 +56,11 @@ Deep Analytics mode: If selected, you are expected to perform heavier planning, 
         # Determine mode label for prompt
         mode_label = "Deep Analytics" if planner_input.mode == "deep" else "Chat"
 
+        # Build images context - images can be user-uploaded or from tool observations (screenshots)
+        images_context = ""
+        if planner_input.images:
+            images_context = f"<images>{len(planner_input.images)} image(s) attached to this request. These may include user-uploaded images or tool observation screenshots (see last_observation for context). Analyze them as part of your response when relevant.</images>"
+
         prompt= f"""
 SYSTEM
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
@@ -185,6 +190,7 @@ TOOL SCHEMAS (follow exactly)
 
 INPUT ENVELOPE
 <user_prompt>{planner_input.user_message}</user_prompt>
+{images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>
   {planner_input.instructions}
@@ -261,6 +267,11 @@ The tool needs to execute first before analysis can be complete.
 
         research_tools_json = json.dumps(research_tools, ensure_ascii=False)
         action_tools_json = json.dumps(action_tools, ensure_ascii=False)
+
+        # Build images context - images can be user-uploaded or from tool observations (screenshots)
+        images_context = ""
+        if planner_input.images:
+            images_context = f"<images>{len(planner_input.images)} image(s) attached to this request. These may include user-uploaded images or tool observation screenshots (see last_observation for context). Analyze them as part of your response when relevant.</images>"
 
         prompt = f"""
 SYSTEM
@@ -474,6 +485,7 @@ TOOL SCHEMAS (follow exactly)
 
 INPUT ENVELOPE
 <user_prompt>{planner_input.user_message}</user_prompt>
+{images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>
   {planner_input.instructions}
