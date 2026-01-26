@@ -30,6 +30,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
     python3 -m pip install --no-cache-dir --prefer-binary -r requirements_versioned.txt
 
+# Install Playwright browser (chromium only to save space)
+RUN playwright install chromium --with-deps
+
 FROM ubuntu:24.04 AS frontend-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -93,11 +96,20 @@ COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
 
+# Copy Playwright browser binaries from builder
+COPY --from=backend-builder --chown=app:app /root/.cache/ms-playwright /home/app/.cache/ms-playwright
+
+# Install Playwright system dependencies (runtime libs only, no browser download)
+RUN playwright install-deps chromium
+
 # Copy demo data sources (SQLite/DuckDB files for demo databases)
 COPY --chown=app:app ./backend/demo-datasources /app/backend/demo-datasources
 
 # Copy only the built Nuxt output to keep the image small
 COPY --from=frontend-builder --chown=app:app /app/frontend/.output /app/frontend/.output
+
+# Copy sandbox HTML for artifact validation (used by headless browser)
+COPY --from=frontend-builder --chown=app:app /app/frontend/public/artifact-sandbox.html /app/frontend/public/artifact-sandbox.html
 
 # Copy runtime configs and scripts
 COPY --chown=app:app ./backend/requirements_versioned.txt /app/backend/

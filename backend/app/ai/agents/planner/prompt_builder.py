@@ -56,6 +56,11 @@ Deep Analytics mode: If selected, you are expected to perform heavier planning, 
         # Determine mode label for prompt
         mode_label = "Deep Analytics" if planner_input.mode == "deep" else "Chat"
 
+        # Build images context - images can be user-uploaded or from tool observations (screenshots)
+        images_context = ""
+        if planner_input.images:
+            images_context = f"<images>{len(planner_input.images)} image(s) attached to this request. These may include user-uploaded images or tool observation screenshots (see last_observation for context). Analyze them as part of your response when relevant.</images>"
+
         prompt= f"""
 SYSTEM
 Time: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}; timezone: {datetime.now().astimezone().tzinfo}
@@ -116,8 +121,11 @@ ANALYTICS & RELIABILITY
 - Do not include sample/fabricated data in final_answer.
 - If the user asks (explicitly or implicitly) to create/show/list/visualize/compute a metric/table/chart, prefer the create_data tool.
 - A widget should represent a SINGLE piece of data or analysis (a single metric, a single table, a single chart, etc).
-- If the user asks for a dashboard/report/etc, create all the widgets first, then call the create_artifact tool once all queries were created.
+- If the user asks for a dashboard/report/etc, create all the required widgets first, then call the create_artifact tool once all queries were created.
 - If the user asks to build a dashboard/report/layout (or to design/arrange/present widgets), and all widgets are already created, call the create_artifact tool immediately.
+- When calling create_artifact, choose the appropriate mode:
+  - Use mode="page" (default) for dashboards, reports, and interactive data displays
+  - Use mode="slides" for presentations, slide decks, or when the user mentions PowerPoint/PPTX export
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), output your clarifying questions in assistant_message and call the clarify tool.
 - If the user is asking about something that can be answered from provided context (schemas/resources/history) and your confidence is high (≥0.8) AND the user is not asking to create/visualize/persist an artifact, you may use the answer_question tool. Prefer a short reasoning_message (or null). It streams the final user-facing answer.
  - Prefer using data sources, tables, files, and entities explicitly listed in <mentions>. Treat them as high-confidence anchors for this turn. If you select an unmentioned source, briefly explain why.
@@ -185,6 +193,7 @@ TOOL SCHEMAS (follow exactly)
 
 INPUT ENVELOPE
 <user_prompt>{planner_input.user_message}</user_prompt>
+{images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>
   {planner_input.instructions}
@@ -261,6 +270,11 @@ The tool needs to execute first before analysis can be complete.
 
         research_tools_json = json.dumps(research_tools, ensure_ascii=False)
         action_tools_json = json.dumps(action_tools, ensure_ascii=False)
+
+        # Build images context - images can be user-uploaded or from tool observations (screenshots)
+        images_context = ""
+        if planner_input.images:
+            images_context = f"<images>{len(planner_input.images)} image(s) attached to this request. These may include user-uploaded images or tool observation screenshots (see last_observation for context). Analyze them as part of your response when relevant.</images>"
 
         prompt = f"""
 SYSTEM
@@ -474,6 +488,7 @@ TOOL SCHEMAS (follow exactly)
 
 INPUT ENVELOPE
 <user_prompt>{planner_input.user_message}</user_prompt>
+{images_context}
 <context>
   <platform>{planner_input.external_platform}</platform>
   {planner_input.instructions}

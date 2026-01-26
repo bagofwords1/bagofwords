@@ -1,9 +1,9 @@
-from typing import AsyncGenerator, Any
+from typing import AsyncGenerator, Any, Optional
 
 from openai import AsyncOpenAI, OpenAI
 
 from app.ai.llm.clients.base import LLMClient
-from app.ai.llm.types import LLMResponse, LLMUsage
+from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
 
 
 class OpenAi(LLMClient):
@@ -13,7 +13,32 @@ class OpenAi(LLMClient):
         self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     @staticmethod
-    def _build_chat_params(model_id: str, prompt: str, *, stream: bool = False) -> dict[str, Any]:
+    def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list[dict[str, Any]]:
+        """Build message content, either as string or multimodal content array."""
+        if not images:
+            return prompt.strip()
+
+        content: list[dict[str, Any]] = [{"type": "text", "text": prompt.strip()}]
+        for img in images:
+            if img.source_type == "url":
+                image_url = img.data
+            else:
+                # base64 data URL format
+                image_url = f"data:{img.media_type};base64,{img.data}"
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": image_url}
+            })
+        return content
+
+    @staticmethod
+    def _build_chat_params(
+        model_id: str,
+        prompt: str,
+        *,
+        images: Optional[list[ImageInput]] = None,
+        stream: bool = False
+    ) -> dict[str, Any]:
         """
         Build parameters for OpenAI chat completions, including optional reasoning settings.
 
@@ -26,7 +51,7 @@ class OpenAi(LLMClient):
             "messages": [
                 {
                     "role": "user",
-                    "content": prompt.strip(),
+                    "content": OpenAi._build_content(prompt, images),
                 }
             ],
             "model": model_id,
@@ -43,18 +68,20 @@ class OpenAi(LLMClient):
 
         return params
 
-    def inference(self, model_id: str, prompt: str) -> LLMResponse:
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
         chat_completion = self.client.chat.completions.create(
-            **self._build_chat_params(model_id=model_id, prompt=prompt)
+            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
         )
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
         content = chat_completion.choices[0].message.content or ""
         return LLMResponse(text=content, usage=usage)
 
-    async def inference_stream(self, model_id: str, prompt: str) -> AsyncGenerator[str, None]:
+    async def inference_stream(
+        self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
+    ) -> AsyncGenerator[str, None]:
         stream = await self.async_client.chat.completions.create(
-            **self._build_chat_params(model_id=model_id, prompt=prompt, stream=True)
+            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images, stream=True)
         )
 
         prompt_tokens = 0

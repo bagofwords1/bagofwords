@@ -58,6 +58,7 @@ class PlannerV2:
         # Stream LLM tokens and build decision snapshots
         async for chunk in self.llm.inference_stream(
             prompt,
+            images=planner_input.images,
             usage_scope="planner",
             usage_scope_ref_id=None,
         ):

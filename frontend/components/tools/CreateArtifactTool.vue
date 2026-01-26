@@ -64,15 +64,46 @@
 
         <!-- Generation progress for page mode -->
         <div v-else-if="status === 'running'" class="text-xs text-gray-400">
-          <span v-if="progressStage === 'generating'">Generating code...</span>
-          <span v-else-if="progressStage === 'saving_artifact'">Saving artifact...</span>
-          <span v-else>Processing...</span>
-          <span v-if="progressChars" class="ml-1">({{ progressChars }} chars)</span>
+          <!-- Generating code -->
+          <div v-if="progressStage === 'generating' || progressStage === 'generating_code'">
+            <span>Generating code...</span>
+            <span v-if="progressChars" class="ml-1 text-gray-300">({{ progressChars }} chars)</span>
+          </div>
+
+          <!-- Validating -->
+          <div v-else-if="progressStage === 'validating'" class="flex items-center gap-1.5">
+            <span>Validating</span>
+            <span v-if="validationAttempt" class="text-gray-300">(attempt {{ validationAttempt }}/{{ validationMaxAttempts }})</span>
+          </div>
+
+          <!-- Fixing errors -->
+          <div v-else-if="progressStage === 'fixing_errors'" class="space-y-1">
+            <div class="flex items-center gap-1.5 text-amber-500">
+              <Icon name="heroicons:wrench-screwdriver" class="w-3 h-3" />
+              <span>Fixing errors</span>
+              <span class="text-gray-300">(attempt {{ validationAttempt }}/{{ validationMaxAttempts }})</span>
+            </div>
+            <div v-if="fixingErrors.length > 0" class="ml-4 text-[10px] text-gray-400 space-y-0.5">
+              <div v-for="(err, idx) in fixingErrors.slice(0, 2)" :key="idx" class="truncate max-w-xs">
+                {{ err }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Saving -->
+          <div v-else-if="progressStage === 'saving_artifact'">
+            <span>Saving artifact...</span>
+          </div>
+
+          <!-- Default -->
+          <div v-else>
+            <span>Processing...</span>
+          </div>
         </div>
 
-        <!-- Preview Card (on success or running for dashboard mode) -->
+        <!-- Preview Card (on success or running) -->
         <div
-          v-if="(status === 'success' && createdArtifact) || (status === 'running' && artifactMode === 'page')"
+          v-if="(status === 'success' && createdArtifact) || status === 'running'"
           class="mt-1 cursor-pointer group"
           @click="openArtifact"
         >
@@ -149,6 +180,11 @@ const status = computed(() => props.toolExecution.status)
 const progressStage = computed(() => (props.toolExecution as any).progress_stage || '')
 const progressPayload = computed(() => (props.toolExecution as any).progress_payload || {})
 const progressChars = computed(() => progressPayload.value?.chars)
+
+// Validation progress
+const validationAttempt = computed(() => progressPayload.value?.attempt || 0)
+const validationMaxAttempts = computed(() => progressPayload.value?.max_attempts || 3)
+const fixingErrors = computed(() => progressPayload.value?.errors || [])
 
 // Artifact info
 const artifactTitle = computed(() =>

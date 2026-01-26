@@ -858,6 +858,10 @@ class ProjectManager:
         if tool_execution.started_at:
             tool_execution.duration_ms = (tool_execution.completed_at - tool_execution.started_at).total_seconds() * 1000.0
         tool_execution.result_summary = result_summary
+        # Merge created_visualization_ids into result_json for context builder access
+        if result_json is not None and created_visualization_ids:
+            if isinstance(result_json, dict):
+                result_json = {**result_json, "created_visualization_ids": created_visualization_ids}
         tool_execution.result_json = result_json
         tool_execution.created_widget_id = created_widget_id
         tool_execution.created_step_id = created_step_id

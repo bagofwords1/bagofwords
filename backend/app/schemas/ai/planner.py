@@ -1,5 +1,8 @@
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, TYPE_CHECKING
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from app.ai.llm.types import ImageInput
 
 
 class ToolDescriptor(BaseModel):
@@ -82,6 +85,8 @@ class PlannerInput(BaseModel):
     # Full list of recorded tool observations in execution order
     past_observations: Optional[List[Dict[str, Any]]] = None
     tool_catalog: Optional[List[ToolDescriptor]] = None
+    # User-uploaded images for vision-capable models
+    images: Optional[List[Any]] = None  # List[ImageInput] - using Any to avoid circular import
 
     # Identity
     organization_name: Optional[str] = None

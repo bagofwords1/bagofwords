@@ -6,7 +6,7 @@ from .clients.openai_client import OpenAi
 from .clients.google_client import Google
 from .clients.anthropic_client import Anthropic
 from .clients.azure_client import AzureClient
-from .types import LLMResponse, LLMUsage
+from .types import LLMResponse, LLMUsage, ImageInput
 from app.ai.utils.token_counter import count_tokens
 from app.models.llm_model import LLMModel
 from app.services.llm_usage_recorder import LLMUsageRecorderService
@@ -51,18 +51,31 @@ class LLM:
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 
+    def _validate_vision_support(self, images: Optional[list[ImageInput]]) -> None:
+        """Validate that the model supports vision if images are provided."""
+        if not images:
+            return
+        supports_vision = getattr(self.model, "supports_vision", False)
+        if not supports_vision:
+            raise ValueError(
+                f"Model '{self.model_id}' does not support images. "
+                "Please select a vision-capable model or remove images from your request."
+            )
+
     def inference(
         self,
         prompt: str,
         *,
+        images: Optional[list[ImageInput]] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
     ) -> str:
+        self._validate_vision_support(images)
         logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
         prompt_tokens_estimate = self._count_tokens(prompt)
         try:
-            response = self.client.inference(model_id=self.model_id, prompt=prompt)
+            response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
         except Exception as e:
             raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
         logger.debug("Response: %s", response)
@@ -87,10 +100,12 @@ class LLM:
         self,
         prompt: str,
         *,
+        images: Optional[list[ImageInput]] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
     ) -> AsyncGenerator[str, None]:
+        self._validate_vision_support(images)
         logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
         started_payload = False
         prefix = ""
@@ -98,7 +113,7 @@ class LLM:
         completion_tokens = 0
         streamed_chunks: list[str] = []
         try:
-            async for chunk in self.client.inference_stream(model_id=self.model_id, prompt=prompt):
+            async for chunk in self.client.inference_stream(model_id=self.model_id, prompt=prompt, images=images):
                 if chunk is None:
                     continue
                 if not isinstance(chunk, str):
