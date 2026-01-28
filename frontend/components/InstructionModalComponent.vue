@@ -231,7 +231,7 @@ const props = defineProps<{
     targetBuildId?: string | null  // If set, update instruction within this existing build
 }>()
 
-const emit = defineEmits(['update:modelValue', 'instructionSaved', 'openInstruction'])
+const emit = defineEmits(['update:modelValue', 'instructionSaved'])
 
 // Reactive state
 const selectedDataSources = ref<string[]>([])
@@ -341,20 +341,6 @@ watch(isAnalyzing, (val) => {
         refreshAnalysis()
     }
 })
-
-// Open a related instruction in view mode
-const openRelatedInstruction = async (instructionId: string) => {
-    try {
-        const { data, error } = await useMyFetch<any>(`/instructions/${instructionId}`, { method: 'GET' })
-        if (!error.value && data.value) {
-            // Close analysis pane and emit the instruction to open
-            isAnalyzing.value = false
-            emit('openInstruction', data.value)
-        }
-    } catch (err) {
-        console.error('Error fetching instruction:', err)
-    }
-}
 
 const formatDate = (d: string | Date | null | undefined) => {
     if (!d) return ''

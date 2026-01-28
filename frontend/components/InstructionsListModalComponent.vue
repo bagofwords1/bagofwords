@@ -90,7 +90,6 @@
             :initial-type="canCreateGlobalInstructions ? 'global' : 'private'"
             :is-suggestion="!canCreateGlobalInstructions"
             @instructionSaved="handleInstructionSaved"
-            @open-instruction="handleOpenInstruction"
         />
 
         <!-- Instruction Details Modal (Read-only) -->
@@ -269,11 +268,6 @@ const handleInstructionSaved = () => {
         description: 'Instruction saved successfully',
         color: 'green'
     })
-}
-
-const handleOpenInstruction = (instruction: Instruction) => {
-    // Open the clicked instruction in view mode
-    editingInstruction.value = instruction
 }
 
 const addInstruction = () => {

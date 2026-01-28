@@ -96,7 +96,6 @@
       :is-suggestion="true"
       :target-build-id="buildId"
       @instruction-saved="handleInstructionSaved"
-      @open-instruction="handleOpenInstruction"
     />
   </div>
 </template>
