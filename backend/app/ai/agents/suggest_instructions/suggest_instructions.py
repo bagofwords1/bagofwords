@@ -65,7 +65,7 @@ class SuggestInstructions:
             conditions: List of trigger conditions that fired, each with {"name", "hint"}.
             mode: The mode that triggered this (e.g., "training" for training mode).
 
-        Yields dicts with keys {"text", "category", "confidence"}.
+        Yields dicts with keys {"title", "text", "category", "confidence"}.
         """
         # Check if this is training mode - use specialized prompt
         if mode == "training":
@@ -138,6 +138,7 @@ Code recovery flow requirements:
 
 General rules:
 - 1–3 instructions max. Each instruction must end with a period.
+- Each instruction MUST have a short title (1-4 words, UPPERCASE with underscores, e.g., "REVENUE_CALC", "ACTIVE_USER", "DATE_FILTER").
 - Instructions CANNOT be duplicate or conflict with ANY of the existing instructions. Review the existing instructions carefully and ensure your instructions are not a duplicate or conflict.
 - Include a confidence score (0.0 to 1.0) for each instruction. Only include instructions with confidence >= 0.5.
 
@@ -146,24 +147,24 @@ Categories (choose the most appropriate one):
 
 Examples (clarification → instruction):
 - User clarified: "Active user = user with ≥1 session in the last 30 days."
-  Instruction: {{"text": "Treat an active user as a user with at least one session in the last 30 days for all activity-based metrics.", "category": "general", "confidence": 0.95}}
+  Instruction: {{"title": "ACTIVE_USER", "text": "Treat an active user as a user with at least one session in the last 30 days for all activity-based metrics.", "category": "general", "confidence": 0.95}}
 
 Examples (code recovery → instruction):
-- {{"text": "Always join payments to customers on customer_id and filter out NULL customer_id before aggregation.", "category": "code_gen", "confidence": 0.85}}
-- {{"text": "Cast date strings to DATE before grouping by day and use timezone-aware truncation to avoid off-by-one errors.", "category": "code_gen", "confidence": 0.80}}
+- {{"title": "PAYMENT_JOIN", "text": "Always join payments to customers on customer_id and filter out NULL customer_id before aggregation.", "category": "code_gen", "confidence": 0.85}}
+- {{"title": "DATE_CAST", "text": "Cast date strings to DATE before grouping by day and use timezone-aware truncation to avoid off-by-one errors.", "category": "code_gen", "confidence": 0.80}}
 
 Examples (visualization instruction):
-- {{"text": "Use a stacked bar chart when comparing parts of a whole across categories.", "category": "visualization", "confidence": 0.75}}
-- {{"text": "Always show currency values with 2 decimal places and include the currency symbol.", "category": "visualization", "confidence": 0.90}}
+- {{"title": "STACKED_BAR", "text": "Use a stacked bar chart when comparing parts of a whole across categories.", "category": "visualization", "confidence": 0.75}}
+- {{"title": "CURRENCY_FORMAT", "text": "Always show currency values with 2 decimal places and include the currency symbol.", "category": "visualization", "confidence": 0.90}}
 
 Examples (dashboard instruction):
-- {{"text": "Place KPI metric cards in the top row of the dashboard before any charts.", "category": "dashboard", "confidence": 0.85}}
+- {{"title": "KPI_PLACEMENT", "text": "Place KPI metric cards in the top row of the dashboard before any charts.", "category": "dashboard", "confidence": 0.85}}
 
 Examples (system instruction):
-- {{"text": "When the user asks about 'recent' data without specifying a time range, default to the last 30 days.", "category": "system", "confidence": 0.80}}
+- {{"title": "RECENT_DEFAULT", "text": "When the user asks about 'recent' data without specifying a time range, default to the last 30 days.", "category": "system", "confidence": 0.80}}
 
 Longer example:
-- Instruction: {{"text": "Authoritative Net Revenue (NR) Calculation — SaaS. Include only invoice_lines with line_type IN ('recurring','usage'), is_trial=false; recognize revenue pro‑rata over service_start → service_end; convert to USD using daily EOD spot; exclude VAT/taxes and processor fees; allocate refunds/credits to original service days; stop recognition at cancellation_effective_at; clamp per‑day NR to ≥ 0 after discounts.", "category": "general", "confidence": 0.95}}
+- Instruction: {{"title": "NET_REVENUE_CALC", "text": "Authoritative Net Revenue (NR) Calculation — SaaS. Include only invoice_lines with line_type IN ('recurring','usage'), is_trial=false; recognize revenue pro‑rata over service_start → service_end; convert to USD using daily EOD spot; exclude VAT/taxes and processor fees; allocate refunds/credits to original service days; stop recognition at cancellation_effective_at; clamp per‑day NR to ≥ 0 after discounts.", "category": "general", "confidence": 0.95}}
 
 Context:
   {instructions_context}
@@ -175,7 +176,7 @@ Context:
 Return a single JSON object matching this schema exactly:
 {{
   "instructions": [
-    {{"text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
+    {{"title": "SHORT_TITLE", "text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
   ]
 }}
 """
@@ -186,7 +187,7 @@ Return a single JSON object matching this schema exactly:
     async def onboarding_suggestions(self, context_view: Any = None) -> AsyncIterator[Dict[str, Any]]:
         """Stream instruction suggestions for onboarding.
 
-        Yields dicts with keys {"text", "category", "confidence"}.
+        Yields dicts with keys {"title", "text", "category", "confidence"}.
         """
         # Build lightweight onboarding context (schemas, metadata resources, optional messages)
         schemas_excerpt = getattr(getattr(context_view, "static", None), "schemas", None)
@@ -207,6 +208,7 @@ The user has just connected a data source and is onboarding.
 
 General rules:
 - 1–3 instructions max. Each instruction must end with a period.
+- Each instruction MUST have a short title (1-4 words, UPPERCASE with underscores, e.g., "REVENUE_CALC", "ACTIVE_USER", "DATE_FILTER").
 - Instructions CANNOT be duplicate or conflict with ANY of the existing instructions. Review the existing instructions carefully and ensure your instructions are not a duplicate or conflict.
 - Include a confidence score (0.0 to 1.0) for each instruction. Only include instructions with confidence >= 0.6.
 
@@ -215,17 +217,17 @@ Categories (choose the most appropriate one):
 
 Examples (clarification → instruction):
 - User clarified: "Active user = user with ≥1 session in the last 30 days."
-  Instruction: {{"text": "Treat an active user as a user with at least one session in the last 30 days for all activity-based metrics.", "category": "general", "confidence": 0.95}}
+  Instruction: {{"title": "ACTIVE_USER", "text": "Treat an active user as a user with at least one session in the last 30 days for all activity-based metrics.", "category": "general", "confidence": 0.95}}
 
 Examples (code_gen instruction):
-- {{"text": "Always join payments to customers on customer_id and filter out NULL customer_id before aggregation.", "category": "code_gen", "confidence": 0.85}}
-- {{"text": "Cast date strings to DATE before grouping by day and use timezone-aware truncation to avoid off-by-one errors.", "category": "code_gen", "confidence": 0.80}}
+- {{"title": "PAYMENT_JOIN", "text": "Always join payments to customers on customer_id and filter out NULL customer_id before aggregation.", "category": "code_gen", "confidence": 0.85}}
+- {{"title": "DATE_CAST", "text": "Cast date strings to DATE before grouping by day and use timezone-aware truncation to avoid off-by-one errors.", "category": "code_gen", "confidence": 0.80}}
 
 Examples (visualization instruction):
-- {{"text": "Use a stacked bar chart when comparing parts of a whole across categories.", "category": "visualization", "confidence": 0.75}}
+- {{"title": "STACKED_BAR", "text": "Use a stacked bar chart when comparing parts of a whole across categories.", "category": "visualization", "confidence": 0.75}}
 
 Longer example:
-- Instruction: {{"text": "Authoritative Net Revenue (NR) Calculation — SaaS. Include only invoice_lines with line_type IN ('recurring','usage'), is_trial=false; recognize revenue pro‑rata over service_start → service_end; convert to USD using daily EOD spot; exclude VAT/taxes and processor fees; allocate refunds/credits to original service days; stop recognition at cancellation_effective_at; clamp per‑day NR to ≥ 0 after discounts.", "category": "general", "confidence": 0.95}}
+- Instruction: {{"title": "NET_REVENUE_CALC", "text": "Authoritative Net Revenue (NR) Calculation — SaaS. Include only invoice_lines with line_type IN ('recurring','usage'), is_trial=false; recognize revenue pro‑rata over service_start → service_end; convert to USD using daily EOD spot; exclude VAT/taxes and processor fees; allocate refunds/credits to original service days; stop recognition at cancellation_effective_at; clamp per‑day NR to ≥ 0 after discounts.", "category": "general", "confidence": 0.95}}
 
 Context:
 Schema
@@ -240,7 +242,7 @@ Recent Messages
 Return a single JSON object matching this schema exactly:
 {{
   "instructions": [
-    {{"text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
+    {{"title": "SHORT_TITLE", "text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
   ]
 }}
 """
@@ -253,7 +255,7 @@ Return a single JSON object matching this schema exactly:
     ) -> AsyncIterator[Dict[str, Any]]:
         """Shared streaming and parsing logic for instruction suggestions.
 
-        Yields dicts with keys {"text", "category", "confidence"}.
+        Yields dicts with keys {"title", "text", "category", "confidence"}.
         """
         parser = JSONParser()
         buffer = ""
@@ -275,7 +277,7 @@ Return a single JSON object matching this schema exactly:
                 parsed = parser.parse(buffer)
             except Exception:
                 parsed = None
-            
+
             # Handle both {"instructions": [...]} and direct [...] formats
             arr = None
             if isinstance(parsed, dict):
@@ -283,23 +285,27 @@ Return a single JSON object matching this schema exactly:
             elif isinstance(parsed, list):
                 # LLM returned array directly instead of wrapped object
                 arr = parsed
-            
+
             if arr is not None:
                 if isinstance(arr, list):
                     for idx, item in enumerate(arr):
                         if not isinstance(item, dict):
                             continue
-                        
+
                         current = partial_items.get(idx, {})
-                        
+
+                        # Parse title
+                        if "title" in item and isinstance(item.get("title"), str):
+                            current["title"] = item.get("title").strip().upper()
+
                         # Parse text
                         if "text" in item and isinstance(item.get("text"), str):
                             current["text"] = item.get("text").strip()
-                        
+
                         # Parse category
                         if "category" in item and isinstance(item.get("category"), str):
                             current["category"] = item.get("category").strip()
-                        
+
                         # Parse confidence
                         if "confidence" in item:
                             try:
@@ -310,16 +316,18 @@ Return a single JSON object matching this schema exactly:
                                     current["confidence"] = float(conf_val)
                             except (ValueError, TypeError):
                                 pass
-                        
+
                         partial_items[idx] = current
 
                         # Validate completeness
+                        title = (current.get("title") or "").strip()
                         text = (current.get("text") or "").strip()
                         category = (current.get("category") or "").strip()
                         confidence = current.get("confidence")
 
                         is_valid = (
-                            len(text) >= 12
+                            len(title) >= 2
+                            and len(text) >= 12
                             and text.endswith(".")
                             and category in ALLOWED_CATEGORIES
                             and isinstance(confidence, float)
@@ -331,6 +339,7 @@ Return a single JSON object matching this schema exactly:
                             emitted_indices.add(idx)
                             yielded_count += 1
                             yield {
+                                "title": title,
                                 "text": text,
                                 "category": category,
                                 "confidence": confidence,
@@ -347,7 +356,7 @@ Return a single JSON object matching this schema exactly:
         Training mode produces a structured summary with a "Suggested Instructions for Future Analysis" section.
         This method extracts those instructions and converts them to the standard format.
 
-        Yields dicts with keys {"text", "category", "confidence"}.
+        Yields dicts with keys {"title", "text", "category", "confidence"}.
         """
         # Get the final_answer from the last observation (training mode output)
         last_observation = None
@@ -384,13 +393,15 @@ The AI analyst just completed a systematic exploration of the data domain in "Tr
 Your task is to:
 1. Extract the suggested instructions from the training summary
 2. Format each as a clear, actionable instruction
-3. Assign the appropriate category
-4. Assign confidence based on how well-supported the instruction is by the exploration findings
+3. Create a short UPPERCASE title (1-4 words with underscores, e.g., "REVENUE_CALC", "ACTIVE_USER")
+4. Assign the appropriate category
+5. Assign confidence based on how well-supported the instruction is by the exploration findings
 
 IMPORTANT RULES:
 - Extract ONLY instructions that are explicitly suggested or strongly implied in the training summary
 - Do NOT invent new instructions beyond what the training discovered
 - Each instruction must be specific, actionable, and reusable
+- Each instruction MUST have a short title (1-4 words, UPPERCASE with underscores)
 - Avoid duplicating existing instructions (see below)
 - Focus on the most valuable, generalizable learnings
 - Maximum 5 instructions (prioritize the most impactful ones)
@@ -407,11 +418,11 @@ TRAINING SUMMARY TO EXTRACT FROM:
 Return a single JSON object matching this schema exactly:
 {{
   "instructions": [
-    {{"text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
+    {{"title": "SHORT_TITLE", "text": "...", "category": "dashboard|visualization|system|general|code_gen", "confidence": 0.0-1.0}}
   ]
 }}
 
-Extract the most valuable instructions from the training summary. Each instruction should end with a period.
+Extract the most valuable instructions from the training summary. Each instruction should end with a period and have a short UPPERCASE title.
 """
 
         async for item in self._stream_and_parse(header, "suggest_instructions.training"):

@@ -1447,9 +1447,9 @@ class InstructionService:
 
     async def _handle_owner_edit(self, instruction: Instruction, instruction_data: InstructionUpdate):
         """Handle owner editing their own private instruction"""
-        
-        # Owner can only edit text/category/toggles. Ignore any status changes silently.
-        allowed_fields = ['text', 'category', 'is_seen', 'can_user_toggle']
+
+        # Owner can only edit text/title/category/toggles. Ignore any status changes silently.
+        allowed_fields = ['text', 'title', 'category', 'is_seen', 'can_user_toggle']
         
         # Apply allowed changes only (ignore status/private/global fields if present)
         for field in allowed_fields:

@@ -303,6 +303,7 @@ class AgentV2:
                             self.db,
                             self.organization,
                             text=draft.get("text", ""),
+                            title=draft.get("title"),
                             category=draft.get("category", "general"),
                             agent_execution_id=str(self.current_execution.id),
                             trigger_reason=trigger_reason,
@@ -313,6 +314,7 @@ class AgentV2:
                         # Append a minimal client payload
                         draft_payload = {
                             "id": str(inst.id),
+                            "title": inst.title,
                             "text": inst.text,
                             "category": inst.category,
                             "status": inst.status,
