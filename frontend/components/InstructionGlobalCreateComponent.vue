@@ -558,7 +558,7 @@ Examples:
     />
 
     <!-- Unlink Confirmation Modal (for save) -->
-    <UModal v-model="showUnlinkConfirm" :ui="{ width: 'sm:max-w-md' }">
+    <UModal v-model="showUnlinkConfirm" :ui="{ width: 'sm:max-w-md', wrapper: 'z-[60]' }">
         <div class="p-4">
             <div class="flex items-start gap-3 mb-4">
                 <div class="shrink-0 w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
@@ -583,7 +583,7 @@ Examples:
     </UModal>
 
     <!-- Delete Confirmation Modal (non-git) -->
-    <UModal v-model="showDeleteConfirm" :ui="{ width: 'sm:max-w-md' }">
+    <UModal v-model="showDeleteConfirm" :ui="{ width: 'sm:max-w-md', wrapper: 'z-[60]' }">
         <div class="p-4">
             <p class="text-sm text-gray-700 mb-3">
                 Are you sure you want to delete this instruction?
@@ -603,7 +603,7 @@ Examples:
     </UModal>
 
     <!-- Delete Git-Synced Confirmation Modal -->
-    <UModal v-model="showDeleteGitConfirm" :ui="{ width: 'sm:max-w-md' }">
+    <UModal v-model="showDeleteGitConfirm" :ui="{ width: 'sm:max-w-md', wrapper: 'z-[60]' }">
         <div class="p-4">
             <p class="text-sm text-gray-700 mb-3">
                 This instruction is synced from git.

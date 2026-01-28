@@ -126,7 +126,7 @@ class StepService:
         code_execution_manager = CodeExecutionManager()
         code = step.code
         
-        df, output_log = code_execution_manager.execute_code(code=code, db_clients=db_clients, excel_files=excel_files)
+        df, output_log, _ = code_execution_manager.execute_code(code=code, db_clients=db_clients, excel_files=excel_files)
         df = code_execution_manager.format_df_for_widget(df)
         
         # Update existing step instead of creating new one

@@ -266,7 +266,7 @@ class InstructionService:
                 )
                 for i in top_k
             ]
-            related_instructions_result = RelatedInstructions(count=len(ranked), items=items)
+            related_instructions_result = RelatedInstructions(count=len(ranked), items=items, tokens=list(tokens))
 
         # 4) Related metadata resources (very naive name contains)
         if "resources" in include:

@@ -146,6 +146,7 @@
             v-model="showInstructionModal"
             :instruction="editingInstruction"
             @instruction-saved="handleInstructionSaved"
+            @open-instruction="handleOpenInstruction"
         />
 
         <InstructionLabelsManagerModal
@@ -395,6 +396,11 @@ const handleInstructionSaved = () => {
     showInstructionModal.value = false
     fetchAvailableSourceTypes()
     inst.refresh()
+}
+
+const handleOpenInstruction = (instruction: Instruction) => {
+    // Open the clicked instruction in view mode
+    editingInstruction.value = instruction
 }
 
 const openManageLabelsModal = () => {

@@ -311,7 +311,7 @@ class DescribeEntityTool(Tool):
                 if not code_to_run.strip():
                     errors.append("Entity has no code to execute")
                 else:
-                    exec_df, execution_log = executor.execute_code(
+                    exec_df, execution_log, _ = executor.execute_code(
                         code=code_to_run,
                         ds_clients=ds_clients,
                         excel_files=[],
