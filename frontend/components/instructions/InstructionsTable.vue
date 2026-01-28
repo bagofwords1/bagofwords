@@ -36,7 +36,7 @@
                                     Instruction
                                 </th>
                                 <th v-if="showSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-10' : 'px-3 py-2 text-xs w-12', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
-                                    Type
+                                    Source
                                 </th>
                                 <th v-if="showCategory" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
                                     Category
@@ -106,36 +106,34 @@
                                     </div>
                                 </td>
 
-                                <!-- Source type / Resource type -->
+                                <!-- Created By -->
                                 <td v-if="showSource" :class="compact ? 'px-2 py-1.5' : 'px-3 py-2.5'">
-                                    <div class="flex items-center justify-center gap-1.5">
-                                        <template v-if="helpers.getSourceType(instruction) === 'git'">
-                                            <UTooltip :text="helpers.getResourceTypeTooltip(instruction)">
-                                                <img 
+                                    <div class="flex items-center justify-center">
+                                        <UTooltip :text="getCreatedByTooltip(instruction)">
+                                            <template v-if="helpers.getSourceType(instruction) === 'git'">
+                                                <img
                                                     v-if="helpers.getResourceTypeIcon(instruction)"
-                                                    :src="helpers.getResourceTypeIcon(instruction)" 
+                                                    :src="helpers.getResourceTypeIcon(instruction)"
                                                     :alt="helpers.getResourceTypeTooltip(instruction)"
-                                                    class="w-6 object-contain"
+                                                    class="w-5 h-5 object-contain"
                                                 />
-                                                <UIcon 
+                                                <UIcon
                                                     v-else
-                                                    :name="helpers.getResourceTypeFallbackIcon(instruction)" 
+                                                    :name="helpers.getResourceTypeFallbackIcon(instruction)"
                                                     class="w-5 h-5 text-gray-500"
                                                 />
-                                            </UTooltip>
-                                        </template>
-                                        <template v-else>
-                                            <UTooltip :text="helpers.getSourceTooltip(instruction)">
-                                                <UIcon 
-                                                    :name="helpers.getSourceIcon(instruction)" 
+                                            </template>
+                                            <template v-else>
+                                                <UIcon
+                                                    :name="helpers.getSourceIcon(instruction)"
                                                     class="w-5 h-5"
                                                     :class="{
                                                         'text-amber-500': helpers.getSourceType(instruction) === 'ai',
                                                         'text-blue-500': helpers.getSourceType(instruction) === 'user'
                                                     }"
                                                 />
-                                            </UTooltip>
-                                        </template>
+                                            </template>
+                                        </UTooltip>
                                     </div>
                                 </td>
 
@@ -360,5 +358,32 @@ const toggleExpand = (id: string) => {
 const handleRowClick = (instruction: Instruction, event: MouseEvent) => {
     // Always emit click to open modal - checkbox handles selection separately
     emit('click', instruction)
+}
+
+const getCreatedByTooltip = (instruction: Instruction): string => {
+    const sourceType = helpers.getSourceType(instruction)
+    const user = instruction.user
+    const creatorName = user?.name || user?.email
+    const reviewedBy = (instruction as any).reviewed_by
+    const approverName = reviewedBy?.name || reviewedBy?.email
+
+    const lines: string[] = []
+
+    // Created by line
+    if (sourceType === 'ai') {
+        lines.push(`Created by: AI${creatorName ? ` (for ${creatorName})` : ''}`)
+    } else if (sourceType === 'git') {
+        const resourceType = helpers.getResourceTypeTooltip(instruction)
+        lines.push(`Created by: ${resourceType}${creatorName ? ` (${creatorName})` : ''}`)
+    } else {
+        lines.push(`Created by: ${creatorName || 'Unknown'}`)
+    }
+
+    // Approved by line (if exists)
+    if (approverName) {
+        lines.push(`Approved by: ${approverName}`)
+    }
+
+    return lines.join('\n')
 }
 </script>

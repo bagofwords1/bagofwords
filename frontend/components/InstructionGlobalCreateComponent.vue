@@ -34,6 +34,24 @@
                     </div>
                 </div>
 
+                <!-- Created/Approved By -->
+                <div class="flex flex-wrap items-center gap-4 text-xs">
+                    <!-- Created By -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-gray-400">Created by:</span>
+                        <div class="inline-flex items-center gap-1 text-gray-700">
+                            <Icon :name="getSourceTypeIcon()" class="w-3 h-3" :class="getSourceTypeIconClass()" />
+                            <span>{{ getCreatorDisplayName() }}</span>
+                        </div>
+                    </div>
+
+                    <!-- Approved By (if exists) -->
+                    <div v-if="props.instruction?.reviewed_by" class="flex items-center gap-1.5">
+                        <span class="text-gray-400">Approved by:</span>
+                        <span class="text-gray-700">{{ props.instruction.reviewed_by.name || props.instruction.reviewed_by.email }}</span>
+                    </div>
+                </div>
+
                 <!-- Metadata Display (read-only) -->
                 <div class="flex flex-wrap items-center gap-3 text-xs">
                     <!-- Status -->
@@ -43,7 +61,7 @@
                             {{ getCurrentStatusDisplayText() }}
                         </span>
                     </div>
-                    
+
                     <!-- Category -->
                     <div class="flex items-center gap-1.5">
                         <span class="text-gray-400">Category:</span>
@@ -939,6 +957,34 @@ const getCategoryIcon = (category: string) => {
         dashboard: 'heroicons:squares-2x2'
     }
     return categoryIcons[category as keyof typeof categoryIcons] || 'heroicons:document-text'
+}
+
+const getSourceTypeIcon = () => {
+    const sourceType = props.instruction?.source_type || 'user'
+    if (sourceType === 'ai') return 'heroicons:sparkles'
+    if (sourceType === 'git') return 'heroicons:code-bracket'
+    return 'heroicons:user'
+}
+
+const getSourceTypeIconClass = () => {
+    const sourceType = props.instruction?.source_type || 'user'
+    if (sourceType === 'ai') return 'text-amber-500'
+    if (sourceType === 'git') return 'text-gray-500'
+    return 'text-blue-500'
+}
+
+const getCreatorDisplayName = () => {
+    const sourceType = props.instruction?.source_type || 'user'
+    const user = props.instruction?.user
+    const userName = user?.name || user?.email
+
+    if (sourceType === 'ai') {
+        return userName ? `AI (for ${userName})` : 'AI'
+    }
+    if (sourceType === 'git') {
+        return userName ? `Git Sync (${userName})` : 'Git Sync'
+    }
+    return userName || 'Unknown'
 }
 
 const getRefIcon = (type: string) => {
