@@ -412,7 +412,7 @@ class EntityService:
 
         executor = StreamingCodeExecutor()
         try:
-            exec_df, execution_log = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
+            exec_df, execution_log, _ = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
             df = executor.format_df_for_widget(exec_df)
             # Persist execution results
             entity.data = df
@@ -468,7 +468,7 @@ class EntityService:
 
         executor = StreamingCodeExecutor()
         try:
-            exec_df, execution_log = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
+            exec_df, execution_log, _ = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
             df = executor.format_df_for_widget(exec_df)
             return {"data": df, "execution_log": execution_log}
         except Exception as e:

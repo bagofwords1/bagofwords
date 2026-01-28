@@ -876,6 +876,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         generated_code = None
         exec_df = None
         output_log = ""
+        executed_queries = []
 
         async for e in streamer.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=codegen_context, retries=2),
@@ -894,6 +895,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                 code_errors = e["payload"].get("errors") or []
                 output_log = e["payload"].get("execution_log") or ""
                 exec_df = e["payload"].get("df")
+                executed_queries = e["payload"].get("executed_queries") or []
 
         if generated_code is None or exec_df is None:
             current_step_id = runtime_ctx.get("current_step_id")
@@ -918,6 +920,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                         "stats": {},
                         "execution_log": output_log,
                         "errors": code_errors,
+                        "executed_queries": executed_queries,
                     },
                     "observation": error_observation,
                 },
@@ -1027,6 +1030,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                     "errors": code_errors,
                     "data_model": final_dm,
                     "view": view_payload,
+                    "executed_queries": executed_queries,
                 },
                 "observation": observation,
             },

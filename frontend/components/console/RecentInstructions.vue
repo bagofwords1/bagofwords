@@ -160,7 +160,7 @@ const fetchRecentInstructions = async () => {
     
     isLoading.value = true
     try {
-        const response = await useMyFetch<Instruction[]>('/api/instructions', {
+        const response = await useMyFetch<{ items: Instruction[], total: number, page: number, per_page: number, pages: number }>('/api/instructions', {
             method: 'GET',
             query: {
                 limit: 5, // Only fetch 5 recent items
@@ -172,12 +172,12 @@ const fetchRecentInstructions = async () => {
                 order_direction: 'desc'
             }
         })
-        
+
         if (response.error.value) {
             console.error('Error fetching recent instructions:', response.error.value)
             recentInstructions.value = []
-        } else if (response.data.value) {
-            recentInstructions.value = response.data.value
+        } else if (response.data.value?.items) {
+            recentInstructions.value = response.data.value.items
         }
     } catch (error) {
         console.error('Failed to fetch recent instructions:', error)

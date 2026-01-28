@@ -41,6 +41,7 @@ class RelatedInstructionItem(BaseModel):
 class RelatedInstructions(BaseModel):
     count: int
     items: List[RelatedInstructionItem]
+    tokens: List[str] = []  # Keywords used for matching (for highlighting on frontend)
 
 
 class RelatedResourceItem(BaseModel):

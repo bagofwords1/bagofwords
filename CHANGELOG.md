@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.307 (January 28, 2026)
+- Separated code and queries for better UX
+- Added created/approved by metadata for instructions
+
 ## Version 0.0.306 (January 26, 2026)
 - **New Interactive Dashboards**: Dashboards are now generated as executable React/HTML code, enabling rich interactivity, custom styling, and dynamic visualizations
 - **Visual Feedback**: Upload screenshots or images with your prompts to show the AI exactly what you want—perfect for requesting design tweaks or pointing out issues

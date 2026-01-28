@@ -212,7 +212,7 @@ class QueryService:
         excel_files = report.files
         executor = StreamingCodeExecutor()
         try:
-            exec_df, execution_log = executor.execute_code(code=step.code, ds_clients=ds_clients, excel_files=excel_files)
+            exec_df, execution_log, _ = executor.execute_code(code=step.code, ds_clients=ds_clients, excel_files=excel_files)
             df = executor.format_df_for_widget(exec_df)
             # Persist results on the new step
             step.data = df
@@ -326,7 +326,7 @@ class QueryService:
         executor = StreamingCodeExecutor()
 
         try:
-            exec_df, execution_log = executor.execute_code(code=request.code or "", ds_clients=ds_clients, excel_files=excel_files)
+            exec_df, execution_log, _ = executor.execute_code(code=request.code or "", ds_clients=ds_clients, excel_files=excel_files)
             df = executor.format_df_for_widget(exec_df)
             return {"preview": df, "execution_log": execution_log}
         except Exception as e:

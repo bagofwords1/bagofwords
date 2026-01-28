@@ -206,6 +206,42 @@ def validate_sql_query(query: str) -> None:
         )
 
 
+# =============================================================================
+# Query Capturing Wrapper (captures queries passed to execute_query)
+# =============================================================================
+
+class QueryCapturingClientWrapper:
+    """Wrapper around a database client that captures all queries passed to execute_query.
+
+    Works with any client that has an execute_query method (SQL, MongoDB, etc.).
+    """
+
+    def __init__(self, original_client, captured_queries: List[str]):
+        self._original = original_client
+        self._captured_queries = captured_queries
+
+    def execute_query(self, query: str, *args, **kwargs):
+        """Intercept execute_query calls to capture the query string."""
+        if isinstance(query, str):
+            self._captured_queries.append(query)
+        return self._original.execute_query(query, *args, **kwargs)
+
+    def __getattr__(self, name):
+        """Delegate all other attributes to the original client."""
+        return getattr(self._original, name)
+
+
+def wrap_clients_for_capture(ds_clients: Dict, captured_queries: List[str]) -> Dict:
+    """Wrap all database clients to capture queries from execute_query calls."""
+    wrapped = {}
+    for key, client in (ds_clients or {}).items():
+        if client is not None and hasattr(client, 'execute_query'):
+            wrapped[key] = QueryCapturingClientWrapper(client, captured_queries)
+        else:
+            wrapped[key] = client
+    return wrapped
+
+
 class CodeExecutionManager:
     """
     Deprecated shim. Use StreamingCodeExecutor instead.
@@ -237,12 +273,16 @@ class StreamingCodeExecutor:
         self.logger = logger
         self.context_hub = context_hub
 
-    def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List) -> Tuple[pd.DataFrame, str]:
-        """Execute Python code and return the resulting DataFrame and captured stdout log.
+    def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List) -> Tuple[pd.DataFrame, str, List[str]]:
+        """Execute Python code and return the resulting DataFrame, captured stdout log, and executed queries.
 
         Security:
             - Validates Python code via AST analysis before execution
             - Checks all string literals for dangerous SQL operations (INSERT, DELETE, DROP, etc.)
+
+        Returns:
+            Tuple of (DataFrame, stdout_log, executed_queries) where executed_queries
+            contains all query strings passed to client.execute_query() during execution.
 
         Raises:
             UnsafePythonError: If code contains forbidden imports, calls, or attributes
@@ -252,10 +292,15 @@ class StreamingCodeExecutor:
         validate_python_code(code)
 
         output_log = ""
+        executed_queries: List[str] = []
+
+        # Wrap clients to capture all queries passed to execute_query
+        wrapped_clients = wrap_clients_for_capture(ds_clients, executed_queries)
+
         local_namespace = {
             'pd': pd,
             'np': np,
-            'db_clients': ds_clients,
+            'db_clients': wrapped_clients,
             'excel_files': excel_files,
         }
         if self.logger:
@@ -266,9 +311,9 @@ class StreamingCodeExecutor:
                 generate_df = local_namespace.get('generate_df')
                 if not generate_df:
                     raise Exception("No generate_df function found in code")
-                df = generate_df(ds_clients, excel_files)
+                df = generate_df(wrapped_clients, excel_files)
             output_log = stdout_capture.getvalue()
-        return df, output_log
+        return df, output_log, executed_queries
 
     def get_df_info(self, df: pd.DataFrame) -> Dict:
         """Extract comprehensive information from a DataFrame."""
@@ -479,7 +524,7 @@ class StreamingCodeExecutor:
                 # Cancellation before executing user code
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
-                exec_df, execution_log = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                exec_df, execution_log, executed_queries = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
                 executed_successfully = True
                 break
             except Exception as e:
@@ -502,6 +547,7 @@ class StreamingCodeExecutor:
                     "code": final_code,
                     "errors": code_and_error_messages,
                     "execution_log": execution_log,
+                    "executed_queries": [],
                 },
             }
             return
@@ -516,6 +562,7 @@ class StreamingCodeExecutor:
                         "code": final_code,
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
+                        "executed_queries": [],
                     },
                 }
             else:
@@ -527,6 +574,7 @@ class StreamingCodeExecutor:
                         "code": final_code,
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
+                        "executed_queries": executed_queries,
                     },
                 }
 
@@ -594,7 +642,7 @@ class StreamingCodeExecutor:
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
-                exec_df, execution_log = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
+                exec_df, execution_log, executed_queries = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
                 executed_successfully = True
                 break
             except Exception as e:
@@ -616,6 +664,7 @@ class StreamingCodeExecutor:
                     "code": final_code,
                     "errors": code_and_error_messages,
                     "execution_log": execution_log,
+                    "executed_queries": [],
                 },
             }
             return
@@ -628,6 +677,7 @@ class StreamingCodeExecutor:
                         "code": final_code,
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
+                        "executed_queries": [],
                     },
                 }
             else:
@@ -638,6 +688,7 @@ class StreamingCodeExecutor:
                         "code": final_code,
                         "errors": code_and_error_messages,
                         "execution_log": execution_log,
+                        "executed_queries": executed_queries,
                     },
                 }
 

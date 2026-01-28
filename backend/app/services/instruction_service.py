@@ -266,7 +266,7 @@ class InstructionService:
                 )
                 for i in top_k
             ]
-            related_instructions_result = RelatedInstructions(count=len(ranked), items=items)
+            related_instructions_result = RelatedInstructions(count=len(ranked), items=items, tokens=list(tokens))
 
         # 4) Related metadata resources (very naive name contains)
         if "resources" in include:
@@ -1707,6 +1707,7 @@ class InstructionService:
                     is_seen=inst.is_seen,
                     can_user_toggle=inst.can_user_toggle,
                     reviewed_by_user_id=inst.reviewed_by_user_id,
+                    reviewed_by=UserSchema.from_orm(inst.reviewed_by) if inst.reviewed_by else None,
                     data_sources=ds_min,
                     labels=[InstructionLabelSchema.from_orm(label) for label in (inst.labels or [])],
                     created_at=inst.created_at,

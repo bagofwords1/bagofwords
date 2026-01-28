@@ -54,7 +54,13 @@
 
             <!-- Instructions List -->
             <div class="flex-1 min-h-0">
+                <!-- Loading state -->
+                <div v-if="initialLoading || inst.isLoading.value" class="flex items-center justify-center h-full">
+                    <Spinner class="w-6 h-6 text-blue-500" />
+                </div>
+
                 <InstructionsTable
+                    v-else
                     :instructions="inst.instructions.value"
                     :loading="inst.isLoading.value"
                     :data-sources="allDataSources"
@@ -107,11 +113,13 @@ import InstructionsTable from '~/components/instructions/InstructionsTable.vue'
 import InstructionsFilterBar from '~/components/instructions/InstructionsFilterBar.vue'
 import GitConnectionButton from '~/components/instructions/GitConnectionButton.vue'
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
+import Spinner from '~/components/Spinner.vue'
 import { useInstructions } from '~/composables/useInstructions'
 import type { Instruction } from '~/composables/useInstructionHelpers'
 
 const toast = useToast()
 const instructionsListModal = ref(false)
+const initialLoading = ref(true)
 const showInstructionModal = ref(false)
 const editingInstruction = ref<Instruction | null>(null)
 const showDetailsModal = ref(false)
@@ -215,11 +223,12 @@ const handleGitChanged = () => {
 
 // Methods
 const openModal = async (dataSourceIds?: string[]) => {
+    initialLoading.value = true
     instructionsListModal.value = true
     await fetchDataSources()
     fetchAvailableSourceTypes()
     fetchGitStatus()
-    
+
     // Set data source filter if provided (filters to selected + global instructions)
     if (dataSourceIds && dataSourceIds.length > 0) {
         inst.filters.dataSourceIds = dataSourceIds
@@ -227,9 +236,17 @@ const openModal = async (dataSourceIds?: string[]) => {
         // Clear filter to show all
         inst.filters.dataSourceIds = []
     }
-    
-    inst.fetchInstructions()
+
+    await inst.fetchInstructions()
+    initialLoading.value = false
 }
+
+// Reset state when modal closes
+watch(instructionsListModal, (isOpen) => {
+    if (!isOpen) {
+        initialLoading.value = true
+    }
+})
 
 const handleInstructionClick = (instruction: Instruction) => {
     if (canCreateGlobalInstructions.value) {
@@ -245,7 +262,7 @@ const handleInstructionSaved = () => {
     inst.refresh()
     showInstructionModal.value = false
     editingInstruction.value = null
-    
+
     toast.add({
         title: 'Success',
         description: 'Instruction saved successfully',

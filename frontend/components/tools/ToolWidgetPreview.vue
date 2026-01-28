@@ -83,8 +83,8 @@
             </button>
           </div>
 
-          <!-- Filter Row (above chart) - uses shared filter system -->
-          <div v-if="hasData && visualizationId && reportId" class="flex justify-end mb-2">
+          <!-- Filter Row (above chart) - uses shared filter system, hidden on code tab -->
+          <div v-if="hasData && visualizationId && reportId && activeTab !== 'code'" class="flex justify-end mb-2">
             <VisualizationFilter
               :report-id="reportId"
               :visualization-id="visualizationId"
@@ -132,18 +132,67 @@
                 v-if="(showTabs && activeTab === 'code') || (!showTabs && hasCode && !showVisual && !hasData)"
               >
                 <div class="relative">
-                  <!-- Edit button top right -->
-                  <button
-                    v-if="queryId && canEditCode && !readonly"
-                    @click="onEditClick"
-                    class="absolute top-2 right-2 z-10 text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
-                    title="Edit code"
-                  >
-                    <Icon name="heroicons-pencil-square" class="w-3 h-3 mr-1" />
-                    Edit
-                  </button>
-                  <div class="max-h-[300px] overflow-auto">
-                    <pre class="bg-gray-50 rounded px-4 py-3 pr-20 font-mono text-xs text-gray-800 whitespace-pre-wrap">{{ effectiveStep?.code }}</pre>
+                  <!-- Header with toggle and edit button -->
+                  <div class="flex items-center justify-between mb-2">
+                    <!-- Toggle between Queries and Full Code (only when executed_queries available) -->
+                    <div v-if="hasExecutedQueries" class="flex items-center space-x-1 bg-gray-100 rounded p-0.5">
+                      <button
+                        @click="showFullCode = false"
+                        :class="[
+                          'px-2 py-0.5 text-[11px] rounded transition-colors',
+                          !showFullCode ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        ]"
+                      >
+                        Queries
+                      </button>
+                      <button
+                        @click="showFullCode = true"
+                        :class="[
+                          'px-2 py-0.5 text-[11px] rounded transition-colors',
+                          showFullCode ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                        ]"
+                      >
+                        Full Code
+                      </button>
+                    </div>
+                    <div v-else></div>
+
+                    <!-- Edit button -->
+                    <button
+                      v-if="queryId && canEditCode && !readonly"
+                      @click="onEditClick"
+                      class="text-xs px-2 py-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors flex items-center"
+                      title="Edit code"
+                    >
+                      <Icon name="heroicons-pencil-square" class="w-3 h-3 mr-1" />
+                      Edit
+                    </button>
+                  </div>
+
+                  <!-- Code editor with Monaco -->
+                  <div class="relative h-[250px] rounded overflow-hidden border border-gray-200">
+                    <ClientOnly>
+                      <MonacoEditor
+                        :modelValue="displayedCode"
+                        :lang="codeLanguage"
+                        :options="{
+                          theme: 'vs',
+                          readOnly: true,
+                          automaticLayout: true,
+                          minimap: { enabled: false },
+                          wordWrap: 'on',
+                          scrollBeyondLastLine: false,
+                          fontSize: 12,
+                          lineNumbers: 'off',
+                          folding: false,
+                          renderLineHighlight: 'none',
+                          overviewRulerLanes: 0,
+                          hideCursorInOverviewRuler: true,
+                          scrollbar: { vertical: 'auto', horizontal: 'hidden' }
+                        }"
+                        style="height: 100%"
+                      />
+                    </ClientOnly>
                   </div>
                 </div>
                 
@@ -230,10 +279,10 @@ import RenderTable from '../RenderTable.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
 import EntityCreateModal from '../entity/EntityCreateModal.vue'
 import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
-import { 
-  parseColumnKey, 
+import {
+  parseColumnKey,
   evaluateFilters as sharedEvaluateFilters,
-  type FilterGroup 
+  type FilterGroup
 } from '~/composables/useSharedFilters'
 
 interface ToolExecution {
@@ -267,6 +316,9 @@ const reportOverrides = ref<Record<string, any> | null>(null)
 const reportDataSources = ref<string[]>([])
 const openEntityModal = ref(false)
 const attemptsExpanded = ref(false)
+
+// Code view toggle state
+const showFullCode = ref(false)
 
 // Tab state - default to chart if available, otherwise table, then code
 const activeTab = ref<'chart' | 'table' | 'code'>('chart')
@@ -544,6 +596,32 @@ const hasData = computed(() => {
 
 // Check if code is available
 const hasCode = computed(() => !!effectiveStep.value?.code)
+
+// Executed queries from backend (captured from client.execute_query calls)
+const executedQueries = computed(() => {
+  const queries = props.toolExecution?.result_json?.executed_queries
+  return Array.isArray(queries) ? queries : []
+})
+
+// Check if we have executed queries to show
+const hasExecutedQueries = computed(() => executedQueries.value.length > 0)
+
+// Code to display based on toggle state
+const displayedCode = computed(() => {
+  if (showFullCode.value || !hasExecutedQueries.value) {
+    return effectiveStep.value?.code || ''
+  }
+  // Join all executed queries with newlines
+  return executedQueries.value.join('\n\n')
+})
+
+// Language for Monaco editor based on toggle state
+const codeLanguage = computed(() => {
+  if (showFullCode.value || !hasExecutedQueries.value) {
+    return 'python'
+  }
+  return 'sql'
+})
 
 // Get attempts/errors from tool execution
 const attempts = computed(() => {

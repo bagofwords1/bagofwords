@@ -32,7 +32,7 @@
                   <MonacoEditor
                     v-model="editorCode"
                     lang="python"
-                    :options="{ theme: 'vs-dark', automaticLayout: false, minimap: { enabled: false }, wordWrap: 'on' }"
+                    :options="{ theme: 'vs', automaticLayout: false, minimap: { enabled: false }, wordWrap: 'on' }"
                     style="height: 100%"
                   />
                 </div>

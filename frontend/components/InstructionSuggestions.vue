@@ -417,6 +417,11 @@ const handleInstructionSaved = (data: any) => {
   toast.add({ title: 'Success', description: 'Instruction saved', color: 'green' })
   showInstructionModal.value = false
 }
+
+const handleOpenInstruction = (instruction: any) => {
+  // Open the clicked instruction in view mode
+  editingInstruction.value = instruction
+}
 </script>
 
 <style scoped>
