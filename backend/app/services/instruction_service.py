@@ -1807,7 +1807,8 @@ class InstructionService:
                     MetadataResource.name.label('name'),
                     MetadataResource.data_source_id.label('data_source_id'),
                     DataSource.name.label('data_source_name'),
-                    Connection.type.label('data_source_type')
+                    Connection.type.label('data_source_type'),
+                    literal(None).label('text_preview')
                 )
                 .select_from(MetadataResource)
                 .join(DataSource, MetadataResource.data_source_id == DataSource.id)
@@ -1815,12 +1816,12 @@ class InstructionService:
                 .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
                 .filter(MetadataResource.data_source_id.in_(data_source_access_subquery))
             )
-            
+
             if q:
                 mr_query = mr_query.filter(MetadataResource.name.ilike(f"%{q}%"))
-            
+
             queries_to_union.append(mr_query)
-        
+
         # DataSource Tables query with data source info
         if "datasource_table" in wanted:
             dt_query = (
@@ -1828,10 +1829,10 @@ class InstructionService:
                     DataSourceTable.id.label('id'),
                     literal('datasource_table').label('type'),
                     DataSourceTable.name.label('name'),
-                    
                     DataSourceTable.datasource_id.label('data_source_id'),
                     DataSource.name.label('data_source_name'),
-                    Connection.type.label('data_source_type')
+                    Connection.type.label('data_source_type'),
+                    literal(None).label('text_preview')
                 )
                 .select_from(DataSourceTable)
                 .join(DataSource, DataSourceTable.datasource_id == DataSource.id)
@@ -1840,11 +1841,70 @@ class InstructionService:
                 .filter(DataSourceTable.is_active == True)
                 .filter(DataSourceTable.datasource_id.in_(data_source_access_subquery))
             )
-            
+
             if q:
                 dt_query = dt_query.filter(DataSourceTable.name.ilike(f"%{q}%"))
-            
+
             queries_to_union.append(dt_query)
+
+        # Instructions query (for @ mentions)
+        if "instruction" in wanted:
+            from sqlalchemy import func, case, exists
+            from app.models.instruction import instruction_data_source_association
+
+            # Build text_preview: first 50 chars + "..." if longer
+            text_preview_expr = case(
+                (func.length(Instruction.text) > 50, func.substr(Instruction.text, 1, 50) + '...'),
+                else_=Instruction.text
+            )
+
+            inst_query = (
+                select(
+                    Instruction.id.label('id'),
+                    literal('instruction').label('type'),
+                    Instruction.title.label('name'),
+                    literal(None).label('data_source_id'),
+                    literal(None).label('data_source_name'),
+                    literal(None).label('data_source_type'),
+                    text_preview_expr.label('text_preview')
+                )
+                .filter(
+                    and_(
+                        Instruction.organization_id == organization.id,
+                        Instruction.deleted_at == None,
+                        Instruction.status == 'published'
+                    )
+                )
+                # Note: ORDER BY and LIMIT removed - can't use in UNION ALL
+            )
+
+            # Filter by data sources if specified
+            if target_data_source_ids:
+                # Include instructions that either:
+                # 1. Have no data sources (global/general instructions)
+                # 2. Have at least one of the target data sources
+                has_no_data_sources = ~exists(
+                    select(instruction_data_source_association.c.instruction_id)
+                    .where(instruction_data_source_association.c.instruction_id == Instruction.id)
+                )
+                has_target_data_source = Instruction.id.in_(
+                    select(instruction_data_source_association.c.instruction_id)
+                    .where(instruction_data_source_association.c.data_source_id.in_(target_data_source_ids))
+                )
+                inst_query = inst_query.filter(
+                    or_(has_no_data_sources, has_target_data_source)
+                )
+
+            if q:
+                search_term = f"%{q}%"
+                inst_query = inst_query.filter(
+                    or_(
+                        Instruction.title.ilike(search_term),
+                        Instruction.text.ilike(search_term)
+                    )
+                )
+
+            queries_to_union.append(inst_query)
         
         # Execute single UNION query if we have queries to run
         if queries_to_union:
@@ -1861,9 +1921,10 @@ class InstructionService:
                     "name": row.name,
                     "data_source_id": row.data_source_id,
                     "data_source_name": row.data_source_name,
-                    "data_source_type": row.data_source_type
+                    "data_source_type": row.data_source_type,
+                    "text_preview": row.text_preview
                 }
-                
+
                 items.append(item)
         
         return items
