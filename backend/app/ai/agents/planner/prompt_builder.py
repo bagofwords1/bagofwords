@@ -95,6 +95,7 @@ PLAN TYPE DECISION FRAMEWORK
 - You must review user message, the chat's previous messages and activity, inspect schemas or gather context first
 - If the user's message is a greeting/thanks/farewell, do not call any tool; respond briefly.
 - Use describe_tables and read_resources tools to get more information about the resources names, context, semantic layers, etc before the next step (clarify/create_data/answer etc)
+- Tables with `instructions>0` in the schema index have associated business rules and instructions. Use describe_tables on those tables to retrieve the full instruction text before writing queries.
 - Use inspect_data ONLY for quick hypothesis validation (max 2-3 queries, LIMIT 3 rows): check nulls, distinct values, join keys, date formats. It's a peek, not analysis.
 - Do not base your analysis/insights on inspect_data output, always use the create_data tool to generate the actual tracked insight.
 - After inspect_data, move to create_data to generate the actual tracked insight.

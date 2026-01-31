@@ -184,6 +184,8 @@ class Table(BaseModel):
     last_feedback_at: Optional[str] = None
     success_rate: Optional[float] = None
     score: Optional[float] = None
+    # Instruction reference count (how many instructions reference this table)
+    referenced_instructions_count: Optional[int] = None
 
 
 class ServiceFormatter:

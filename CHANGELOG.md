@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.308 (January 31, 2026)
+- Instruction @mentions now only show published instructions from the main build
+- Referenced instructions are automatically loaded into AI context when a parent instruction mentions them
+- Schema index and full schema now display instruction count per table, guiding the planner to use `describe_tables` for business rules
+- Updated MCP `get_context` tool to expose instruction count per table
+
 ## Version 0.0.307 (January 28, 2026)
 - Separated code and queries for better UX
 - Added created/approved by metadata for instructions

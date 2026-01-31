@@ -1847,15 +1847,30 @@ class InstructionService:
 
             queries_to_union.append(dt_query)
 
-        # Instructions query (for @ mentions)
+        # Instructions query (for @ mentions) - only published instructions in the main build
         if "instruction" in wanted:
             from sqlalchemy import func, case, exists
             from app.models.instruction import instruction_data_source_association
+            from app.models.instruction_build import InstructionBuild
+            from app.models.build_content import BuildContent
 
             # Build text_preview: first 50 chars + "..." if longer
             text_preview_expr = case(
                 (func.length(Instruction.text) > 50, func.substr(Instruction.text, 1, 50) + '...'),
                 else_=Instruction.text
+            )
+
+            # Only include instructions that exist in the main build
+            main_build_instruction_ids = (
+                select(BuildContent.instruction_id)
+                .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+                .where(
+                    and_(
+                        InstructionBuild.organization_id == organization.id,
+                        InstructionBuild.is_main == True,
+                        InstructionBuild.deleted_at == None
+                    )
+                )
             )
 
             inst_query = (
@@ -1872,10 +1887,10 @@ class InstructionService:
                     and_(
                         Instruction.organization_id == organization.id,
                         Instruction.deleted_at == None,
-                        Instruction.status == 'published'
+                        Instruction.status == 'published',
+                        Instruction.id.in_(main_build_instruction_ids)
                     )
                 )
-                # Note: ORDER BY and LIMIT removed - can't use in UNION ALL
             )
 
             # Filter by data sources if specified

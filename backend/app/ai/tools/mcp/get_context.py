@@ -98,6 +98,7 @@ class GetContextTool(MCPTool):
                     name=table.name,
                     columns=columns,
                     description=description,
+                    referenced_instructions_count=getattr(table, 'referenced_instructions_count', None),
                 ))
             
             data_sources_output.append(DataSourceInfo(

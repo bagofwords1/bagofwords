@@ -60,6 +60,7 @@ class TableInfo(BaseModel):
     name: str
     columns: List[str]
     description: Optional[str] = None
+    referenced_instructions_count: Optional[int] = None
 
 
 class DataSourceInfo(BaseModel):
