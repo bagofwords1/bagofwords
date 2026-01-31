@@ -219,23 +219,32 @@ class ExternalPlatformManager:
         organization_id: str,
         user_id: str,
         thread_ts: str,
+        platform_type: str = "slack",
+        max_age_days: int = None,
     ) -> Optional[Any]:
         """
         Find an existing report by looking up completions with the given thread_ts.
+        If max_age_days is set, only matches completions created within that window.
         Returns the report if found, None otherwise.
         """
         from app.models.completion import Completion
         from app.models.report import Report
         from sqlalchemy import select
+        import datetime
 
-        # Find any completion with this thread_ts and get its report
+        # Find the most recent completion with this thread_ts
+        filters = [
+            Completion.external_thread_ts == thread_ts,
+            Completion.external_platform == platform_type,
+        ]
+        if max_age_days is not None:
+            cutoff = datetime.datetime.utcnow() - datetime.timedelta(days=max_age_days)
+            filters.append(Completion.created_at >= cutoff)
+
         stmt = (
             select(Completion)
-            .where(
-                Completion.external_thread_ts == thread_ts,
-                Completion.external_platform == 'slack',
-            )
-            .order_by(Completion.created_at.asc())
+            .where(*filters)
+            .order_by(Completion.created_at.desc())
             .limit(1)
         )
         result = await db.execute(stmt)
@@ -280,18 +289,30 @@ class ExternalPlatformManager:
 
         # Add eyes reaction to show we're processing
         if channel_id and message_ts:
-            print(f"SLACK: Adding eyes reaction to channel={channel_id}, message_ts={message_ts}")
+            platform_label = processed_data.get("platform_type", "slack").upper()
+            print(f"{platform_label}: Adding eyes reaction to channel={channel_id}, message_ts={message_ts}")
             result = await adapter.add_reaction(channel_id, message_ts, "eyes")
-            print(f"SLACK: Eyes reaction result: {result}")
+            print(f"{platform_label}: Eyes reaction result: {result}")
 
         # Determine report: Thread reply -> find existing, Top-level -> create new
         report = None
         created = False
 
+        platform_type = processed_data.get("platform_type", "slack")
+
         if is_thread_reply and thread_ts:
             # This is a reply in an existing thread - find the associated report
             report = await self._find_report_by_thread_ts(
-                db, organization.id, user.id, thread_ts
+                db, organization.id, user.id, thread_ts,
+                platform_type=platform_type,
+            )
+        elif platform_type == "teams" and channel_type == "personal" and thread_ts:
+            # Teams 1:1 chats have no threading — reuse report by conversation ID
+            # within a 5-day window so old conversations start fresh
+            report = await self._find_report_by_thread_ts(
+                db, organization.id, user.id, thread_ts,
+                platform_type=platform_type,
+                max_age_days=5,
             )
 
         if not report:
@@ -307,10 +328,21 @@ class ExternalPlatformManager:
                 report_url = f"{settings.bow_config.base_url}/reports/{report.id}"
                 # Send the "new report" message in the thread
                 # For channel mentions, respond in the channel; for DMs, open a DM
-                response_channel = channel_id if channel_type == "channel" else None
+                # Slack DMs: None (adapter opens DM by user_id)
+                # Teams: always use conversation ID (required for all Teams messages)
+                if processed_data.get("platform_type") == "teams":
+                    response_channel = channel_id
+                else:
+                    response_channel = channel_id if channel_type == "channel" else None
+                # Format link based on platform (Slack uses <url|text>, Teams uses markdown)
+                if processed_data.get("platform_type") == "teams":
+                    report_link = f"[{report.title}]({report_url})"
+                else:
+                    report_link = f"<{report_url}|{report.title}>"
+
                 await adapter.send_dm_in_thread(
                     user_mapping.external_user_id,
-                    f"> I've started a new conversation report for you: <{report_url}|{report.title}>",
+                    f"> I've started a new conversation report for you: {report_link}",
                     thread_ts,
                     channel_id=response_channel
                 )

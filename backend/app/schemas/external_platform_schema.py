@@ -38,6 +38,7 @@ class SlackConfig(BaseModel):
 class TeamsConfig(BaseModel):
     app_id: str
     client_secret: str
+    tenant_id: str
     webhook_url: Optional[str] = None
 
 class EmailConfig(BaseModel):

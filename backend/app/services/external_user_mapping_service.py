@@ -346,18 +346,19 @@ class ExternalUserMappingService:
         
         await db.commit()
 
-        if mapping.platform_type == "slack":
+        if mapping.platform_type in ("slack", "teams"):
             from app.models.external_platform import ExternalPlatform
-            from app.services.platform_adapters.slack_adapter import SlackAdapter
+            from app.services.platform_adapters.adapter_factory import PlatformAdapterFactory
 
             platform = await db.get(ExternalPlatform, mapping.platform_id)
             if not platform:
                 return {"success": False, "error": "Platform not found"}
 
-            adapter = SlackAdapter(platform)
+            adapter = PlatformAdapterFactory.create_adapter(platform)
+            platform_name = mapping.platform_type.capitalize()
             await adapter.send_dm(
                 mapping.external_user_id,
-                "✅ Your account has been verified! You can now use the Slack integration."
+                f"Your account has been verified! You can now use the {platform_name} integration.",
             )
 
         return {

@@ -1,14 +1,15 @@
 from typing import Dict, Type
 from .base_adapter import PlatformAdapter
 from .slack_adapter import SlackAdapter
+from .teams_adapter import TeamsAdapter
 from app.models.external_platform import ExternalPlatform
 
 class PlatformAdapterFactory:
     """Factory for creating platform adapters"""
-    
+
     _adapters: Dict[str, Type[PlatformAdapter]] = {
         "slack": SlackAdapter,
-        # "teams": TeamsAdapter,  # Future
+        "teams": TeamsAdapter,
         # "email": EmailAdapter,  # Future
     }
     
