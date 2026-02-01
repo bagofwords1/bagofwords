@@ -213,6 +213,31 @@ class TeamsAdapter(PlatformAdapter):
         # In real Teams this is "28:{app_id}", in Web Chat it's just the app_id
         bot_recipient = event_data.get("recipient", {})
 
+        # Determine thread_ts based on conversation type:
+        # - Personal chats: use conversation ID (stable, no threading)
+        # - Channel messages: use replyToId for thread replies, or activity ID for root messages
+        #   so thread replies can be matched back to the root message's completion
+        reply_to_id = event_data.get("replyToId")
+        conv_id = conversation.get("id", "")
+
+        # In Teams channels, conversation IDs include the root message:
+        #   19:abc@thread.tacv2;messageid=<root_msg_id>
+        # Extract messageid to use as a stable thread identifier
+        thread_msg_id = None
+        if ";messageid=" in conv_id:
+            thread_msg_id = conv_id.split(";messageid=")[-1]
+
+        is_thread_reply = bool(reply_to_id) or bool(thread_msg_id)
+
+        if channel_type == "personal":
+            thread_ts = conv_id
+        elif thread_msg_id:
+            thread_ts = thread_msg_id
+        elif reply_to_id:
+            thread_ts = reply_to_id
+        else:
+            thread_ts = event_data.get("id")
+
         return {
             "platform_type": "teams",
             "external_user_id": from_user.get("id"),
@@ -225,9 +250,9 @@ class TeamsAdapter(PlatformAdapter):
             "team_id": channel_data.get("tenant", {}).get("id", self.tenant_id),
             # Thread context
             "service_url": service_url,
-            "thread_ts": conversation.get("id"),  # Conversation ID = thread context in Teams
-            "message_ts": event_data.get("id"),   # Activity ID for replies
-            "is_thread_reply": bool(event_data.get("replyToId")),
+            "thread_ts": thread_ts,
+            "message_ts": event_data.get("id"),   # Activity ID for reactions/replies
+            "is_thread_reply": is_thread_reply,
             # Bot identity for outbound replies
             "bot_id": bot_recipient.get("id", self.app_id),
             "bot_name": bot_recipient.get("name", ""),
