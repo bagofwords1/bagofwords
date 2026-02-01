@@ -139,9 +139,42 @@ def df_to_csv(data: dict) -> str:
         print(f"Error creating CSV file: {e}")
         return None
 
-async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
-    """Handles sending table data to Slack, optionally in a thread."""
+def _format_markdown_table(data: dict, title: str, max_rows: int = 20) -> str:
+    """Format step data as a markdown table for Teams."""
+    rows = data.get('rows', [])
+    columns = data.get('columns', [])
+    if not rows or not columns:
+        return None
+
+    headers = [col.get('headerName', col.get('field', '')) for col in columns]
+    fields = [col['field'] for col in columns]
+
+    lines = [f"**{title}**\n"]
+    # Header row
+    lines.append("| " + " | ".join(headers) + " |")
+    # Separator row
+    lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+    # Data rows (cap to max_rows)
+    for row in rows[:max_rows]:
+        values = [str(row.get(field, '')) for field in fields]
+        lines.append("| " + " | ".join(values) + " |")
+
+    if len(rows) > max_rows:
+        lines.append(f"\n*Showing {max_rows} of {len(rows)} rows. See full data in the web report.*")
+
+    return "\n".join(lines)
+
+
+async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None, platform_type: str = None):
+    """Handles sending table data, optionally in a thread."""
     title = step.title or "Table Data"
+
+    # Teams: send as markdown table text (Bot Connector doesn't support data: URLs for file uploads)
+    if platform_type == "teams":
+        md_table = _format_markdown_table(step.data, title)
+        if md_table:
+            return await adapter.send_dm_in_thread(external_user_id, md_table, thread_ts, channel_id=channel_id)
+        return False
 
     file_path = df_to_csv(step.data)
     if not file_path:
@@ -155,9 +188,15 @@ async def _handle_table_step_dm(adapter, external_user_id: str, step: 'Step', th
             os.remove(file_path)
     return success
 
-async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None):
-    """Handles sending chart data (as an image) to Slack, optionally in a thread."""
+async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step', thread_ts: str = None, channel_id: str = None, platform_type: str = None):
+    """Handles sending chart data (as an image), optionally in a thread."""
     title = step.title or "Chart"
+
+    # Teams: send text summary (Bot Connector doesn't support data: URLs for image uploads)
+    if platform_type == "teams":
+        msg = f"**{title}**\n_Chart visualization is available in the web report._"
+        return await adapter.send_dm_in_thread(external_user_id, msg, thread_ts, channel_id=channel_id)
+
     file_path = create_plot(step.data_model, step.data, title)
 
     if not file_path:
@@ -171,7 +210,7 @@ async def _handle_chart_step_dm(adapter, external_user_id: str, step: 'Step', th
             os.remove(file_path)
     return success
 
-async def send_step_result_to_slack(step_id: str, external_user_id: str | None = None, organization_id: str | None = None, thread_ts: str | None = None, channel_id: str | None = None):
+async def send_step_result_to_slack(step_id: str, external_user_id: str | None = None, organization_id: str | None = None, thread_ts: str | None = None, channel_id: str | None = None, platform_type: str | None = None):
     """
     Sends a step's data to Slack, optionally in a thread.
     If channel_id is provided, sends directly to that channel (for channel mentions).
@@ -198,18 +237,23 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 comp_result = await db.execute(comp_stmt)
                 completion = comp_result.scalar_one_or_none()
 
-                if not (completion and completion.external_platform == "slack" and completion.external_user_id):
+                if not (completion and completion.external_platform in ("slack", "teams") and completion.external_user_id):
                     print(f"SLACK_NOTIFIER: No Slack-linked completion found for step {step_id}. Caller should supply routing details.")
                     return
 
                 external_user_id = external_user_id or completion.external_user_id
                 organization_id = organization_id or step.widget.report.organization_id
+                platform_type = platform_type or completion.external_platform
                 # Also get thread_ts from completion if not provided
                 if thread_ts is None:
                     thread_ts = completion.external_thread_ts
 
+            if not platform_type:
+                print(f"SLACK_NOTIFIER: No platform_type available for step {step_id}")
+                return
+
             platform_stmt = select(ExternalPlatform).where(
-                ExternalPlatform.organization_id == organization_id, ExternalPlatform.platform_type == "slack")
+                ExternalPlatform.organization_id == organization_id, ExternalPlatform.platform_type == platform_type)
             platform_result = await db.execute(platform_stmt)
             platform = platform_result.scalar_one_or_none()
 
@@ -220,16 +264,16 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
             adapter = PlatformAdapterFactory.create_adapter(platform)
             success = False
             if step.data_model.get('type') == "table":
-                success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
+                success = await _handle_table_step_dm(adapter, external_user_id, step, thread_ts, channel_id, platform_type=platform_type)
             elif step.data_model.get('type') == "count":
                 if step.data and 'rows' in step.data and step.data['rows'] and 'columns' in step.data and step.data['columns']:
                     count_value = step.data['rows'][0].get(step.data['columns'][0].get('field', ''))
-                    message = f"*{step.title or 'Count'}*: {count_value}"
+                    message = f"**{step.title or 'Count'}**: {count_value}" if platform_type == "teams" else f"*{step.title or 'Count'}*: {count_value}"
                     success = await adapter.send_dm_in_thread(external_user_id, message, thread_ts, channel_id=channel_id)
                 else:
                     success = await adapter.send_dm_in_thread(external_user_id, f"I couldn't retrieve the value for '{step.title or 'Count'}'.", thread_ts, channel_id=channel_id)
             else:
-                success = await _handle_chart_step_dm(adapter, external_user_id, step, thread_ts, channel_id)
+                success = await _handle_chart_step_dm(adapter, external_user_id, step, thread_ts, channel_id, platform_type=platform_type)
 
             if success:
                 print(f"SLACK_NOTIFIER: Successfully sent step data to Slack user {external_user_id}")

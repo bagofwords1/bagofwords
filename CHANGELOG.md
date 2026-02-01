@@ -5,6 +5,13 @@
 - Referenced instructions are automatically loaded into AI context when a parent instruction mentions them
 - Schema index and full schema now display instruction count per table, guiding the planner to use `describe_tables` for business rules
 - Updated MCP `get_context` tool to expose instruction count per table
+- **Microsoft Teams Integration**: Full bot support for Teams channels and 1:1 chats
+  - Send questions via @mention in channels or direct message the bot
+  - Thread-based conversations with report reuse across replies
+  - User verification flow with Adaptive Cards
+  - Markdown tables, count results, and report links rendered natively in Teams
+  - JWT signature verification for inbound webhooks
+  - Teams setup UI in Settings > Integrations
 
 ## Version 0.0.307 (January 28, 2026)
 - Separated code and queries for better UX

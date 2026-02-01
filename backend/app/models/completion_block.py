@@ -71,7 +71,7 @@ async def send_completion_blocks_to_slack(completion_id: str):
                 return
 
             # Route only if originated from Slack
-            if not (completion.external_platform == 'slack' and completion.external_user_id):
+            if not (completion.external_platform in ('slack', 'teams') and completion.external_user_id):
                 return
 
             # Get thread context from completion
@@ -80,8 +80,14 @@ async def send_completion_blocks_to_slack(completion_id: str):
             channel_id = completion.external_channel_id
             channel_type = completion.external_channel_type
 
-            # Determine response channel: for channel mentions, respond in channel; for DMs, open DM
-            response_channel = channel_id if channel_type == "channel" else None
+            # Determine response channel:
+            # - Slack DMs: None (adapter opens DM by user_id)
+            # - Teams: always use conversation ID (required for all Teams messages)
+            # - Channel mentions: use channel_id on both platforms
+            if completion.external_platform == "teams":
+                response_channel = channel_id
+            else:
+                response_channel = channel_id if channel_type == "channel" else None
 
             # Get all terminal completion blocks for this completion
             blocks_stmt = select(CompletionBlock).where(
@@ -103,7 +109,7 @@ async def send_completion_blocks_to_slack(completion_id: str):
 
             platform_stmt = select(ExternalPlatform).where(
                 ExternalPlatform.organization_id == org_id,
-                ExternalPlatform.platform_type == 'slack'
+                ExternalPlatform.platform_type == completion.external_platform
             )
             platform_result = await db.execute(platform_stmt)
             platform = platform_result.scalar_one_or_none()
@@ -138,7 +144,8 @@ async def send_completion_blocks_to_slack(completion_id: str):
                                     completion.external_user_id,
                                     org_id,
                                     thread_ts=thread_ts,
-                                    channel_id=response_channel
+                                    channel_id=response_channel,
+                                    platform_type=completion.external_platform
                                 )
                                 _sent_block_tool_ids.add(block_id_str)
                         except Exception as e:
@@ -175,7 +182,7 @@ async def _send_block_to_slack(block_id: str):
                 return
 
             # Route only if originated from Slack
-            if not (completion.external_platform == 'slack' and completion.external_user_id):
+            if not (completion.external_platform in ('slack', 'teams') and completion.external_user_id):
                 return
 
             block_id_str = str(block_id)
@@ -185,8 +192,14 @@ async def _send_block_to_slack(block_id: str):
             channel_id = completion.external_channel_id
             channel_type = completion.external_channel_type
 
-            # Determine response channel: for channel mentions, respond in channel; for DMs, open DM
-            response_channel = channel_id if channel_type == "channel" else None
+            # Determine response channel:
+            # - Slack DMs: None (adapter opens DM by user_id)
+            # - Teams: always use conversation ID (required for all Teams messages)
+            # - Channel mentions: use channel_id on both platforms
+            if completion.external_platform == "teams":
+                response_channel = channel_id
+            else:
+                response_channel = channel_id if channel_type == "channel" else None
 
             # Resolve organization once for both tool and text sends
             org_id = completion.report.organization_id if completion.report else None
@@ -204,7 +217,7 @@ async def _send_block_to_slack(block_id: str):
                 if is_user_facing_source and has_content and is_terminal_status and (block_id_str not in _sent_block_text_ids):
                     platform_stmt = select(ExternalPlatform).where(
                         ExternalPlatform.organization_id == org_id,
-                        ExternalPlatform.platform_type == 'slack'
+                        ExternalPlatform.platform_type == completion.external_platform
                     )
                     platform_result = await db.execute(platform_stmt)
                     platform = platform_result.scalar_one_or_none()
@@ -244,7 +257,8 @@ async def _send_block_to_slack(block_id: str):
                             completion.external_user_id,
                             org_id,
                             thread_ts=thread_ts,
-                            channel_id=response_channel
+                            channel_id=response_channel,
+                            platform_type=completion.external_platform
                         )
                         _sent_block_tool_ids.add(block_id_str)
         except Exception as e:

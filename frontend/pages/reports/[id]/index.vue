@@ -278,6 +278,22 @@
 				</span>
 			</div>
 		</div>
+		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+			<div class="text-xs flex items-center">
+				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
+					<img src="/icons/slack.png" class="h-4 w-4" />
+					<span>This session was created via Slack.</span>
+				</span>
+			</div>
+		</div>
+		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
+			<div class="text-xs flex items-center">
+				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
+					<img src="/icons/teams.png" class="h-4 w-4" />
+					<span>This session was created via Microsoft Teams.</span>
+				</span>
+			</div>
+		</div>
 		<!-- Prompt box (in normal flow at the bottom of the left column) -->
 		<div class="shrink-0 bg-white">
 			<div class="mx-auto px-4" :class="isSplitScreen ? 'w-full' : 'md:w-1/2 w-full'">
