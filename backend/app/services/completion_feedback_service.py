@@ -561,6 +561,7 @@ class CompletionFeedbackService:
                         db,
                         organization,
                         text=draft.get("text", ""),
+                        title=draft.get("title"),
                         category=draft.get("category", "general"),
                         agent_execution_id=str(agent_execution.id),
                         trigger_reason="feedback_triggered",
@@ -570,6 +571,7 @@ class CompletionFeedbackService:
                     )
                     suggestions.append({
                         "id": str(inst.id),
+                        "title": inst.title,
                         "text": inst.text,
                         "category": inst.category,
                         "status": inst.status,

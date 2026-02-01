@@ -143,15 +143,25 @@ class ExternalPlatformService:
         return ExternalPlatformSchema.from_orm(platform)
     
     async def delete_platform(
-        self, 
-        db: AsyncSession, 
-        platform_type: str,
+        self,
+        db: AsyncSession,
+        platform_id: str,
         organization: Organization
     ) -> bool:
         """Delete an external platform"""
-        
-        platform = await self.get_platform_by_type(db, organization.id, platform_type)
-        
+
+        platform = await self.get_platform_by_id(db, platform_id, organization)
+
+        # Delete associated user mappings first (NOT NULL FK constraint)
+        from app.models.external_user_mapping import ExternalUserMapping
+        mapping_stmt = select(ExternalUserMapping).where(
+            ExternalUserMapping.platform_id == str(platform.id)
+        )
+        mapping_result = await db.execute(mapping_stmt)
+        for mapping in mapping_result.scalars().all():
+            await db.delete(mapping)
+
+        platform_type = platform.platform_type
         await db.delete(platform)
         await db.commit()
         # Telemetry: external platform deleted
@@ -166,7 +176,7 @@ class ExternalPlatformService:
             )
         except Exception:
             pass
-        
+
         return True
     
     async def test_platform_connection(
@@ -227,8 +237,36 @@ class ExternalPlatformService:
             return {"success": False, "error": str(e)}
     
     async def _test_teams_connection(self, platform: ExternalPlatform) -> dict:
-        """Test Teams connection (placeholder)"""
-        return {"success": False, "error": "Teams integration not yet implemented"}
+        """Test Teams connection by acquiring an OAuth2 token"""
+        try:
+            import httpx
+
+            credentials = platform.decrypt_credentials()
+            app_id = credentials.get("app_id")
+            client_secret = credentials.get("client_secret")
+
+            if not app_id or not client_secret:
+                return {"success": False, "error": "Missing app_id or client_secret"}
+
+            tenant_id = platform.platform_config.get("tenant_id", "botframework.com")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": app_id,
+                        "client_secret": client_secret,
+                        "scope": "https://api.botframework.com/.default",
+                    },
+                )
+                if response.status_code == 200 and response.json().get("access_token"):
+                    return {"success": True, "app_id": app_id}
+                else:
+                    error = response.json().get("error_description", "Authentication failed")
+                    return {"success": False, "error": error}
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
     
     async def _test_email_connection(self, platform: ExternalPlatform) -> dict:
         """Test Email connection (placeholder)"""
@@ -307,6 +345,94 @@ class ExternalPlatformService:
             pass
         
         return ExternalPlatformSchema.from_orm(platform)
+
+    async def create_teams_platform(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        app_id: str,
+        client_secret: str,
+        tenant_id: str,
+        current_user: User,
+    ) -> ExternalPlatformSchema:
+        """Create a Teams platform with proper configuration"""
+        # Test credentials first
+        test_result = await self._test_teams_token(app_id, client_secret, tenant_id)
+        if not test_result.get("success"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid Teams credentials: {test_result.get('error')}",
+            )
+
+        # Check if platform already exists for this org
+        existing_platform = await self.get_platform_by_type(db, organization.id, "teams")
+        if existing_platform:
+            raise HTTPException(
+                status_code=400,
+                detail="Teams integration already exists for this organization",
+            )
+
+        platform_config = {
+            "tenant_id": tenant_id,
+            "app_id": app_id,
+        }
+
+        credentials = {
+            "app_id": app_id,
+            "client_secret": client_secret,
+        }
+
+        platform = ExternalPlatform(
+            organization_id=organization.id,
+            platform_type="teams",
+            platform_config=platform_config,
+            is_active=True,
+        )
+
+        platform.encrypt_credentials(credentials)
+
+        db.add(platform)
+        await db.commit()
+        await db.refresh(platform)
+
+        try:
+            await telemetry.capture(
+                "external_platform_created",
+                {
+                    "platform_id": str(platform.id),
+                    "platform_type": "teams",
+                    "is_active": True,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
+
+        return ExternalPlatformSchema.from_orm(platform)
+
+    async def _test_teams_token(self, app_id: str, client_secret: str, tenant_id: str) -> dict:
+        """Test Teams credentials by acquiring an OAuth2 token"""
+        try:
+            import httpx
+
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(
+                    f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token",
+                    data={
+                        "grant_type": "client_credentials",
+                        "client_id": app_id,
+                        "client_secret": client_secret,
+                        "scope": "https://api.botframework.com/.default",
+                    },
+                )
+                if response.status_code == 200 and response.json().get("access_token"):
+                    return {"success": True, "app_id": app_id}
+                else:
+                    error = response.json().get("error_description", "Authentication failed")
+                    return {"success": False, "error": error}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     async def _test_slack_token(self, bot_token: str) -> dict:
         """Test Slack bot token and get workspace info"""

@@ -36,6 +36,9 @@
             class="mt-0.5"
           />
           <div class="flex-1">
+            <div v-if="d.title" class="text-[10px] font-mono font-semibold text-gray-500 uppercase tracking-wide mb-1">
+              {{ d.title }}
+            </div>
             <div
               @click="!isBuildPublished ? handleEdit(d, i) : null"
               :class="[
@@ -114,6 +117,7 @@ interface ToolExecution {
 
 interface InstructionDraft {
   id: string
+  title?: string | null
   text: string
   category: string
   status: string
@@ -158,6 +162,7 @@ const drafts = computed<InstructionDraft[]>(() => {
   if (Array.isArray(out)) {
     return out.map((d: any) => ({
       id: d?.id || '',
+      title: d?.title || null,
       text: String(d?.text || ''),
       category: d?.category || 'general',
       status: d?.status || 'draft',
@@ -416,11 +421,6 @@ const handleInstructionSaved = (data: any) => {
   } catch {}
   toast.add({ title: 'Success', description: 'Instruction saved', color: 'green' })
   showInstructionModal.value = false
-}
-
-const handleOpenInstruction = (instruction: any) => {
-  // Open the clicked instruction in view mode
-  editingInstruction.value = instruction
 }
 </script>
 

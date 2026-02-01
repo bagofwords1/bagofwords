@@ -184,6 +184,12 @@
                                                 <img src="/icons/slack.png" class="h-3 inline mr-2" />
                                             </div>
                                             <div
+                                                v-if="report.external_platform && report.external_platform.platform_type == 'teams'"
+                                                class="ml-2 h-3 inline mr-2"
+                                            >
+                                                <img src="/icons/teams.png" class="h-3 inline mr-2" />
+                                            </div>
+                                            <div
                                                 v-if="report.external_platform && report.external_platform.platform_type == 'mcp'"
                                                 class="ml-2 h-3 inline mr-2"
                                             >

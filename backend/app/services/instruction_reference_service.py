@@ -4,6 +4,7 @@ from sqlalchemy.future import select
 from sqlalchemy import and_, delete
 
 from app.models.instruction_reference import InstructionReference
+from app.models.instruction import Instruction
 from app.models.metadata_resource import MetadataResource
 from app.models.datasource_table import DataSourceTable
 from app.models.organization import Organization
@@ -36,6 +37,9 @@ class InstructionReferenceService:
                 elif item.object_type == "datasource_table":
                     from app.schemas.datasource_table_schema import DataSourceTableSchema
                     item_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
+                elif item.object_type == "instruction":
+                    from app.schemas.instruction_schema import InstructionSchema
+                    item_data["object"] = InstructionSchema.from_orm(referenced_obj).model_dump()
             
             populated_items.append(InstructionReferenceSchema(**item_data))
         
@@ -117,11 +121,24 @@ class InstructionReferenceService:
             obj = res.scalar_one_or_none()
             if not obj:
                 raise ValueError("datasource_table not found")
-            
+
             # Validate data source constraint if specified
             if data_source_ids and obj.datasource_id not in data_source_ids:
                 raise ValueError(f"datasource_table {ref.object_id} does not belong to the selected data sources")
-            
+
+            return obj
+        elif ref.object_type == "instruction":
+            q = select(Instruction).where(
+                and_(
+                    Instruction.id == ref.object_id,
+                    Instruction.organization_id == organization.id,
+                    Instruction.deleted_at.is_(None),
+                )
+            )
+            res = await db.execute(q)
+            obj = res.scalar_one_or_none()
+            if not obj:
+                raise ValueError("instruction not found")
             return obj
         else:
             raise ValueError("unsupported object_type")
@@ -135,6 +152,10 @@ class InstructionReferenceService:
                 return res.scalar_one_or_none()
             elif object_type == "datasource_table":
                 q = select(DataSourceTable).where(DataSourceTable.id == object_id)
+                res = await db.execute(q)
+                return res.scalar_one_or_none()
+            elif object_type == "instruction":
+                q = select(Instruction).where(Instruction.id == object_id)
                 res = await db.execute(q)
                 return res.scalar_one_or_none()
         except Exception:

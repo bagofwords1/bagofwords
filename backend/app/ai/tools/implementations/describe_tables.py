@@ -26,7 +26,8 @@ class DescribeTablesTool(Tool):
             description=(
                 "Describe specific tables to get more information about them. Returns tables, columns, usage metrics, etc. "
                 "Use this to ensure you have the right tables and columns for your analysis. "
-                "Also returns instructions and rules associated with the tables."
+                "Also returns instructions and business rules associated with the tables. "
+                "Tables with instructions>0 in the schema have associated rules — use this tool to see them."
             ),
             category="research",
             version="1.0.0",

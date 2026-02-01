@@ -5,24 +5,28 @@
             <!-- Scrollable content area -->
             <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
 
-                <!-- Content Display -->
-                <div class="border border-gray-200 rounded-xl overflow-hidden bg-white">
-                    <!-- Header with file path and git sync status -->
-                    <div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 border-b border-gray-100">
-                        <div class="flex items-center gap-2 min-w-0">
-                            <Icon v-if="props.isGitSourced" name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
-                            <span v-if="filePath" class="text-xs font-mono text-gray-600 truncate">{{ filePath }}</span>
-                            <span v-else class="text-xs font-medium text-gray-500">Content</span>
+                <!-- Title & Git Info -->
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div v-if="instructionForm.title" class="text-sm font-mono font-semibold text-gray-900 uppercase tracking-wide">
+                            {{ instructionForm.title }}
                         </div>
-                        <div v-if="props.isGitSourced" class="flex items-center gap-2 shrink-0">
-                            <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600 bg-green-50 px-1.5 py-0.5 rounded">
-                                <GitBranchIcon class="w-3 h-3" />
-                                Synced
-                            </span>
-                            <span v-else class="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Unlinked</span>
+                        <div v-if="props.isGitSourced && filePath" class="flex items-center gap-1 mt-0.5">
+                            <Icon name="heroicons:code-bracket" class="w-3 h-3 text-gray-400 shrink-0" />
+                            <span class="text-[11px] font-mono text-gray-500 truncate">{{ filePath }}</span>
                         </div>
                     </div>
-                    
+                    <div v-if="props.isGitSourced" class="shrink-0">
+                        <span v-if="props.isGitSynced" class="flex items-center gap-1 text-[10px] text-green-600">
+                            <GitBranchIcon class="w-3 h-3" />
+                            Synced
+                        </span>
+                        <span v-else class="text-[10px] text-gray-400">Unlinked</span>
+                    </div>
+                </div>
+
+                <!-- Content Display -->
+                <div class="border border-gray-200 rounded-xl overflow-hidden bg-white">
                     <!-- Markdown rendered content (for .md files or non-git-linked) -->
                     <div v-if="shouldRenderAsMarkdown" class="p-4 markdown-wrapper">
                         <MDC :value="instructionForm.text || ''" class="markdown-content" />
@@ -123,11 +127,11 @@
                         <span v-else class="text-gray-400">None</span>
                     </div>
 
-                    <!-- Tables -->
+                    <!-- References -->
                     <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Tables:</span>
+                        <span class="text-gray-400">References:</span>
                         <span v-if="selectedReferences.length === 0" class="text-gray-400">None</span>
-                        <span v-else class="text-gray-700">{{ selectedReferences.length }} table{{ selectedReferences.length > 1 ? 's' : '' }}</span>
+                        <span v-else class="text-gray-700">{{ selectedReferences.length }} reference{{ selectedReferences.length > 1 ? 's' : '' }}</span>
                     </div>
                 </div>
 
@@ -168,6 +172,21 @@
         <form v-else @submit.prevent="submitForm" class="flex-1 flex flex-col min-h-0">
             <!-- Scrollable content area -->
             <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+
+                <!-- Title Input -->
+                <div>
+                    <input
+                        v-model="instructionForm.title"
+                        type="text"
+                        placeholder="TITLE (optional, e.g. REVENUE_RULES)"
+                        class="w-full px-3 py-2 text-sm font-mono uppercase tracking-wide
+                               border border-gray-200 rounded-lg
+                               focus:ring-2 focus:ring-blue-100 focus:border-blue-400 focus:outline-none
+                               placeholder:text-gray-400 placeholder:normal-case placeholder:tracking-normal"
+                        @input="instructionForm.title = ($event.target as HTMLInputElement).value.toUpperCase()"
+                    />
+                    <p class="mt-1 text-[10px] text-gray-400">Short identifier (1-4 words) that users can reference</p>
+                </div>
 
                 <!-- Hero Textarea / Code Editor -->
                 <div class="border border-gray-200 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-blue-100 focus-within:border-blue-400">
@@ -224,22 +243,80 @@
                         </div>
                     </div>
                     
-                    <!-- Normal textarea -->
-                    <textarea 
-                        v-if="!codeView"
-                        v-model="instructionForm.text"
-                        placeholder="Describe the instruction for the AI agent...
+                    <!-- Normal textarea with @ mention support -->
+                    <div v-if="!codeView" class="mention-container">
+                        <!-- Highlight backdrop -->
+                        <div
+                            ref="backdropRef"
+                            class="mention-backdrop"
+                            aria-hidden="true"
+                            v-html="highlightedText"
+                        ></div>
+
+                        <!-- Actual textarea -->
+                        <textarea
+                            ref="textareaRef"
+                            v-model="instructionForm.text"
+                            placeholder="Describe the instruction for the AI agent...
 
 Examples:
 • When querying revenue, always filter out cancelled orders
-• Use the customers_v2 table instead of the deprecated customers table  
-• Calculate MRR as sum of active subscription amounts"
-                        class="w-full min-h-[210px] text-xs leading-relaxed p-4
-                               border-0 resize-y
-                               focus:ring-0 focus:outline-none
-                               placeholder:text-gray-400"
-                        required
-                    />
+• Use the customers_v2 table instead of the deprecated customers table
+• Calculate MRR as sum of active subscription amounts
+
+Tip: Type @ to reference other instructions"
+                            class="mention-textarea"
+                            required
+                            @input="handleTextareaInput"
+                            @keydown="handleTextareaKeydown"
+                            @blur="handleTextareaBlur"
+                            @scroll="syncScroll"
+                        />
+
+                        <!-- @ Mention dropdown - hide if no results after 5+ chars -->
+                        <div
+                            v-if="mentionState.active && (filteredMentionItems.length > 0 || mentionState.query.length < 5)"
+                            ref="mentionDropdownRef"
+                            class="absolute z-50 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto w-80"
+                            :style="mentionDropdownStyle"
+                        >
+                            <div v-if="filteredMentionItems.length === 0" class="px-3 py-2 text-xs text-gray-500">
+                                Type to search...
+                            </div>
+                            <button
+                                v-for="(item, index) in filteredMentionItems"
+                                :key="item.id"
+                                type="button"
+                                :data-mention-idx="index"
+                                class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 flex items-start gap-2 border-b border-gray-100 last:border-0"
+                                :class="{ 'bg-blue-50': index === mentionState.selectedIndex }"
+                                @mousedown.prevent="selectMention(item)"
+                            >
+                                <!-- Icon based on type -->
+                                <Icon
+                                    :name="item.type === 'instruction' ? 'heroicons:cube' : 'heroicons:table-cells'"
+                                    class="w-3.5 h-3.5 mt-0.5 shrink-0"
+                                    :class="item.type === 'instruction' ? 'text-indigo-500' : 'text-blue-500'"
+                                />
+                                <div class="flex-1 min-w-0">
+                                    <!-- Instruction -->
+                                    <template v-if="item.type === 'instruction'">
+                                        <span v-if="item.name" class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
+                                        <span v-else class="text-gray-700 truncate block">"{{ item.textPreview?.slice(0, 30) }}..."</span>
+                                        <span v-if="item.name && item.textPreview" class="text-[10px] text-gray-500 truncate block">{{ item.textPreview }}</span>
+                                    </template>
+                                    <!-- Table -->
+                                    <template v-else>
+                                        <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
+                                        <div class="flex items-center gap-1 mt-0.5">
+                                            <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="w-2.5 h-2.5" />
+                                            <span class="text-[10px] text-gray-500">{{ item.dataSourceName }}</span>
+                                        </div>
+                                    </template>
+                                </div>
+                            </button>
+                        </div>
+                    </div>
                     
                     <!-- Code editor (Monaco with white background) -->
                     <ClientOnly v-else>
@@ -474,7 +551,7 @@ Examples:
                         </template>
                     </USelectMenu>
 
-                    <!-- Tables -->
+                    <!-- References (Tables & Instructions) -->
                     <USelectMenu
                         :options="filteredMentionableOptions"
                         option-attribute="name"
@@ -482,16 +559,16 @@ Examples:
                         size="xs"
                         multiple
                         searchable
-                        searchable-placeholder="Search tables..."
+                        searchable-placeholder="Search references..."
                         :model-value="selectedReferenceIds"
                         @update:model-value="handleReferencesChange"
                         class="min-w-[200px]"
                         :ui-menu="{ width: 'w-96', option: { base: 'py-1.5' } }"
                     >
                         <template #label>
-                            <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">Tables</span>
+                            <span v-if="selectedReferences.length === 0" class="text-gray-400 text-xs">References</span>
                             <div v-else class="flex items-center gap-1 text-xs text-gray-700">
-                                <Icon name="heroicons:table-cells" class="w-3 h-3 text-gray-500" />
+                                <Icon :name="getRefIconHeroicons(selectedReferences[0].type)" class="w-3 h-3 text-gray-500" />
                                 <span class="truncate max-w-[120px]">{{ selectedReferences[0].name }}</span>
                                 <span v-if="selectedReferences.length > 1" class="text-gray-500">+{{ selectedReferences.length - 1 }}</span>
                             </div>
@@ -499,12 +576,16 @@ Examples:
                         <template #option="{ option }">
                             <div class="w-full py-0.5">
                                 <div class="flex items-center gap-1.5">
-                                    <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 text-gray-500 flex-shrink-0" />
-                                    <span class="text-[11px] font-medium text-gray-900 break-all">{{ option.name }}</span>
+                                    <UIcon :name="getRefIcon(option.type)" class="w-3 h-3 flex-shrink-0" :class="option.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'" />
+                                    <span class="text-[11px] font-medium text-gray-900 break-all">{{ option.name || option.text_preview?.slice(0, 40) + '...' }}</span>
                                 </div>
-                                <div class="flex items-center gap-1">
+                                <div v-if="option.data_source_name" class="flex items-center gap-1">
                                     <DataSourceIcon :type="option.data_source_type" class="w-2.5 h-2.5 flex-shrink-0" />
                                     <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
+                                </div>
+                                <div v-else-if="option.type === 'instruction'" class="flex items-center gap-1">
+                                    <Icon name="heroicons:cube" class="w-2.5 h-2.5 text-indigo-400 flex-shrink-0" />
+                                    <span class="text-[10px] text-gray-500">Instruction</span>
                                 </div>
                             </div>
                         </template>
@@ -649,11 +730,12 @@ interface DataSource {
 
 interface InstructionForm {
     text: string
+    title: string
     status: 'draft' | 'published' | 'archived'
     category: 'code_gen' | 'data_modeling' | 'general' | 'system' | 'visualizations' | 'dashboard'
     is_seen: boolean
     can_user_toggle: boolean
-    
+
     // Unified Instructions System fields
     load_mode: 'always' | 'intelligent' | 'disabled'
 }
@@ -667,10 +749,13 @@ interface InstructionLabel {
 
 interface MentionableItem {
     id: string
-    type: 'metadata_resource' | 'datasource_table'
+    type: 'metadata_resource' | 'datasource_table' | 'instruction'
     name: string
     data_source_id?: string
+    data_source_name?: string
+    data_source_type?: string
     column_name?: string | null
+    text_preview?: string | null  // For instructions without title
 }
 
 // Props and Emits
@@ -706,9 +791,369 @@ const originalText = ref('')
 const codeView = ref(false)
 const isViewMode = ref(true)  // Start in view mode for existing instructions
 
+// @ Mention feature
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+const mentionDropdownRef = ref<HTMLDivElement | null>(null)
+
+interface MentionItem {
+    id: string
+    type: 'instruction' | 'metadata_resource' | 'datasource_table'
+    name: string | null  // title for instructions, table name for tables
+    textPreview: string | null
+    dataSourceId: string | null
+    dataSourceName: string | null
+    dataSourceType: string | null
+}
+
+// Items for @ mention autocomplete (instructions + tables from API)
+// allMentionItems: full list for highlighting validation (not filtered by search)
+// mentionSearchResults: filtered by search query for dropdown
+const allMentionItems = ref<MentionItem[]>([])
+const mentionSearchResults = ref<MentionItem[]>([])
+const isFetchingMentions = ref(false)
+
+// Fetch all mention items (no search filter) - used for highlighting
+const fetchAllMentionItems = async () => {
+    try {
+        const params = new URLSearchParams()
+        params.set('types', 'instruction,datasource_table,metadata_resource')
+        if (!isAllDataSourcesSelected.value && selectedDataSources.value.length > 0) {
+            params.set('data_source_filter', selectedDataSources.value.join(','))
+        }
+
+        const { data, error } = await useMyFetch<Array<{
+            id: string
+            type: string
+            name: string | null
+            text_preview: string | null
+            data_source_id: string | null
+            data_source_name: string | null
+            data_source_type: string | null
+        }>>(
+            `/instructions/available-references?${params.toString()}`,
+            { method: 'GET' }
+        )
+
+        if (!error.value && data.value) {
+            allMentionItems.value = data.value.map(item => ({
+                id: item.id,
+                type: item.type as MentionItem['type'],
+                name: item.name,
+                textPreview: item.text_preview || null,
+                dataSourceId: item.data_source_id,
+                dataSourceName: item.data_source_name,
+                dataSourceType: item.data_source_type
+            }))
+        }
+    } catch (err) {
+        console.error('Error fetching all mention items:', err)
+    }
+}
+
+// Fetch mention items with search query - used for dropdown
+const fetchMentionItems = async (query?: string) => {
+    isFetchingMentions.value = true
+    try {
+        const params = new URLSearchParams()
+        if (query) params.set('q', query)
+        params.set('types', 'instruction,datasource_table,metadata_resource')
+        if (!isAllDataSourcesSelected.value && selectedDataSources.value.length > 0) {
+            params.set('data_source_filter', selectedDataSources.value.join(','))
+        }
+
+        const { data, error } = await useMyFetch<Array<{
+            id: string
+            type: string
+            name: string | null
+            text_preview: string | null
+            data_source_id: string | null
+            data_source_name: string | null
+            data_source_type: string | null
+        }>>(
+            `/instructions/available-references?${params.toString()}`,
+            { method: 'GET' }
+        )
+
+        if (!error.value && data.value) {
+            mentionSearchResults.value = data.value.map(item => ({
+                id: item.id,
+                type: item.type as MentionItem['type'],
+                name: item.name,
+                textPreview: item.text_preview || null,
+                dataSourceId: item.data_source_id,
+                dataSourceName: item.data_source_name,
+                dataSourceType: item.data_source_type
+            }))
+        }
+    } catch (err) {
+        console.error('Error fetching mention items:', err)
+    } finally {
+        isFetchingMentions.value = false
+    }
+}
+
+const mentionState = ref({
+    active: false,
+    query: '',
+    startPos: 0,
+    selectedIndex: 0,
+    top: 0,
+    left: 0,
+})
+
+// Debounced fetch when query changes
+let mentionFetchTimeout: ReturnType<typeof setTimeout> | null = null
+watch(() => mentionState.value.query, (newQuery) => {
+    if (mentionFetchTimeout) clearTimeout(mentionFetchTimeout)
+    mentionFetchTimeout = setTimeout(() => {
+        fetchMentionItems(newQuery)
+    }, 150)
+})
+
+const filteredMentionItems = computed(() => {
+    // Group by type and take top 3 from each (from search results for dropdown)
+    const instructions = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'instruction').slice(0, 3)
+    const tables = mentionSearchResults.value.filter((i: MentionItem) => i.type === 'datasource_table' || i.type === 'metadata_resource').slice(0, 3)
+    return [...instructions, ...tables]
+})
+
+const mentionDropdownStyle = computed(() => ({
+    top: `${mentionState.value.top}px`,
+    left: `${mentionState.value.left}px`,
+}))
+
+// Check if a mention text matches any known item (uses full list, not search results)
+const isKnownMention = (mentionText: string): boolean => {
+    const lowerText = mentionText.toLowerCase()
+
+    for (const item of allMentionItems.value) {
+        // Check against name (for tables and instructions with titles)
+        if (item.name && item.name.toLowerCase() === lowerText) {
+            return true
+        }
+
+        // Check against text preview patterns (for instructions)
+        if (item.type === 'instruction' && item.textPreview) {
+            // Format used in selectMention for instructions without name
+            const truncatedPreview = item.textPreview.slice(0, 30) + '...'
+            if (truncatedPreview.toLowerCase() === lowerText) {
+                return true
+            }
+            // Also check if the textPreview itself starts with the mention
+            if (item.textPreview.toLowerCase().startsWith(lowerText.replace(/\.\.\.+$/, ''))) {
+                return true
+            }
+        }
+    }
+    return false
+}
+
+// Render text with highlighted mentions
+const highlightedText = computed(() => {
+    const text = instructionForm.value.text
+    if (!text) return ''
+
+    // Escape HTML first
+    let html = text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+
+    // Find and highlight @mentions
+    // Match @word (any alphanumeric/underscore) or @"quoted text"
+    const mentionRegex = /@([A-Za-z_][A-Za-z0-9_]*|"[^"]+")/g
+
+    html = html.replace(mentionRegex, (match, captured) => {
+        // Extract the name (remove quotes if present)
+        let name = captured
+        if (name.startsWith('"') && name.endsWith('"')) {
+            name = name.slice(1, -1)
+        }
+
+        // Only highlight if this is a known mention
+        if (isKnownMention(name)) {
+            return `<mark style="background-color: rgba(99, 102, 241, 0.12); color: transparent; border-radius: 3px; padding: 0; text-decoration: none;">${match}</mark>`
+        }
+        // Not a valid mention, return unhighlighted
+        return match
+    })
+
+    // Add invisible character at end to match textarea sizing
+    return html + '\n'
+})
+
+// Ref for the backdrop div to sync scroll
+const backdropRef = ref<HTMLDivElement | null>(null)
+
+const syncScroll = (e: Event) => {
+    const textarea = e.target as HTMLTextAreaElement
+    if (backdropRef.value) {
+        backdropRef.value.scrollTop = textarea.scrollTop
+    }
+}
+
+const handleTextareaInput = (e: Event) => {
+    const textarea = e.target as HTMLTextAreaElement
+    const text = textarea.value
+    const cursorPos = textarea.selectionStart
+
+    // Find if we're in a mention context (typing after @)
+    const textBeforeCursor = text.slice(0, cursorPos)
+    const atIndex = textBeforeCursor.lastIndexOf('@')
+
+    if (atIndex !== -1) {
+        const textAfterAt = textBeforeCursor.slice(atIndex + 1)
+        // Allow spaces in mention query, but end on newline or double space
+        // Also limit query length to prevent runaway matches
+        const hasNewline = textAfterAt.includes('\n')
+        const hasDoubleSpace = textAfterAt.includes('  ')
+        const tooLong = textAfterAt.length > 50
+
+        if (!hasNewline && !hasDoubleSpace && !tooLong) {
+            // Calculate position for dropdown
+            const lines = textBeforeCursor.split('\n')
+            const currentLineIndex = lines.length - 1
+            const lineHeight = 18 // approximate line height in pixels
+            const charWidth = 7 // approximate char width for monospace
+
+            mentionState.value = {
+                active: true,
+                query: textAfterAt,
+                startPos: atIndex,
+                selectedIndex: 0,
+                top: (currentLineIndex + 1) * lineHeight + 16, // +16 for padding
+                left: Math.min((lines[currentLineIndex].length - textAfterAt.length) * charWidth + 16, 200),
+            }
+            return
+        }
+    }
+
+    // Not in mention mode
+    if (mentionState.value.active) {
+        mentionState.value.active = false
+    }
+}
+
+const scrollMentionIntoView = () => {
+    if (!mentionDropdownRef.value) return
+    const container = mentionDropdownRef.value
+    const selectedEl = container.querySelector(`[data-mention-idx="${mentionState.value.selectedIndex}"]`) as HTMLElement | null
+    if (!selectedEl) return
+
+    const containerTop = container.scrollTop
+    const containerBottom = containerTop + container.clientHeight
+    const elTop = selectedEl.offsetTop
+    const elBottom = elTop + selectedEl.offsetHeight
+
+    if (elTop < containerTop) {
+        container.scrollTop = elTop
+    } else if (elBottom > containerBottom) {
+        container.scrollTop = elBottom - container.clientHeight
+    }
+}
+
+const handleTextareaKeydown = (e: KeyboardEvent) => {
+    if (!mentionState.value.active) return
+
+    const filtered = filteredMentionItems.value
+
+    if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        mentionState.value.selectedIndex = Math.min(
+            mentionState.value.selectedIndex + 1,
+            filtered.length - 1
+        )
+        nextTick(scrollMentionIntoView)
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        mentionState.value.selectedIndex = Math.max(
+            mentionState.value.selectedIndex - 1,
+            0
+        )
+        nextTick(scrollMentionIntoView)
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+        if (filtered.length > 0) {
+            e.preventDefault()
+            selectMention(filtered[mentionState.value.selectedIndex])
+        }
+    } else if (e.key === 'Escape') {
+        e.preventDefault()
+        mentionState.value.active = false
+    }
+}
+
+const handleTextareaBlur = () => {
+    // Delay to allow click on dropdown item
+    setTimeout(() => {
+        mentionState.value.active = false
+    }, 150)
+}
+
+const selectMention = (item: MentionItem) => {
+    const textarea = textareaRef.value
+    if (!textarea) return
+
+    const text = instructionForm.value.text
+    const { startPos, query } = mentionState.value
+
+    // Build the mention text based on type
+    // Wrap in quotes if name contains spaces or special characters
+    const needsQuotes = (name: string | null) => name && /[\s\-.]/.test(name)
+
+    let mentionText: string
+    if (item.type === 'instruction') {
+        if (!item.name) {
+            mentionText = `@"${item.textPreview?.slice(0, 30)}..."`
+        } else if (needsQuotes(item.name)) {
+            mentionText = `@"${item.name}"`
+        } else {
+            mentionText = `@${item.name}`
+        }
+    } else {
+        // Table - wrap in quotes if has spaces
+        if (needsQuotes(item.name)) {
+            mentionText = `@"${item.name}"`
+        } else {
+            mentionText = `@${item.name}`
+        }
+    }
+
+    // Replace @query with the mention
+    const before = text.slice(0, startPos)
+    const after = text.slice(startPos + 1 + query.length) // +1 for the @
+
+    instructionForm.value.text = before + mentionText + ' ' + after
+
+    // Add to selectedReferences (tables and instructions)
+    const alreadySelected = selectedReferences.value.some(ref => ref.id === item.id)
+    if (!alreadySelected) {
+        selectedReferences.value.push({
+            id: item.id,
+            type: item.type,
+            name: item.name || (item.type === 'instruction' ? item.textPreview?.slice(0, 30) + '...' : ''),
+            data_source_id: item.dataSourceId || undefined,
+            data_source_name: item.dataSourceName || undefined,
+            data_source_type: item.dataSourceType || undefined,
+            text_preview: item.textPreview || undefined,
+            column_name: null
+        })
+    }
+
+    // Close dropdown
+    mentionState.value.active = false
+
+    // Focus and set cursor position
+    nextTick(() => {
+        textarea.focus()
+        const newPos = startPos + mentionText.length + 1
+        textarea.setSelectionRange(newPos, newPos)
+    })
+}
+
 // Form data (simplified - approval workflow handled by builds)
 const instructionForm = ref<InstructionForm>({
     text: '',
+    title: '',
     status: 'draft',
     category: 'general',
     is_seen: true,
@@ -719,12 +1164,12 @@ const instructionForm = ref<InstructionForm>({
 // Computed properties
 const isEditing = computed(() => !!props.instruction)
 
-// Get file path from instruction (git path or title)
+// Get file path from instruction (git path only - title is shown separately)
 const filePath = computed(() => {
-    return props.instruction?.structured_data?.path || props.instruction?.title || null
+    return props.instruction?.structured_data?.path || null
 })
 
-// Get file extension from git path or title
+// Get file extension from git path
 const fileExtension = computed(() => {
     const path = filePath.value || ''
     const match = path.match(/\.([^.]+)$/)
@@ -812,14 +1257,19 @@ const filteredMentionableOptions = computed(() => {
     if (isAllDataSourcesSelected.value) {
         return mentionableOptions.value
     }
-    
+
     // Otherwise, filter by selected data sources
     return mentionableOptions.value.filter(option => {
+        // Instructions without data sources are "general" - always include them
+        if (option.type === 'instruction' && !option.data_source_id) {
+            return true
+        }
+
         // For metadata_resource and datasource_table, check data_source_id
         if (option.data_source_id) {
             return selectedDataSources.value.includes(option.data_source_id)
         }
-        
+
         // If no data_source_id, include it (fallback)
         return true
     })
@@ -990,7 +1440,15 @@ const getCreatorDisplayName = () => {
 const getRefIcon = (type: string) => {
     if (type === 'metadata_resource') return 'i-heroicons-rectangle-stack'
     if (type === 'datasource_table') return 'i-heroicons-table-cells'
+    if (type === 'instruction') return 'i-heroicons-cube'
     return 'i-heroicons-circle'
+}
+
+const getRefIconHeroicons = (type: string) => {
+    if (type === 'metadata_resource') return 'heroicons:rectangle-stack'
+    if (type === 'datasource_table') return 'heroicons:table-cells'
+    if (type === 'instruction') return 'heroicons:cube'
+    return 'heroicons:circle-stack'
 }
 
 const handleReferencesChange = (ids: string[]) => {
@@ -1073,6 +1531,7 @@ const buildInstructionPayload = () => {
     const dataSourceIds = isAllDataSourcesSelected.value ? [] : selectedDataSources.value.slice()
     return {
         text: instructionForm.value.text,
+        title: instructionForm.value.title || null,
         status: instructionForm.value.status,
         category: instructionForm.value.category,
         is_seen: instructionForm.value.is_seen,
@@ -1093,6 +1552,7 @@ const buildInstructionPayload = () => {
 const resetForm = () => {
     instructionForm.value = {
         text: '',
+        title: '',
         status: 'draft',
         category: 'general',
         is_seen: true,
@@ -1123,6 +1583,7 @@ const cancelEdit = () => {
     if (props.instruction) {
         instructionForm.value = {
             text: props.instruction.text || '',
+            title: props.instruction.title || '',
             status: props.instruction.status || 'draft',
             category: props.instruction.category || 'general',
             is_seen: props.instruction.is_seen !== undefined ? props.instruction.is_seen : true,
@@ -1302,7 +1763,11 @@ const doDelete = async () => {
 
 const fetchAvailableReferences = async () => {
     try {
-        const { data, error } = await useMyFetch<MentionableItem[]>('/instructions/available-references', { method: 'GET' })
+        // Include instructions, tables, and metadata resources
+        const params = new URLSearchParams()
+        params.set('types', 'instruction,datasource_table,metadata_resource')
+
+        const { data, error } = await useMyFetch<MentionableItem[]>(`/instructions/available-references?${params.toString()}`, { method: 'GET' })
         if (!error.value && data.value) {
             mentionableOptions.value = data.value
         }
@@ -1360,6 +1825,8 @@ const initReferencesFromInstruction = () => {
 onMounted(async () => {
     fetchDataSources()
     fetchLabels()
+    fetchAllMentionItems() // Pre-load all items for highlighting
+    fetchMentionItems() // Pre-load items for @ mentions dropdown
     // Fetch full instruction first (to get references), then available references, then init
     await fetchFullInstruction()
     await fetchAvailableReferences()
@@ -1369,12 +1836,64 @@ onMounted(async () => {
 // Emit text changes upward so parent modal has current text for analysis
 watch(() => instructionForm.value.text, (val) => {
     emit('update-form', { text: val })
+    // Sync selectedReferences with mentions in text (remove tables that are no longer mentioned)
+    syncReferencesWithMentions(val)
 })
+
+// Extract mention names from text and sync selectedReferences
+const syncReferencesWithMentions = (text: string) => {
+    if (!text) {
+        // If text is empty, clear all references that were added via mentions
+        selectedReferences.value = []
+        return
+    }
+
+    // Extract all mentions from text
+    const mentionRegex = /@([A-Za-z_][A-Za-z0-9_]*|"[^"]+")/g
+    const mentionedNames = new Set<string>()
+
+    let match
+    while ((match = mentionRegex.exec(text)) !== null) {
+        let name = match[1]
+        // Remove quotes if present
+        if (name.startsWith('"') && name.endsWith('"')) {
+            name = name.slice(1, -1)
+        }
+        mentionedNames.add(name.toLowerCase())
+    }
+
+    // Keep only references that are still mentioned in text
+    selectedReferences.value = selectedReferences.value.filter(ref => {
+        // Check against name (for tables and instructions with titles)
+        if (ref.name) {
+            if (mentionedNames.has(ref.name.toLowerCase())) {
+                return true
+            }
+        }
+
+        // Check against text_preview pattern (for instructions without titles)
+        if (ref.type === 'instruction' && ref.text_preview) {
+            const truncatedPreview = ref.text_preview.slice(0, 30) + '...'
+            if (mentionedNames.has(truncatedPreview.toLowerCase())) {
+                return true
+            }
+            // Also check if any mention starts with the text preview prefix
+            for (const mentioned of mentionedNames) {
+                if (ref.text_preview.toLowerCase().startsWith(mentioned.replace(/\.\.\.+$/, ''))) {
+                    return true
+                }
+            }
+        }
+
+        return false
+    })
+}
 
 watch(() => props.instruction, async (newInstruction) => {
     if (newInstruction) {
         instructionForm.value = {
             text: newInstruction.text || '',
+            title: newInstruction.title || '',
             status: newInstruction.status || 'draft',
             category: newInstruction.category || 'general',
             is_seen: newInstruction.is_seen !== undefined ? newInstruction.is_seen : true,
@@ -1404,6 +1923,9 @@ watch(() => props.instruction, async (newInstruction) => {
 // Validate references when data sources change
 watch(() => selectedDataSources.value, () => {
     validateSelectedReferences()
+    // Refetch mention items when data sources change
+    fetchAllMentionItems() // Refetch full list for highlighting
+    fetchMentionItems(mentionState.value.query || undefined)
 }, { deep: true })
 
 watch(showLabelModal, (isOpen) => {
@@ -1495,5 +2017,58 @@ watch(isViewMode, (newVal) => {
     em {
         @apply italic;
     }
+}
+
+/* @ Mention editor - textarea with highlight overlay */
+.mention-container {
+    position: relative;
+}
+
+.mention-backdrop,
+.mention-textarea {
+    /* Identical text styling for perfect alignment */
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px;
+    line-height: 1.625;
+    padding: 16px;
+    margin: 0;
+    border: 0;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    letter-spacing: normal;
+    word-spacing: normal;
+}
+
+.mention-backdrop {
+    position: absolute;
+    inset: 0;
+    color: transparent;
+    pointer-events: none;
+    overflow: hidden;
+    background: transparent;
+}
+
+.mention-textarea {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    min-height: 210px;
+    resize: vertical;
+    background: transparent;
+    caret-color: #111827;
+    outline: none;
+}
+
+.mention-textarea::placeholder {
+    color: #9ca3af;
+}
+
+/* Highlight marks inside backdrop - :deep for v-html */
+.mention-backdrop :deep(mark) {
+    color: transparent;
+    border-radius: 3px;
+    padding: 2px 0;
+    box-decoration-break: clone;
 }
 </style>

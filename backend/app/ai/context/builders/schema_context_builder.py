@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select
+from sqlalchemy import select, func, and_
 from app.ai.context.sections.tables_schema_section import TablesSchemaContext
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable, TableColumn as PromptTableColumn, ForeignKey as PromptForeignKey
@@ -14,6 +14,7 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
+from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
 
 
@@ -118,6 +119,7 @@ class SchemaContextBuilder:
                     metadata_json = getattr(base, 'metadata_json', None) if base is not None else None
                     normalized.append({
                         "name": name,
+                        "table_id": str(base.id) if base is not None else None,
                         "columns": columns,
                         "pks": pks,
                         "fks": fks,
@@ -138,6 +140,7 @@ class SchemaContextBuilder:
                     columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown")} for col in (getattr(t, 'columns', []) or [])]
                     normalized.append({
                         "name": getattr(t, 'name', ''),
+                        "table_id": str(t.id) if getattr(t, 'id', None) else None,
                         "columns": columns,
                         "pks": getattr(t, 'pks', []) or [],
                         "fks": getattr(t, 'fks', []) or [],
@@ -149,6 +152,28 @@ class SchemaContextBuilder:
                         "entity_like": getattr(t, 'entity_like', None),
                         "is_active": table_is_active,
                     })
+
+            # Batch-query instruction reference counts for all tables in this data source
+            instruction_ref_counts: Dict[str, int] = {}
+            table_ids_for_ref = [item["table_id"] for item in normalized if item.get("table_id")]
+            if table_ids_for_ref:
+                try:
+                    ref_count_result = await self.db.execute(
+                        select(
+                            InstructionReference.object_id,
+                            func.count(InstructionReference.id)
+                        ).where(
+                            and_(
+                                InstructionReference.object_type == 'datasource_table',
+                                InstructionReference.object_id.in_(table_ids_for_ref),
+                                InstructionReference.deleted_at.is_(None),
+                            )
+                        ).group_by(InstructionReference.object_id)
+                    )
+                    for object_id, count in ref_count_result.all():
+                        instruction_ref_counts[str(object_id)] = count
+                except Exception:
+                    pass  # Non-critical - continue without counts
 
             # Common rendering and scoring
             scored: List[tuple[float, PromptTable]] = []
@@ -183,6 +208,7 @@ class SchemaContextBuilder:
                     degree_out=item.get("degree_out"),
                     entity_like=item.get("entity_like"),
                     metadata_json=item.get("metadata_json"),
+                    referenced_instructions_count=instruction_ref_counts.get(item.get("table_id", ""), None) or None,
                 )
 
                 if with_stats:

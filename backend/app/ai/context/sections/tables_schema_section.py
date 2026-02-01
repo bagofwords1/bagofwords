@@ -188,6 +188,11 @@ class TablesSchemaContext(ContextSection):
                         attrs["usage"] = str(int(getattr(t, 'usage_count') or 0))
                 except Exception:
                     pass
+                try:
+                    if getattr(t, 'referenced_instructions_count', None) is not None:
+                        attrs["instructions"] = str(int(getattr(t, 'referenced_instructions_count')))
+                except Exception:
+                    pass
                 inner = "\n".join(filter(None, [xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else ""]))
                 tables_xml.append(xml_tag("table", inner, attrs))
             if not tables_xml:
@@ -209,6 +214,11 @@ class TablesSchemaContext(ContextSection):
                 try:
                     if getattr(t, 'score', None) is not None:
                         attrs["score"] = str(round(float(getattr(t, 'score')), 2))
+                except Exception:
+                    pass
+                try:
+                    if getattr(t, 'referenced_instructions_count', None) is not None:
+                        attrs["instructions"] = str(int(getattr(t, 'referenced_instructions_count')))
                 except Exception:
                     pass
                 # Emit self-closing <item .../> to avoid empty inner newlines

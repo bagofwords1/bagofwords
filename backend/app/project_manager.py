@@ -693,6 +693,7 @@ class ProjectManager:
         db,
         organization,
         text: str,
+        title: str | None = None,
         category: str = "general",
         agent_execution_id: str = None,
         trigger_reason: str = None,
@@ -702,17 +703,19 @@ class ProjectManager:
     ) -> Instruction:
         """
         Create a single draft instruction owned by the system (user_id=None).
-        
+
         Args:
+            title: Optional short title for the instruction (UPPERCASE format recommended)
             build: Optional InstructionBuild to add this instruction to (for batching)
         """
         try:
             clean_text = (text or "").strip()
             if not clean_text:
                 raise ValueError("Instruction text cannot be empty")
-            
+
             instruction = Instruction(
                 text=clean_text,
+                title=title,
                 status="draft",
                 category=category or "general",
                 user_id=user_id,

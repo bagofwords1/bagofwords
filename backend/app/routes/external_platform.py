@@ -13,7 +13,8 @@ from app.schemas.external_platform_schema import (
     ExternalPlatformCreate,
     ExternalPlatformUpdate,
     ExternalPlatformSchema,
-    SlackConfig
+    SlackConfig,
+    TeamsConfig,
 )
 from app.models.external_platform import ExternalPlatform
 
@@ -95,4 +96,17 @@ async def create_slack_integration(
     """Create a new Slack integration"""
     return await external_platform_service.create_slack_platform(
         db, organization, data.bot_token, data.signing_secret, current_user
+    )
+
+@router.post("/settings/integrations/teams", response_model=ExternalPlatformSchema)
+@requires_permission('manage_organization_settings')
+async def create_teams_integration(
+    data: TeamsConfig,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """Create a new Teams integration"""
+    return await external_platform_service.create_teams_platform(
+        db, organization, data.app_id, data.client_secret, data.tenant_id, current_user
     )

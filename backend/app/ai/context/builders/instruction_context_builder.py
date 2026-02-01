@@ -11,6 +11,7 @@ from app.models.instruction_stats import InstructionStats
 from app.models.instruction_build import InstructionBuild
 from app.models.build_content import BuildContent
 from app.models.instruction_version import InstructionVersion
+from app.models.instruction_reference import InstructionReference
 from app.models.organization import Organization
 from app.models.user import User
 
@@ -504,12 +505,22 @@ class InstructionContextBuilder:
             scored.sort(key=lambda x: x[1], reverse=True)
             intelligent_items = [item for item, _ in scored[:remaining_slots]]
         
+        items = always_items + intelligent_items
+
+        # Load referenced instructions (dependencies)
+        loaded_ids = {item.id for item in items}
+        dep_items = await self._load_referenced_instructions(
+            loaded_ids, max_instructions - len(items), build=build
+        )
+        items.extend(dep_items)
+
         logger.info(
             f"_load_from_build: loaded {len(always_items)} always + "
-            f"{len(intelligent_items)} intelligent (max={max_instructions})"
+            f"{len(intelligent_items)} intelligent + "
+            f"{len(dep_items)} dependencies (max={max_instructions})"
         )
-        
-        return always_items + intelligent_items
+
+        return items
     
     async def _build_legacy(
         self,
@@ -594,17 +605,156 @@ class InstructionContextBuilder:
                     usage_count=usage_counts.get(inst_id),
                 ))
         
+        # Load referenced instructions (dependencies)
+        loaded_ids = {item.id for item in items}
+        dep_items = await self._load_referenced_instructions(
+            loaded_ids, max_instructions - len(items), build=None
+        )
+        items.extend(dep_items)
+
         logger.info(
             f"_build_legacy: loaded {len(always_instructions)} always + "
-            f"{len(intelligent_results)} intelligent (max={max_instructions})"
+            f"{len(intelligent_results)} intelligent + "
+            f"{len(dep_items)} dependencies (max={max_instructions})"
         )
-        
+
         return InstructionsSection(items=items)
 
     # --------------------------------------------------------------------- #
     # Private helpers                                                       #
     # --------------------------------------------------------------------- #
     
+    async def _load_referenced_instructions(
+        self,
+        loaded_ids: Set[str],
+        remaining_slots: int,
+        build: Optional[InstructionBuild] = None,
+        _depth: int = 0,
+    ) -> List[InstructionItem]:
+        """
+        Load instructions that are referenced by already-loaded instructions.
+
+        Uses InstructionReference records (object_type='instruction') to find
+        dependencies. Recurses once to resolve transitive references (A->B->C).
+        """
+        if remaining_slots <= 0 or not loaded_ids:
+            return []
+
+        # Step 1: Find instruction references from loaded instructions
+        ref_result = await self.db.execute(
+            select(InstructionReference.object_id)
+            .where(
+                and_(
+                    InstructionReference.instruction_id.in_(loaded_ids),
+                    InstructionReference.object_type == 'instruction',
+                )
+            )
+        )
+        referenced_ids = {row[0] for row in ref_result.all()}
+        missing_ids = referenced_ids - loaded_ids
+        if not missing_ids:
+            return []
+
+        # Step 2: Load the missing instructions
+        dep_items: List[InstructionItem] = []
+
+        if build:
+            # Build mode: load via BuildContent to get versioned text
+            contents_result = await self.db.execute(
+                select(BuildContent)
+                .options(
+                    selectinload(BuildContent.instruction),
+                    selectinload(BuildContent.instruction_version),
+                )
+                .where(
+                    and_(
+                        BuildContent.build_id == build.id,
+                        BuildContent.instruction_id.in_(missing_ids),
+                    )
+                )
+            )
+            contents = contents_result.scalars().all()
+
+            usage_counts = await self._batch_load_usage_counts(list(missing_ids))
+
+            for content in contents:
+                instruction = content.instruction
+                version = content.instruction_version
+                if not instruction or not version:
+                    continue
+                if instruction.status != "published" or instruction.deleted_at is not None:
+                    continue
+                if version.load_mode == "disabled":
+                    continue
+
+                inst_id = str(instruction.id)
+                dep_items.append(InstructionItem(
+                    id=inst_id,
+                    category=instruction.category,
+                    text=version.text or "",
+                    load_mode=version.load_mode or "always",
+                    load_reason="dependency",
+                    source_type=instruction.source_type,
+                    title=version.title,
+                    labels=self._extract_labels(instruction),
+                    usage_count=usage_counts.get(inst_id),
+                    version_id=str(version.id),
+                    version_number=version.version_number,
+                    content_hash=version.content_hash,
+                    build_number=build.build_number,
+                ))
+                if len(dep_items) >= remaining_slots:
+                    break
+        else:
+            # Legacy mode: load instructions directly
+            inst_result = await self.db.execute(
+                select(Instruction)
+                .where(
+                    and_(
+                        Instruction.id.in_(missing_ids),
+                        Instruction.organization_id == self.organization.id,
+                        Instruction.status == "published",
+                        Instruction.deleted_at.is_(None),
+                        Instruction.load_mode != "disabled",
+                    )
+                )
+            )
+            instructions = inst_result.scalars().all()
+
+            usage_counts = await self._batch_load_usage_counts(list(missing_ids))
+
+            for inst in instructions:
+                inst_id = str(inst.id)
+                dep_items.append(InstructionItem(
+                    id=inst_id,
+                    category=inst.category,
+                    text=inst.text or "",
+                    load_mode=inst.load_mode or "always",
+                    load_reason="dependency",
+                    source_type=inst.source_type,
+                    title=inst.title,
+                    labels=self._extract_labels(inst),
+                    usage_count=usage_counts.get(inst_id),
+                ))
+                if len(dep_items) >= remaining_slots:
+                    break
+
+        if not dep_items:
+            return []
+
+        logger.info(f"_load_referenced_instructions: loaded {len(dep_items)} dependency instructions (depth={_depth})")
+
+        # Step 3: One level of transitive resolution
+        if _depth < 1:
+            new_loaded_ids = loaded_ids | {item.id for item in dep_items}
+            new_remaining = remaining_slots - len(dep_items)
+            transitive = await self._load_referenced_instructions(
+                new_loaded_ids, new_remaining, build=build, _depth=_depth + 1
+            )
+            dep_items.extend(transitive)
+
+        return dep_items
+
     async def _batch_load_usage_counts(self, instruction_ids: List[str]) -> Dict[str, int]:
         """Batch-load usage counts for multiple instructions."""
         if not instruction_ids:

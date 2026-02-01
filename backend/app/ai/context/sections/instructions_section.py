@@ -42,11 +42,14 @@ class InstructionsSection(ContextSection):
             return ""
         parts: List[str] = []
         for inst in self.items:
+            attrs = {"id": inst.id, "category": inst.category or ""}
+            if inst.title:
+                attrs["title"] = inst.title
             parts.append(
                 xml_tag(
                     "instruction",
                     xml_escape(inst.text.strip()),
-                    {"id": inst.id, "category": inst.category or ""},
+                    attrs,
                 )
             )
         return xml_tag(self.tag_name, "\n".join(parts))
