@@ -29,7 +29,7 @@ import asyncio
 from app.core.scheduler import scheduler
 from app.models.dashboard_layout_version import DashboardLayoutVersion
 from app.services.dashboard_layout_service import DashboardLayoutService
-from app.enterprise.audit.service import audit_service
+from app.ee.audit.service import audit_service
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step

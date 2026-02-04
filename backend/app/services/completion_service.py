@@ -49,7 +49,7 @@ from app.core.telemetry import telemetry
 
 from app.ai.agent_v2 import AgentV2
 from pydantic import ValidationError
-from app.enterprise.audit.service import audit_service
+from app.ee.audit.service import audit_service
 
 # Models used for v2 assembly
 from app.models.completion_block import CompletionBlock

@@ -12,7 +12,7 @@ from typing import List
 from app.dependencies import get_current_organization
 from app.core.permissions_decorator import requires_permission
 from app.schemas.user_schema import UserSchema
-from app.enterprise.audit.service import audit_service
+from app.ee.audit.service import audit_service
 
 router = APIRouter(tags=["organizations"])
 organization_service = OrganizationService()

@@ -43,7 +43,7 @@ from app.services.instruction_version_service import InstructionVersionService
 from app.dependencies import async_session_maker
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from app.core.telemetry import telemetry
-from app.enterprise.audit.service import audit_service
+from app.ee.audit.service import audit_service
 from app.models.completion import Completion
 from app.models.report import Report
 from sqlalchemy import select, func, or_, and_

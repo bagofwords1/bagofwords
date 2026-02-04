@@ -170,7 +170,7 @@
 </template>
 
 <script setup lang="ts">
-import { useAuditLogs, type AuditLogFilters } from '~/enterprise/composables/useAuditLogs'
+import { useAuditLogs, type AuditLogFilters } from '~/ee/composables/useAuditLogs'
 
 definePageMeta({
   auth: true,

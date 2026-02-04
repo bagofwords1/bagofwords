@@ -75,8 +75,8 @@ from app.routes import (
     artifact,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
-from app.enterprise.routes import router as enterprise_router
-from app.enterprise.license import get_license_info
+from app.ee.routes import router as enterprise_router
+from app.ee.license import get_license_info
 
 # Initialize logging
 loggers = setup_logging()

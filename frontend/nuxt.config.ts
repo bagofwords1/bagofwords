@@ -68,7 +68,7 @@ export default defineNuxtConfig({
   ],
 
   imports: {
-    dirs: ['enterprise/composables'],
+    dirs: ['ee/composables'],
   },
 
   icon: {

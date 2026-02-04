@@ -15,7 +15,7 @@ from app.ai.llm.llm import LLM
 from app.dependencies import async_session_maker
 from datetime import datetime
 from app.core.telemetry import telemetry
-from app.enterprise.audit.service import audit_service
+from app.ee.audit.service import audit_service
 
 class LLMService:
     def __init__(self):

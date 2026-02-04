@@ -3,8 +3,8 @@
 # See ENTERPRISE_LICENSE for details
 
 from fastapi import APIRouter
-from app.enterprise.license import get_license_info, LicenseInfo
-from app.enterprise.audit.routes import router as audit_router
+from app.ee.license import get_license_info, LicenseInfo
+from app.ee.audit.routes import router as audit_router
 
 router = APIRouter(tags=["enterprise"])
 

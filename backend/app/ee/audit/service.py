@@ -10,8 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from fastapi import Request
 
-from app.enterprise.audit.models import AuditLog
-from app.enterprise.audit.schemas import AuditLogResponse, AuditLogFilters
+from app.ee.audit.models import AuditLog
+from app.ee.audit.schemas import AuditLogResponse, AuditLogFilters
 from app.models.user import User
 
 logger = logging.getLogger(__name__)

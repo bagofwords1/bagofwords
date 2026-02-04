@@ -72,7 +72,7 @@ def _create_test_license(
 @pytest.fixture
 def license_env_cleanup():
     """Cleanup license environment and cache after test."""
-    from app.enterprise.license import clear_license_cache
+    from app.ee.license import clear_license_cache
 
     # Store original value
     original = os.environ.get("BOW_LICENSE_KEY")
@@ -92,7 +92,7 @@ def license_env_cleanup():
 @pytest.fixture
 def patch_license_key(license_env_cleanup):
     """Fixture to patch license public key for testing."""
-    import app.enterprise.license as license_module
+    import app.ee.license as license_module
 
     # Save original key
     original_key = license_module.LICENSE_PUBLIC_KEY
@@ -112,7 +112,7 @@ class TestLicenseValidation:
 
     def test_community_mode_no_license(self, test_client, license_env_cleanup):
         """Test that no license key returns community mode."""
-        from app.enterprise.license import get_license_info, clear_license_cache
+        from app.ee.license import get_license_info, clear_license_cache
 
         # Ensure no license key
         if "BOW_LICENSE_KEY" in os.environ:
@@ -134,7 +134,7 @@ class TestLicenseValidation:
 
     def test_valid_license(self, test_client, patch_license_key):
         """Test valid license validation."""
-        from app.enterprise.license import get_license_info, clear_license_cache
+        from app.ee.license import get_license_info, clear_license_cache
         from app.settings.config import settings
 
         # Set test license
@@ -162,7 +162,7 @@ class TestLicenseValidation:
 
     def test_expired_license(self, test_client, patch_license_key):
         """Test expired license returns not licensed."""
-        from app.enterprise.license import get_license_info, clear_license_cache
+        from app.ee.license import get_license_info, clear_license_cache
         from app.settings.config import settings
 
         # Set expired test license
@@ -186,7 +186,7 @@ class TestLicenseValidation:
 
     def test_invalid_license_signature(self, test_client, license_env_cleanup):
         """Test invalid license signature returns community mode."""
-        from app.enterprise.license import get_license_info, clear_license_cache
+        from app.ee.license import get_license_info, clear_license_cache
         from app.settings.config import settings
 
         # Create license with different key (won't validate against public key)
@@ -211,7 +211,7 @@ class TestLicenseValidation:
 
     def test_malformed_license(self, test_client, license_env_cleanup):
         """Test malformed license returns community mode."""
-        from app.enterprise.license import get_license_info, clear_license_cache
+        from app.ee.license import get_license_info, clear_license_cache
         from app.settings.config import settings
 
         # Set malformed license
@@ -234,7 +234,7 @@ class TestHasFeature:
 
     def test_has_feature_with_explicit_features(self, test_client, patch_license_key):
         """Test has_feature when license has explicit features list."""
-        from app.enterprise.license import has_feature, clear_license_cache
+        from app.ee.license import has_feature, clear_license_cache
         from app.settings.config import settings
 
         # License with explicit features
@@ -257,7 +257,7 @@ class TestHasFeature:
 
     def test_has_feature_uses_tier_defaults(self, test_client, patch_license_key):
         """Test has_feature uses tier defaults when no explicit features."""
-        from app.enterprise.license import has_feature, clear_license_cache, TIER_FEATURES
+        from app.ee.license import has_feature, clear_license_cache, TIER_FEATURES
         from app.settings.config import settings
 
         # License WITHOUT explicit features (empty list = use tier defaults)
@@ -281,7 +281,7 @@ class TestHasFeature:
 
     def test_has_feature_community_returns_false(self, test_client, license_env_cleanup):
         """Test has_feature returns False for community mode."""
-        from app.enterprise.license import has_feature, clear_license_cache
+        from app.ee.license import has_feature, clear_license_cache
         from app.settings.config import settings
 
         # No license
@@ -300,7 +300,7 @@ class TestLicenseAPIEndpoint:
 
     def test_license_endpoint_community(self, test_client, license_env_cleanup):
         """Test license endpoint returns community info when no license."""
-        from app.enterprise.license import clear_license_cache
+        from app.ee.license import clear_license_cache
         from app.settings.config import settings
 
         # Ensure no license
@@ -318,7 +318,7 @@ class TestLicenseAPIEndpoint:
 
     def test_license_endpoint_enterprise(self, test_client, patch_license_key):
         """Test license endpoint returns enterprise info with valid license."""
-        from app.enterprise.license import clear_license_cache
+        from app.ee.license import clear_license_cache
         from app.settings.config import settings
 
         test_license = _create_test_license(
@@ -356,7 +356,7 @@ class TestAuditLogsGating:
         license_env_cleanup,
     ):
         """Test audit logs endpoint requires enterprise license."""
-        from app.enterprise.license import clear_license_cache
+        from app.ee.license import clear_license_cache
         from app.settings.config import settings
 
         # Create user and login
@@ -392,7 +392,7 @@ class TestAuditLogsGating:
         patch_license_key,
     ):
         """Test audit logs endpoint accessible with enterprise license."""
-        from app.enterprise.license import clear_license_cache
+        from app.ee.license import clear_license_cache
         from app.settings.config import settings
 
         # Create user and login

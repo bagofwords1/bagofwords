@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, get_current_organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
-from app.enterprise.license import require_enterprise
-from app.enterprise.audit.service import audit_service
-from app.enterprise.audit.schemas import (
+from app.ee.license import require_enterprise
+from app.ee.audit.service import audit_service
+from app.ee.audit.schemas import (
     AuditLogResponse,
     AuditLogListResponse,
     AuditLogFilters,

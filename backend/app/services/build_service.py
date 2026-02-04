@@ -15,7 +15,7 @@ from app.models.user import User
 from app.models.eval import TestRun
 
 import logging
-from app.enterprise.audit.service import audit_service
+from app.ee.audit.service import audit_service
 logger = logging.getLogger(__name__)
 
 
