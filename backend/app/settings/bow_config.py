@@ -88,9 +88,14 @@ class LicenseConfig(BaseModel):
 
     @validator('key', pre=True, always=True)
     def load_from_env(cls, v):
-        """Auto-load license key from BOW_LICENSE_KEY env var if not set in config"""
-        if not v or (isinstance(v, str) and v.startswith("${") and v.endswith("}")):
+        """Auto-load license key from env var if not set or placeholder in config"""
+        if not v:
+            # No value set, fallback to default env var
             return os.environ.get("BOW_LICENSE_KEY")
+        if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
+            # Parse env var name from placeholder like ${BOW_LICENSE_KEY2}
+            env_var_name = v[2:-1]
+            return os.environ.get(env_var_name)
         return v
 
 
