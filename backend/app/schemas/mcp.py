@@ -186,3 +186,29 @@ class MCPDeleteInstructionOutput(BaseModel):
     """Output for delete_instruction MCP tool."""
     success: bool
     error_message: Optional[str] = None
+
+
+# === create_artifact ===
+
+class MCPCreateArtifactInput(BaseModel):
+    """Input for create_artifact MCP tool.
+
+    Creates a dashboard or slide presentation from existing visualizations.
+    Automatically selects all successful visualizations in the report (up to 10).
+    """
+    report_id: str = Field(..., description="Report ID (required). Must have visualizations created via create_data.")
+    prompt: str = Field(..., description="Goal for the dashboard/presentation. Describe what insights to highlight, layout preferences, or specific visualizations to feature.")
+    title: Optional[str] = Field(default=None, description="Title for the artifact. If not provided, one will be generated.")
+    mode: str = Field(default="page", description="Artifact mode: 'page' for interactive dashboards, 'slides' for presentation decks (exportable to PPTX).")
+
+
+class MCPCreateArtifactOutput(BaseModel):
+    """Output for create_artifact MCP tool."""
+    report_id: str
+    artifact_id: Optional[str] = None
+    success: bool
+    visualization_count: Optional[int] = Field(default=None, description="Number of visualizations included in the artifact.")
+    visualization_ids: Optional[List[str]] = Field(default=None, description="IDs of visualizations included.")
+    mode: Optional[str] = None
+    error_message: Optional[str] = None
+    url: Optional[str] = Field(default=None, description="Link to view the artifact. Always share this with the user.")

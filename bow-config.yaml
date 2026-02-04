@@ -38,3 +38,6 @@ intercom:
 
 telemetry:
   enabled: true
+
+# license:
+#    key: ${BOW_LICENSE_KEY}

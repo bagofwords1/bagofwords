@@ -8,6 +8,7 @@ from .create_report import CreateReportTool
 from .get_context import GetContextTool
 from .inspect_data import InspectDataMCPTool
 from .create_data import CreateDataMCPTool
+from .create_artifact import CreateArtifactMCPTool
 from .instructions import (
     ListInstructionsMCPTool,
     CreateInstructionMCPTool,
@@ -19,6 +20,7 @@ MCP_TOOLS = {
     "get_context": GetContextTool,
     "inspect_data": InspectDataMCPTool,
     "create_data": CreateDataMCPTool,
+    "create_artifact": CreateArtifactMCPTool,
     # Instruction management tools
     "list_instructions": ListInstructionsMCPTool,
     "create_instruction": CreateInstructionMCPTool,

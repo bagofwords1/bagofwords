@@ -81,6 +81,24 @@ class Stripe(BaseModel):
     api_key: str = None
     webhook_secret: str = None
 
+
+class LicenseConfig(BaseModel):
+    """Enterprise license configuration"""
+    key: Optional[str] = Field(default=None, description="Enterprise license key (BOW_LICENSE_KEY)")
+
+    @validator('key', pre=True, always=True)
+    def load_from_env(cls, v):
+        """Auto-load license key from env var if not set or placeholder in config"""
+        if not v:
+            # No value set, fallback to default env var
+            return os.environ.get("BOW_LICENSE_KEY")
+        if isinstance(v, str) and v.startswith("${") and v.endswith("}"):
+            # Parse env var name from placeholder like ${BOW_LICENSE_KEY2}
+            env_var_name = v[2:-1]
+            return os.environ.get(env_var_name)
+        return v
+
+
 class Database(BaseModel):
     url: str = Field(
         default_factory=lambda: os.getenv(
@@ -112,6 +130,7 @@ class BowConfig(BaseModel):
     database: Database = Database()
     intercom: Intercom = Intercom()
     telemetry: Telemetry = Telemetry()
+    license: LicenseConfig = LicenseConfig()
 
     @validator('encryption_key')
     def validate_encryption_key(cls, v):

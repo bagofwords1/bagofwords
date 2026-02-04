@@ -26,6 +26,7 @@ DATA_SOURCES = [
     "mysql",
     "snowflake",
     "bigquery",
+    "databricks_sql",
 ]
 
 

@@ -19,6 +19,7 @@ from app.models.agent_execution import AgentExecution
 from app.services.test_evaluation_service import TestEvaluationService
 from app.ai.agents.judge.judge import Judge
 from app.schemas.test_results_schema import TestResultTotals, TestResultJsonSchema, RuleSpec
+from app.models.organization import Organization
 
 
 class TestRunService:
@@ -326,6 +327,17 @@ class TestRunService:
 
         if getattr(run, "status", None) != "in_progress":
             return run
+        
+        # Fetch organization for audit logging
+        organization = None
+        try:
+            org_result = await db.execute(
+                select(Organization).where(Organization.id == organization_id)
+            )
+            organization = org_result.scalar_one_or_none()
+        except Exception:
+            pass
+        
         # Send sigkill to any in-progress system completions for this run
         try:
             res_results = await db.execute(select(TestResult).where(TestResult.run_id == str(run.id)))
@@ -350,7 +362,7 @@ class TestRunService:
                     # and websocket 'update_completion' is emitted for AgentV2 to cancel promptly.
                     for sc in sys_completions:
                         try:
-                            await self.completions.update_completion_sigkill(db, str(sc.id))
+                            await self.completions.update_completion_sigkill(db, str(sc.id), current_user, organization)
                         except Exception:
                             pass
                 except Exception:

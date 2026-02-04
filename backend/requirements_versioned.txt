@@ -189,3 +189,4 @@ oracledb==3.4.0
 testcontainers[postgres,mysql]==4.13.3
 python-pptx==1.0.2
 playwright==1.57.0
+databricks-sql-connector==3.6.0
