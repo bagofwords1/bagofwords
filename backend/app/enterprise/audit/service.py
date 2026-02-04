@@ -194,6 +194,29 @@ class AuditService:
             created_at=log.created_at,
         )
 
+    async def get_action_types(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+    ) -> List[str]:
+        """
+        Get list of distinct action types for an organization.
+        
+        Returns:
+            List of unique action values used in the organization's audit logs
+        """
+        stmt = (
+            select(AuditLog.action)
+            .where(AuditLog.organization_id == organization_id)
+            .distinct()
+            .order_by(AuditLog.action)
+        )
+        
+        result = await db.execute(stmt)
+        actions = result.scalars().all()
+        
+        return list(actions)
+
 
 # Singleton instance
 audit_service = AuditService()
