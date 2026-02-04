@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.eval import TestRun
 
 import logging
+from app.ee.audit.service import audit_service
 logger = logging.getLogger(__name__)
 
 
@@ -620,6 +621,7 @@ class BuildService:
         self,
         db: AsyncSession,
         build_id: str,
+        user_id: Optional[str] = None,
     ) -> InstructionBuild:
         """
         Submit a draft build for approval.
@@ -628,16 +630,31 @@ class BuildService:
         build = await self.get_build(db, build_id)
         if not build:
             raise HTTPException(status_code=404, detail="Build not found")
-        
+
         if not build.can_be_submitted:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Build cannot be submitted (current status: {build.status})"
             )
-        
+
         build.status = 'pending_approval'
         await db.commit()
         await db.refresh(build)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(build.organization_id),
+                action="build.submitted",
+                user_id=user_id,
+                resource_type="instruction_build",
+                resource_id=str(build.id),
+                details={"build_number": build.build_number, "title": build.title},
+            )
+        except Exception:
+            pass
+
         return build
     
     async def approve_build(
@@ -653,18 +670,33 @@ class BuildService:
         build = await self.get_build(db, build_id)
         if not build:
             raise HTTPException(status_code=404, detail="Build not found")
-        
+
         if not build.can_be_approved:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Build cannot be approved (current status: {build.status})"
             )
-        
+
         build.status = 'approved'
         build.approved_by_user_id = approved_by_user_id
         build.approved_at = datetime.utcnow()
         await db.commit()
         await db.refresh(build)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(build.organization_id),
+                action="build.approved",
+                user_id=approved_by_user_id,
+                resource_type="instruction_build",
+                resource_id=str(build.id),
+                details={"build_number": build.build_number, "title": build.title},
+            )
+        except Exception:
+            pass
+
         return build
 
     async def reject_build(
@@ -681,25 +713,41 @@ class BuildService:
         build = await self.get_build(db, build_id)
         if not build:
             raise HTTPException(status_code=404, detail="Build not found")
-        
+
         if not build.can_be_approved:  # Same check - can only reject pending builds
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Build cannot be rejected (current status: {build.status})"
             )
-        
+
         build.status = 'rejected'
         build.approved_by_user_id = user_id  # Reviewer
         build.approved_at = datetime.utcnow()
         build.rejection_reason = reason
         await db.commit()
         await db.refresh(build)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(build.organization_id),
+                action="build.rejected",
+                user_id=user_id,
+                resource_type="instruction_build",
+                resource_id=str(build.id),
+                details={"build_number": build.build_number, "title": build.title, "reason": reason},
+            )
+        except Exception:
+            pass
+
         return build
     
     async def promote_build(
         self,
         db: AsyncSession,
         build_id: str,
+        user_id: Optional[str] = None,
     ) -> InstructionBuild:
         """
         Promote an approved build to main.
@@ -709,13 +757,13 @@ class BuildService:
         build = await self.get_build(db, build_id)
         if not build:
             raise HTTPException(status_code=404, detail="Build not found")
-        
+
         if not build.can_be_promoted:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Build cannot be promoted (status: {build.status}, is_main: {build.is_main})"
             )
-        
+
         # Clear is_main from current main build (if any)
         await db.execute(
             select(InstructionBuild)
@@ -727,7 +775,7 @@ class BuildService:
                 )
             )
         )
-        
+
         # Use raw SQL update for efficiency
         from sqlalchemy import update
         await db.execute(
@@ -741,10 +789,10 @@ class BuildService:
             )
             .values(is_main=False)
         )
-        
+
         # Set this build as main
         build.is_main = True
-        
+
         # Update Instruction.current_version_id for all instructions in this build
         contents = await self.get_build_contents(db, build_id)
         for content in contents:
@@ -754,9 +802,24 @@ class BuildService:
             instruction = result.scalar_one_or_none()
             if instruction:
                 instruction.current_version_id = content.instruction_version_id
-        
+
         await db.commit()
         await db.refresh(build)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(build.organization_id),
+                action="build.promoted",
+                user_id=user_id,
+                resource_type="instruction_build",
+                resource_id=str(build.id),
+                details={"build_number": build.build_number, "title": build.title},
+            )
+        except Exception:
+            pass
+
         return build
     
     async def publish_build(
@@ -802,7 +865,22 @@ class BuildService:
         
         # Case 1: Fresh build or no main - simple promote
         if not current_main or not build.base_build_id or build.base_build_id == current_main.id:
-            promoted = await self.promote_build(db, build_id)
+            promoted = await self.promote_build(db, build_id, user_id)
+
+            # Audit log for publish
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(build.organization_id),
+                    action="build.published",
+                    user_id=user_id,
+                    resource_type="instruction_build",
+                    resource_id=str(build.id),
+                    details={"build_number": build.build_number, "merged": False},
+                )
+            except Exception:
+                pass
+
             return {"build": promoted, "merged": False}
         
         # Case 2: Stale build - compute diff and merge
@@ -846,10 +924,30 @@ class BuildService:
         merged.approved_at = datetime.utcnow()
         await db.commit()
         
-        promoted = await self.promote_build(db, merged.id)
-        
+        promoted = await self.promote_build(db, merged.id, user_id)
+
         logger.info(f"Deployed build {build_id} via auto-merge: +{user_diff['added_count']} ~{user_diff['modified_count']} -{user_diff['removed_count']}")
-        
+
+        # Audit log for publish
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(build.organization_id),
+                action="build.published",
+                user_id=user_id,
+                resource_type="instruction_build",
+                resource_id=str(build.id),
+                details={
+                    "build_number": build.build_number,
+                    "merged": True,
+                    "added": user_diff['added_count'],
+                    "modified": user_diff['modified_count'],
+                    "removed": user_diff['removed_count'],
+                },
+            )
+        except Exception:
+            pass
+
         return {"build": promoted, "merged": True}
     
     # ==================== Diff ====================
@@ -1154,9 +1252,27 @@ class BuildService:
         new_build.approved_at = datetime.utcnow()
         await db.commit()
         await db.refresh(new_build)
-        
+
+        # Audit log for rollback
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(org_id),
+                action="build.rollback",
+                user_id=user_id,
+                resource_type="instruction_build",
+                resource_id=str(new_build.id),
+                details={
+                    "build_number": new_build.build_number,
+                    "rollback_to_build_id": str(target_build_id),
+                    "rollback_to_build_number": target_build.build_number,
+                },
+            )
+        except Exception:
+            pass
+
         # Promote to main
-        return await self.promote_build(db, new_build.id)
+        return await self.promote_build(db, new_build.id, user_id)
     
     # ==================== Helpers ====================
     

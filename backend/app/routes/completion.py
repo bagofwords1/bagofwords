@@ -142,4 +142,4 @@ async def get_completions_v2(
 @requires_permission('create_reports')
 @router.post("/api/completions/{completion_id}/sigkill")
 async def update_completion_sigkill(completion_id: str, current_user: User = Depends(current_user), organization: Organization = Depends(get_current_organization), db: AsyncSession = Depends(get_async_db)):
-    return await completion_service.update_completion_sigkill(db, completion_id)
+    return await completion_service.update_completion_sigkill(db, completion_id, current_user, organization)

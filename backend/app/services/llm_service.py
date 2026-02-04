@@ -15,6 +15,7 @@ from app.ai.llm.llm import LLM
 from app.dependencies import async_session_maker
 from datetime import datetime
 from app.core.telemetry import telemetry
+from app.ee.audit.service import audit_service
 
 class LLMService:
     def __init__(self):
@@ -102,6 +103,20 @@ class LLMService:
         except Exception:
             pass
 
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_provider.created",
+                user_id=str(current_user.id),
+                resource_type="llm_provider",
+                resource_id=str(provider.id),
+                details={"name": provider.name, "provider_type": provider.provider_type},
+            )
+        except Exception:
+            pass
+
         return provider
 
     async def update_provider(
@@ -149,6 +164,20 @@ class LLMService:
                 status_code=409,
                 detail=f"A provider with the name '{update_data.get('name', provider.name)}' already exists in this organization."
             )
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_provider.updated",
+                user_id=str(current_user.id),
+                resource_type="llm_provider",
+                resource_id=str(provider.id),
+                details={"name": provider.name, "provider_type": provider.provider_type},
+            )
+        except Exception:
+            pass
 
         return provider
     
@@ -200,6 +229,21 @@ class LLMService:
 
         db.add(provider)
         await db.commit()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_provider.deleted",
+                user_id=str(current_user.id),
+                resource_type="llm_provider",
+                resource_id=str(provider.id),
+                details={"name": provider.name, "provider_type": provider.provider_type},
+            )
+        except Exception:
+            pass
+
         return {"message": "Provider deleted successfully"}
 
     async def get_models(
@@ -290,11 +334,11 @@ class LLMService:
         await db.commit()
 
     async def toggle_provider(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
-        provider_id: str, 
+        provider_id: str,
         enabled: bool
     ):
         """Enable/disable a provider"""
@@ -305,20 +349,35 @@ class LLMService:
             )
         )
         provider = provider.scalar_one_or_none()
-        
+
         if not provider:
             raise HTTPException(status_code=404, detail="Provider not found")
-            
+
         provider.is_enabled = enabled
         await db.commit()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_provider.toggled",
+                user_id=str(current_user.id),
+                resource_type="llm_provider",
+                resource_id=str(provider.id),
+                details={"name": provider.name, "enabled": enabled},
+            )
+        except Exception:
+            pass
+
         return {"success": True}
 
     async def toggle_model(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
-        model_id: str, 
+        model_id: str,
         enabled: bool
     ):
         """Enable/disable a model"""
@@ -329,15 +388,30 @@ class LLMService:
             )
         )
         model = model.scalar_one_or_none()
-        
+
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
-        
+
         if model.is_default or model.is_small_default:
             raise HTTPException(status_code=400, detail="Cannot disable models that are set as default or small default")
-        
+
         model.is_enabled = enabled
         await db.commit()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.toggled",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(model.id),
+                details={"name": model.name, "model_id": model.model_id, "enabled": enabled},
+            )
+        except Exception:
+            pass
+
         return {"success": True}
     
     async def _create_models(
@@ -657,7 +731,22 @@ class LLMService:
 
         db.add(default_model)
         await db.commit()
-        return {"success": True }
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="llm_model.set_default",
+                user_id=str(current_user.id),
+                resource_type="llm_model",
+                resource_id=str(default_model.id),
+                details={"name": default_model.name, "model_id": default_model.model_id, "small": small},
+            )
+        except Exception:
+            pass
+
+        return {"success": True}
     
     async def get_default_model(
         self,

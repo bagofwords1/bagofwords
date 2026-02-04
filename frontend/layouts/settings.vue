@@ -44,6 +44,8 @@ const allTabs = [
     { name: 'ai_settings', label: 'AI Settings', requiredPermission: "view_settings" },
     { name: 'general', label: 'General', requiredPermission: "view_settings" },
     { name: "integrations", label: "Integrations", requiredPermission: "manage_organization_external_platforms" },
+    { name: 'audit', label: 'Audit Logs', requiredPermission: "view_audit_logs" },
+    { name: 'license', label: 'License', requiredPermission: "view_settings" },
 ]
 
 // Filter tabs based on user permissions

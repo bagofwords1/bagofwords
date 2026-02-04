@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_db, get_async_db
 from app.dependencies import get_current_organization
+from app.ee.audit.service import audit_service
 
 from typing import List
 from app.services.report_service import ReportService
@@ -28,11 +29,23 @@ layout_service = DashboardLayoutService()
 @requires_permission('create_reports')
 async def create_report(
     report: ReportCreate,
+    request: Request,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await report_service.create_report(db, report, current_user, organization)
+    result = await report_service.create_report(db, report, current_user, organization)
+    await audit_service.log(
+        db=db,
+        organization_id=organization.id,
+        action="report.created",
+        user_id=current_user.id,
+        resource_type="report",
+        resource_id=result.id,
+        details={"title": result.title},
+        request=request,
+    )
+    return result
 
 @router.get("/reports", response_model=ReportListResponse)
 @requires_permission('view_reports')
@@ -59,8 +72,25 @@ async def get_report(report_id: str, db: AsyncSession = Depends(get_async_db), c
 
 @router.delete("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('delete_reports', model=Report, owner_only=True)
-async def delete_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await report_service.archive_report(db, report_id, current_user, organization)
+async def delete_report(
+    report_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    result = await report_service.archive_report(db, report_id, current_user, organization)
+    await audit_service.log(
+        db=db,
+        organization_id=organization.id,
+        action="report.deleted",
+        user_id=current_user.id,
+        resource_type="report",
+        resource_id=report_id,
+        details={"title": result.title},
+        request=request,
+    )
+    return result
 
 
 @router.post("/reports/bulk/archive")
@@ -84,8 +114,25 @@ async def rerun_report(report_id: str, current_user: User = Depends(current_user
 
 @router.post("/reports/{report_id}/publish", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)
-async def publish_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await report_service.publish_report(db, report_id, current_user, organization)
+async def publish_report(
+    report_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    result = await report_service.publish_report(db, report_id, current_user, organization)
+    await audit_service.log(
+        db=db,
+        organization_id=organization.id,
+        action="report.published",
+        user_id=current_user.id,
+        resource_type="report",
+        resource_id=report_id,
+        details={"title": result.title, "status": result.status},
+        request=request,
+    )
+    return result
 
 @router.post("/reports/{report_id}/conversation-share")
 @requires_permission('publish_reports', model=Report, owner_only=True)

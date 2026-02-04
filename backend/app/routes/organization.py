@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from app.dependencies import get_async_db
@@ -12,6 +12,7 @@ from typing import List
 from app.dependencies import get_current_organization
 from app.core.permissions_decorator import requires_permission
 from app.schemas.user_schema import UserSchema
+from app.ee.audit.service import audit_service
 
 router = APIRouter(tags=["organizations"])
 organization_service = OrganizationService()
@@ -22,9 +23,27 @@ async def create_organization(organization: OrganizationCreate, db: AsyncSession
 
 @router.post("/organizations/{organization_id}/members", response_model=MembershipSchema)
 @requires_permission('add_organization_members')
-async def add_member(organization_id: str, membership: MembershipCreate, organization: Organization = Depends(get_current_organization), current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db)):
+async def add_member(
+    organization_id: str,
+    membership: MembershipCreate,
+    request: Request,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db)
+):
     membership.organization_id = organization_id
-    return await organization_service.add_member(db, membership, current_user.id)
+    result = await organization_service.add_member(db, membership, current_user.id)
+    await audit_service.log(
+        db=db,
+        organization_id=organization_id,
+        action="member.invited",
+        user_id=current_user.id,
+        resource_type="membership",
+        resource_id=result.id,
+        details={"email": membership.email, "role": membership.role},
+        request=request,
+    )
+    return result
 
 @router.get("/organizations/{organization_id}/members", response_model=List[MembershipSchema])
 @requires_permission('view_organization_members')
@@ -33,7 +52,23 @@ async def get_members(organization_id: str, db: AsyncSession = Depends(get_async
 
 @router.delete("/organizations/{organization_id}/members/{membership_id}", status_code=204)
 @requires_permission('remove_organization_members')
-async def remove_member(organization_id: str, membership_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+async def remove_member(
+    organization_id: str,
+    membership_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    await audit_service.log(
+        db=db,
+        organization_id=organization_id,
+        action="member.removed",
+        user_id=current_user.id,
+        resource_type="membership",
+        resource_id=membership_id,
+        request=request,
+    )
     return await organization_service.remove_member(db, organization_id, membership_id, current_user, organization)
 
 @router.put("/organizations/{organization_id}/members/{membership_id}", response_model=MembershipSchema)

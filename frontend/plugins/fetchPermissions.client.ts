@@ -110,7 +110,8 @@ function getPermissionsForRole(role: string): string[] {
       'create_builds',
       'manage_connections',
       'view_connections',
-      'train_mode'
+      'train_mode',
+      'view_audit_logs'
     ],
     member: [
       'view_data_source',
