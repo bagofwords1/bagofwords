@@ -3,6 +3,7 @@
 ## Version 0.0.309 (February 4, 2026)
 - Create artifact (dashboard/slides) tool is now available via MCP 
 - Added support for Databricks SQL
+- Add enterprise license management and audit log
 
 ## Version 0.0.308 (January 31, 2026)
 - Instruction @mentions now only show published instructions from the main build
