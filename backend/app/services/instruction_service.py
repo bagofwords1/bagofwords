@@ -43,6 +43,7 @@ from app.services.instruction_version_service import InstructionVersionService
 from app.dependencies import async_session_maker
 from app.ai.context.builders.instruction_context_builder import InstructionContextBuilder
 from app.core.telemetry import telemetry
+from app.enterprise.audit.service import audit_service
 from app.models.completion import Completion
 from app.models.report import Report
 from sqlalchemy import select, func, or_, and_
@@ -190,6 +191,21 @@ class InstructionService:
             .where(Instruction.id == instruction.id)
         )
         instruction = fresh_instruction.scalar_one()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="instruction.created",
+                user_id=str(current_user.id),
+                resource_type="instruction",
+                resource_id=str(instruction.id),
+                details={"title": instruction.title, "category": instruction.category},
+            )
+        except Exception:
+            pass
+
         return await self._instruction_to_schema_with_references(db, instruction)
     
     async def analyze_instruction(
@@ -716,8 +732,23 @@ class InstructionService:
             .where(Instruction.id == instruction.id)
         )
         instruction = fresh_instruction.scalar_one()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="instruction.updated",
+                user_id=str(current_user.id),
+                resource_type="instruction",
+                resource_id=str(instruction.id),
+                details={"title": instruction.title, "category": instruction.category},
+            )
+        except Exception:
+            pass
+
         return await self._instruction_to_schema_with_references(db, instruction)
-    
+
     async def enhance_instruction(
         self, 
         db: AsyncSession, 
@@ -813,7 +844,21 @@ class InstructionService:
         except Exception as e:
             logger.warning(f"Failed to update build for deleted instruction {instruction_id}: {e}")
             # Don't fail the deletion if build update fails
-        
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="instruction.deleted",
+                user_id=str(current_user.id),
+                resource_type="instruction",
+                resource_id=str(instruction.id),
+                details={"title": instruction.title},
+            )
+        except Exception:
+            pass
+
         return True
     
     async def increment_thumbs_up(

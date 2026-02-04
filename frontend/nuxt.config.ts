@@ -67,6 +67,10 @@ export default defineNuxtConfig({
     '~/plugins/vue-flow.client.js',
   ],
 
+  imports: {
+    dirs: ['enterprise/composables'],
+  },
+
   icon: {
     localApiEndpoint: '/_nuxt_icon'
   },

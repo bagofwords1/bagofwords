@@ -77,7 +77,9 @@ ADMIN_PERMISSIONS = {
     'manage_tests',
     'view_builds',
     'create_builds',
-    'train_mode'
+    'train_mode',
+    # Enterprise features
+    'view_audit_logs',
 }
 
 # Combine permissions for roles

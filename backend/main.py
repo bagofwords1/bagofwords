@@ -75,6 +75,8 @@ from app.routes import (
     artifact,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
+from app.enterprise.routes import router as enterprise_router
+from app.enterprise.license import get_license_info
 
 # Initialize logging
 loggers = setup_logging()
@@ -199,6 +201,7 @@ app.include_router(api_key.router, prefix="/api")
 app.include_router(mcp.router, prefix="/api")
 app.include_router(connection.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
+app.include_router(enterprise_router, prefix="/api")
 
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
@@ -312,24 +315,30 @@ async def startup_event():
         logger.error(f"Failed to schedule purge job: {e}")
 
     scheduler.start()
+
+    # Validate license at startup
+    license_info = get_license_info()
+    license_status = f"Enterprise ({license_info.org_name})" if license_info.licensed else "Community"
+
     print(f"""
-   ____                       __                         _     
- |  _ \\                     / _|                       | |    
- | |_) | __ _  __ _    ___ | |_  __      _____  _ __ __| |___ 
+   ____                       __                         _
+ |  _ \\                     / _|                       | |
+ | |_) | __ _  __ _    ___ | |_  __      _____  _ __ __| |___
  |  _ < / _` |/ _` |  / _ \\|  _| \\ \\ /\\ / / _ \\| '__/ _` / __|
  | |_) | (_| | (_| | | (_) | |    \\ V  V / (_) | | | (_| \\__ \\
  |____/ \\__,_|\\__, |  \\___/|_|     \\_/\\_/ \\___/|_|  \\__,_|___/
-               __/ |                                          
-              |___/                                                                       
+               __/ |
+              |___/
 
-🚀 Starting server with configuration:
+Starting server with configuration:
     - Environment: {settings.ENVIRONMENT}
     - Debug Mode: {settings.DEBUG}
     - Google OAuth: {'Enabled' if enable_google_oauth else 'Disabled'}
     - Email Verification: {'Enabled' if settings.bow_config.features.verify_emails else 'Disabled'}
     - Deployment Type: {settings.bow_config.deployment.type}
+    - License: {license_status}
     - Version: {settings.PROJECT_VERSION}
-    
+
     You can now start using the app at {settings.bow_config.base_url}
     """)
 

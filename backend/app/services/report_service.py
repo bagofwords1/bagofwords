@@ -29,6 +29,7 @@ import asyncio
 from app.core.scheduler import scheduler
 from app.models.dashboard_layout_version import DashboardLayoutVersion
 from app.services.dashboard_layout_service import DashboardLayoutService
+from app.enterprise.audit.service import audit_service
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step
@@ -193,6 +194,20 @@ class ReportService:
         except Exception:
             pass
 
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="report.created",
+                user_id=str(current_user.id),
+                resource_type="report",
+                resource_id=str(report.id),
+                details={"title": report.title},
+            )
+        except Exception:
+            pass
+
         return ReportSchema.from_orm(report).copy(update={"user": UserSchema.from_orm(current_user)})
 
     async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportUpdate, current_user: User, organization: Organization) -> Report:
@@ -273,8 +288,23 @@ class ReportService:
             )
         except Exception:
             pass
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="report.updated",
+                user_id=str(current_user.id),
+                resource_type="report",
+                resource_id=str(report.id),
+                details={"title": report.title, "status": report.status},
+            )
+        except Exception:
+            pass
+
         return report
-    
+
     async def rerun_report_steps(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
         logger.info(f"Executing scheduled report run for report_id: {report_id}")
         report = await self.get_report(db, report_id, current_user, organization)
@@ -355,10 +385,25 @@ class ReportService:
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-        
+
         report.status = 'archived'
         await db.commit()
         await db.refresh(report)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="report.archived",
+                user_id=str(current_user.id),
+                resource_type="report",
+                resource_id=str(report.id),
+                details={"title": report.title},
+            )
+        except Exception:
+            pass
+
         return report
 
     async def publish_report(self, db: AsyncSession, report_id: str, current_user: User, organization: Organization) -> Report:
@@ -388,8 +433,23 @@ class ReportService:
             )
         except Exception:
             pass
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="report.published" if report.status == "published" else "report.unpublished",
+                user_id=str(current_user.id),
+                resource_type="report",
+                resource_id=str(report.id),
+                details={"title": report.title, "status": report.status},
+            )
+        except Exception:
+            pass
+
         return report
-    
+
     async def get_public_report(self, db: AsyncSession, report_id: str) -> ReportSchema:
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
@@ -709,12 +769,27 @@ class ReportService:
         reports = result.scalars().all()
 
         count = 0
+        archived_ids = []
         for report in reports:
             report.status = "archived"
+            archived_ids.append(str(report.id))
             count += 1
 
         if count:
             await db.commit()
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="report.bulk_archived",
+                    user_id=str(current_user.id),
+                    resource_type="report",
+                    details={"count": count, "report_ids": archived_ids},
+                )
+            except Exception:
+                pass
 
         return {"archived": count}
 
@@ -889,6 +964,21 @@ class ReportService:
             )
         except Exception:
             pass
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="report.scheduled" if report.cron_schedule else "report.unscheduled",
+                user_id=str(current_user.id),
+                resource_type="report",
+                resource_id=str(report.id),
+                details={"title": report.title, "cron_schedule": report.cron_schedule},
+            )
+        except Exception:
+            pass
+
         return report
 
     async def toggle_conversation_share(
@@ -933,7 +1023,21 @@ class ReportService:
             )
         except Exception:
             pass
-        
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="report.share_toggled",
+                user_id=str(current_user.id),
+                resource_type="report",
+                resource_id=str(report.id),
+                details={"title": report.title, "share_enabled": report.conversation_share_enabled},
+            )
+        except Exception:
+            pass
+
         return {
             "enabled": report.conversation_share_enabled,
             "token": report.conversation_share_token if report.conversation_share_enabled else None,

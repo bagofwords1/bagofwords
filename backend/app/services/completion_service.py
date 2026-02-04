@@ -49,6 +49,7 @@ from app.core.telemetry import telemetry
 
 from app.ai.agent_v2 import AgentV2
 from pydantic import ValidationError
+from app.enterprise.audit.service import audit_service
 
 # Models used for v2 assembly
 from app.models.completion_block import CompletionBlock
@@ -424,6 +425,20 @@ class CompletionService:
                 await self.mention_service.create_completion_mentions(db, head_completion)
             except Exception as e:
                 logging.error(f"Failed to create mentions for completion {head_completion.id}: {e}")
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="completion.created",
+                    user_id=str(current_user.id),
+                    resource_type="completion",
+                    resource_id=str(head_completion.id),
+                    details={"report_id": str(report.id)},
+                )
+            except Exception:
+                pass
 
             # Create system completion to populate with results
             system_completion = Completion(
@@ -1444,6 +1459,20 @@ class CompletionService:
             except Exception as e:
                 logging.error(f"Failed to create mentions for completion {completion.id}: {e}")
 
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="completion.created",
+                    user_id=str(current_user.id),
+                    resource_type="completion",
+                    resource_id=str(completion.id),
+                    details={"report_id": str(report.id), "stream": True},
+                )
+            except Exception:
+                pass
+
             org_settings = await organization.get_settings(db)
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
 
@@ -1651,16 +1680,16 @@ class CompletionService:
         response_completions = response_completions.scalars().all()
         return response_completions
     
-    async def update_completion_sigkill(self, db: AsyncSession, completion_id: str):
+    async def update_completion_sigkill(self, db: AsyncSession, completion_id: str, current_user: User = None, organization: Organization = None):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()
 
         if not completion:
             raise HTTPException(status_code=404, detail="Completion not found")
-        
+
         completion.sigkill = datetime.now()
         completion.status = 'stopped'
-        
+
         # Also update all in_progress completion blocks to stopped
         from app.models.completion_block import CompletionBlock
         blocks_result = await db.execute(
@@ -1670,14 +1699,29 @@ class CompletionService:
             )
         )
         blocks = blocks_result.scalars().all()
-        
+
         for block in blocks:
             block.status = 'stopped'
             if not block.completed_at:
                 block.completed_at = completion.sigkill
             db.add(block)
-        
+
         await db.commit()
         await db.refresh(completion)
+
+        # Audit log
+        if current_user and organization:
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="completion.stopped",
+                    user_id=str(current_user.id),
+                    resource_type="completion",
+                    resource_id=str(completion.id),
+                    details={"report_id": str(completion.report_id)},
+                )
+            except Exception:
+                pass
 
         return completion
