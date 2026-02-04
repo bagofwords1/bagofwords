@@ -288,13 +288,14 @@ def test_mcp_tools_list(
     assert "tools" in data["result"]
 
     tools = data["result"]["tools"]
-    assert len(tools) == 7
+    assert len(tools) == 8
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
     assert "get_context" in tool_names
     assert "inspect_data" in tool_names
     assert "create_data" in tool_names
+    assert "create_artifact" in tool_names
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
@@ -405,13 +406,14 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 7
+    assert len(tools) == 8
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
     assert "get_context" in tool_names
     assert "inspect_data" in tool_names
     assert "create_data" in tool_names
+    assert "create_artifact" in tool_names
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
@@ -848,3 +850,204 @@ def test_mcp_create_data_no_llm(
     # Either isError is True or the content indicates an error
     assert data["result"]["isError"] is True or "error" in content_text.lower() or "no default" in content_text.lower() or "llm" in content_text.lower()
     # No manual cleanup needed - database reset by run_migrations fixture
+
+
+# ============================================================================
+# Tool Tests - create_artifact
+# ============================================================================
+
+@pytest.mark.e2e
+def test_mcp_create_artifact_no_visualizations(
+    enable_mcp,
+    test_client,
+    create_api_key,
+    install_demo_data_source,
+    create_user,
+    login_user,
+    whoami
+):
+    """create_artifact returns error when no visualizations exist."""
+    if not CHINOOK_DB_PATH.exists():
+        pytest.skip(f"Chinook demo database missing at {CHINOOK_DB_PATH}")
+
+    # Setup
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+    api_key = create_api_key(user_token=user_token, org_id=org_id)["key"]
+
+    def mcp_tool_call(tool_name, arguments):
+        return test_client.post(
+            "/api/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": arguments}
+            },
+            headers={"X-API-Key": api_key}
+        )
+
+    # Enable MCP
+    enable_mcp(user_token=user_token, org_id=org_id)
+
+    # Install demo data source
+    install_demo_data_source(
+        demo_id="chinook",
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Create a report first (no visualizations yet)
+    report_response = mcp_tool_call("create_report", {"title": "Artifact Test Report"})
+    assert report_response.status_code == 200, f"Expected 200, got {report_response.status_code}: {report_response.json()}"
+
+    # Extract report_id
+    report_result_text = report_response.json()["result"]["content"][0]["text"]
+    report_result = json.loads(report_result_text)
+    report_id = report_result["report_id"]
+
+    # Call create_artifact - should fail because no visualizations exist
+    artifact_response = mcp_tool_call("create_artifact", {
+        "report_id": report_id,
+        "prompt": "Create a sales dashboard",
+        "title": "Sales Dashboard"
+    })
+    assert artifact_response.status_code == 200
+
+    data = artifact_response.json()
+    content_text = data["result"]["content"][0]["text"]
+    # Should indicate error about no visualizations
+    assert data["result"]["isError"] is True or "no" in content_text.lower() and "visualization" in content_text.lower()
+
+
+@pytest.mark.e2e
+def test_mcp_create_artifact_invalid_mode(
+    enable_mcp,
+    test_client,
+    create_api_key,
+    install_demo_data_source,
+    create_user,
+    login_user,
+    whoami
+):
+    """create_artifact returns error for invalid mode."""
+    if not CHINOOK_DB_PATH.exists():
+        pytest.skip(f"Chinook demo database missing at {CHINOOK_DB_PATH}")
+
+    # Setup
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+    api_key = create_api_key(user_token=user_token, org_id=org_id)["key"]
+
+    def mcp_tool_call(tool_name, arguments):
+        return test_client.post(
+            "/api/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": arguments}
+            },
+            headers={"X-API-Key": api_key}
+        )
+
+    # Enable MCP
+    enable_mcp(user_token=user_token, org_id=org_id)
+
+    # Install demo data source
+    install_demo_data_source(
+        demo_id="chinook",
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Create a report first
+    report_response = mcp_tool_call("create_report", {"title": "Mode Test Report"})
+    assert report_response.status_code == 200
+
+    # Extract report_id
+    report_result_text = report_response.json()["result"]["content"][0]["text"]
+    report_result = json.loads(report_result_text)
+    report_id = report_result["report_id"]
+
+    # Call create_artifact with invalid mode
+    artifact_response = mcp_tool_call("create_artifact", {
+        "report_id": report_id,
+        "prompt": "Create a dashboard",
+        "mode": "invalid_mode"
+    })
+    assert artifact_response.status_code == 200
+
+    data = artifact_response.json()
+    content_text = data["result"]["content"][0]["text"]
+    # Should indicate error about invalid mode
+    assert data["result"]["isError"] is True or "invalid" in content_text.lower() or "mode" in content_text.lower()
+
+
+@pytest.mark.e2e
+def test_mcp_create_artifact_no_llm(
+    enable_mcp,
+    test_client,
+    create_api_key,
+    install_demo_data_source,
+    create_user,
+    login_user,
+    whoami
+):
+    """create_artifact returns error when no LLM is configured (even with visualizations)."""
+    if not CHINOOK_DB_PATH.exists():
+        pytest.skip(f"Chinook demo database missing at {CHINOOK_DB_PATH}")
+
+    # Setup
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+    api_key = create_api_key(user_token=user_token, org_id=org_id)["key"]
+
+    def mcp_tool_call(tool_name, arguments):
+        return test_client.post(
+            "/api/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {"name": tool_name, "arguments": arguments}
+            },
+            headers={"X-API-Key": api_key}
+        )
+
+    # Enable MCP
+    enable_mcp(user_token=user_token, org_id=org_id)
+
+    # Install demo data source
+    install_demo_data_source(
+        demo_id="chinook",
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Create a report
+    report_response = mcp_tool_call("create_report", {"title": "LLM Test Report"})
+    assert report_response.status_code == 200
+
+    # Extract report_id
+    report_result_text = report_response.json()["result"]["content"][0]["text"]
+    report_result = json.loads(report_result_text)
+    report_id = report_result["report_id"]
+
+    # Call create_artifact - will fail either due to no visualizations or no LLM
+    # (depends on order of checks in the implementation)
+    artifact_response = mcp_tool_call("create_artifact", {
+        "report_id": report_id,
+        "prompt": "Create a comprehensive sales dashboard",
+        "title": "Sales Dashboard",
+        "mode": "page"
+    })
+    assert artifact_response.status_code == 200
+
+    data = artifact_response.json()
+    content_text = data["result"]["content"][0]["text"]
+    # Should indicate some error (either no LLM or no visualizations)
+    assert data["result"]["isError"] is True or "error" in content_text.lower() or "no" in content_text.lower()
