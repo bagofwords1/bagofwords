@@ -36,6 +36,9 @@ from app.schemas.data_sources.configs import (
     # Azure Data Explorer
     AzureDataExplorerConfig,
     AzureDataExplorerCredentials,
+    # Databricks SQL
+    DatabricksSqlConfig,
+    DatabricksSqlCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -379,6 +382,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.posthog_client.PostHogClient",
         version="beta",
+    ),
+    "databricks_sql": DataSourceRegistryEntry(
+        type="databricks_sql",
+        title="Databricks SQL",
+        description="Databricks SQL Warehouse - serverless data warehouse with Unity Catalog. Powers Genie AI/BI.",
+        config_schema=DatabricksSqlConfig,
+        credentials_auth=AuthOptions(
+            default="pat",
+            by_auth={
+                "pat": AuthVariant(
+                    title="Personal Access Token",
+                    schema=DatabricksSqlCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.databricks_sql_client.DatabricksSqlClient",
     ),
 }
 

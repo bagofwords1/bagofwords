@@ -488,6 +488,44 @@ class PostHogConfig(BaseModel):
         json_schema_extra={"ui:type": "string"}
     )
 
+
+# Databricks SQL
+class DatabricksSqlCredentials(BaseModel):
+    access_token: str = Field(
+        ...,
+        title="Personal Access Token",
+        description="Databricks personal access token for authentication",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class DatabricksSqlConfig(BaseModel):
+    server_hostname: str = Field(
+        ...,
+        title="Server Hostname",
+        description="Databricks workspace hostname (e.g., abc123.cloud.databricks.com)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    http_path: str = Field(
+        ...,
+        title="HTTP Path",
+        description="SQL warehouse HTTP path (e.g., /sql/1.0/warehouses/abc123)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    catalog: str = Field(
+        ...,
+        title="Catalog",
+        description="Unity Catalog name to use",
+        json_schema_extra={"ui:type": "string"}
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas. If empty, all schemas in the catalog will be discovered.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -538,4 +576,7 @@ __all__ = [
     "AzureDataExplorerConfig",
     "MongoDBCredentials",
     "PostHogCredentials",
+    # Databricks SQL
+    "DatabricksSqlCredentials",
+    "DatabricksSqlConfig",
 ]
