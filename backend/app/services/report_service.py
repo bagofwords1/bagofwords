@@ -194,20 +194,6 @@ class ReportService:
         except Exception:
             pass
 
-        # Audit log
-        try:
-            await audit_service.log(
-                db=db,
-                organization_id=str(organization.id),
-                action="report.created",
-                user_id=str(current_user.id),
-                resource_type="report",
-                resource_id=str(report.id),
-                details={"title": report.title},
-            )
-        except Exception:
-            pass
-
         return ReportSchema.from_orm(report).copy(update={"user": UserSchema.from_orm(current_user)})
 
     async def update_report(self, db: AsyncSession, report_id: str, report_data: ReportUpdate, current_user: User, organization: Organization) -> Report:
