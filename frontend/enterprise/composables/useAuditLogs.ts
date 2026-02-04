@@ -97,6 +97,23 @@ export const useAuditLogs = () => {
     }
   }
 
+  const fetchActionTypes = async (): Promise<string[]> => {
+    try {
+      const res = await useMyFetch('/api/enterprise/audit/action-types')
+      
+      if (res.status.value !== 'success') {
+        const msg = (res.error?.value as any)?.data?.detail || 'Failed to fetch action types'
+        console.warn('Failed to fetch action types:', msg)
+        return []
+      }
+      
+      return res.data.value as string[]
+    } catch (e: any) {
+      console.warn('Error fetching action types:', e.message || 'Unknown error')
+      return []
+    }
+  }
+
   return {
     logs,
     loading,
@@ -109,5 +126,6 @@ export const useAuditLogs = () => {
     nextPage,
     prevPage,
     goToPage,
+    fetchActionTypes,
   }
 }

@@ -73,6 +73,26 @@ async def list_audit_logs(
     )
 
 
+@router.get("/action-types", response_model=list[str])
+@require_enterprise(feature="audit_logs")
+@requires_permission("view_audit_logs")
+async def get_action_types(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """
+    Get list of available action types for filtering.
+    Enterprise feature - requires audit_logs license feature.
+    """
+    action_types = await audit_service.get_action_types(
+        db=db,
+        organization_id=str(organization.id),
+    )
+    
+    return action_types
+
+
 @router.get("/{log_id}", response_model=AuditLogResponse)
 @require_enterprise(feature="audit_logs")
 @requires_permission("view_audit_logs")

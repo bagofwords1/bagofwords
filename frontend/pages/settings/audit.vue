@@ -179,7 +179,7 @@ definePageMeta({
 })
 
 const { hasFeature, license } = useEnterprise()
-const { logs, loading, error, total, page, pageSize, totalPages, fetchLogs, nextPage, prevPage } = useAuditLogs()
+const { logs, loading, error, total, page, pageSize, totalPages, fetchLogs, nextPage, prevPage, fetchActionTypes } = useAuditLogs()
 
 const searchQuery = ref('')
 const selectedActions = ref<string[]>([])
@@ -187,13 +187,34 @@ const showActionDropdown = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const hasFetched = ref(false)
 
-const actionOptions = [
-  { value: 'report.created', label: 'Report created' },
-  { value: 'report.deleted', label: 'Report deleted' },
-  { value: 'report.published', label: 'Report published' },
-  { value: 'member.invited', label: 'Member invited' },
-  { value: 'member.removed', label: 'Member removed' },
-]
+const actionOptions = ref<{ value: string; label: string }[]>([])
+
+// Fetch action types from backend
+const loadActionTypes = async () => {
+  const actionTypes = await fetchActionTypes()
+  
+  // Transform action types into options with nice labels
+  actionOptions.value = actionTypes.map(action => ({
+    value: action,
+    label: formatActionLabel(action)
+  }))
+}
+
+// Helper function to format action types into readable labels
+const formatActionLabel = (action: string): string => {
+  // Split by dot and format each part
+  const parts = action.split('.')
+  if (parts.length === 2) {
+    const [resource, actionType] = parts
+    const formattedResource = resource.charAt(0).toUpperCase() + resource.slice(1).replace(/_/g, ' ')
+    const formattedAction = actionType.charAt(0).toUpperCase() + actionType.slice(1).replace(/_/g, ' ')
+    return `${formattedResource} ${formattedAction}`
+  }
+  // Fallback: just capitalize and replace underscores
+  return action.split('.').map(part => 
+    part.charAt(0).toUpperCase() + part.slice(1).replace(/_/g, ' ')
+  ).join(' ')
+}
 
 const hasActiveFilters = computed(() => {
   return searchQuery.value || selectedActions.value.length > 0
@@ -206,8 +227,9 @@ const handleClickOutside = (e: MouseEvent) => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
+  await loadActionTypes()
 })
 
 onUnmounted(() => {
