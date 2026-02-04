@@ -103,12 +103,13 @@ export const useAuditLogs = () => {
       
       if (res.status.value !== 'success') {
         const msg = (res.error?.value as any)?.data?.detail || 'Failed to fetch action types'
-        throw new Error(msg)
+        console.warn('Failed to fetch action types:', msg)
+        return []
       }
       
       return res.data.value as string[]
     } catch (e: any) {
-      console.error('Failed to fetch action types:', e.message)
+      console.warn('Error fetching action types:', e.message || 'Unknown error')
       return []
     }
   }

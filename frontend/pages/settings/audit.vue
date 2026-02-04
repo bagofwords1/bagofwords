@@ -206,8 +206,8 @@ const formatActionLabel = (action: string): string => {
   const parts = action.split('.')
   if (parts.length === 2) {
     const [resource, actionType] = parts
-    const formattedResource = resource.charAt(0).toUpperCase() + resource.slice(1)
-    const formattedAction = actionType.replace(/_/g, ' ')
+    const formattedResource = resource.charAt(0).toUpperCase() + resource.slice(1).replace(/_/g, ' ')
+    const formattedAction = actionType.charAt(0).toUpperCase() + actionType.slice(1).replace(/_/g, ' ')
     return `${formattedResource} ${formattedAction}`
   }
   // Fallback: just capitalize and replace underscores
@@ -227,9 +227,9 @@ const handleClickOutside = (e: MouseEvent) => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   document.addEventListener('click', handleClickOutside)
-  loadActionTypes()
+  await loadActionTypes()
 })
 
 onUnmounted(() => {
