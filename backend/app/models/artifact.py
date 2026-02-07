@@ -49,6 +49,9 @@ class Artifact(BaseSchema):
     # Status: 'pending', 'completed', 'failed'
     status = Column(String(20), nullable=False, default='completed', index=True)
 
+    # Thumbnail path for preview cards (relative to uploads folder)
+    thumbnail_path = Column(String(512), nullable=True)
+
     # Optional: Reference to the completion that generated this
     completion_id = Column(String(36), ForeignKey('completions.id'), nullable=True, index=True)
     completion = relationship("Completion", lazy="selectin")

@@ -1,8 +1,8 @@
 import re
 from typing import List, Dict, Any
 from io import BytesIO
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from lxml import html as lxml_html
 
@@ -18,13 +18,54 @@ from app.schemas.artifact_schema import (
     ArtifactListSchema,
     ArtifactCreate,
     ArtifactUpdate,
+    ArtifactRecentSchema,
 )
 from app.services.artifact_service import ArtifactService
 from app.services.pptx_export_service import PptxExportService
+from app.services.thumbnail_service import ThumbnailService
 
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
 service = ArtifactService()
+thumbnail_service = ThumbnailService()
+
+
+@router.get("/recent", response_model=List[ArtifactRecentSchema])
+@requires_permission("view_reports")
+async def list_recent_artifacts(
+    limit: int = Query(6, ge=1, le=20),
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """List recent artifacts for the home page with thumbnails."""
+    artifacts = await service.list_recent(db, organization_id=organization.id, limit=limit)
+    return [ArtifactRecentSchema.from_artifact(a) for a in artifacts]
+
+
+@router.get("/{artifact_id}/thumbnail")
+@requires_permission("view_reports", model=ArtifactModel, owner_only=True, allow_public=True)
+async def get_artifact_thumbnail(
+    artifact_id: str,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Get thumbnail image for an artifact."""
+    artifact = await service.get(db, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    # Check if thumbnail exists on filesystem
+    thumbnail_path = thumbnail_service.get_thumbnail_path(artifact_id)
+    if thumbnail_path and thumbnail_path.exists():
+        return FileResponse(
+            str(thumbnail_path),
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    raise HTTPException(status_code=404, detail="Thumbnail not available")
 
 
 def _get_text_content(element) -> str:

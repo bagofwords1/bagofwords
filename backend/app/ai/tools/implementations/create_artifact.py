@@ -34,6 +34,7 @@ from app.ai.llm.types import ImageInput
 from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
+from app.services.thumbnail_service import ThumbnailService
 from sqlalchemy import desc
 
 
@@ -821,6 +822,32 @@ Fix these errors while keeping the same design and functionality. Output the cor
         artifact.status = "completed" if (validation_result and validation_result.success) else "completed"
         await db.commit()
         await db.refresh(artifact)
+
+        # Generate thumbnail in background (non-blocking, failure is acceptable)
+        try:
+            thumbnail_service = ThumbnailService()
+            # Build the same HTML used for validation
+            artifact_data = {
+                "report": {
+                    "id": str(report.id) if report else None,
+                    "title": getattr(report, "title", None) if report else None,
+                    "theme": getattr(report, "theme", None) if report else None,
+                },
+                "visualizations": visualizations,
+            }
+            thumbnail_html = self._build_validation_html(artifact_data, code, mode=data.mode)
+            thumbnail_path = await thumbnail_service.generate_thumbnail(
+                artifact_id=str(artifact.id),
+                html_content=thumbnail_html,
+                mode=data.mode,
+            )
+            if thumbnail_path:
+                artifact.thumbnail_path = thumbnail_path
+                db.add(artifact)
+                await db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to generate thumbnail for artifact {artifact.id}: {e}")
+            # Non-critical failure, continue without thumbnail
 
         output = CreateArtifactOutput(
             artifact_id=str(artifact.id),
