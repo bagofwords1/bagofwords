@@ -49,10 +49,13 @@ class TablesSchemaContext(ContextSection):
 
         def _render_table_xml(self, t: PromptTable) -> str:
             """Render a single table to XML."""
-            cols = "\n".join(
-                f'<column name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"/>'
-                for c in (t.columns or [])
-            )
+            col_parts = []
+            for c in (t.columns or []):
+                attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
+                if getattr(c, 'description', None):
+                    attrs += f' description="{xml_escape(c.description)}"'
+                col_parts.append(f'<column {attrs}/>')
+            cols = "\n".join(col_parts)
 
             # ignored for now
             pks = "\n".join(
@@ -98,7 +101,10 @@ class TablesSchemaContext(ContextSection):
             except Exception:
                 metadata_xml = ""
             inner = "\n".join(filter(None, [xml_tag("columns", cols), metadata_xml, metrics_xml]))
-            return xml_tag("table", inner, {"name": t.name})
+            table_attrs = {"name": t.name}
+            if getattr(t, 'description', None):
+                table_attrs["description"] = t.description
+            return xml_tag("table", inner, table_attrs)
 
         def render(self) -> str:
             # Group tables by connection
@@ -218,10 +224,13 @@ class TablesSchemaContext(ContextSection):
             has_multi_connection = len(conn_groups) > 1 or (len(conn_groups) == 1 and 'default' not in conn_groups)
 
             def render_table(t):
-                cols = "\n".join(
-                    f'<column name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"/>'
-                    for c in (t.columns or [])
-                )
+                col_parts = []
+                for c in (t.columns or []):
+                    col_attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
+                    if getattr(c, 'description', None):
+                        col_attrs += f' description="{xml_escape(c.description)}"'
+                    col_parts.append(f'<column {col_attrs}/>')
+                cols = "\n".join(col_parts)
                 pks = "\n".join(
                     f'<pk name="{xml_escape(pk.name)}" dtype="{xml_escape(pk.dtype or "")}"/>'
                     for pk in (t.pks or [])
@@ -233,6 +242,8 @@ class TablesSchemaContext(ContextSection):
                     for fk in (t.fks or [])
                 )
                 attrs = {"name": t.name, "cols": str(len(t.columns or []))}
+                if getattr(t, 'description', None):
+                    attrs["description"] = t.description
                 try:
                     if getattr(t, 'score', None) is not None:
                         attrs["score"] = str(round(float(getattr(t, 'score')), 2))

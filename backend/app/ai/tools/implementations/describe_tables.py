@@ -165,6 +165,8 @@ class DescribeTablesTool(Tool):
                                 col_items.append({
                                     "name": getattr(c, "name", None),
                                     "dtype": getattr(c, "dtype", None),
+                                    "description": getattr(c, "description", None),
+                                    "metadata": getattr(c, "metadata", None),
                                 })
                         except Exception:
                             col_items = []
@@ -186,7 +188,8 @@ class DescribeTablesTool(Tool):
                             "schema": None,
                             "name": getattr(t, "name", None),
                             "full_name": None,
-                            "description": None,
+                            "description": getattr(t, "description", None),
+                            "metadata": getattr(t, "metadata_json", None),
                             "columns": col_items,
                             "usage": usage,
                         })

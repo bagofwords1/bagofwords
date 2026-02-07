@@ -151,6 +151,8 @@ class TableColumn(BaseModel):
     name: str
     dtype: str | None
     is_active: bool = True
+    description: str | None = None  # Column description/comment from database
+    metadata: dict | None = None    # Source-specific metadata (formula, role, __typename, etc.)
 
 
 class ForeignKey(BaseModel):
@@ -162,6 +164,7 @@ class ForeignKey(BaseModel):
 class Table(BaseModel):
     id: Optional[str] = None  # Database table ID (from DataSourceTable)
     name: str
+    description: str | None = None  # Table-level description/comment
     columns: list[TableColumn] | None
     pks: list[TableColumn] | None
     fks: list[ForeignKey] | None
