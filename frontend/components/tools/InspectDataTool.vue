@@ -135,6 +135,22 @@ const errorMessage = computed<string>(() => {
   return rj.error_message || ''
 })
 
+// Group resolved tables by connection type for display
+const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
+  const rj = props.toolExecution?.result_json || {}
+  const tables = Array.isArray(rj.resolved_tables) ? rj.resolved_tables : []
+  if (!tables.length) return []
+
+  const groups: Record<string, string[]> = {}
+  for (const t of tables) {
+    const ctype = t.connection_type || 'resource'
+    if (!groups[ctype]) groups[ctype] = []
+    if (t.name) groups[ctype].push(t.name)
+  }
+
+  return Object.entries(groups).map(([type, names]) => ({ type, names }))
+})
+
 function toggleExpanded() {
   if (status.value !== 'running') {
     isExpanded.value = !isExpanded.value
