@@ -16,3 +16,14 @@ async def get_general_icon(icon_key: str):
     return FileResponse(path)
 
 
+@router.get("/thumbnails/{filename}")
+async def get_thumbnail(filename: str):
+    """Serve thumbnail images for artifacts/reports."""
+    base_dir = os.path.abspath(os.path.join(os.getcwd(), "uploads", "thumbnails"))
+    path = os.path.join(base_dir, filename)
+    if not os.path.exists(path):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(path, media_type="image/png")
+
+

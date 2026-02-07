@@ -24,8 +24,8 @@
         </UTooltip>
         <template v-else>
           <span v-if="showText" class="flex-1 text-left min-w-0">
-            <span class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">CONTEXT</span>
-            <span class="flex items-center gap-1.5 mt-0.5">
+            <span v-if="showLabel" class="block text-[8px] uppercase tracking-wide text-gray-400 font-semibold leading-none">CONTEXT</span>
+            <span :class="['flex items-center gap-1.5', showLabel ? 'mt-0.5' : '']">
               <Spinner v-if="loading" class="w-3 h-3 text-gray-400 animate-spin flex-shrink-0" />
               <span class="text-xs font-medium text-gray-700 truncate">
                 {{ currentDomainName }}
@@ -430,9 +430,11 @@ const router = useRouter()
 const props = withDefaults(defineProps<{
   collapsed?: boolean
   showText?: boolean
+  showLabel?: boolean
 }>(), {
   collapsed: false,
-  showText: true
+  showText: true,
+  showLabel: true
 })
 
 // Domain management

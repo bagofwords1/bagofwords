@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.models.artifact import Artifact
+from app.models.report import Report
 from app.schemas.artifact_schema import (
     ArtifactCreate,
     ArtifactUpdate,
@@ -147,6 +148,7 @@ class ArtifactService:
 
         This creates a copy of the artifact with a new timestamp,
         effectively making it the 'default' since latest = default.
+        Also copies the thumbnail if it exists.
         """
         original = await self.get(db, artifact_id)
         if not original:
@@ -170,4 +172,21 @@ class ArtifactService:
         db.add(new_artifact)
         await db.commit()
         await db.refresh(new_artifact)
+
+        # Copy thumbnail from original artifact if it exists, otherwise regenerate
+        import asyncio
+        from app.services.thumbnail_service import ThumbnailService
+        thumbnail_service = ThumbnailService()
+
+        if original.thumbnail_path:
+            new_thumbnail_path = thumbnail_service.copy_thumbnail(
+                str(original.id), str(new_artifact.id)
+            )
+            if new_thumbnail_path:
+                new_artifact.thumbnail_path = new_thumbnail_path
+                await db.commit()
+        else:
+            # Original has no thumbnail - regenerate for the report in background
+            asyncio.create_task(thumbnail_service.regenerate_for_report(str(new_artifact.report_id)))
+
         return new_artifact

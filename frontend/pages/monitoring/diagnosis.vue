@@ -1,11 +1,13 @@
 <template>
     <div class="mt-6">
-        <!-- Date Range Picker (same as ConsoleOverview) -->
+        <!-- Date Range Picker with Domain Selector -->
         <DateRangePicker
             :selected-period="selectedPeriod"
             :date-range="dateRange"
             @period-change="handlePeriodChange"
-        />
+        >
+            <DomainSelector :collapsed="false" :show-text="true" :show-label="false" />
+        </DateRangePicker>
 
         <!-- Summary Cards (matching MetricsCards.vue style) -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -248,7 +250,9 @@
 <script setup lang="ts">
 import DateRangePicker from '~/components/console/DateRangePicker.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
+import DomainSelector from '~/components/DomainSelector.vue'
 const { isJudgeEnabled } = useOrgSettings()
+const { selectedDomains, initDomain } = useDomain()
 
 definePageMeta({
     auth: true,
@@ -396,21 +400,26 @@ const fetchDiagnosisData = async () => {
             page: currentPage.value.toString(),
             page_size: pageSize.value.toString()
         })
-        
+
         if (dateRange.value.start) {
             params.append('start_date', new Date(dateRange.value.start).toISOString())
         }
         if (dateRange.value.end) {
             params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
-        
+
         // Add filter parameter
         if (selectedFilter.value.value !== 'all') {
             params.append('filter', selectedFilter.value.value)
         }
-        
+
+        // Add data source filter
+        if (selectedDomains.value.length > 0) {
+            params.append('data_source_ids', selectedDomains.value.join(','))
+        }
+
         debugInfo.value = `Fetching with params: ${params.toString()}`
-        
+
         // Fetch agent execution summaries instead of compact issues
         const diagnosisResponse = await useMyFetch<any>(`/api/console/agent_executions/summaries?${params}`)
         
@@ -485,7 +494,12 @@ const fetchOverallMetrics = async () => {
         if (dateRange.value.end) {
             params.append('end_date', new Date(dateRange.value.end).toISOString())
         }
-        
+
+        // Add data source filter
+        if (selectedDomains.value.length > 0) {
+            params.append('data_source_ids', selectedDomains.value.join(','))
+        }
+
         // Fetch dashboard metrics and judge response
         const [dashboardResponse, judgeResponse] = await Promise.all([
             useMyFetch<any>(`/api/console/diagnosis/metrics?${params}`),
@@ -577,9 +591,20 @@ watch(currentPage, () => {
     fetchDiagnosisData()
 })
 
+// Watch for domain selection changes
+watch(selectedDomains, () => {
+    currentPage.value = 1
+    Promise.all([
+        fetchOverallMetrics(),
+        fetchDiagnosisData()
+    ])
+}, { deep: true })
+
 // Initialize
 onMounted(async () => {
     initializeDateRange()
+    // Initialize domains for the selector
+    await initDomain()
     // Fetch dashboard metrics and diagnosis data on initial load
     await Promise.all([
         fetchOverallMetrics(),

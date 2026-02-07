@@ -34,6 +34,7 @@ from app.ai.llm.types import ImageInput
 from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
+from app.services.thumbnail_service import ThumbnailService
 from sqlalchemy import desc
 
 
@@ -130,6 +131,34 @@ class CreateArtifactTool(Tool):
       })();
     </script>
     """
+
+    async def _generate_thumbnail_background(
+        self,
+        artifact_id: str,
+        html_content: str,
+        mode: str = "page",
+    ) -> None:
+        """Generate thumbnail in background and update artifact.
+
+        Runs independently with its own database session.
+        """
+        try:
+            thumbnail_service = ThumbnailService()
+            thumbnail_path = await thumbnail_service.generate_thumbnail(
+                artifact_id=artifact_id,
+                html_content=html_content,
+                mode=mode,
+            )
+            if thumbnail_path:
+                # Use a fresh database session for the background update
+                async with async_session_maker() as db:
+                    from sqlalchemy import update
+                    from app.models.artifact import Artifact
+                    stmt = update(Artifact).where(Artifact.id == artifact_id).values(thumbnail_path=thumbnail_path)
+                    await db.execute(stmt)
+                    await db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to generate thumbnail for artifact {artifact_id}: {e}")
 
     def _build_validation_html(self, artifact_data: dict, code: str, mode: str = "page") -> str:
         """Build HTML for validation by reading sandbox file and injecting validation code.
@@ -821,6 +850,24 @@ Fix these errors while keeping the same design and functionality. Output the cor
         artifact.status = "completed" if (validation_result and validation_result.success) else "completed"
         await db.commit()
         await db.refresh(artifact)
+
+        # Generate thumbnail in background (truly non-blocking)
+        artifact_data = {
+            "report": {
+                "id": str(report.id) if report else None,
+                "title": getattr(report, "title", None) if report else None,
+                "theme": getattr(report, "theme", None) if report else None,
+            },
+            "visualizations": visualizations,
+        }
+        thumbnail_html = self._build_validation_html(artifact_data, code, mode=data.mode)
+        asyncio.create_task(
+            self._generate_thumbnail_background(
+                artifact_id=str(artifact.id),
+                html_content=thumbnail_html,
+                mode=data.mode,
+            )
+        )
 
         output = CreateArtifactOutput(
             artifact_id=str(artifact.id),
