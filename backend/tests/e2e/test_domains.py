@@ -1028,8 +1028,8 @@ def test_domain_user_required_non_owner_blocked(
 
     if ds_response.status_code == 200:
         ds_data = ds_response.json()
-        connection = ds_data.get("connection") or {}
-        user_status = connection.get("user_status") or {}
+        # user_status is now at top level (legacy field from first connection)
+        user_status = ds_data.get("user_status") or {}
 
         # Non-owner without credentials should see "offline"
         assert user_status.get("connection") == "offline", \
@@ -1120,8 +1120,8 @@ def test_domain_user_required_admin_can_access(
     )
 
     ds_data = ds_response.json()
-    connection = ds_data.get("connection") or {}
-    user_status = connection.get("user_status") or {}
+    # user_status is now at top level (legacy field from first connection)
+    user_status = ds_data.get("user_status") or {}
 
     # Admin with permission should use system fallback
     assert user_status.get("connection") != "offline", \
