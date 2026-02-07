@@ -256,8 +256,8 @@ class Coder:
            - The function should return the main dataframe that will answer the user prompt.
 
         2. **Data Source Usage**:
-           - Use `ds_clients["domain_name:connection_name"].execute_query("SOME QUERY")` to query non-Excel data sources.
-             * The key format is "{domain_name}:{connection_name}" matching the schema context.
+           - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
+             * CRITICAL: Use the EXACT `client_key` string from <data_sources_and_clients> section - it is a literal string, NOT a variable!
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
@@ -469,9 +469,9 @@ class Coder:
                - The function should return the main dataframe that answers the user prompt.
 
             2. **Data Source Usage**:
-               - Use `ds_clients["domain_name:connection_name"].execute_query("SOME QUERY")` to query non-Excel data sources.
-             * The key format is "{domain_name}:{connection_name}" matching the schema context.
-             * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
+               - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
+                 * CRITICAL: Use the EXACT `client_key` string from <data_sources_clients> section - it is a literal string, NOT a variable!
+                 * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
                {data_preview_instruction}
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -730,8 +730,8 @@ class Coder:
            - The function should return the main dataframe that answers the user prompt.
 
         2. **Data Source Usage**:
-           - Use `ds_clients["domain_name:connection_name"].execute_query("SOME QUERY")` to query non-Excel data sources.
-             * The key format is "{domain_name}:{connection_name}" matching the schema context.
+           - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
+             * CRITICAL: Use the EXACT `client_key` string from <data_sources_and_clients> section - it is a literal string, NOT a variable!
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}

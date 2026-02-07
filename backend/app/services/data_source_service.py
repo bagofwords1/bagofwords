@@ -1240,6 +1240,9 @@ class DataSourceService:
 
         Returns:
             Dict keyed by "{domain_name}:{connection_name}" -> client
+
+        For backward compatibility with legacy code, also adds aliases:
+        - "{domain_name}" (only if single connection, for legacy ds_clients.get("name") pattern)
         """
         import inspect
         from typing import Dict, Any
@@ -1280,6 +1283,14 @@ class DataSourceService:
                 allowed = params
 
             clients[key] = ClientClass(**allowed)
+
+        # Backward compatibility: add legacy key aliases for single-connection domains
+        # This supports old code patterns like ds_clients.get("domain_name") or ds_clients["domain_name"]
+        if len(data_source.connections) == 1:
+            first_key = next(iter(clients.keys()))
+            first_client = clients[first_key]
+            # Add domain name as alias
+            clients[data_source.name] = first_client
 
         return clients
 
