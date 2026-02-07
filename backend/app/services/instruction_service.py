@@ -1775,6 +1775,7 @@ class InstructionService:
                     # Unified Instructions System fields
                     source_type=getattr(inst, "source_type", "user") or "user",
                     source_metadata_resource_id=getattr(inst, "source_metadata_resource_id", None),
+                    source_file_path=getattr(inst, "source_file_path", None),
                     source_git_commit_sha=getattr(inst, "source_git_commit_sha", None),
                     source_sync_enabled=getattr(inst, "source_sync_enabled", True) if getattr(inst, "source_sync_enabled", None) is not None else True,
                     load_mode=getattr(inst, "load_mode", "always") or "always",

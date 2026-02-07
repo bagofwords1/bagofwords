@@ -1235,21 +1235,20 @@ class InstructionSyncService:
             else:
                 load_mode = self._get_load_mode_for_file(file_path, git_repo)
 
-        # Parse status from frontmatter (default: 'published')
+        # Parse status from frontmatter; default to 'draft' (auto_publish upgrades below)
         status = frontmatter.get('status')
         if status not in ('published', 'draft', 'archived'):
-            status = 'published'
+            status = 'draft'
 
         # Parse category from frontmatter (default: 'general')
         category = frontmatter.get('category') or 'general'
 
-        # Derive global_status based on status
-        global_status = 'approved' if status == 'published' else None
-
-        # Auto-publish check
+        # Auto-publish: override status to 'published' when enabled
         if git_repo.auto_publish:
             status = 'published'
-            global_status = 'approved'
+
+        # Derive global_status based on final status
+        global_status = 'approved' if status == 'published' else None
 
         instruction = Instruction(
             text=file_content,
