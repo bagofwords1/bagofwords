@@ -12,7 +12,7 @@
           <template v-if="groupedTables.length">
             <template v-for="(group, gidx) in groupedTables" :key="gidx">
               <span v-if="gidx > 0" class="text-gray-300">|</span>
-              <DataSourceIcon :type="group.type" class="h-3" />
+              <DataSourceIcon :type="group.type" class="h-2" />
               <span>{{ group.names.join(', ') }}</span>
             </template>
           </template>
@@ -24,7 +24,7 @@
           <template v-if="groupedTables.length">
             <template v-for="(group, gidx) in groupedTables" :key="gidx">
               <span v-if="gidx > 0" class="text-gray-300">|</span>
-              <DataSourceIcon :type="group.type" class="h-3" />
+              <DataSourceIcon :type="group.type" class="h-2.5" />
               <span>{{ group.names.join(', ') }}</span>
             </template>
           </template>
@@ -99,8 +99,16 @@ interface ToolExecution {
   duration_ms?: number
 }
 
+interface DataSource {
+  id: string
+  type?: string
+  data_source_type?: string
+  connections?: Array<{ id: string; type: string }>
+}
+
 interface Props {
   toolExecution: ToolExecution
+  dataSources?: DataSource[]
 }
 
 const props = defineProps<Props>()
@@ -135,17 +143,25 @@ const errorMessage = computed<string>(() => {
   return rj.error_message || ''
 })
 
-// Group resolved tables by connection type for display
+// Group tables by connection type for display
 const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
-  const rj = props.toolExecution?.result_json || {}
-  const tables = Array.isArray(rj.resolved_tables) ? rj.resolved_tables : []
-  if (!tables.length) return []
+  const aj = props.toolExecution?.arguments_json || {}
+  if (!Array.isArray(aj.tables_by_source)) return []
 
   const groups: Record<string, string[]> = {}
-  for (const t of tables) {
-    const ctype = t.connection_type || 'resource'
-    if (!groups[ctype]) groups[ctype] = []
-    if (t.name) groups[ctype].push(t.name)
+  for (const group of aj.tables_by_source) {
+    // Look up connection type from dataSources prop
+    let connType = 'resource'
+    if (group.data_source_id && props.dataSources?.length) {
+      const ds = props.dataSources.find((d) => d.id === group.data_source_id)
+      if (ds) {
+        connType = ds.connections?.[0]?.type || ds.type || ds.data_source_type || 'resource'
+      }
+    }
+    if (!groups[connType]) groups[connType] = []
+    if (Array.isArray(group.tables)) {
+      groups[connType].push(...group.tables)
+    }
   }
 
   return Object.entries(groups).map(([type, names]) => ({ type, names }))

@@ -142,6 +142,7 @@
 													:is="getToolComponent(block.tool_execution.tool_name)"
 													:key="`${block.id}:${(block.tool_execution && block.tool_execution.id) ? block.tool_execution.id : 'noid'}`"
 													:tool-execution="block.tool_execution"
+													:data-sources="report?.data_sources"
 													@addWidget="handleAddWidgetFromPreview"
 													@refreshDashboard="refreshDashboardFast"
 													@toggleSplitScreen="toggleSplitScreen"
@@ -1148,6 +1149,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							;(lastBlock.tool_execution as any).report_id = report_id
 							const modeLabel = payload.arguments.mode === 'slides' ? 'presentation' : 'dashboard'
 							lastBlock.tool_execution.result_summary = `Creating ${modeLabel}: "${payload.arguments.title || 'Untitled'}"…`
+						}
+						if (payload.tool_name === 'inspect_data' && payload.arguments) {
+							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
 					} catch {}
 					lastBlock.status = 'in_progress'

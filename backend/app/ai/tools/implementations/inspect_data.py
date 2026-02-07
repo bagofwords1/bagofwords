@@ -76,7 +76,10 @@ Use when:
             )
             return
         
-        yield ToolStartEvent(type="tool.start", payload={"title": "Inspecting Data"})
+        yield ToolStartEvent(type="tool.start", payload={
+            "title": "Inspecting Data",
+            "tables_by_source": data.tables_by_source,
+        })
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init_inspection"})
 
         context_hub = runtime_ctx.get("context_hub")
@@ -103,7 +106,6 @@ Use when:
         
         # Build schemas excerpt for the resolved tables
         schemas_excerpt = ""
-        tables_with_types: List[Dict[str, Any]] = []  # For UI display
         if resolved_tables and context_hub and getattr(context_hub, "schema_builder", None):
             try:
                 import re
@@ -123,19 +125,9 @@ Use when:
                     name_patterns=name_patterns,
                 )
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=10, index_limit=0, include_index=False)
-
-                # Extract table info with connection types for UI
-                for ds in (getattr(ctx, "data_sources", []) or []):
-                    ds_info = getattr(ds, "info", None)
-                    ds_type = getattr(ds_info, "type", None)
-                    for t in (getattr(ds, "tables", []) or []):
-                        tables_with_types.append({
-                            "name": getattr(t, "name", None),
-                            "connection_type": getattr(t, "connection_type", None) or ds_type,
-                        })
             except Exception:
                 schemas_excerpt = ""
-        
+
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
             user_prompt=data.user_prompt,
@@ -214,7 +206,6 @@ Use when:
                     "execution_log": output_log,
                     "error_message": execution_error,
                     "execution_duration_ms": execution_duration_ms,
-                    "resolved_tables": tables_with_types,
                 },
                 "observation": {
                     "summary": f"Inspection finished for: {data.user_prompt}",
