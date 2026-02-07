@@ -182,7 +182,7 @@ class DescribeTablesTool(Tool):
                         top_tables.append({
                             "data_source_id": ds_id,
                             "data_source_name": ds_name,
-                            "data_source_type": ds_type,
+                            "data_source_type": getattr(t, "connection_type", None) or ds_type,
                             "schema": None,
                             "name": getattr(t, "name", None),
                             "full_name": None,
