@@ -103,6 +103,7 @@ Use when:
         
         # Build schemas excerpt for the resolved tables
         schemas_excerpt = ""
+        tables_with_types: List[Dict[str, Any]] = []  # For UI display
         if resolved_tables and context_hub and getattr(context_hub, "schema_builder", None):
             try:
                 import re
@@ -112,16 +113,26 @@ Use when:
                     if group.get("data_source_id"):
                         ds_ids.append(group["data_source_id"])
                     all_resolved_names.extend(group.get("tables", []))
-                
+
                 ds_scope = list(set(ds_ids)) if ds_ids else None
                 name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
-                
+
                 ctx = await context_hub.schema_builder.build(
                     with_stats=True,
                     data_source_ids=ds_scope,
                     name_patterns=name_patterns,
                 )
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=10, index_limit=0, include_index=False)
+
+                # Extract table info with connection types for UI
+                for ds in (getattr(ctx, "data_sources", []) or []):
+                    ds_info = getattr(ds, "info", None)
+                    ds_type = getattr(ds_info, "type", None)
+                    for t in (getattr(ds, "tables", []) or []):
+                        tables_with_types.append({
+                            "name": getattr(t, "name", None),
+                            "connection_type": getattr(t, "connection_type", None) or ds_type,
+                        })
             except Exception:
                 schemas_excerpt = ""
         
@@ -202,7 +213,8 @@ Use when:
                     "code": generated_code,
                     "execution_log": output_log,
                     "error_message": execution_error,
-                    "execution_duration_ms": execution_duration_ms
+                    "execution_duration_ms": execution_duration_ms,
+                    "resolved_tables": tables_with_types,
                 },
                 "observation": {
                     "summary": f"Inspection finished for: {data.user_prompt}",
