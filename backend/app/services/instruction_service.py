@@ -527,6 +527,7 @@ class InstructionService:
         })
         
         # Check for dbt instructions (git + dbt_* resource types)
+        # Support both: new flow (structured_data->>'resource_type') and legacy (MetadataResource join)
         dbt_count = await db.scalar(
             select(func.count(distinct(Instruction.id)))
             .select_from(Instruction)
@@ -536,7 +537,10 @@ class InstructionService:
                     Instruction.organization_id == organization.id,
                     Instruction.deleted_at == None,
                     Instruction.source_type == 'git',
-                    MetadataResource.resource_type.like('dbt_%')
+                    or_(
+                        Instruction.structured_data['resource_type'].as_string().like('dbt_%'),
+                        MetadataResource.resource_type.like('dbt_%'),
+                    )
                 )
             )
         )
@@ -546,8 +550,8 @@ class InstructionService:
                 'label': 'dbt',
                 'icon': '/icons/dbt.png'
             })
-        
-        # Check for markdown instructions (git + markdown_document resource type)
+
+        # Check for markdown instructions
         markdown_count = await db.scalar(
             select(func.count(distinct(Instruction.id)))
             .select_from(Instruction)
@@ -557,7 +561,10 @@ class InstructionService:
                     Instruction.organization_id == organization.id,
                     Instruction.deleted_at == None,
                     Instruction.source_type == 'git',
-                    MetadataResource.resource_type == 'markdown_document'
+                    or_(
+                        Instruction.structured_data['resource_type'].as_string() == 'markdown_document',
+                        MetadataResource.resource_type == 'markdown_document',
+                    )
                 )
             )
         )
@@ -1653,6 +1660,7 @@ class InstructionService:
         if source_types:
             # Build source type filter conditions
             # source_types can contain: 'user', 'ai', 'git', 'dbt', 'markdown', etc.
+            # Supports both new flow (structured_data->>'resource_type') and legacy (MetadataResource)
             source_type_conditions = []
             for st in source_types:
                 if st == 'user':
@@ -1667,8 +1675,11 @@ class InstructionService:
                     source_type_conditions.append(
                         and_(
                             Instruction.source_type == 'git',
-                            Instruction.source_metadata_resource.has(
-                                MetadataResource.resource_type.like('dbt_%')
+                            or_(
+                                Instruction.structured_data['resource_type'].as_string().like('dbt_%'),
+                                Instruction.source_metadata_resource.has(
+                                    MetadataResource.resource_type.like('dbt_%')
+                                ),
                             )
                         )
                     )
@@ -1677,8 +1688,11 @@ class InstructionService:
                     source_type_conditions.append(
                         and_(
                             Instruction.source_type == 'git',
-                            Instruction.source_metadata_resource.has(
-                                MetadataResource.resource_type == 'markdown_document'
+                            or_(
+                                Instruction.structured_data['resource_type'].as_string() == 'markdown_document',
+                                Instruction.source_metadata_resource.has(
+                                    MetadataResource.resource_type == 'markdown_document'
+                                ),
                             )
                         )
                     )

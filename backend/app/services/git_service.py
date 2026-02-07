@@ -355,17 +355,38 @@ class GitService:
         repository_id: str,
         organization: Organization
     ) -> Dict[str, int]:
-        """Get the count of instructions linked to a git repository's resources."""
-        repository = await self._verify_repository(db, repository_id, organization)
+        """Get the count of instructions linked to a git repository.
 
-        # Use data_source_id from repository if it exists, otherwise use org-level scope
+        Supports both:
+        - New flow: instructions matched by source_file_path prefix (repo_name/)
+        - Legacy flow: instructions linked via source_metadata_resource_id
+        """
+        from sqlalchemy import func
+        from app.core.git_file_walker import extract_repo_name
+
+        repository = await self._verify_repository(db, repository_id, organization)
+        repo_name = extract_repo_name(repository.repo_url)
+
+        # New flow: count by path prefix
+        path_count_stmt = select(func.count(Instruction.id)).where(
+            and_(
+                Instruction.source_file_path.like(f'{repo_name}/%'),
+                Instruction.source_sync_enabled == True,
+                Instruction.organization_id == organization.id,
+                Instruction.deleted_at == None,
+            )
+        )
+        path_count_result = await db.execute(path_count_stmt)
+        path_count = path_count_result.scalar() or 0
+
+        # Legacy flow: count by MetadataResource link
+        legacy_count = 0
         data_source_id = repository.data_source_id
         if data_source_id:
             indexing_jobs_result = await self.metadata_indexing_job_service.get_indexing_jobs(
                 db, data_source_id, organization
             )
         else:
-            # Get indexing jobs by git_repository_id
             jobs_result = await db.execute(
                 select(MetadataIndexingJob).where(
                     MetadataIndexingJob.git_repository_id == repository_id
@@ -373,45 +394,38 @@ class GitService:
             )
             indexing_jobs_result = {"items": jobs_result.scalars().all()}
         metadata_indexing_jobs = indexing_jobs_result.get("items", []) if isinstance(indexing_jobs_result, dict) else []
-
         job_ids = [job.id for job in metadata_indexing_jobs]
-        
-        # Build resources query based on available identifiers
-        if data_source_id and job_ids:
-            resources_stmt = select(MetadataResource).where(
-                (MetadataResource.metadata_indexing_job_id.in_(job_ids)) |
-                (MetadataResource.data_source_id == data_source_id)
-            )
-        elif job_ids:
-            resources_stmt = select(MetadataResource).where(
-                MetadataResource.metadata_indexing_job_id.in_(job_ids)
-            )
-        elif data_source_id:
-            resources_stmt = select(MetadataResource).where(
-                MetadataResource.data_source_id == data_source_id
-            )
-        else:
-            # No jobs or data source - return empty
-            return {"instruction_count": 0}
-            
-        resources_result = await db.execute(resources_stmt)
-        resources = resources_result.scalars().all()
 
-        resource_ids = [r.id for r in resources]
-        instruction_count = 0
-
-        if resource_ids:
-            from sqlalchemy import func
-            count_stmt = select(func.count(Instruction.id)).where(
-                and_(
-                    Instruction.source_metadata_resource_id.in_(resource_ids),
-                    Instruction.source_sync_enabled == True
+        if job_ids or data_source_id:
+            if data_source_id and job_ids:
+                resources_stmt = select(MetadataResource.id).where(
+                    (MetadataResource.metadata_indexing_job_id.in_(job_ids)) |
+                    (MetadataResource.data_source_id == data_source_id)
                 )
-            )
-            count_result = await db.execute(count_stmt)
-            instruction_count = count_result.scalar() or 0
+            elif job_ids:
+                resources_stmt = select(MetadataResource.id).where(
+                    MetadataResource.metadata_indexing_job_id.in_(job_ids)
+                )
+            else:
+                resources_stmt = select(MetadataResource.id).where(
+                    MetadataResource.data_source_id == data_source_id
+                )
 
-        return {"instruction_count": instruction_count}
+            resources_result = await db.execute(resources_stmt)
+            resource_ids = [row[0] for row in resources_result.all()]
+
+            if resource_ids:
+                legacy_stmt = select(func.count(Instruction.id)).where(
+                    and_(
+                        Instruction.source_metadata_resource_id.in_(resource_ids),
+                        Instruction.source_sync_enabled == True,
+                        Instruction.deleted_at == None,
+                    )
+                )
+                legacy_result = await db.execute(legacy_stmt)
+                legacy_count = legacy_result.scalar() or 0
+
+        return {"instruction_count": max(path_count, legacy_count)}
 
     async def delete_git_repository(
         self,
@@ -421,8 +435,11 @@ class GitService:
         user_id: Optional[str] = None
     ) -> Dict[str, str]:
         """Delete a Git repository and associated indexing jobs and resources."""
+        from app.core.git_file_walker import extract_repo_name
+
         repository = await self._verify_repository(db, repository_id, organization)
         data_source_id = repository.data_source_id
+        repo_name = extract_repo_name(repository.repo_url)
 
         # Find related indexing jobs
         if data_source_id:
@@ -431,7 +448,6 @@ class GitService:
             )
             metadata_indexing_jobs = indexing_jobs_result.get("items", []) if isinstance(indexing_jobs_result, dict) else []
         else:
-            # Get indexing jobs by git_repository_id directly
             jobs_result = await db.execute(
                 select(MetadataIndexingJob).where(
                     MetadataIndexingJob.git_repository_id == repository_id
@@ -441,7 +457,7 @@ class GitService:
 
         job_ids = [job.id for job in metadata_indexing_jobs]
 
-        # Find resources
+        # Find resources (legacy flow)
         if data_source_id and job_ids:
             resources_to_delete_stmt = select(MetadataResource).where(
                 (MetadataResource.metadata_indexing_job_id.in_(job_ids)) |
@@ -457,7 +473,7 @@ class GitService:
             )
         else:
             resources_to_delete_stmt = None
-        
+
         resources_to_delete = []
         if resources_to_delete_stmt is not None:
             resources_result = await db.execute(resources_to_delete_stmt)
@@ -466,59 +482,78 @@ class GitService:
         resource_ids = [r.id for r in resources_to_delete]
         job_ids_to_delete = [job.id for job in metadata_indexing_jobs]
 
-        # Handle synced instructions
+        # Collect ALL instructions to delete (both legacy + new flow)
+        instructions_to_delete = []
+
+        # Legacy flow: instructions linked via MetadataResource
         if resource_ids:
-            instructions_stmt = select(Instruction).where(
+            legacy_stmt = select(Instruction).where(
                 and_(
                     Instruction.source_metadata_resource_id.in_(resource_ids),
-                    Instruction.source_sync_enabled == True
+                    Instruction.source_sync_enabled == True,
+                    Instruction.deleted_at == None,
                 )
             )
-            instructions_result = await db.execute(instructions_stmt)
-            instructions_to_delete = instructions_result.scalars().all()
+            legacy_result = await db.execute(legacy_stmt)
+            instructions_to_delete.extend(legacy_result.scalars().all())
 
-            deleted_count = len(instructions_to_delete)
-            instruction_ids_to_delete = [inst.id for inst in instructions_to_delete]
+        # New flow: instructions matched by source_file_path prefix
+        path_stmt = select(Instruction).where(
+            and_(
+                Instruction.source_file_path.like(f'{repo_name}/%'),
+                Instruction.source_sync_enabled == True,
+                Instruction.organization_id == organization.id,
+                Instruction.deleted_at == None,
+            )
+        )
+        path_result = await db.execute(path_stmt)
+        path_instructions = path_result.scalars().all()
 
-            # Create deletion build
-            if instruction_ids_to_delete:
-                try:
-                    from app.services.build_service import BuildService
-                    build_service = BuildService()
+        # Deduplicate by id
+        seen_ids = {inst.id for inst in instructions_to_delete}
+        for inst in path_instructions:
+            if inst.id not in seen_ids:
+                instructions_to_delete.append(inst)
+                seen_ids.add(inst.id)
 
-                    # Use org_id from repository, or try to get from data source
-                    org_id = repository.organization_id
-                    
-                    deletion_build = await build_service.get_or_create_draft_build(
-                        db, org_id, source='git', user_id=user_id
-                    )
-                    for instruction_id in instruction_ids_to_delete:
-                        await build_service.remove_from_build(db, deletion_build.id, instruction_id)
-                    
-                    # Set custom title for git repository deletion
-                    deletion_build.title = "Removed git integration"
-                    await db.commit()
-                    await db.refresh(deletion_build)
-                    
-                    await build_service.submit_build(db, deletion_build.id)
-                    await build_service.approve_build(db, deletion_build.id, approved_by_user_id=user_id)
-                    await build_service.promote_build(db, deletion_build.id)
-                    logger.info(f"Created deletion build {deletion_build.id}")
-                except Exception as build_error:
-                    logger.warning(f"Failed to create deletion build: {build_error}")
+        instruction_ids_to_delete = [inst.id for inst in instructions_to_delete]
 
-            # Soft-delete instructions
-            for instruction in instructions_to_delete:
-                instruction.deleted_at = datetime.utcnow()
-                instruction.source_metadata_resource_id = None
-                logger.info(f"Soft-deleted instruction {instruction.id}")
+        # Create deletion build
+        if instruction_ids_to_delete:
+            try:
+                from app.services.build_service import BuildService
+                build_service = BuildService()
 
-            if deleted_count > 0:
-                logger.info(f"Soft-deleted {deleted_count} instructions")
+                org_id = repository.organization_id
 
+                deletion_build = await build_service.get_or_create_draft_build(
+                    db, org_id, source='git', user_id=user_id
+                )
+                for instruction_id in instruction_ids_to_delete:
+                    await build_service.remove_from_build(db, deletion_build.id, instruction_id)
+
+                deletion_build.title = "Removed git integration"
+                await db.commit()
+                await db.refresh(deletion_build)
+
+                await build_service.submit_build(db, deletion_build.id)
+                await build_service.approve_build(db, deletion_build.id, approved_by_user_id=user_id)
+                await build_service.promote_build(db, deletion_build.id)
+                logger.info(f"Created deletion build {deletion_build.id}")
+            except Exception as build_error:
+                logger.warning(f"Failed to create deletion build: {build_error}")
+
+        # Soft-delete instructions
+        for instruction in instructions_to_delete:
+            instruction.deleted_at = datetime.utcnow()
+            instruction.source_metadata_resource_id = None
+            logger.debug(f"Soft-deleted instruction {instruction.id}")
+
+        if instructions_to_delete:
+            logger.info(f"Soft-deleted {len(instructions_to_delete)} instructions")
             await db.commit()
 
-        # Delete resources
+        # Delete resources (legacy)
         if resource_ids:
             resources_stmt = select(MetadataResource).where(MetadataResource.id.in_(resource_ids))
             resources_result = await db.execute(resources_stmt)
@@ -580,22 +615,24 @@ class GitService:
         repository_id: str,
         organization: Organization
     ) -> Dict[str, str]:
-        """Index/sync a Git repository."""
+        """Index/sync a Git repository using the file-based flow."""
+        from app.core.git_file_walker import extract_repo_name
+
         repository = await self._verify_repository(db, repository_id, organization)
         data_source_id = repository.data_source_id  # May be None for org-level repos
+        repo_name = extract_repo_name(repository.repo_url)
 
         try:
             temp_dir = tempfile.mkdtemp()
             repo = await self.clone_repository(repository, temp_dir)
-            detected_types = self._detect_project_types(temp_dir)
 
             job = await self.metadata_indexing_job_service.start_indexing_background(
                 db=db,
                 repository_id=repository.id,
                 repo_path=temp_dir,
-                data_source_id=data_source_id,  # Optional
+                data_source_id=data_source_id,
                 organization=organization,
-                detected_project_types=detected_types
+                repo_name=repo_name,
             )
 
             repository.status = "indexing"
@@ -751,15 +788,15 @@ class GitService:
             raise HTTPException(status_code=404, detail="Git repository not found")
 
         try:
+            from app.core.git_file_walker import extract_repo_name
+
             # Clone the specific branch
             temp_dir = tempfile.mkdtemp()
             logger.info(f"Syncing branch '{branch}' from repository {repository_id}")
 
             repo = await self.clone_repository(repository, temp_dir, branch=branch)
             commit_sha = repo.head.commit.hexsha
-
-            # Detect project types
-            detected_types = self._detect_project_types(temp_dir)
+            repo_name = extract_repo_name(repository.repo_url)
 
             # Create a draft build for this branch sync
             from app.services.build_service import BuildService
@@ -777,14 +814,14 @@ class GitService:
 
             logger.info(f"Created draft build {build.id} for branch '{branch}'")
 
-            # Start indexing in background with this build
+            # Start file-based indexing in background with this build
             await self.metadata_indexing_job_service.start_indexing_background(
                 db=db,
                 repository_id=repository.id,
                 repo_path=temp_dir,
                 data_source_id=repository.data_source_id,
                 organization=organization,
-                detected_project_types=detected_types,
+                repo_name=repo_name,
                 build_id=build.id,
             )
 

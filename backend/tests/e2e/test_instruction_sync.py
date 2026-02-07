@@ -22,12 +22,11 @@ def test_git_indexing_creates_instructions(
     create_data_source,
     create_git_repository,
     index_git_repository,
-    get_metadata_resources,
     get_instructions_by_source_type,
     get_main_build,
     delete_git_repository,
 ):
-    """Test that indexing a git repository creates instructions for each resource."""
+    """Test that indexing a git repository creates instructions directly from files."""
     if not TEST_DB_PATH.exists():
         pytest.skip(f"SQLite test database missing at {TEST_DB_PATH}")
 
@@ -69,15 +68,6 @@ def test_git_indexing_creates_instructions(
         org_id=org_id,
     )
 
-    # Get metadata resources to know how many we expect
-    metadata_resources = get_metadata_resources(
-        data_source_id=data_source["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
-    resources = metadata_resources.get("resources", [])
-    assert len(resources) > 0, "Expected metadata resources after indexing"
-
     # Get git-sourced instructions (fixture returns items directly)
     instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
@@ -85,15 +75,17 @@ def test_git_indexing_creates_instructions(
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
+
     assert len(instructions) > 0, "Expected instructions to be created after indexing"
 
     # Verify instruction properties
     for instruction in instructions:
         assert instruction["source_type"] == "git", "Instruction should have source_type='git'"
-        assert instruction["source_metadata_resource_id"] is not None, "Instruction should be linked to a resource"
         assert instruction["source_sync_enabled"] is True, "Instruction should be synced"
         assert instruction["title"] is not None, "Instruction should have a title"
+        # New flow: instructions have source_file_path with repo prefix
+        assert instruction.get("source_file_path") is not None, "Instruction should have source_file_path"
+        assert "/" in instruction["source_file_path"], "source_file_path should be prefixed with repo name"
 
     # Build System: Verify a build was created with source='git'
     main_build = get_main_build(user_token=user_token, org_id=org_id)
