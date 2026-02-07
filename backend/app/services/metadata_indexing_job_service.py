@@ -726,6 +726,17 @@ class MetadataIndexingJobService:
                 current_org = org_result.scalar_one_or_none()
                 if not current_org:
                     logger.error(f"Job {job_id}: Organization {organization_id} not found")
+                    error_message = f"Organization {organization_id} not found"
+                    await db.execute(
+                        update(MetadataIndexingJob)
+                        .where(MetadataIndexingJob.id == job_id)
+                        .values({
+                            "status": "failed",
+                            "completed_at": datetime.utcnow(),
+                            "error_message": error_message,
+                        })
+                    )
+                    await db.commit()
                     return
 
                 # Re-fetch git repo
@@ -735,6 +746,17 @@ class MetadataIndexingJobService:
                 git_repo = git_repo_result.scalar_one_or_none()
                 if not git_repo:
                     logger.error(f"Job {job_id}: GitRepository {repository_id} not found")
+                    error_message = f"GitRepository {repository_id} not found"
+                    await db.execute(
+                        update(MetadataIndexingJob)
+                        .where(MetadataIndexingJob.id == job_id)
+                        .values({
+                            "status": "failed",
+                            "completed_at": datetime.utcnow(),
+                            "error_message": error_message,
+                        })
+                    )
+                    await db.commit()
                     return
 
                 # Re-fetch data source if provided
