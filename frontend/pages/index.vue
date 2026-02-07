@@ -61,7 +61,7 @@
       </div>
 
       <div class="w-full mx-auto mt-4">
-        <RecentArtifacts />
+        <RecentReports />
       </div>
 
     </div>
@@ -130,7 +130,7 @@ import { useExcel } from '~/composables/useExcel';
 import { onMounted, nextTick } from 'vue';
 import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
-import RecentArtifacts from '~/components/home/RecentArtifacts.vue';
+import RecentReports from '~/components/home/RecentReports.vue';
 
 import { useCan } from '~/composables/usePermissions'
 import { KeyCode } from 'monaco-editor';

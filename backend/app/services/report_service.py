@@ -363,6 +363,11 @@ class ReportService:
             report_orm.last_run_at = datetime.utcnow()
             await db.commit()
 
+        # Regenerate thumbnail for the latest artifact in background
+        from app.services.thumbnail_service import ThumbnailService
+        thumbnail_service = ThumbnailService()
+        asyncio.create_task(thumbnail_service.regenerate_for_report(report_id))
+
         logger.info(f"Completed scheduled report run for report_id: {report_id}")
         return report
 
@@ -723,6 +728,18 @@ class ReportService:
             report_schema.artifact_modes = list(set(
                 a.mode for a in (report.artifacts or []) if a.mode
             ))
+
+            # Get thumbnail URL from latest artifact (prefer page mode)
+            if report.artifacts:
+                sorted_artifacts = sorted(
+                    [a for a in report.artifacts if a.thumbnail_path],
+                    key=lambda a: (a.mode != 'page', -a.created_at.timestamp() if a.created_at else 0)
+                )
+                if sorted_artifacts:
+                    # thumbnail_path is like "thumbnails/{artifact_id}.png", serve via /thumbnails/{filename}
+                    thumb_path = sorted_artifacts[0].thumbnail_path
+                    filename = thumb_path.split("/")[-1] if "/" in thumb_path else thumb_path
+                    report_schema.thumbnail_url = f"/thumbnails/{filename}"
 
             report_schemas.append(report_schema)
 

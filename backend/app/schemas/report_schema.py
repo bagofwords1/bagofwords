@@ -54,9 +54,31 @@ class ReportSchema(ReportBase):
     conversation_share_token: Optional[str] = None
     # Artifact modes (page, slides) that exist for this report
     artifact_modes: List[str] = []
+    # Thumbnail URL for the main artifact
+    thumbnail_url: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+class ReportRecentSchema(BaseModel):
+    """Schema for recent reports on home page."""
+    id: str
+    title: Optional[str]
+    slug: str
+    user_id: str
+    user_name: Optional[str] = None
+    is_published: bool = False
+    has_artifact: bool = False
+    artifact_mode: Optional[str] = None  # 'page' or 'slides' if has artifact
+    conversation_share_enabled: bool = False
+    conversation_share_token: Optional[str] = None
+    thumbnail_path: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
 
 class PaginationMeta(BaseModel):
     total: int

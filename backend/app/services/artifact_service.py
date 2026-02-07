@@ -1,7 +1,6 @@
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
+from sqlalchemy import select
 
 from app.models.artifact import Artifact
 from app.models.report import Report
@@ -149,6 +148,7 @@ class ArtifactService:
 
         This creates a copy of the artifact with a new timestamp,
         effectively making it the 'default' since latest = default.
+        Also copies the thumbnail if it exists.
         """
         original = await self.get(db, artifact_id)
         if not original:
@@ -172,50 +172,21 @@ class ArtifactService:
         db.add(new_artifact)
         await db.commit()
         await db.refresh(new_artifact)
+
+        # Copy thumbnail from original artifact if it exists, otherwise regenerate
+        import asyncio
+        from app.services.thumbnail_service import ThumbnailService
+        thumbnail_service = ThumbnailService()
+
+        if original.thumbnail_path:
+            new_thumbnail_path = thumbnail_service.copy_thumbnail(
+                str(original.id), str(new_artifact.id)
+            )
+            if new_thumbnail_path:
+                new_artifact.thumbnail_path = new_thumbnail_path
+                await db.commit()
+        else:
+            # Original has no thumbnail - regenerate for the report in background
+            asyncio.create_task(thumbnail_service.regenerate_for_report(str(new_artifact.report_id)))
+
         return new_artifact
-
-    async def list_recent(
-        self,
-        db: AsyncSession,
-        organization_id: str,
-        limit: int = 6,
-    ) -> List[Artifact]:
-        """List recent artifacts for an organization.
-
-        Returns one artifact per report (the latest one), ordered by creation time.
-        Includes the related Report object for displaying report title.
-        """
-        # Subquery to get the latest artifact created_at per report
-        latest_subq = (
-            select(
-                Artifact.report_id,
-                func.max(Artifact.created_at).label("max_created"),
-            )
-            .where(
-                Artifact.organization_id == str(organization_id),
-                Artifact.deleted_at.is_(None),
-                Artifact.status == "completed",
-            )
-            .group_by(Artifact.report_id)
-            .subquery()
-        )
-
-        # Join to get the actual artifacts with their reports and users
-        stmt = (
-            select(Artifact)
-            .options(selectinload(Artifact.report), selectinload(Artifact.user))
-            .join(
-                latest_subq,
-                (Artifact.report_id == latest_subq.c.report_id)
-                & (Artifact.created_at == latest_subq.c.max_created),
-            )
-            .where(
-                Artifact.organization_id == str(organization_id),
-                Artifact.deleted_at.is_(None),
-            )
-            .order_by(Artifact.created_at.desc())
-            .limit(limit)
-        )
-
-        res = await db.execute(stmt)
-        return list(res.scalars().all())
