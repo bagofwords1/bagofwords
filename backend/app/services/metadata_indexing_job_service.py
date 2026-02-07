@@ -72,8 +72,9 @@ class MetadataIndexingJobService:
         db: AsyncSession,
         repo_id: str,
         organization: Organization,
-        detected_project_types: List[str],
+        detected_project_types: Optional[List[str]] = None,
         data_source_id: Optional[str] = None,
+        repo_name: Optional[str] = None,
     ):
         """Creates the MetadataIndexingJob record before background processing starts."""
         # Get the GitRepository to link the job
@@ -94,7 +95,7 @@ class MetadataIndexingJobService:
             git_repository_id=git_repository.id,
             status="running", # Start as running
             started_at=datetime.utcnow(),
-            detected_project_types=detected_project_types, # Store detected types
+            detected_project_types=detected_project_types or [], # Store detected types
             current_phase='starting',  # Initial phase for progress tracking
             processed_files=0,
         )
@@ -102,7 +103,7 @@ class MetadataIndexingJobService:
         try:
             await db.commit()
             await db.refresh(job)
-            logger.info(f"Created MetadataIndexingJob {job.id} for repo {repo_id}, types: {detected_project_types}")
+            logger.info(f"Created MetadataIndexingJob {job.id} for repo {repo_id}, repo_name={repo_name}")
             return job
         except Exception as e:
             await db.rollback()
@@ -641,17 +642,20 @@ class MetadataIndexingJobService:
         repository_id: str,
         repo_path: str,
         organization,
-        detected_project_types: List[str],
+        detected_project_types: Optional[List[str]] = None,
         build_id: Optional[str] = None,  # Optional pre-created build to use
         data_source_id: Optional[str] = None,  # Optional - for backwards compatibility
+        repo_name: Optional[str] = None,  # New file-based flow
     ):
         """Start indexing a Git repository in the background
-        
+
         Args:
             build_id: Optional build ID to add instructions to. If not provided,
                      a new build will be created during indexing.
             data_source_id: Optional data source ID for backwards compatibility.
                      Org-level repos don't need this.
+            repo_name: If provided, uses the new file-based indexing flow instead
+                     of the legacy parser-based flow.
         """
         # Call start_indexing first to create the job record synchronously
         job = await self.start_indexing(
@@ -660,20 +664,29 @@ class MetadataIndexingJobService:
             organization=organization,
             detected_project_types=detected_project_types,
             data_source_id=data_source_id,
+            repo_name=repo_name,
         )
+
+        # Choose indexing method based on whether repo_name is provided
+        run_method = self._run_file_indexing_job if repo_name else self._run_indexing_job
+
+        run_kwargs = dict(
+            repository_id=repository_id,
+            repo_path=repo_path,
+            organization=organization,
+            job_id=job.id,
+            build_id=build_id,
+            data_source_id=data_source_id,
+        )
+        if repo_name:
+            run_kwargs['repo_name'] = repo_name
+        else:
+            run_kwargs['detected_project_types'] = detected_project_types or []
 
         # In tests, run the indexing job inline so the task isn't cancelled when the event loop ends.
         if settings.TESTING:
             logger.info(f"TESTING mode: running indexing job {job.id} inline")
-            await self._run_indexing_job(
-                repository_id=repository_id,
-                repo_path=repo_path,
-                organization=organization,
-                detected_project_types=detected_project_types,
-                job_id=job.id,
-                build_id=build_id,
-                data_source_id=data_source_id,
-            )
+            await run_method(**run_kwargs)
             return {
                 "status": "completed",
                 "message": "Indexing job completed inline (testing mode)",
@@ -681,20 +694,238 @@ class MetadataIndexingJobService:
             }
 
         # Now schedule the background task to perform the actual parsing
-        asyncio.create_task(
-            self._run_indexing_job(
-                repository_id=repository_id,
-                repo_path=repo_path,
-                organization=organization,
-                detected_project_types=detected_project_types,
-                job_id=job.id,
-                build_id=build_id,
-                data_source_id=data_source_id,
-            )
-        )
+        asyncio.create_task(run_method(**run_kwargs))
 
         logger.info(f"Scheduled background indexing task for job {job.id}")
         return {"status": "started", "message": "Indexing job started in background", "job_id": job.id}
+
+    async def _run_file_indexing_job(
+        self,
+        repository_id: str,
+        repo_path: str,
+        organization,
+        job_id: str,
+        repo_name: str,
+        build_id: Optional[str] = None,
+        data_source_id: Optional[str] = None,
+    ):
+        """New file-based indexing: walk files, classify, create Instructions directly.
+
+        No MetadataResource creation. No parser calls.
+        """
+        from app.core.git_file_walker import walk_repo_files
+
+        organization_id = organization.id if hasattr(organization, 'id') else organization
+
+        async with async_session_maker() as db:
+            try:
+                # Re-fetch org
+                org_result = await db.execute(
+                    select(Organization).where(Organization.id == organization_id)
+                )
+                current_org = org_result.scalar_one_or_none()
+                if not current_org:
+                    logger.error(f"Job {job_id}: Organization {organization_id} not found")
+                    error_message = f"Organization {organization_id} not found"
+                    await db.execute(
+                        update(MetadataIndexingJob)
+                        .where(MetadataIndexingJob.id == job_id)
+                        .values({
+                            "status": "failed",
+                            "completed_at": datetime.utcnow(),
+                            "error_message": error_message,
+                        })
+                    )
+                    await db.commit()
+                    return
+
+                # Re-fetch git repo
+                git_repo_result = await db.execute(
+                    select(GitRepository).where(GitRepository.id == repository_id)
+                )
+                git_repo = git_repo_result.scalar_one_or_none()
+                if not git_repo:
+                    logger.error(f"Job {job_id}: GitRepository {repository_id} not found")
+                    error_message = f"GitRepository {repository_id} not found"
+                    await db.execute(
+                        update(MetadataIndexingJob)
+                        .where(MetadataIndexingJob.id == job_id)
+                        .values({
+                            "status": "failed",
+                            "completed_at": datetime.utcnow(),
+                            "error_message": error_message,
+                        })
+                    )
+                    await db.commit()
+                    return
+
+                # Re-fetch data source if provided
+                data_source = None
+                if data_source_id:
+                    ds_result = await db.execute(
+                        select(DataSource).where(DataSource.id == data_source_id)
+                    )
+                    data_source = ds_result.scalar_one_or_none()
+
+                # Phase 1: Walk files
+                await db.execute(
+                    update(MetadataIndexingJob)
+                    .where(MetadataIndexingJob.id == job_id)
+                    .values(current_phase='parsing', processed_files=0)
+                )
+                await db.commit()
+
+                files = walk_repo_files(repo_path, repo_name)
+                total_files = len(files)
+                logger.info(f"Job {job_id}: File walker found {total_files} files in repo '{repo_name}'")
+
+                await db.execute(
+                    update(MetadataIndexingJob)
+                    .where(MetadataIndexingJob.id == job_id)
+                    .values(current_phase='syncing', total_files=total_files, processed_files=0)
+                )
+                await db.commit()
+
+                # Phase 2: Create/get build
+                sync_build = None
+                try:
+                    if build_id:
+                        sync_build = await self.build_service.get_build(db, build_id)
+                        if sync_build:
+                            logger.info(f"Job {job_id}: Using pre-created build {build_id}")
+
+                    if not sync_build:
+                        sync_build = await self.build_service.get_or_create_draft_build(
+                            db,
+                            current_org.id,
+                            source='git',
+                            metadata_indexing_job_id=job_id,
+                            commit_sha=git_repo.last_indexed_commit_sha,
+                            branch=git_repo.branch,
+                        )
+                        logger.info(f"Job {job_id}: Created build {sync_build.id} for file indexing")
+
+                    await db.execute(
+                        update(MetadataIndexingJob)
+                        .where(MetadataIndexingJob.id == job_id)
+                        .values(build_id=sync_build.id)
+                    )
+                    await db.commit()
+                except Exception as build_error:
+                    logger.warning(f"Job {job_id}: Failed to create/get build: {build_error}")
+
+                # Phase 3: Sync each file to instruction
+                synced_count = 0
+                sync_errors = 0
+                for i, file_info in enumerate(files):
+                    try:
+                        result = await self.instruction_sync_service.sync_file_to_instruction(
+                            db=db,
+                            file_path=file_info.relative_path,
+                            file_content=file_info.content,
+                            content_hash=file_info.content_hash,
+                            organization=current_org,
+                            git_repo=git_repo,
+                            resource_type=file_info.resource_type,
+                            build=sync_build,
+                            data_source=data_source,
+                        )
+                        if result:
+                            synced_count += 1
+                    except Exception as sync_error:
+                        sync_errors += 1
+                        logger.error(
+                            f"Job {job_id}: Failed to sync file {file_info.relative_path}: {sync_error}",
+                            exc_info=True,
+                        )
+
+                    # Update progress every 10 files or on last item
+                    if (i + 1) % 10 == 0 or i == total_files - 1:
+                        await db.execute(
+                            update(MetadataIndexingJob)
+                            .where(MetadataIndexingJob.id == job_id)
+                            .values(processed_files=i + 1)
+                        )
+                        await db.commit()
+
+                logger.info(f"Job {job_id}: Synced {synced_count}/{total_files} files ({sync_errors} errors)")
+
+                # Phase 4: Archive deleted files (scoped to this repo)
+                current_paths = {f.relative_path for f in files}
+                path_prefix = f"{repo_name}/"
+                archived_count = await self.instruction_sync_service.archive_deleted_files(
+                    db=db,
+                    org_id=current_org.id,
+                    current_file_paths=current_paths,
+                    path_prefix=path_prefix,
+                    build=sync_build,
+                )
+                if archived_count > 0:
+                    logger.info(f"Job {job_id}: Archived {archived_count} instructions for deleted files")
+
+                # Phase 5: Finalize build
+                if sync_build and not build_id:
+                    try:
+                        await self.build_service.submit_build(db, sync_build.id)
+                        await self.build_service.approve_build(db, sync_build.id, approved_by_user_id=None)
+                        await self.build_service.promote_build(db, sync_build.id)
+                        logger.info(f"Job {job_id}: Finalized build {sync_build.id}")
+                    except Exception as finalize_error:
+                        logger.warning(f"Job {job_id}: Failed to finalize build: {finalize_error}")
+                elif sync_build and build_id:
+                    logger.info(f"Job {job_id}: Build {sync_build.id} left in draft for manual review")
+
+                # Update job status
+                await db.execute(
+                    update(MetadataIndexingJob)
+                    .where(MetadataIndexingJob.id == job_id)
+                    .values({
+                        "status": "completed",
+                        "completed_at": datetime.utcnow(),
+                        "total_resources": total_files,
+                        "processed_resources": synced_count,
+                        "total_files": total_files,
+                        "processed_files": total_files,
+                        "current_phase": "completed",
+                    })
+                )
+                await db.execute(
+                    update(GitRepository)
+                    .where(GitRepository.id == repository_id)
+                    .values({
+                        "status": "completed",
+                        "updated_at": datetime.utcnow(),
+                        "last_indexed_at": datetime.utcnow(),
+                    })
+                )
+                await db.commit()
+
+            except Exception as e:
+                logger.error(f"Job {job_id}: Error during file indexing: {e}", exc_info=True)
+                await db.rollback()
+                error_message = f"File indexing failed: {str(e)[:500]}"
+                await db.execute(
+                    update(MetadataIndexingJob)
+                    .where(MetadataIndexingJob.id == job_id)
+                    .values({
+                        "status": "failed",
+                        "completed_at": datetime.utcnow(),
+                        "error_message": error_message,
+                    })
+                )
+                await db.execute(
+                    update(GitRepository)
+                    .where(GitRepository.id == repository_id)
+                    .values({"status": "failed", "updated_at": datetime.utcnow()})
+                )
+                await db.commit()
+
+            finally:
+                try:
+                    shutil.rmtree(repo_path)
+                    logger.info(f"Job {job_id}: Cleaned up temporary directory: {repo_path}")
+                except Exception as cleanup_e:
+                    logger.error(f"Job {job_id}: Error cleaning up {repo_path}: {cleanup_e}")
 
     async def _run_indexing_job(
         self,

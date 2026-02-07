@@ -198,6 +198,7 @@ class InstructionListSchema(BaseModel):
     # === Unified Instructions System fields ===
     source_type: str = "user"
     source_metadata_resource_id: Optional[str] = None
+    source_file_path: Optional[str] = None
     source_git_commit_sha: Optional[str] = None
     source_sync_enabled: bool = True
     load_mode: str = "always"

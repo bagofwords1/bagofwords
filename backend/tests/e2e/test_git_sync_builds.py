@@ -97,10 +97,10 @@ def test_git_index_build_has_correct_counts(
     create_git_repository,
     index_git_repository,
     get_main_build,
-    get_metadata_resources,
+    get_instructions_by_source_type,
     delete_git_repository,
 ):
-    """Test that git index build has correct added_count matching resource count."""
+    """Test that git index build has correct added_count matching file count."""
     if not TEST_DB_PATH.exists():
         pytest.skip(f"SQLite test database missing at {TEST_DB_PATH}")
 
@@ -140,20 +140,22 @@ def test_git_index_build_has_correct_counts(
         org_id=org_id,
     )
 
-    # Get resource count
-    metadata = get_metadata_resources(
-        data_source_id=data_source["id"],
+    # Get instruction count (new flow creates instructions directly from files)
+    instructions = get_instructions_by_source_type(
+        source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
+        data_source_id=data_source["id"],
     )
-    resource_count = len(metadata.get("resources", []))
+    instruction_count = len(instructions)
+    assert instruction_count > 0, "Expected instructions after indexing"
 
     # Get build and verify counts
     main_build = get_main_build(user_token=user_token, org_id=org_id)
-    
-    # The build should have total_instructions matching the indexed resources
-    assert main_build["total_instructions"] >= resource_count, \
-        f"Build should have at least {resource_count} instructions, has {main_build['total_instructions']}"
+
+    # The build should have total_instructions matching the indexed files
+    assert main_build["total_instructions"] >= instruction_count, \
+        f"Build should have at least {instruction_count} instructions, has {main_build['total_instructions']}"
 
     # Cleanup
     delete_git_repository(
