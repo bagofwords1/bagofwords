@@ -6,7 +6,7 @@
             :date-range="dateRange"
             @period-change="handlePeriodChange"
         >
-            <DomainSelector :collapsed="false" :show-text="true" />
+            <DomainSelector :collapsed="false" :show-text="true" :show-label="false" />
         </DateRangePicker>
 
         <!-- Metrics Cards -->

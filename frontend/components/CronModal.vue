@@ -25,7 +25,10 @@
                         </option>
                     </select>
                 </div>
-                
+
+                <p v-if="report.last_run_at" class="mt-4 text-sm text-gray-500">
+                    Last run: {{ formatDate(report.last_run_at) }}
+                </p>
             </div>
 
             <div class="border-t border-gray-200 pt-4 mt-8">
@@ -63,6 +66,10 @@ const reportUrl = computed(() => `${window.location.origin}/r/${report.value.id}
 const showTooltip = ref(false);
 
 const selectedSchedule = ref(props.report.cron_schedule || 'None');
+
+function formatDate(date: string) {
+    return new Date(date).toLocaleString();
+}
 
 const cronOptions = ref([
     { value: 'None', label: 'None' },
