@@ -470,6 +470,50 @@ def create_domain_from_connection(test_client):
     return _create_domain_from_connection
 
 
+@pytest.fixture
+def create_domain_from_connections(test_client):
+    """Create a domain (data source) linked to multiple existing connections."""
+    def _create_domain_from_connections(
+        *,
+        name: str,
+        connection_ids: list,
+        user_token: str = None,
+        org_id: str = None,
+        use_llm_sync: bool = False,
+        is_public: bool = True,
+    ):
+        if user_token is None:
+            pytest.fail("User token is required for create_domain_from_connections")
+        if org_id is None:
+            pytest.fail("Organization ID is required for create_domain_from_connections")
+
+        payload = {
+            "name": name,
+            "connection_ids": connection_ids,
+            "generate_summary": False,
+            "generate_conversation_starters": False,
+            "generate_ai_rules": False,
+            "use_llm_sync": use_llm_sync,
+            "is_public": is_public,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": str(org_id),
+        }
+
+        response = test_client.post(
+            "/api/data_sources",
+            json=payload,
+            headers=headers,
+        )
+
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    return _create_domain_from_connections
+
+
 # ============================================================================
 # Dynamic SQLite Database Fixture (for schema drift tests)
 # ============================================================================

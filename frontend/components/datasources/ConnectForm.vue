@@ -139,6 +139,7 @@ const preserveOnNextFetch = ref(false)
 const auth_policy = computed(() => (require_user_auth.value ? 'user_required' : 'system_only'))
 const isEditMode = computed(() => props.mode === 'edit')
 const isCreateMode = computed(() => props.mode === 'create')
+const isCreateConnectionOnly = computed(() => props.mode === 'create_connection_only')
 const isConnectionEdit = computed(() => isEditMode.value && !!props.connectionId)
 
 const typeOptions = computed(() => available_ds.value || [])
@@ -339,6 +340,25 @@ async function onSubmit() {
         const err = (errAny && (errAny.value || errAny)) || {}
         const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to update data source'
         toast.add({ title: 'Failed to update data source', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+      }
+    } else if (isCreateConnectionOnly.value) {
+      // Create connection only (without domain)
+      const connectionPayload = {
+        name: name.value || selectedType.value,
+        type: selectedType.value,
+        config: { ...formData.config, auth_type: selectedAuth.value || undefined },
+        credentials: showSystemCredentialFields.value ? formData.credentials : {},
+        auth_policy: auth_policy.value
+      }
+      const res = await useMyFetch('/connections', { method: 'POST', body: JSON.stringify(connectionPayload), headers: { 'Content-Type': 'application/json' } })
+      if ((res.status as any)?.value === 'success') {
+        const created = (res.data as any)?.value
+        emit('success', created)
+      } else {
+        const errAny = (res.error as any)
+        const err = (errAny && (errAny.value || errAny)) || {}
+        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to create connection'
+        toast.add({ title: 'Failed to create connection', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else {
       const res = await useMyFetch('/data_sources', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })

@@ -43,7 +43,7 @@ from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 
-from typing import List
+from typing import List, Dict, Any
 from sqlalchemy.orm import selectinload
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import InstructionCreate
@@ -54,61 +54,68 @@ class DataSourceService:
     def __init__(self):
         pass
 
-    async def _build_connection_embedded(
-        self, 
-        db: AsyncSession, 
-        data_source: DataSource, 
+    async def _build_connections_list(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
         current_user: User = None,
         live_test: bool = False
-    ) -> ConnectionEmbedded | None:
+    ) -> List[ConnectionEmbedded]:
         """
-        Build ConnectionEmbedded from the first connection of a DataSource.
+        Build list of ConnectionEmbedded from all connections of a DataSource.
         Includes user_status if current_user is provided.
         """
         if not data_source.connections:
-            return None
-        
-        conn = data_source.connections[0]
-        
-        # Build user status for the connection
-        user_status = None
-        if current_user:
-            from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
-            u_svc = UserDataSourceCredentialsService()
-            try:
-                user_status = await u_svc.build_user_status(
-                    db=db,
-                    data_source=data_source,
-                    user=current_user,
-                    live_test=live_test
+            return []
+
+        from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+        from app.models.connection_table import ConnectionTable
+
+        connections_list = []
+
+        for conn in data_source.connections:
+            # Build user status for the connection
+            user_status = None
+            if current_user:
+                u_svc = UserDataSourceCredentialsService()
+                try:
+                    user_status = await u_svc.build_user_status_for_connection(
+                        db=db,
+                        connection=conn,
+                        user=current_user,
+                        live_test=live_test
+                    )
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).warning(f"Failed to build user_status for connection {conn.name}: {e}")
+
+            # Get table count for this specific connection
+            # Count DataSourceTables that reference ConnectionTables belonging to this connection
+            table_count_result = await db.execute(
+                select(func.count(DataSourceTable.id))
+                .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+                .where(
+                    DataSourceTable.datasource_id == str(data_source.id),
+                    DataSourceTable.is_active == True,
+                    ConnectionTable.connection_id == str(conn.id)
                 )
-            except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning(f"Failed to build user_status: {e}")
-        
-        # Get table count using COUNT query instead of loading all tables
-        # This is critical for data sources with many tables (e.g., 25K+)
-        table_count_result = await db.execute(
-            select(func.count(DataSourceTable.id))
-            .where(
-                DataSourceTable.datasource_id == str(data_source.id),
-                DataSourceTable.is_active == True
             )
-        )
-        table_count = table_count_result.scalar() or 0
-        
-        return ConnectionEmbedded(
-            id=str(conn.id),
-            name=conn.name,
-            type=conn.type,
-            auth_policy=conn.auth_policy,
-            allowed_user_auth_modes=conn.allowed_user_auth_modes,
-            config=conn.config if isinstance(conn.config, dict) else json.loads(conn.config) if conn.config else {},
-            is_active=conn.is_active,
-            last_synced_at=conn.last_synced_at,
-            user_status=user_status,
-            table_count=table_count,
-        )
+            table_count = table_count_result.scalar() or 0
+
+            connections_list.append(ConnectionEmbedded(
+                id=str(conn.id),
+                name=conn.name,
+                type=conn.type,
+                auth_policy=conn.auth_policy,
+                allowed_user_auth_modes=conn.allowed_user_auth_modes,
+                config=conn.config if isinstance(conn.config, dict) else json.loads(conn.config) if conn.config else {},
+                is_active=conn.is_active,
+                last_synced_at=conn.last_synced_at,
+                user_status=user_status,
+                table_count=table_count,
+            ))
+
+        return connections_list
 
     async def _create_memberships(self, db: AsyncSession, data_source: DataSource, user_ids: List[str]):
         """
@@ -149,39 +156,53 @@ class DataSourceService:
         member_user_ids = data_source_dict.pop("member_user_ids", [])
         auth_policy = data_source_dict.get("auth_policy", "system_only")
         
-        # Check if linking to existing connection
+        # Check if linking to existing connection(s)
         connection_id = data_source_dict.pop("connection_id", None)
+        connection_ids = data_source_dict.pop("connection_ids", None)
         from app.models.connection import Connection
-        
-        if connection_id:
-            # === Mode 2: Link to existing connection ===
-            conn_result = await db.execute(
-                select(Connection).filter(
-                    Connection.id == connection_id,
-                    Connection.organization_id == organization.id
-                )
-            )
-            new_connection = conn_result.scalar_one_or_none()
-            if not new_connection:
-                raise HTTPException(status_code=404, detail="Connection not found")
 
-            # Use connection's auth_policy for downstream logic
-            auth_policy = new_connection.auth_policy
-            ds_type = new_connection.type
+        # Normalize to list of connection IDs
+        existing_connection_ids = []
+        if connection_ids and len(connection_ids) > 0:
+            existing_connection_ids = connection_ids
+        elif connection_id:
+            existing_connection_ids = [connection_id]
 
-            # Ensure ConnectionTable is populated (may be empty for legacy connections)
-            # This is needed so sync_domain_tables_from_connection can copy tables to the new domain
+        # Track connections for linking
+        connections_to_link: List[Connection] = []
+
+        if existing_connection_ids:
+            # === Mode 2: Link to existing connection(s) ===
             from app.models.connection_table import ConnectionTable
-            conn_tables_result = await db.execute(
-                select(func.count(ConnectionTable.id)).filter(ConnectionTable.connection_id == connection_id)
-            )
-            conn_table_count = conn_tables_result.scalar() or 0
+            from app.services.connection_service import ConnectionService
 
-            if conn_table_count == 0 and auth_policy == "system_only":
-                # Refresh schema to populate ConnectionTable from the database
-                from app.services.connection_service import ConnectionService
-                connection_service = ConnectionService()
-                await connection_service.refresh_schema(db=db, connection=new_connection, current_user=current_user)
+            for conn_id in existing_connection_ids:
+                conn_result = await db.execute(
+                    select(Connection).filter(
+                        Connection.id == conn_id,
+                        Connection.organization_id == organization.id
+                    )
+                )
+                conn = conn_result.scalar_one_or_none()
+                if not conn:
+                    raise HTTPException(status_code=404, detail=f"Connection {conn_id} not found")
+
+                connections_to_link.append(conn)
+
+                # Ensure ConnectionTable is populated (may be empty for legacy connections)
+                conn_tables_result = await db.execute(
+                    select(func.count(ConnectionTable.id)).filter(ConnectionTable.connection_id == conn_id)
+                )
+                conn_table_count = conn_tables_result.scalar() or 0
+
+                if conn_table_count == 0 and conn.auth_policy == "system_only":
+                    # Refresh schema to populate ConnectionTable from the database
+                    connection_service = ConnectionService()
+                    await connection_service.refresh_schema(db=db, connection=conn, current_user=current_user)
+
+            # Use first connection's auth_policy for downstream logic
+            auth_policy = connections_to_link[0].auth_policy
+            ds_type = connections_to_link[0].type
 
             # Extract remaining connection fields that won't be used
             data_source_dict.pop("type", None)
@@ -243,9 +264,15 @@ class DataSourceService:
         
         # Create the data source instance
         new_data_source = DataSource(**ds_create_dict)
-        
-        # Associate with connection
-        new_data_source.connections.append(new_connection)
+
+        # Associate with connection(s)
+        if connections_to_link:
+            # Mode 2: Link to existing connections
+            for conn in connections_to_link:
+                new_data_source.connections.append(conn)
+        else:
+            # Mode 1: New connection created above
+            new_data_source.connections.append(new_connection)
         
         db.add(new_data_source)
         try:
@@ -272,7 +299,8 @@ class DataSourceService:
                     "is_public": bool(is_public),
                     "auth_policy": auth_policy,
                     "use_llm_sync": bool(use_llm_sync),
-                    "from_existing_connection": bool(connection_id),
+                    "from_existing_connection": bool(existing_connection_ids),
+                    "connection_count": len(connections_to_link) if connections_to_link else 1,
                 },
                 user_id=current_user.id,
                 org_id=organization.id,
@@ -294,13 +322,14 @@ class DataSourceService:
         # Note: Description, conversation starters, and instructions are generated
         # later via llm_sync (after user selects tables) to use the correct schema
         if auth_policy == "system_only":
-            if connection_id:
-                # Mode 2: Link to existing connection - use new architecture
-                # ConnectionTable was populated above, now sync to DataSourceTable
-                await self.sync_domain_tables_from_connection(
-                    db, new_data_source, new_connection,
-                    max_auto_select=self.ONBOARDING_MAX_TABLES
-                )
+            if connections_to_link:
+                # Mode 2: Link to existing connection(s) - use new architecture
+                # ConnectionTable was populated above, now sync to DataSourceTable for each connection
+                for conn in connections_to_link:
+                    await self.sync_domain_tables_from_connection(
+                        db, new_data_source, conn,
+                        max_auto_select=self.ONBOARDING_MAX_TABLES
+                    )
             else:
                 # Mode 1: New connection - populate ConnectionTable first, then DataSourceTable
                 from app.services.connection_service import ConnectionService
@@ -328,20 +357,20 @@ class DataSourceService:
         result = await db.execute(stmt)
         final_data_source = result.scalar_one()
         
-        # Build connection embedded info
-        connection_embedded = await self._build_connection_embedded(
+        # Build connections list
+        connections_list = await self._build_connections_list(
             db=db,
             data_source=final_data_source,
             current_user=current_user,
             live_test=False
         )
-        
-        # Build schema with connection info (same pattern as get_data_source)
+
+        # Get first connection for legacy fields
         conn = final_data_source.connections[0] if final_data_source.connections else None
         conn_config = None
         if conn and conn.config:
             conn_config = json.loads(conn.config) if isinstance(conn.config, str) else conn.config
-        
+
         return DataSourceSchema(
             id=str(final_data_source.id),
             organization_id=str(final_data_source.organization_id),
@@ -358,13 +387,13 @@ class DataSourceService:
             owner_user_id=str(final_data_source.owner_user_id) if final_data_source.owner_user_id else None,
             git_repository=final_data_source.git_repository,
             memberships=final_data_source.data_source_memberships,
-            connection=connection_embedded,
-            # Legacy fields from connection for backward compatibility
+            connections=connections_list,
+            # Legacy fields from first connection for backward compatibility
             type=conn.type if conn else None,
             config=conn_config,
             auth_policy=conn.auth_policy if conn else None,
             allowed_user_auth_modes=conn.allowed_user_auth_modes if conn else None,
-            user_status=connection_embedded.user_status if connection_embedded else None,
+            user_status=connections_list[0].user_status if connections_list else None,
         )
 
     async def generate_data_source_items(self, db: AsyncSession, item: str, data_source_id: str, organization: Organization, current_user: User):
@@ -593,23 +622,23 @@ class DataSourceService:
                 # Non-fatal: keep serving the resource even if the live check fails
                 pass
 
-        # Build connection embedded info - always use cached status (live_test=False)
+        # Build connections list - always use cached status (live_test=False)
         # since we already tested if needed above
-        connection_embedded = await self._build_connection_embedded(
-            db=db, 
-            data_source=data_source, 
-            current_user=current_user, 
+        connections_list = await self._build_connections_list(
+            db=db,
+            data_source=data_source,
+            current_user=current_user,
             live_test=False
         )
-        
-        # Build schema with connection info
+
+        # Get first connection for legacy fields
         conn = data_source.connections[0] if data_source.connections else None
-        
+
         # Parse config from connection (may be stored as JSON string)
         conn_config = None
         if conn and conn.config:
             conn_config = json.loads(conn.config) if isinstance(conn.config, str) else conn.config
-        
+
         schema = DataSourceSchema(
             id=str(data_source.id),
             organization_id=str(data_source.organization_id),
@@ -626,15 +655,15 @@ class DataSourceService:
             owner_user_id=data_source.owner_user_id,
             git_repository=data_source.git_repository,
             memberships=data_source.data_source_memberships,
-            connection=connection_embedded,
-            # Legacy fields from connection for backward compatibility
+            connections=connections_list,
+            # Legacy fields from first connection for backward compatibility
             type=conn.type if conn else None,
             config=conn_config,
             auth_policy=conn.auth_policy if conn else None,
             allowed_user_auth_modes=conn.allowed_user_auth_modes if conn else None,
-            user_status=connection_embedded.user_status if connection_embedded else None,
+            user_status=connections_list[0].user_status if connections_list else None,
         )
-        
+
         return schema
 
 
@@ -645,7 +674,7 @@ class DataSourceService:
         # Query for data sources the user has access to
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
         # For data sources with 25K+ tables, this causes severe performance issues
-        # Table count is fetched separately via COUNT query in _build_connection_embedded
+        # Table count is fetched separately via COUNT query in _build_connections_list
         query = (
             select(DataSource)
             .options(
@@ -672,15 +701,15 @@ class DataSourceService:
         # Build list with connection info (no live test for list to keep it fast)
         schemas: list[DataSourceListItemSchema] = []
         for d in data_sources:
-            # Build connection embedded
-            connection_embedded = await self._build_connection_embedded(
-                db=db, 
-                data_source=d, 
-                current_user=current_user, 
+            # Build connections list
+            connections_list = await self._build_connections_list(
+                db=db,
+                data_source=d,
+                current_user=current_user,
                 live_test=False
             )
             conn = d.connections[0] if d.connections else None
-            
+
             s = DataSourceListItemSchema(
                 id=str(d.id),
                 name=d.name,
@@ -688,11 +717,11 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
-                connection=connection_embedded,
-                # Legacy fields from connection for backward compatibility
+                connections=connections_list,
+                # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
-                user_status=connection_embedded.user_status if connection_embedded else None,
+                user_status=connections_list[0].user_status if connections_list else None,
             )
             schemas.append(s)
         return schemas
@@ -702,7 +731,7 @@ class DataSourceService:
         # Build base query for active data sources
         # NOTE: Do NOT use selectinload(DataSource.tables) here - it loads ALL tables into memory
         # For data sources with 25K+ tables, this causes severe performance issues
-        # Table count is fetched separately via COUNT query in _build_connection_embedded
+        # Table count is fetched separately via COUNT query in _build_connections_list
         stmt = (
             select(DataSource)
             .options(
@@ -750,15 +779,15 @@ class DataSourceService:
         
         items: list[DataSourceListItemSchema] = []
         for d in data_sources:
-            # Build connection embedded
-            connection_embedded = await self._build_connection_embedded(
-                db=db, 
-                data_source=d, 
-                current_user=current_user, 
+            # Build connections list
+            connections_list = await self._build_connections_list(
+                db=db,
+                data_source=d,
+                current_user=current_user,
                 live_test=False
             )
             conn = d.connections[0] if d.connections else None
-            
+
             s = DataSourceListItemSchema(
                 id=str(d.id),
                 name=d.name,
@@ -766,13 +795,13 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
-                connection=connection_embedded,
-                # Legacy fields from connection for backward compatibility
+                connections=connections_list,
+                # Legacy fields from first connection for backward compatibility
                 type=conn.type if conn else None,
                 auth_policy=conn.auth_policy if conn else None,
-                user_status=connection_embedded.user_status if connection_embedded else None,
+                user_status=connections_list[0].user_status if connections_list else None,
             )
-            
+
             # Exclude user_required data sources lacking user credentials,
             # unless the user has permission to update data sources (admin/editor)
             auth_policy = conn.auth_policy if conn else "system_only"
@@ -817,7 +846,7 @@ class DataSourceService:
             if auth_policy == "user_required":
                 continue
 
-            connection_embedded = await self._build_connection_embedded(
+            connections_list = await self._build_connections_list(
                 db=db,
                 data_source=d,
                 current_user=None,
@@ -831,10 +860,10 @@ class DataSourceService:
                 description=getattr(d, "description", None),
                 created_at=d.created_at,
                 status=("active" if bool(d.is_active) else "inactive"),
-                connection=connection_embedded,
+                connections=connections_list,
                 type=conn.type if conn else None,
                 auth_policy=auth_policy,
-                user_status=connection_embedded.user_status if connection_embedded else None,
+                user_status=connections_list[0].user_status if connections_list else None,
             )
             items.append(s)
         return items
@@ -1177,12 +1206,16 @@ class DataSourceService:
         return row.decrypt_credentials() or {}
 
     async def construct_client(self, db: AsyncSession, data_source: DataSource, current_user: User | None):
+        """
+        Construct a single client for the first connection.
+        DEPRECATED: Use construct_clients() for multi-connection support.
+        """
         # Get connection from data source
         if not data_source.connections:
             raise HTTPException(status_code=400, detail="Data source has no associated connection")
-        
+
         conn = data_source.connections[0]
-        
+
         # Resolve client class from registry (no model dependency)
         ClientClass = resolve_client_class(conn.type)
         # Merge config and creds
@@ -1200,6 +1233,104 @@ class DataSourceService:
         except Exception:
             allowed = params
         return ClientClass(**allowed)
+
+    async def construct_clients(self, db: AsyncSession, data_source: DataSource, current_user: User | None) -> Dict[str, Any]:
+        """
+        Construct clients for ALL connections in the domain.
+
+        Returns:
+            Dict keyed by "{domain_name}:{connection_name}" -> client
+        """
+        import inspect
+        from typing import Dict, Any
+
+        if not data_source.connections:
+            raise HTTPException(status_code=400, detail="Data source has no associated connections")
+
+        clients: Dict[str, Any] = {}
+
+        for conn in data_source.connections:
+            key = f"{data_source.name}:{conn.name}"
+
+            # Resolve client class from registry
+            ClientClass = resolve_client_class(conn.type)
+
+            # Merge config and creds
+            config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
+
+            # Resolve credentials for this specific connection
+            creds = await self.resolve_credentials_for_connection(
+                db=db,
+                connection=conn,
+                data_source=data_source,
+                current_user=current_user
+            )
+
+            params = {**(config or {}), **(creds or {})}
+
+            # Strip meta keys
+            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+            params = {k: v for k, v in (params or {}).items() if v is not None and k not in meta_keys}
+
+            # Narrow to constructor signature
+            try:
+                sig = inspect.signature(ClientClass.__init__)
+                allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+            except Exception:
+                allowed = params
+
+            clients[key] = ClientClass(**allowed)
+
+        return clients
+
+    async def resolve_credentials_for_connection(
+        self,
+        db: AsyncSession,
+        connection,  # Connection model
+        data_source: DataSource,
+        current_user: User | None
+    ) -> dict:
+        """
+        Resolve credentials for a specific connection.
+        Falls back to system credentials stored on the connection.
+        """
+        auth_policy = connection.auth_policy or "system_only"
+
+        # For user_required, try to get user credentials first
+        if auth_policy == "user_required" and current_user:
+            from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+            u_svc = UserDataSourceCredentialsService()
+            try:
+                row = await u_svc.get_primary_active_row(db, data_source, current_user)
+                if row:
+                    return row.decrypt_credentials() or {}
+            except Exception:
+                pass
+
+            # Check if owner or admin can use system credentials
+            is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(current_user, "id", ""))
+            has_update_perm = False
+            try:
+                from app.models.membership import Membership, ROLES_PERMISSIONS
+                mem_res = await db.execute(
+                    select(Membership).where(
+                        Membership.user_id == current_user.id,
+                        Membership.organization_id == getattr(data_source, "organization_id", None),
+                    )
+                )
+                membership = mem_res.scalar_one_or_none()
+                has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+            except Exception:
+                pass
+
+            if is_owner or has_update_perm:
+                # Owner/admin can use system credentials
+                return connection.get_credentials() if hasattr(connection, 'get_credentials') else {}
+
+            raise HTTPException(status_code=403, detail="User credentials required for this connection")
+
+        # For system_only or if no user, use system credentials
+        return connection.get_credentials() if hasattr(connection, 'get_credentials') else {}
 
     def _resolve_client_by_type(self, data_source_type: str, config: dict, credentials: dict):
         """Dynamically import and construct the client for a given data source type.
@@ -1394,6 +1525,7 @@ class DataSourceService:
         page: int = 1,
         page_size: int = 100,
         schema_filter: List[str] = None,
+        connection_filter: List[str] = None,
         search: str = None,
         sort_by: str = "is_active",
         sort_dir: str = "desc",
@@ -1406,7 +1538,9 @@ class DataSourceService:
         Get paginated tables for a data source with filtering and sorting.
         Returns PaginatedTablesResponse with tables, counts, and metadata.
         """
-        from app.schemas.datasource_table_schema import PaginatedTablesResponse, DataSourceTableSchema
+        from app.schemas.datasource_table_schema import PaginatedTablesResponse, DataSourceTableSchema, ConnectionInfo
+        from app.models.connection_table import ConnectionTable
+        from app.models.connection import Connection
         from sqlalchemy import func, case
         import math
         
@@ -1464,7 +1598,17 @@ class DataSourceService:
                 from sqlalchemy import or_
                 base_query = base_query.where(or_(*schema_conditions))
                 count_query = count_query.where(or_(*schema_conditions))
-        
+
+        # Apply connection filter (via connection_table -> connection relationship)
+        if connection_filter and len(connection_filter) > 0:
+            # Join with ConnectionTable to filter by connection_id
+            base_query = base_query.join(
+                ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id
+            ).where(ConnectionTable.connection_id.in_(connection_filter))
+            count_query = count_query.join(
+                ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id
+            ).where(ConnectionTable.connection_id.in_(connection_filter))
+
         # Apply search filter
         if search and search.strip():
             search_pattern = f"%{search.strip().lower()}%"
@@ -1492,7 +1636,21 @@ class DataSourceService:
             .where(schema_expr.isnot(None))
         )
         distinct_schemas = [row[0] for row in schemas_result.fetchall() if row[0]]
-        
+
+        # Get distinct connections for filter dropdown
+        connections_result = await db.execute(
+            select(Connection.id, Connection.name, Connection.type)
+            .select_from(DataSourceTable)
+            .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+            .join(Connection, ConnectionTable.connection_id == Connection.id)
+            .where(DataSourceTable.datasource_id == data_source_id)
+            .distinct()
+        )
+        distinct_connections = [
+            ConnectionInfo(id=str(row[0]), name=row[1], type=row[2])
+            for row in connections_result.fetchall()
+        ]
+
         # Apply sorting
         sort_column = DataSourceTable.name  # default
         if sort_by == "centrality_score":
@@ -1510,7 +1668,12 @@ class DataSourceService:
         # Apply pagination
         offset = (page - 1) * page_size
         base_query = base_query.offset(offset).limit(page_size)
-        
+
+        # Add selectinload for connection info
+        base_query = base_query.options(
+            selectinload(DataSourceTable.connection_table).selectinload(ConnectionTable.connection)
+        )
+
         # Execute query
         tables_result = await db.execute(base_query)
         table_rows = tables_result.scalars().all()
@@ -1533,7 +1696,17 @@ class DataSourceService:
         for table in table_rows:
             # Get stats for this table
             stats = stats_map.get((table.name or '').lower()) if with_stats else None
-            
+
+            # Extract connection info from relationship
+            conn_id = None
+            conn_name = None
+            conn_type = None
+            if table.connection_table and table.connection_table.connection:
+                conn = table.connection_table.connection
+                conn_id = str(conn.id)
+                conn_name = conn.name
+                conn_type = conn.type
+
             table_schema = DataSourceTableSchema(
                 id=str(table.id),
                 name=table.name,
@@ -1544,6 +1717,11 @@ class DataSourceService:
                 fks=table.fks or [],
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
+                # Connection info
+                connection_id=conn_id,
+                connection_name=conn_name,
+                connection_type=conn_type,
+                # Metrics
                 centrality_score=table.centrality_score,
                 richness=table.richness,
                 degree_in=table.degree_in,
@@ -1568,6 +1746,7 @@ class DataSourceService:
             page_size=page_size,
             total_pages=total_pages,
             schemas=sorted(distinct_schemas),
+            connections=distinct_connections,
             selected_count=selected_count,
             total_tables=total_tables,
             has_more=page < total_pages,

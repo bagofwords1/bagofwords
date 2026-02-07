@@ -364,6 +364,108 @@ def test_domain_delete_keeps_connection(
 
 
 @pytest.mark.e2e
+def test_domain_creation_with_multiple_connections(
+    create_connection,
+    create_domain_from_connections,
+    get_data_sources,
+    get_schema,
+    refresh_connection_schema,
+    delete_data_source,
+    delete_connection,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Test creating a domain linked to multiple connections."""
+    if not DOMAIN_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {DOMAIN_TEST_DB_PATH}")
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    # Create two connections
+    connection1 = create_connection(
+        name="Connection One",
+        type="sqlite",
+        config={"database": str(DOMAIN_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    connection2 = create_connection(
+        name="Connection Two",
+        type="sqlite",
+        config={"database": str(DOMAIN_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Refresh schemas on both connections
+    refresh_connection_schema(
+        connection_id=connection1["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    refresh_connection_schema(
+        connection_id=connection2["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Create domain with multiple connections
+    domain = create_domain_from_connections(
+        name="Multi-Connection Domain",
+        connection_ids=[connection1["id"], connection2["id"]],
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    assert domain is not None
+    assert domain["name"] == "Multi-Connection Domain"
+    assert "id" in domain
+
+    # Verify domain has connections array with 2 connections
+    assert "connections" in domain
+    assert len(domain["connections"]) == 2
+    connection_ids_in_domain = [c["id"] for c in domain["connections"]]
+    assert connection1["id"] in connection_ids_in_domain
+    assert connection2["id"] in connection_ids_in_domain
+
+    # Verify domain appears in list with connections
+    domains = get_data_sources(user_token=user_token, org_id=org_id)
+    our_domain = next(d for d in domains if d["id"] == domain["id"])
+    assert len(our_domain.get("connections", [])) == 2
+
+    # Get schema - should have tables from both connections
+    schema = get_schema(
+        data_source_id=domain["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    assert isinstance(schema, list)
+
+    # Cleanup
+    delete_data_source(
+        data_source_id=domain["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    delete_connection(
+        connection_id=connection1["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    delete_connection(
+        connection_id=connection2["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+
+@pytest.mark.e2e
 def test_multiple_domains_same_connection(
     create_connection,
     create_domain_from_connection,

@@ -208,7 +208,13 @@ class QueryService:
         if not report:
             raise ValueError("Report not found for step's widget")
 
-        ds_clients = {ds.name: ds.get_client() for ds in report.data_sources}
+        # Build ds_clients using construct_clients for multi-connection support
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        ds_clients = {}
+        for ds in report.data_sources:
+            ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
+            ds_clients.update(ds_conns)
         excel_files = report.files
         executor = StreamingCodeExecutor()
         try:
@@ -321,7 +327,13 @@ class QueryService:
         if not report:
             raise ValueError("Report not found for query's widget")
 
-        ds_clients = {ds.name: ds.get_client() for ds in report.data_sources}
+        # Build ds_clients using construct_clients for multi-connection support
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        ds_clients = {}
+        for ds in report.data_sources:
+            ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
+            ds_clients.update(ds_conns)
         excel_files = report.files
         executor = StreamingCodeExecutor()
 

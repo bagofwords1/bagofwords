@@ -149,12 +149,12 @@ class Coder:
             code_error_section = "\n".join(combined)
 
         # Prepare data sources description
-        # ds_clients is a dict: {data_source_name: client_object}
+        # ds_clients is a dict: {domain_name:connection_name: client_object}
         # client_object has a 'description' attribute that explains how to query that client
         data_source_descriptions = []
-        for data_source_name, client in ds_clients.items():
+        for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"data_source_name: {data_source_name}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {client.description}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 
@@ -256,7 +256,9 @@ class Coder:
            - The function should return the main dataframe that will answer the user prompt.
 
         2. **Data Source Usage**:
-           - Use `ds_clients[data_source_name].execute_query("SOME QUERY")` to query non-Excel data sources.
+           - Use `ds_clients["domain_name:connection_name"].execute_query("SOME QUERY")` to query non-Excel data sources.
+             * The key format is "{domain_name}:{connection_name}" matching the schema context.
+             * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -467,7 +469,9 @@ class Coder:
                - The function should return the main dataframe that answers the user prompt.
 
             2. **Data Source Usage**:
-               - Use `ds_clients[data_source_name].execute_query("SOME QUERY")` to query non-Excel data sources.
+               - Use `ds_clients["domain_name:connection_name"].execute_query("SOME QUERY")` to query non-Excel data sources.
+             * The key format is "{domain_name}:{connection_name}" matching the schema context.
+             * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
                - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
                {data_preview_instruction}
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -592,9 +596,9 @@ class Coder:
 
         # Prepare data source descriptions (kept for compatibility)
         data_source_descriptions = []
-        for data_source_name, client in ds_clients.items():
+        for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"data_source_name: {data_source_name}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {client.description}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 
@@ -726,7 +730,9 @@ class Coder:
            - The function should return the main dataframe that answers the user prompt.
 
         2. **Data Source Usage**:
-           - Use `ds_clients[data_source_name].execute_query("SOME QUERY")` to query non-Excel data sources.
+           - Use `ds_clients["domain_name:connection_name"].execute_query("SOME QUERY")` to query non-Excel data sources.
+             * The key format is "{domain_name}:{connection_name}" matching the schema context.
+             * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -821,9 +827,9 @@ class Coder:
 
         # Prepare data source descriptions
         data_source_descriptions = []
-        for data_source_name, client in ds_clients.items():
+        for client_key, client in ds_clients.items():
             data_source_descriptions.append(
-                f"data_source_name: {data_source_name}\ndescription: {client.description}"
+                f"client_key: {client_key}\ndescription: {client.description}"
             )
         data_source_section = "\n".join(data_source_descriptions)
 

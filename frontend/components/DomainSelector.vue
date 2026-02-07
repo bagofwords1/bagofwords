@@ -126,24 +126,33 @@
                   <div class="text-sm font-semibold text-gray-900 truncate">
                     {{ hoveredDomainDetails?.name || 'Loading…' }}
                   </div>
-                  <!-- Connection info: icon + name + status indicator -->
+                  <!-- Connection info: icons for all connections -->
                   <div class="flex items-center gap-2 mt-1">
-                    <DataSourceIcon 
-                      v-if="hoveredDomainDetails?.connection?.type" 
-                      :type="hoveredDomainDetails.connection.type" 
-                      class="w-4 h-4 flex-shrink-0" 
-                    />
-                    <span class="text-xs text-gray-500 truncate">
-                      {{ hoveredDomainDetails?.connection?.name || 'No connection' }}
+                    <div v-if="hoveredDomainDetails?.connections?.length" class="flex items-center gap-1">
+                      <!-- Show icons for up to 3 connections -->
+                      <div class="flex -space-x-1">
+                        <DataSourceIcon
+                          v-for="conn in (hoveredDomainDetails.connections || []).slice(0, 3)"
+                          :key="conn.id"
+                          :type="conn.type"
+                          class="w-4 h-4 flex-shrink-0 ring-1 ring-white rounded"
+                        />
+                      </div>
+                      <span class="text-xs text-gray-500 truncate">
+                        {{ hoveredDomainDetails.connections.length }} connection{{ hoveredDomainDetails.connections.length > 1 ? 's' : '' }}
+                      </span>
+                    </div>
+                    <span v-else class="text-xs text-gray-500 truncate">
+                      No connections
                     </span>
-                    <!-- Green circle if connected -->
-                    <span 
-                      v-if="isConnectionActive" 
+                    <!-- Green circle if any connection active -->
+                    <span
+                      v-if="hasActiveConnection"
                       class="w-2 h-2 rounded-full bg-green-500 flex-shrink-0"
                       title="Connected"
                     ></span>
-                    <span 
-                      v-else-if="hoveredDomainDetails?.connection" 
+                    <span
+                      v-else-if="hoveredDomainDetails?.connections?.length"
                       class="w-2 h-2 rounded-full bg-gray-300 flex-shrink-0"
                       title="Not connected"
                     ></span>
@@ -291,6 +300,7 @@
                             @click="selectTable(t)"
                             class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
                           >
+                            <DataSourceIcon v-if="hasMultipleConnections" :type="t.connection_type" class="w-3.5 h-3.5 flex-shrink-0" />
                             <span class="truncate flex-1 text-gray-800 font-medium">{{ t.name }}</span>
                             <span v-if="t.columns?.length" class="text-[11px] text-gray-400 flex-shrink-0">{{ t.columns.length }} cols</span>
                           </button>
@@ -498,11 +508,16 @@ const queriesResources = computed<any[]>(() => {
 })
 const queriesCount = computed(() => queriesResources.value.length)
 
-// Computed: check if connection is active (status === 'success')
-const isConnectionActive = computed(() => {
-  const userStatus = hoveredDomainDetails.value?.connection?.user_status
-  const connectionStatus = userStatus?.connection
-  return connectionStatus === 'success'
+// Computed: check if any connection is active (status === 'success')
+const hasActiveConnection = computed(() => {
+  const connections = hoveredDomainDetails.value?.connections || []
+  return connections.some((conn: any) => conn?.user_status?.connection === 'success')
+})
+
+// Computed: check if domain has multiple connections (for showing icons in tables list)
+const hasMultipleConnections = computed(() => {
+  const connections = hoveredDomainDetails.value?.connections || []
+  return connections.length > 1
 })
 
 const showFlyoutAtEvent = (evt: MouseEvent) => {

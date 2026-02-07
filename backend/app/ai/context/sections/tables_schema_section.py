@@ -38,64 +38,106 @@ class TablesSchemaContext(ContextSection):
         info: DataSourceSummarySchema
         tables: List[PromptTable] = []
 
-        def render(self) -> str:
-            tables_xml = []
-            for t in self.tables or []:
-                cols = "\n".join(
-                    f'<column name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"/>'
-                    for c in (t.columns or [])
-                )
+        def _group_tables_by_connection(self) -> dict:
+            """Group tables by connection_id. Tables without connection_id go under 'default'."""
+            from collections import defaultdict
+            groups = defaultdict(list)
+            for t in (self.tables or []):
+                conn_id = getattr(t, 'connection_id', None) or 'default'
+                groups[conn_id].append(t)
+            return groups
 
-                # ignored for now
-                pks = "\n".join(
-                    f'<pk name="{xml_escape(pk.name)}" dtype="{xml_escape(pk.dtype or "")}"/>'
-                    for pk in (t.pks or [])
-                )
-                fks = "\n".join(
-                    f'<fk column="{xml_escape(fk.column.name)}" '
-                    f'ref_table="{xml_escape(fk.references_name)}" '
-                    f'ref_column="{xml_escape(fk.references_column.name)}"/>'
-                    for fk in (t.fks or [])
-                )
-                metrics_lines: List[str] = []
-                if any(v is not None for v in [t.score, t.usage_count, t.success_count, t.failure_count, t.success_rate, t.pos_feedback_count, t.neg_feedback_count, t.last_used_at, t.last_feedback_at]):
-                    if t.score is not None:
-                        metrics_lines.append(f'<score value="{xml_escape(str(round(t.score, 6)))}"/>')
-                    if any(v is not None for v in [t.usage_count, t.success_count, t.failure_count]):
-                        metrics_lines.append(
-                            f'<usage count="{t.usage_count or 0}" success="{t.success_count or 0}" failure="{t.failure_count or 0}"/>'
-                        )
-                    if t.success_rate is not None:
-                        metrics_lines.append(f'<success_rate value="{xml_escape(str(round(t.success_rate, 6)))}"/>')
-                    if any(v is not None for v in [t.pos_feedback_count, t.neg_feedback_count]):
-                        metrics_lines.append(
-                            f'<feedback pos="{t.pos_feedback_count or 0}" neg="{t.neg_feedback_count or 0}"/>'
-                        )
-                    if t.last_used_at:
-                        metrics_lines.append(f'<last_used_at value="{xml_escape(t.last_used_at)}"/>')
-                    if t.last_feedback_at:
-                        metrics_lines.append(f'<last_feedback_at value="{xml_escape(t.last_feedback_at)}"/>')
-                metrics_xml = xml_tag("metrics", "\n".join(metrics_lines)) if metrics_lines else ""
-                # Optional metadata (compact attributes)
+        def _render_table_xml(self, t: PromptTable) -> str:
+            """Render a single table to XML."""
+            cols = "\n".join(
+                f'<column name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"/>'
+                for c in (t.columns or [])
+            )
+
+            # ignored for now
+            pks = "\n".join(
+                f'<pk name="{xml_escape(pk.name)}" dtype="{xml_escape(pk.dtype or "")}"/>'
+                for pk in (t.pks or [])
+            )
+            fks = "\n".join(
+                f'<fk column="{xml_escape(fk.column.name)}" '
+                f'ref_table="{xml_escape(fk.references_name)}" '
+                f'ref_column="{xml_escape(fk.references_column.name)}"/>'
+                for fk in (t.fks or [])
+            )
+            metrics_lines: List[str] = []
+            if any(v is not None for v in [t.score, t.usage_count, t.success_count, t.failure_count, t.success_rate, t.pos_feedback_count, t.neg_feedback_count, t.last_used_at, t.last_feedback_at]):
+                if t.score is not None:
+                    metrics_lines.append(f'<score value="{xml_escape(str(round(t.score, 6)))}"/>')
+                if any(v is not None for v in [t.usage_count, t.success_count, t.failure_count]):
+                    metrics_lines.append(
+                        f'<usage count="{t.usage_count or 0}" success="{t.success_count or 0}" failure="{t.failure_count or 0}"/>'
+                    )
+                if t.success_rate is not None:
+                    metrics_lines.append(f'<success_rate value="{xml_escape(str(round(t.success_rate, 6)))}"/>')
+                if any(v is not None for v in [t.pos_feedback_count, t.neg_feedback_count]):
+                    metrics_lines.append(
+                        f'<feedback pos="{t.pos_feedback_count or 0}" neg="{t.neg_feedback_count or 0}"/>'
+                    )
+                if t.last_used_at:
+                    metrics_lines.append(f'<last_used_at value="{xml_escape(t.last_used_at)}"/>')
+                if t.last_feedback_at:
+                    metrics_lines.append(f'<last_feedback_at value="{xml_escape(t.last_feedback_at)}"/>')
+            metrics_xml = xml_tag("metrics", "\n".join(metrics_lines)) if metrics_lines else ""
+            # Optional metadata (compact attributes)
+            metadata_xml = ""
+            try:
+                tj = (t.metadata_json or {}).get("tableau", {}) if isinstance(t.metadata_json, dict) else {}
+                attrs = {}
+                for k in ("datasourceLuid", "projectName", "name"):
+                    v = tj.get(k)
+                    if v is not None:
+                        attrs[k] = v
+                if attrs:
+                    metadata_xml = xml_tag("metadata", "", attrs)
+            except Exception:
                 metadata_xml = ""
-                try:
-                    tj = (t.metadata_json or {}).get("tableau", {}) if isinstance(t.metadata_json, dict) else {}
-                    attrs = {}
-                    for k in ("datasourceLuid", "projectName", "name"):
-                        v = tj.get(k)
-                        if v is not None:
-                            attrs[k] = v
-                    if attrs:
-                        metadata_xml = xml_tag("metadata", "", attrs)
-                except Exception:
-                    metadata_xml = ""
-                inner = "\n".join(filter(None, [xml_tag("columns", cols), metadata_xml, metrics_xml]))
-                tables_xml.append(xml_tag("table", inner, {"name": t.name}))
+            inner = "\n".join(filter(None, [xml_tag("columns", cols), metadata_xml, metrics_xml]))
+            return xml_tag("table", inner, {"name": t.name})
+
+        def render(self) -> str:
+            # Group tables by connection
+            conn_groups = self._group_tables_by_connection()
+
             content_parts = []
             if self.info.context:
                 content_parts.append(xml_tag("context", xml_escape(self.info.context)))
-            content_parts.append("\n\n".join(tables_xml))
-            return xml_tag(self.tag_name, "\n".join(content_parts), {"name": self.info.name, "type": self.info.type, "id": self.info.id})
+
+            # Check if we have multi-connection (more than one group, or the group isn't 'default')
+            has_multi_connection = len(conn_groups) > 1 or (len(conn_groups) == 1 and 'default' not in conn_groups)
+
+            if has_multi_connection:
+                # Render with nested <connection> tags
+                for conn_id, tables in conn_groups.items():
+                    if not tables:
+                        continue
+                    # Get connection info from first table
+                    first_table = tables[0]
+                    conn_name = getattr(first_table, 'connection_name', None) or 'unknown'
+                    conn_type = getattr(first_table, 'connection_type', None) or 'unknown'
+
+                    tables_xml = [self._render_table_xml(t) for t in tables]
+                    conn_attrs = {"name": conn_name, "type": conn_type}
+                    if conn_id != 'default':
+                        conn_attrs["id"] = conn_id
+                    content_parts.append(xml_tag("connection", "\n\n".join(tables_xml), conn_attrs))
+            else:
+                # Single connection or legacy mode - render tables directly (backward compatible)
+                tables_xml = [self._render_table_xml(t) for t in (self.tables or [])]
+                content_parts.append("\n\n".join(tables_xml))
+
+            # Build data_source attributes
+            ds_attrs = {"name": self.info.name, "id": self.info.id}
+            # Only include type if single connection (for backward compatibility)
+            if not has_multi_connection and self.info.type:
+                ds_attrs["type"] = self.info.type
+
+            return xml_tag(self.tag_name, "\n".join(content_parts), ds_attrs)
 
         # Compact renderers for gist/index/digest
         def _render_gist(self, columns_per_table: int = 2) -> str:
@@ -161,8 +203,21 @@ class TablesSchemaContext(ContextSection):
             return xml_tag(self.tag_name, payload, {"name": self.info.name, "type": self.info.type, "id": self.info.id})
 
         def _render_topk_tables_full(self, top_k: int) -> str:
-            tables_xml: List[str] = []
-            for t in (self.tables or [])[: max(0, top_k)]:
+            """Render top K tables with full schema, grouped by connection if multi-connection."""
+            top_tables = (self.tables or [])[: max(0, top_k)]
+            if not top_tables:
+                return ""
+
+            # Group top tables by connection
+            from collections import defaultdict
+            conn_groups = defaultdict(list)
+            for t in top_tables:
+                conn_id = getattr(t, 'connection_id', None) or 'default'
+                conn_groups[conn_id].append(t)
+
+            has_multi_connection = len(conn_groups) > 1 or (len(conn_groups) == 1 and 'default' not in conn_groups)
+
+            def render_table(t):
                 cols = "\n".join(
                     f'<column name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"/>'
                     for c in (t.columns or [])
@@ -194,10 +249,28 @@ class TablesSchemaContext(ContextSection):
                 except Exception:
                     pass
                 inner = "\n".join(filter(None, [xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else ""]))
-                tables_xml.append(xml_tag("table", inner, attrs))
-            if not tables_xml:
-                return ""
-            return xml_tag("tables", "\n".join(tables_xml))
+                return xml_tag("table", inner, attrs)
+
+            if has_multi_connection:
+                # Render with nested <connection> tags
+                conn_xml_parts = []
+                for conn_id, tables in conn_groups.items():
+                    if not tables:
+                        continue
+                    first_table = tables[0]
+                    conn_name = getattr(first_table, 'connection_name', None) or 'unknown'
+                    conn_type = getattr(first_table, 'connection_type', None) or 'unknown'
+
+                    tables_xml = [render_table(t) for t in tables]
+                    conn_attrs = {"name": conn_name, "type": conn_type}
+                    if conn_id != 'default':
+                        conn_attrs["id"] = conn_id
+                    conn_xml_parts.append(xml_tag("connection", "\n".join(tables_xml), conn_attrs))
+                return "\n".join(conn_xml_parts)
+            else:
+                # Single connection - render tables directly
+                tables_xml = [render_table(t) for t in top_tables]
+                return xml_tag("tables", "\n".join(tables_xml))
 
         def _render_names_index(self, index_limit: int = 200) -> str:
             tables = list(self.tables or [])
@@ -251,6 +324,10 @@ class TablesSchemaContext(ContextSection):
             index_xml = ds._render_names_index(index_limit) if include_index else ""
             if not (sample_xml or index_xml):
                 continue
+
+            # Check if multi-connection (sample_xml will contain <connection> tags if so)
+            has_multi_connection = '<connection ' in sample_xml if sample_xml else False
+
             inner_parts: List[str] = []
             if getattr(ds.info, 'context', None):
                 inner_parts.append(xml_tag("description", xml_escape(ds.info.context)))
@@ -258,12 +335,15 @@ class TablesSchemaContext(ContextSection):
                 inner_parts.append(xml_tag("sample", sample_xml, {"k": str(top_k_per_ds)}))
             if index_xml:
                 inner_parts.append(index_xml)
+
             attrs = {
                 "name": ds.info.name,
-                "type": ds.info.type,
                 "id": ds.info.id,
                 "total_tables": str(len(getattr(ds, 'tables', []) or [])),
             }
+            # Only include type for single-connection (backward compatibility)
+            if not has_multi_connection and ds.info.type:
+                attrs["type"] = ds.info.type
             # Ensure separation between <sample> and <index>
             ds_chunks.append(xml_tag("data_source", "\n".join(inner_parts), attrs))
         return xml_tag(self.tag_name, "".join(ds_chunks))

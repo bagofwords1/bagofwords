@@ -872,8 +872,8 @@ async function fetchAvailableMentions() {
             ...table,
             // Normalize field for client-side filtering compatibility
             data_source_id: table.data_source_id || table.datasource_id,
-            subtitle: table.data_source_name,
-            icon_type: table.data_source_type,
+            subtitle: table.connection_name || table.data_source_name,
+            icon_type: table.connection_type || table.data_source_type,
           }))
         }
       ]

@@ -297,11 +297,14 @@ class DescribeEntityTool(Tool):
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_code"})
             try:
                 from app.ai.code_execution.code_execution import StreamingCodeExecutor
+                from app.services.data_source_service import DataSourceService
 
+                ds_service = DataSourceService()
                 ds_clients = {}
                 for ds in (entity.data_sources or []):
                     try:
-                        ds_clients[ds.name] = ds.get_client()
+                        clients = await ds_service.construct_clients(db, ds, user)
+                        ds_clients.update(clients)
                     except Exception as e:
                         errors.append(f"Failed to connect to {ds.name}: {str(e)}")
 

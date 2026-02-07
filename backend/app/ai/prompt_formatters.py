@@ -94,19 +94,20 @@ async def build_codegen_context(
         pass
 
     # Render data sources/clients descriptions if available in runtime context
+    # ds_clients keys are now "{domain_name}:{connection_name}"
     try:
         ds_clients = runtime_ctx.get("ds_clients") if isinstance(runtime_ctx, dict) else None
         if isinstance(ds_clients, dict) and ds_clients:
             lines = []
-            for name, client in ds_clients.items():
+            for client_key, client in ds_clients.items():
                 try:
                     desc = getattr(client, "description", None)
                     if callable(desc):
                         # Some clients expose description as @property; getattr will yield value
                         desc = desc  # already resolved
-                    lines.append(f"data_source_name: {name}\ndescription: {desc}")
+                    lines.append(f"client_key: {client_key}\ndescription: {desc}")
                 except Exception:
-                    lines.append(f"data_source_name: {name}\ndescription: ")
+                    lines.append(f"client_key: {client_key}\ndescription: ")
             data_sources_context = "\n".join(lines)
     except Exception:
         data_sources_context = ""
@@ -165,6 +166,11 @@ class Table(BaseModel):
     pks: list[TableColumn] | None
     fks: list[ForeignKey] | None
     is_active: bool = True
+
+    # Connection info (for multi-connection support)
+    connection_id: Optional[str] = None
+    connection_name: Optional[str] = None
+    connection_type: Optional[str] = None  # e.g., "snowflake", "postgres"
 
     metadata_json: Optional[dict] = None
     # Optional structural metrics

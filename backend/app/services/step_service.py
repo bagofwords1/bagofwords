@@ -120,7 +120,13 @@ class StepService:
         if not report:
             raise ValueError("Report not found")
         
-        db_clients = {data_source.name: data_source.get_client() for data_source in report.data_sources}
+        # Build db_clients using construct_clients for multi-connection support
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        db_clients = {}
+        for data_source in report.data_sources:
+            ds_clients = await ds_service.construct_clients(db, data_source, current_user=None)
+            db_clients.update(ds_clients)
 
         excel_files = report.files
         code_execution_manager = CodeExecutionManager()

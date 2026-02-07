@@ -36,8 +36,8 @@
                         </button>
 
                         <!-- Connection filters with inline dropdown -->
-                        <div 
-                            v-for="conn in connections" 
+                        <div
+                            v-for="conn in connections"
                             :key="conn.id"
                             :class="[
                                 'inline-flex items-center gap-1.5 pl-3 pr-1 py-1 text-xs rounded-full border transition-all',
@@ -46,7 +46,7 @@
                                     : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
                             ]"
                         >
-                            <button 
+                            <button
                                 @click="selectedConnectionId = conn.id"
                                 class="inline-flex items-center gap-1.5"
                             >
@@ -54,14 +54,14 @@
                                 <span>{{ conn.name }}</span>
                                 <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-green-500' : 'bg-red-500']"></span>
                             </button>
-                            
+
                             <!-- Ellipsis dropdown (for admins) -->
                             <UDropdown
                                 v-if="canUpdateDataSource"
                                 :items="getConnectionMenuItems(conn)"
                                 :popper="{ placement: 'bottom-end' }"
                             >
-                                <button 
+                                <button
                                     :class="[
                                         'p-1 rounded-full transition-colors',
                                         selectedConnectionId === conn.id
@@ -101,9 +101,9 @@
                             
                             <!-- Metadata -->
                             <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
-                                <DataSourceIcon class="h-3.5" :type="getConnectionType(ds)" />
-                                <span>{{ getConnectionName(ds) }}</span>
-                                <span class="text-gray-300">·</span>
+                                <UTooltip v-for="conn in (ds.connections || [])" :key="conn.id" :text="conn.name">
+                                    <DataSourceIcon class="h-3.5" :type="conn.type" />
+                                </UTooltip>
                                 <span>{{ getTableCount(ds) }} tables</span>
                             </div>
                             
@@ -237,9 +237,11 @@ const allDomains = computed(() => connected_ds.value || [])
 
 // Get domains for a specific connection
 function getDomainsForConnection(connectionId: string): any[] {
-    return allDomains.value.filter(ds => 
-        ds.connection?.id === connectionId || ds.connection_id === connectionId
-    )
+    return allDomains.value.filter(ds => {
+        // Check if any connection matches
+        const connections = ds.connections || []
+        return connections.some((conn: any) => conn.id === connectionId)
+    })
 }
 
 // Filtered domains based on selected connection
@@ -254,26 +256,48 @@ const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any)
 
 // Helper functions for domain display
 function getConnectionType(ds: any): string {
-    return ds.connection?.type || ds.type || 'unknown'
+    // Return type from first connection, or legacy type field
+    const connections = ds.connections || []
+    return connections[0]?.type || ds.type || 'unknown'
 }
 
 function getConnectionName(ds: any): string {
-    return ds.connection?.name || ds.name || 'Connection'
+    // Return name from first connection, or domain name
+    const connections = ds.connections || []
+    return connections[0]?.name || ds.name || 'Connection'
 }
 
 function getTableCount(ds: any): number {
-    return ds.connection?.table_count || ds.tables?.length || 0
+    // Sum table counts from all connections
+    const connections = ds.connections || []
+    if (connections.length > 0) {
+        return connections.reduce((sum: number, conn: any) => sum + (conn.table_count || 0), 0)
+    }
+    return ds.tables?.length || 0
 }
 
-// Check if domain requires user auth
+function getConnectionCount(ds: any): number {
+    return (ds.connections || []).length
+}
+
+// Check if domain requires user auth (any connection)
 function requiresUserAuth(ds: any): boolean {
-    return ds.auth_policy === 'user_required' || ds.connection?.auth_policy === 'user_required'
+    const connections = ds.connections || []
+    return ds.auth_policy === 'user_required' ||
+        connections.some((conn: any) => conn.auth_policy === 'user_required')
 }
 
 // Check if user needs to connect (user_required but not connected yet)
 function needsUserConnection(ds: any): boolean {
     if (!requiresUserAuth(ds)) return false
-    const userStatus = ds.user_status?.connection || ds.connection?.user_status?.connection
+    const connections = ds.connections || []
+    // Check if any user_required connection is not connected
+    for (const conn of connections) {
+        if (conn.auth_policy === 'user_required' && conn.user_status?.connection !== 'success') {
+            return true
+        }
+    }
+    const userStatus = ds.user_status?.connection
     return userStatus !== 'success'
 }
 

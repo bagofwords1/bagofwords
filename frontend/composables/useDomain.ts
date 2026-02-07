@@ -4,17 +4,30 @@
  * Selection is persisted to localStorage so it survives page refreshes.
  */
 
+interface DomainConnection {
+  id: string
+  name: string
+  type: string
+  auth_policy?: string
+  allowed_user_auth_modes?: string[]
+  is_active?: boolean
+  last_synced_at?: string
+  user_status?: {
+    has_user_credentials: boolean
+    auth_mode?: string
+    is_primary?: boolean
+    connection: string
+    effective_auth: string
+  }
+  table_count?: number
+}
+
 interface Domain {
   id: string
   name: string
-  type?: string
+  type?: string  // Legacy field - computed from first connection
   description?: string
-  connection?: {
-    id: string
-    name: string
-    type: string
-    table_count?: number
-  }
+  connections: DomainConnection[]  // Now an array of connections
 }
 
 // Storage key for persisting domain selection
