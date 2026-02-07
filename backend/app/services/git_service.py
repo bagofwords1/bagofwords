@@ -22,7 +22,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, and_
+from sqlalchemy import select, update, and_, or_
 from urllib.parse import urlparse
 
 from app.models.git_repository import GitRepository
@@ -360,27 +360,25 @@ class GitService:
         Supports both:
         - New flow: instructions matched by source_file_path prefix (repo_name/)
         - Legacy flow: instructions linked via source_metadata_resource_id
+        
+        Returns the count of distinct instructions matching either criteria.
         """
-        from sqlalchemy import func
+        from sqlalchemy import func, distinct
         from app.core.git_file_walker import extract_repo_name
 
         repository = await self._verify_repository(db, repository_id, organization)
         repo_name = extract_repo_name(repository.repo_url)
 
-        # New flow: count by path prefix
-        path_count_stmt = select(func.count(Instruction.id)).where(
-            and_(
-                Instruction.source_file_path.like(f'{repo_name}/%'),
-                Instruction.source_sync_enabled == True,
-                Instruction.organization_id == organization.id,
-                Instruction.deleted_at == None,
-            )
+        # Build the path-based predicate (new flow)
+        path_predicate = and_(
+            Instruction.source_file_path.like(f'{repo_name}/%'),
+            Instruction.source_sync_enabled == True,
+            Instruction.organization_id == organization.id,
+            Instruction.deleted_at == None,
         )
-        path_count_result = await db.execute(path_count_stmt)
-        path_count = path_count_result.scalar() or 0
 
-        # Legacy flow: count by MetadataResource link
-        legacy_count = 0
+        # Build the resource-based predicate (legacy flow)
+        resource_predicate = None
         data_source_id = repository.data_source_id
         if data_source_id:
             indexing_jobs_result = await self.metadata_indexing_job_service.get_indexing_jobs(
@@ -415,17 +413,27 @@ class GitService:
             resource_ids = [row[0] for row in resources_result.all()]
 
             if resource_ids:
-                legacy_stmt = select(func.count(Instruction.id)).where(
-                    and_(
-                        Instruction.source_metadata_resource_id.in_(resource_ids),
-                        Instruction.source_sync_enabled == True,
-                        Instruction.deleted_at == None,
-                    )
+                resource_predicate = and_(
+                    Instruction.source_metadata_resource_id.in_(resource_ids),
+                    Instruction.source_sync_enabled == True,
+                    Instruction.deleted_at == None,
                 )
-                legacy_result = await db.execute(legacy_stmt)
-                legacy_count = legacy_result.scalar() or 0
 
-        return {"instruction_count": max(path_count, legacy_count)}
+        # Count distinct instruction IDs matching either predicate
+        if resource_predicate is not None:
+            combined_stmt = select(func.count(distinct(Instruction.id))).where(
+                or_(path_predicate, resource_predicate)
+            )
+        else:
+            # If no legacy resources, just use path predicate
+            combined_stmt = select(func.count(distinct(Instruction.id))).where(
+                path_predicate
+            )
+
+        result = await db.execute(combined_stmt)
+        count = result.scalar() or 0
+
+        return {"instruction_count": count}
 
     async def delete_git_repository(
         self,
