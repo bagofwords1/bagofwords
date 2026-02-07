@@ -633,17 +633,19 @@ class ReportService:
         limit: int = 10,
         filter: str = "my",
         search: str | None = None,
+        scheduled: bool | None = None,
+        status: str | None = None,
     ):
         # Calculate offset
         offset = (page - 1) * limit
-        
+
         # Build filter conditions based on filter parameter
         base_conditions = [
             Report.organization_id == organization.id,
             Report.status != 'archived',
             Report.report_type == 'regular',
         ]
-        
+
         if filter == "my":
             # Show only reports owned by current user
             base_conditions.append(Report.user_id == current_user.id)
@@ -659,6 +661,16 @@ class ReportService:
         # Optional search on report title
         if search:
             base_conditions.append(Report.title.ilike(f"%{search}%"))
+
+        # Optional filter by scheduled status
+        if scheduled is True:
+            base_conditions.append(Report.cron_schedule.isnot(None))
+        elif scheduled is False:
+            base_conditions.append(Report.cron_schedule.is_(None))
+
+        # Optional filter by report status (draft/published)
+        if status in ('draft', 'published'):
+            base_conditions.append(Report.status == status)
         
         # Base query for filtering
         base_query = select(Report).where(*base_conditions)
@@ -671,9 +683,10 @@ class ReportService:
         
         # Get paginated results - load data_sources with connections to get type
         query = base_query.options(
-            selectinload(Report.user), 
+            selectinload(Report.user),
             selectinload(Report.widgets),
-            selectinload(Report.data_sources).selectinload(DataSource.connections)
+            selectinload(Report.data_sources).selectinload(DataSource.connections),
+            selectinload(Report.artifacts)
         ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
         
         result = await db.execute(query)
@@ -705,7 +718,12 @@ class ReportService:
                 )
                 for ds in (report.data_sources or [])
             ]
-            
+
+            # Compute unique artifact modes for this report
+            report_schema.artifact_modes = list(set(
+                a.mode for a in (report.artifacts or []) if a.mode
+            ))
+
             report_schemas.append(report_schema)
 
         # Calculate pagination metadata

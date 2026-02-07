@@ -52,6 +52,8 @@ class ReportSchema(ReportBase):
     # Conversation sharing
     conversation_share_enabled: bool = False
     conversation_share_token: Optional[str] = None
+    # Artifact modes (page, slides) that exist for this report
+    artifact_modes: List[str] = []
 
     class Config:
         from_attributes = True

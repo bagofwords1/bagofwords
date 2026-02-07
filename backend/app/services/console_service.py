@@ -45,11 +45,18 @@ from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
 from app.models.instruction_build import InstructionBuild
+from app.models.report_data_source_association import report_data_source_association
 
 logger = get_logger(__name__)
 
 class ConsoleService:
-    
+
+    def _parse_data_source_ids(self, data_source_ids: Optional[str]) -> List[str]:
+        """Parse comma-separated data source IDs string into a list."""
+        if not data_source_ids:
+            return []
+        return [ds_id.strip() for ds_id in data_source_ids.split(',') if ds_id.strip()]
+
     def _to_utc_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
         """Convert aware datetimes to UTC and strip tzinfo; leave naive as-is.
 
@@ -88,28 +95,39 @@ class ConsoleService:
         return start_date, end_date
     
     async def get_organization_metrics(
-        self, 
-        db: AsyncSession, 
-        organization: Organization, 
+        self,
+        db: AsyncSession,
+        organization: Organization,
         params: MetricsQueryParams
     ) -> SimpleMetrics:
         """Get organization metrics with optional date filtering"""
-        
+
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
-        
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+
         # Base filters
         report_filter = Report.organization_id == organization.id
-        
+
+        # Build data source filter subquery if needed
+        ds_filter_subquery = None
+        if parsed_data_source_ids:
+            ds_filter_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
+            )
+
         # Count total messages (completions)
         messages_query = select(func.count(Completion.id)).join(Report).where(
             report_filter,
             Completion.created_at >= start_date,
             Completion.created_at <= end_date
         )
-        
+        if ds_filter_subquery is not None:
+            messages_query = messages_query.where(Report.id.in_(ds_filter_subquery))
+
         messages_result = await db.execute(messages_query)
         total_messages = messages_result.scalar() or 0
-        
+
         # Count total queries (steps)
         queries_query = (
             select(func.count(Step.id))
@@ -120,10 +138,12 @@ class ConsoleService:
                 Step.created_at <= end_date
             )
         )
-        
+        if ds_filter_subquery is not None:
+            queries_query = queries_query.where(Report.id.in_(ds_filter_subquery))
+
         queries_result = await db.execute(queries_query)
         total_queries = queries_result.scalar() or 0
-        
+
         # Count total feedbacks
         feedbacks_query = (
             select(func.count(CompletionFeedback.id))
@@ -135,25 +155,29 @@ class ConsoleService:
                 CompletionFeedback.created_at <= end_date
             )
         )
-        
+        if ds_filter_subquery is not None:
+            feedbacks_query = feedbacks_query.where(Report.id.in_(ds_filter_subquery))
+
         feedbacks_result = await db.execute(feedbacks_query)
         total_feedbacks = feedbacks_result.scalar() or 0
-        
+
         # Count active users
         users_query = select(func.count(func.distinct(Report.user_id))).where(
             report_filter,
             Report.created_at >= start_date,
             Report.created_at <= end_date
         )
-        
+        if ds_filter_subquery is not None:
+            users_query = users_query.where(Report.id.in_(ds_filter_subquery))
+
         users_result = await db.execute(users_query)
         active_users = users_result.scalar() or 0
-        
+
         # Calculate judge metrics averages
         judge_metrics_query = (
             select(
                 func.avg(Completion.instructions_effectiveness).label('avg_instructions_effectiveness'),
-                func.avg(Completion.context_effectiveness).label('avg_context_effectiveness'), 
+                func.avg(Completion.context_effectiveness).label('avg_context_effectiveness'),
                 func.avg(Completion.response_score).label('avg_response_score')
             )
             .join(Report)
@@ -164,10 +188,12 @@ class ConsoleService:
                 Completion.instructions_effectiveness.isnot(None)  # Only include completions with judge scores
             )
         )
-        
+        if ds_filter_subquery is not None:
+            judge_metrics_query = judge_metrics_query.where(Report.id.in_(ds_filter_subquery))
+
         judge_result = await db.execute(judge_metrics_query)
         judge_data = judge_result.first()
-        
+
         # Calculate accuracy rate from response scores
         # Count ALL completions
         total_completions_query = (
@@ -179,10 +205,12 @@ class ConsoleService:
                 Completion.created_at <= end_date
             )
         )
-        
+        if ds_filter_subquery is not None:
+            total_completions_query = total_completions_query.where(Report.id.in_(ds_filter_subquery))
+
         total_completions_result = await db.execute(total_completions_query)
         total_completions = total_completions_result.scalar() or 0
-        
+
         # Sum response scores (only non-null ones)
         response_score_query = (
             select(func.sum(Completion.response_score))
@@ -194,14 +222,16 @@ class ConsoleService:
                 Completion.response_score.isnot(None)
             )
         )
-        
+        if ds_filter_subquery is not None:
+            response_score_query = response_score_query.where(Report.id.in_(ds_filter_subquery))
+
         response_score_result = await db.execute(response_score_query)
         response_score_sum = response_score_result.scalar() or 0
-        
+
         # Calculate accuracy: sum of scores / total completions * 20
         accuracy_rate = (response_score_sum / total_completions * 20) if total_completions > 0 else 0
-        
-        
+
+
         return SimpleMetrics(
             total_messages=total_messages,
             total_queries=total_queries,
@@ -234,10 +264,10 @@ class ConsoleService:
         prev_end_date = start_date
         prev_start_date = start_date - period_length
         
-        # Get current and previous period metrics
-        current_params = MetricsQueryParams(start_date=start_date, end_date=end_date)
-        prev_params = MetricsQueryParams(start_date=prev_start_date, end_date=prev_end_date)
-        
+        # Get current and previous period metrics (preserve data_source_ids filter)
+        current_params = MetricsQueryParams(start_date=start_date, end_date=end_date, data_source_ids=params.data_source_ids)
+        prev_params = MetricsQueryParams(start_date=prev_start_date, end_date=prev_end_date, data_source_ids=params.data_source_ids)
+
         current_metrics = await self.get_organization_metrics(db, organization, current_params)
         previous_metrics = await self.get_organization_metrics(db, organization, prev_params)
         
@@ -285,15 +315,24 @@ class ConsoleService:
         pass
 
     async def get_timeseries_metrics(
-        self, 
-        db: AsyncSession, 
-        organization: Organization, 
+        self,
+        db: AsyncSession,
+        organization: Organization,
         params: MetricsQueryParams
     ) -> TimeSeriesMetrics:
         """Get time-series metrics data for charts"""
-        
+
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
-        
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+
+        # Build data source filter subquery if needed
+        ds_filter_subquery = None
+        if parsed_data_source_ids:
+            ds_filter_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
+            )
+
         # Generate daily intervals
         intervals = []
         current = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -301,7 +340,7 @@ class ConsoleService:
             next_day = current + timedelta(days=1)
             intervals.append((current, next_day))
             current = next_day
-        
+
         # Get data for each day
         messages_data = []
         queries_data = []
@@ -319,7 +358,7 @@ class ConsoleService:
         
         for interval_start, interval_end in intervals:
             # Messages count for this day
-            messages_result = await db.execute(
+            messages_query = (
                 select(func.count(Completion.id))
                 .join(Report)
                 .where(
@@ -328,10 +367,13 @@ class ConsoleService:
                     Completion.created_at < interval_end
                 )
             )
+            if ds_filter_subquery is not None:
+                messages_query = messages_query.where(Report.id.in_(ds_filter_subquery))
+            messages_result = await db.execute(messages_query)
             messages_count = messages_result.scalar() or 0
-            
+
             # Queries count for this day
-            queries_result = await db.execute(
+            queries_query = (
                 select(func.count(Step.id))
                 .join(Widget).join(Report)
                 .where(
@@ -340,11 +382,14 @@ class ConsoleService:
                     Step.created_at < interval_end
                 )
             )
+            if ds_filter_subquery is not None:
+                queries_query = queries_query.where(Report.id.in_(ds_filter_subquery))
+            queries_result = await db.execute(queries_query)
             queries_count = queries_result.scalar() or 0
-            
+
             # Calculate accuracy rate from response scores for this day
             # Count ALL completions for this day
-            total_completions_result = await db.execute(
+            total_completions_query = (
                 select(func.count(Completion.id))
                 .join(Report)
                 .where(
@@ -353,10 +398,13 @@ class ConsoleService:
                     Completion.created_at < interval_end
                 )
             )
+            if ds_filter_subquery is not None:
+                total_completions_query = total_completions_query.where(Report.id.in_(ds_filter_subquery))
+            total_completions_result = await db.execute(total_completions_query)
             total_completions = total_completions_result.scalar() or 0
-            
+
             # Sum response scores (only non-null ones)
-            response_score_result = await db.execute(
+            response_score_query = (
                 select(func.sum(Completion.response_score))
                 .join(Report)
                 .where(
@@ -366,13 +414,16 @@ class ConsoleService:
                     Completion.response_score.isnot(None)
                 )
             )
+            if ds_filter_subquery is not None:
+                response_score_query = response_score_query.where(Report.id.in_(ds_filter_subquery))
+            response_score_result = await db.execute(response_score_query)
             response_score_sum = response_score_result.scalar() or 0
-            
+
             # Calculate accuracy: sum of scores / total completions * 20
             accuracy_rate = (response_score_sum / total_completions * 20) if total_completions > 0 else 0
-            
+
             # Positive feedback rate for this day (for feedback metric)
-            total_feedbacks_result = await db.execute(
+            total_feedbacks_query = (
                 select(func.count(CompletionFeedback.id))
                 .join(Completion, CompletionFeedback.completion_id == Completion.id)
                 .join(Report, Completion.report_id == Report.id)
@@ -382,9 +433,12 @@ class ConsoleService:
                     CompletionFeedback.created_at < interval_end
                 )
             )
+            if ds_filter_subquery is not None:
+                total_feedbacks_query = total_feedbacks_query.where(Report.id.in_(ds_filter_subquery))
+            total_feedbacks_result = await db.execute(total_feedbacks_query)
             total_feedbacks = total_feedbacks_result.scalar() or 0
-            
-            positive_feedbacks_result = await db.execute(
+
+            positive_feedbacks_query = (
                 select(func.count(CompletionFeedback.id))
                 .join(Completion, CompletionFeedback.completion_id == Completion.id)
                 .join(Report, Completion.report_id == Report.id)
@@ -395,11 +449,14 @@ class ConsoleService:
                     CompletionFeedback.direction > 0
                 )
             )
+            if ds_filter_subquery is not None:
+                positive_feedbacks_query = positive_feedbacks_query.where(Report.id.in_(ds_filter_subquery))
+            positive_feedbacks_result = await db.execute(positive_feedbacks_query)
             positive_feedbacks = positive_feedbacks_result.scalar() or 0
             positive_rate = (positive_feedbacks / total_feedbacks * 100) if total_feedbacks > 0 else 0
-            
+
             # Calculate judge metrics for this day
-            judge_metrics_result = await db.execute(
+            judge_metrics_query = (
                 select(
                     func.avg(Completion.instructions_effectiveness).label('avg_instructions_effectiveness'),
                     func.avg(Completion.context_effectiveness).label('avg_context_effectiveness'),
@@ -413,6 +470,9 @@ class ConsoleService:
                     Completion.instructions_effectiveness.isnot(None)
                 )
             )
+            if ds_filter_subquery is not None:
+                judge_metrics_query = judge_metrics_query.where(Report.id.in_(ds_filter_subquery))
+            judge_metrics_result = await db.execute(judge_metrics_query)
             judge_data = judge_metrics_result.first()
             
             # Apply smoothing logic and convert to 1-100 scale
@@ -802,6 +862,15 @@ class ConsoleService:
     ) -> ToolUsageMetrics:
         """Count tool executions for specific tools within date range, mapped to friendly labels."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+
+        # Build data source filter subquery if needed
+        ds_filter_subquery = None
+        if parsed_data_source_ids:
+            ds_filter_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
+            )
 
         # Define target tools and labels
         target_labels = {
@@ -828,6 +897,8 @@ class ConsoleService:
             )
             .group_by(ToolExecution.tool_name)
         )
+        if ds_filter_subquery is not None:
+            q = q.where(AgentExecution.report_id.in_(ds_filter_subquery))
         res = await db.execute(q)
         rows = res.all()
 
@@ -939,17 +1010,18 @@ class ConsoleService:
         )
 
     async def get_top_users_metrics(
-        self, 
-        db: AsyncSession, 
-        organization: Organization, 
+        self,
+        db: AsyncSession,
+        organization: Organization,
         params: MetricsQueryParams
     ) -> TopUsersMetrics:
         """Get top users by activity"""
-        
+
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
-        
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+
         # Get current period user metrics (simplified without trend calculation)
-        current_users = await self._get_user_metrics_for_period(db, organization, start_date, end_date)
+        current_users = await self._get_user_metrics_for_period(db, organization, start_date, end_date, parsed_data_source_ids)
         
         top_users_data = []
         for user in current_users[:10]:  # Top 10 users
@@ -973,16 +1045,25 @@ class ConsoleService:
         )
 
     async def _get_user_metrics_for_period(
-        self, 
-        db: AsyncSession, 
-        organization: Organization, 
-        start_date: datetime, 
-        end_date: datetime
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        start_date: datetime,
+        end_date: datetime,
+        data_source_ids: Optional[List[str]] = None
     ) -> List[Dict]:
         """Get user metrics for a specific period"""
-        
+
+        # Build data source filter subquery if needed
+        ds_filter_subquery = None
+        if data_source_ids:
+            ds_filter_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(data_source_ids))
+            )
+
         # Get user activity with messages and queries count, and role from membership
-        result = await db.execute(
+        q = (
             select(
                 User.id.label('user_id'),
                 User.name,
@@ -1006,6 +1087,9 @@ class ConsoleService:
             .group_by(User.id, User.name, User.email, Membership.role)
             .order_by(func.count(func.distinct(Completion.id)).desc())
         )
+        if ds_filter_subquery is not None:
+            q = q.where(Report.id.in_(ds_filter_subquery))
+        result = await db.execute(q)
         
         users = result.all()
         return [
@@ -1547,6 +1631,7 @@ class ConsoleService:
     ) -> AgentExecutionSummariesResponse:
         """Aggregate agent executions joined with completion, feedback, tool counts, and report/user metadata."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         base_query = (
             select(
@@ -1572,6 +1657,15 @@ class ConsoleService:
             .order_by(AgentExecution.created_at.desc())
         )
 
+        # Apply data source filter if specified
+        if parsed_data_source_ids:
+            # Filter to agent executions whose reports are associated with the specified data sources
+            ds_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
+            )
+            base_query = base_query.where(AgentExecution.report_id.in_(ds_subquery))
+
         total_q = select(func.count()).select_from(base_query.subquery())
         total_res = await db.execute(total_q)
         total_items = int(total_res.scalar() or 0)
@@ -1583,11 +1677,11 @@ class ConsoleService:
                 CompletionFeedback, CompletionFeedback.completion_id == AgentExecution.completion_id
             ).where(CompletionFeedback.direction == -1)
         elif issue_filter in ('code_errors', 'failed_queries'):
-            # Filter to agent executions with failed create_and_execute_code tools
+            # Filter to agent executions with failed create_data tools
             failed_te_subquery = (
                 select(ToolExecution.agent_execution_id)
                 .where(
-                    ToolExecution.tool_name == 'create_and_execute_code',
+                    ToolExecution.tool_name == 'create_data',
                     ToolExecution.success == False
                 )
             )
@@ -1767,6 +1861,15 @@ class ConsoleService:
     ) -> Dict[str, int]:
         """Get dashboard metrics for diagnosis page."""
         start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
+
+        # Build data source filter subquery if needed
+        ds_filter_subquery = None
+        if parsed_data_source_ids:
+            ds_filter_subquery = (
+                select(report_data_source_association.c.report_id)
+                .where(report_data_source_association.c.data_source_id.in_(parsed_data_source_ids))
+            )
 
         # Count failed queries (create_data tool failures - includes internal + MCP)
         failed_queries_query = (
@@ -1780,6 +1883,8 @@ class ConsoleService:
                 ToolExecution.success == False
             )
         )
+        if ds_filter_subquery is not None:
+            failed_queries_query = failed_queries_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
         failed_queries_result = await db.execute(failed_queries_query)
         failed_queries = int(failed_queries_result.scalar() or 0)
 
@@ -1794,6 +1899,8 @@ class ConsoleService:
                 CompletionFeedback.direction == -1
             )
         )
+        if ds_filter_subquery is not None:
+            negative_feedback_query = negative_feedback_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
         negative_feedback_result = await db.execute(negative_feedback_query)
         negative_feedback = int(negative_feedback_result.scalar() or 0)
 
@@ -1806,6 +1913,8 @@ class ConsoleService:
                 AgentExecution.created_at <= end_date
             )
         )
+        if ds_filter_subquery is not None:
+            total_query = total_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
         total_result = await db.execute(total_query)
         total_items = int(total_result.scalar() or 0)
 

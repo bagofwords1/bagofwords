@@ -67,34 +67,42 @@
 
                 <!-- Sub-filters row (status) -->
                 <div v-if="activeFilter === 'my'" class="flex flex-wrap items-center justify-between gap-3 mb-5 text-xs">
-                    <div class="flex items-center space-x-2">
-                        <span class="text-gray-500">Status</span>
-                        <div class="flex items-center space-x-1">
-                            <UButton
-                                size="xs"
-                                :variant="statusFilter === 'all' ? 'soft' : 'ghost'"
-                                color="gray"
-                                @click="statusFilter = 'all'"
-                            >
-                                All
-                            </UButton>
-                            <UButton
-                                size="xs"
-                                :variant="statusFilter === 'draft' ? 'soft' : 'ghost'"
-                                color="gray"
-                                @click="statusFilter = 'draft'"
-                            >
-                                Draft
-                            </UButton>
-                            <UButton
-                                size="xs"
-                                :variant="statusFilter === 'published' ? 'soft' : 'ghost'"
-                                color="gray"
-                                @click="statusFilter = 'published'"
-                            >
-                                Published
-                            </UButton>
-                        </div>
+                    <div class="flex items-center gap-3">
+                        <USelectMenu
+                            :model-value="statusFilter"
+                            @update:model-value="setStatusFilter"
+                            :options="statusFilterOptions"
+                            value-attribute="value"
+                            option-attribute="label"
+                            size="sm"
+                            class="w-36"
+                        >
+                            <template #label>
+                                <span class="text-sm">{{ selectedStatusLabel }}</span>
+                            </template>
+                            <template #option="{ option }">
+                                <span class="text-sm">{{ option.label }}</span>
+                            </template>
+                        </USelectMenu>
+                        <USelectMenu
+                            :model-value="scheduledFilter"
+                            @update:model-value="setScheduledFilter"
+                            :options="scheduleFilterOptions"
+                            value-attribute="value"
+                            option-attribute="label"
+                            size="sm"
+                            class="w-40"
+                        >
+                            <template #label>
+                                <span class="flex items-center gap-1.5 text-sm">
+                                    <Icon name="heroicons:clock" class="h-4 w-4" />
+                                    {{ selectedScheduleLabel }}
+                                </span>
+                            </template>
+                            <template #option="{ option }">
+                                <span class="text-sm">{{ option.label }}</span>
+                            </template>
+                        </USelectMenu>
                     </div>
 
                     <!-- Bulk actions dropdown (My reports only) -->
@@ -171,7 +179,15 @@
                                             />
                                         </td>
                                         <td class="px-6 py-4 whitespace-nowrap">
-                                            <NuxtLink
+                                            <UTooltip v-if="report.artifact_modes?.includes('page')" text="Has Page artifact">
+                                                <Icon name="heroicons:chart-bar-square" class="h-4 w-4 text-gray-400 inline mr-1.5" />
+                                            </UTooltip>
+                                            <UTooltip v-if="report.artifact_modes?.includes('slides')" text="Has Slides artifact">
+                                                <Icon name="heroicons:presentation-chart-bar" class="h-4 w-4 text-gray-400 inline mr-1.5" />
+                                            </UTooltip>
+                                            <UTooltip v-else-if="report.artifact_modes.length == 0" text="Chat">
+                                                <Icon name="heroicons:chat-bubble-left-right" class="h-4 w-4 text-gray-400 inline mr-1.5" />
+                                            </UTooltip>                                            <NuxtLink
                                                 :to="`/reports/${report.id}`"
                                                 class="text-blue-500 hover:underline"
                                             >
@@ -374,7 +390,30 @@ const pagination = ref({
 const searchTerm = ref('')
 const selectedIds = ref<Set<string>>(new Set())
 const statusFilter = ref<'all' | 'draft' | 'published'>('all')
+const scheduledFilter = ref<boolean | null>(null)
 const { isExcel } = useExcel()
+
+const statusFilterOptions = [
+    { value: 'all', label: 'All Status' },
+    { value: 'draft', label: 'Draft' },
+    { value: 'published', label: 'Published' },
+]
+
+const scheduleFilterOptions = [
+    { value: null, label: 'All Schedules' },
+    { value: true, label: 'Scheduled' },
+    { value: false, label: 'Not Scheduled' },
+]
+
+const selectedStatusLabel = computed(() => {
+    const option = statusFilterOptions.find(o => o.value === statusFilter.value)
+    return option?.label || 'Status'
+})
+
+const selectedScheduleLabel = computed(() => {
+    const option = scheduleFilterOptions.find(o => o.value === scheduledFilter.value)
+    return option?.label || 'Schedule'
+})
 
 const visiblePages = computed(() => {
     const total = pagination.value.total_pages
@@ -406,10 +445,7 @@ const visiblePages = computed(() => {
     return Array.from({ length: total }, (_, i) => i + 1)
 })
 
-const visibleReports = computed(() => {
-    if (statusFilter.value === 'all') return reports.value
-    return reports.value.filter(r => r.status === statusFilter.value)
-})
+const visibleReports = computed(() => reports.value)
 
 const allVisibleSelected = computed(() => {
     return visibleReports.value.length > 0 && visibleReports.value.every(r => selectedIds.value.has(r.id))
@@ -424,7 +460,7 @@ const changePage = async (page: number) => {
         return
     }
     currentPage.value = page
-    await fetchReports(page, activeFilter.value, searchTerm.value)
+    await fetchReports(page, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
 }
 
 const setActiveFilter = async (filter: 'my' | 'published') => {
@@ -439,10 +475,25 @@ const setActiveFilter = async (filter: 'my' | 'published') => {
         statusFilter.value = 'all'
     }
     currentPage.value = 1
-    await fetchReports(1, filter, searchTerm.value)
+    scheduledFilter.value = null
+    await fetchReports(1, filter, searchTerm.value, null, filter === 'published' ? 'published' : 'all')
 }
 
-const fetchReports = async (page: number = 1, filter: 'my' | 'published' = 'my', search: string = '') => {
+const setStatusFilter = async (status: 'all' | 'draft' | 'published') => {
+    if (statusFilter.value === status) return
+    statusFilter.value = status
+    currentPage.value = 1
+    await fetchReports(1, activeFilter.value, searchTerm.value, scheduledFilter.value, status)
+}
+
+const setScheduledFilter = async (scheduled: boolean | null) => {
+    if (scheduledFilter.value === scheduled) return
+    scheduledFilter.value = scheduled
+    currentPage.value = 1
+    await fetchReports(1, activeFilter.value, searchTerm.value, scheduled, statusFilter.value)
+}
+
+const fetchReports = async (page: number = 1, filter: 'my' | 'published' = 'my', search: string = '', scheduled: boolean | null = null, status: string | null = null) => {
     isLoading.value = true
     try {
         const response = await useMyFetch('/reports', {
@@ -452,6 +503,8 @@ const fetchReports = async (page: number = 1, filter: 'my' | 'published' = 'my',
                 limit: pagination.value.limit,
                 filter,
                 search: search?.trim() || undefined,
+                scheduled: scheduled !== null ? scheduled : undefined,
+                status: status && status !== 'all' ? status : undefined,
             },
         })
 
@@ -495,7 +548,7 @@ const toggleAllVisible = () => {
 async function confirmDelete(reportId: string) {
     if (confirm('Are you sure you want to archive this report?')) {
         await deleteReport(reportId)
-        await fetchReports(currentPage.value, activeFilter.value, searchTerm.value)
+        await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
     }
 }
 
@@ -517,7 +570,7 @@ async function archiveSelected() {
             description: `Archived ${archived} report(s)`,
             color: 'green',
         })
-        await fetchReports(currentPage.value, activeFilter.value, searchTerm.value)
+        await fetchReports(currentPage.value, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
     } catch (error: any) {
         console.error('Error bulk archiving reports', error)
         const message =
@@ -624,7 +677,7 @@ watch(searchTerm, () => {
     if (_searchTimer) clearTimeout(_searchTimer)
     _searchTimer = setTimeout(() => {
         currentPage.value = 1
-        fetchReports(1, activeFilter.value, searchTerm.value)
+        fetchReports(1, activeFilter.value, searchTerm.value, scheduledFilter.value, statusFilter.value)
     }, 300)
 })
 

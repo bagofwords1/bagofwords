@@ -1,12 +1,14 @@
 <template>
     <div class="mt-6">
-        <!-- Date Range Picker -->
+        <!-- Date Range Picker with Domain Selector -->
         <DateRangePicker
             :selected-period="selectedPeriod"
             :date-range="dateRange"
             @period-change="handlePeriodChange"
-        />
-            
+        >
+            <DomainSelector :collapsed="false" :show-text="true" />
+        </DateRangePicker>
+
         <!-- Metrics Cards -->
         <MetricsCards :metrics-comparison="metricsComparison" :org-settings="orgSettings" />
 
@@ -79,6 +81,10 @@ import TopUsersTable from '~/components/console/TopUsersTable.vue'
 import RecentInstructions from '~/components/console/RecentInstructions.vue'
 import RecentQueries from '~/components/console/RecentQueries.vue'
 import LlmUsageChart from '~/components/console/LlmUsageChart.vue'
+import DomainSelector from '~/components/DomainSelector.vue'
+
+// Domain selection
+const { selectedDomains, initDomain } = useDomain()
 
 // Interfaces
 interface SimpleMetrics {
@@ -348,21 +354,31 @@ const handlePeriodChange = (period: { label: string, value: string }) => {
         start: start ? start.toISOString().split('T')[0] : '',
         end: end.toISOString().split('T')[0]
     }
-    
+
     refreshData()
+    fetchMetricsComparison()
+}
+
+// Helper to build common query params
+const buildQueryParams = () => {
+    const params = new URLSearchParams()
+    if (dateRange.value.start) {
+        params.append('start_date', new Date(dateRange.value.start).toISOString())
+    }
+    if (dateRange.value.end) {
+        params.append('end_date', new Date(dateRange.value.end).toISOString())
+    }
+    if (selectedDomains.value.length > 0) {
+        params.append('data_source_ids', selectedDomains.value.join(','))
+    }
+    return params
 }
 
 const fetchTimeSeriesData = async () => {
     isLoadingCharts.value = true
     try {
-        const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
-        
+        const params = buildQueryParams()
+
         const { data, error } = await useMyFetch<TimeSeriesMetrics>(`/api/console/metrics/timeseries?${params}`, {
             method: 'GET'
         })
@@ -382,14 +398,8 @@ const fetchTimeSeriesData = async () => {
 const fetchTableUsageData = async () => {
     isLoadingTableCharts.value = true
     try {
-        const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
-        
+        const params = buildQueryParams()
+
         const { data, error } = await useMyFetch<TableUsageMetrics>(`/api/console/metrics/table-usage?${params}`, {
             method: 'GET'
         })
@@ -408,14 +418,8 @@ const fetchTableUsageData = async () => {
 
 const fetchTableJoinsData = async () => {
     try {
-        const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
-        
+        const params = buildQueryParams()
+
         const { data, error } = await useMyFetch<TableJoinsHeatmap>(`/api/console/metrics/table-joins-heatmap?${params}`, {
             method: 'GET'
         })
@@ -433,13 +437,7 @@ const fetchTableJoinsData = async () => {
 const fetchToolUsageData = async () => {
     isLoadingTableCharts.value = true
     try {
-        const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
+        const params = buildQueryParams()
         const { data, error } = await useMyFetch<ToolUsageMetrics>(`/api/console/metrics/tool-usage?${params}`, { method: 'GET' })
         if (error.value) {
             console.error('Failed to fetch tool usage data:', error.value)
@@ -456,13 +454,7 @@ const fetchToolUsageData = async () => {
 const fetchLlmUsageData = async () => {
     isLoadingLlmUsage.value = true
     try {
-        const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
+        const params = buildQueryParams()
 
         const { data, error } = await useMyFetch<LlmUsageMetrics>(`/api/console/metrics/llm-usage?${params}`, {
             method: 'GET'
@@ -483,14 +475,8 @@ const fetchLlmUsageData = async () => {
 const fetchTopUsers = async () => {
     isLoadingWidgets.value = true
     try {
-        const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
-        
+        const params = buildQueryParams()
+
         const { data, error } = await useMyFetch<TopUsersMetrics>(`/api/console/metrics/top-users?${params}`, {
             method: 'GET'
         })
@@ -520,19 +506,37 @@ const refreshData = async () => {
 
 
 
-onMounted(async () => {
-    initializeDateRange()
+// Watch for domain selection changes
+watch(selectedDomains, () => {
+    refreshData()
+    // Also refresh metrics comparison
+    fetchMetricsComparison()
+}, { deep: true })
+
+const fetchMetricsComparison = async () => {
     try {
-        const { data: metricsData, error: metricsError } = await useMyFetch<MetricsComparison>('/api/console/metrics/comparison', {
+        const params = buildQueryParams()
+        const { data: metricsData, error: metricsError } = await useMyFetch<MetricsComparison>(`/api/console/metrics/comparison?${params}`, {
             method: 'GET'
         })
-        
+
         if (metricsError.value) {
             console.error('Failed to fetch metrics:', metricsError.value)
         } else if (metricsData.value) {
             metricsComparison.value = metricsData.value
         }
-        
+    } catch (err) {
+        console.error('Error fetching metrics comparison:', err)
+    }
+}
+
+onMounted(async () => {
+    initializeDateRange()
+    // Initialize domains for the selector
+    await initDomain()
+    try {
+        await fetchMetricsComparison()
+
         // Fetch all data in parallel
         await Promise.all([
             fetchTimeSeriesData(),

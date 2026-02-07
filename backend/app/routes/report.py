@@ -54,11 +54,13 @@ async def get_reports(
     limit: int = Query(10, ge=1, le=100, description="Number of items per page"),
     filter: str = Query("my", description="Filter: 'my' or 'published'"),
     search: str | None = Query(None, description="Optional search term for report title"),
+    scheduled: bool | None = Query(None, description="Filter by scheduled reports (true = only scheduled, false = only non-scheduled)"),
+    status: str | None = Query(None, description="Filter by status: 'draft' or 'published'"),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await report_service.get_reports(db, current_user, organization, page, limit, filter, search)
+    return await report_service.get_reports(db, current_user, organization, page, limit, filter, search, scheduled, status)
 
 @router.put("/reports/{report_id}", response_model=ReportSchema)
 @requires_permission('update_reports', model=Report, owner_only=True)

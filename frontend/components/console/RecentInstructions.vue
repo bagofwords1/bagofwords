@@ -78,6 +78,9 @@
 <script setup lang="ts">
 import DataSourceIcon from '../DataSourceIcon.vue'
 
+// Domain filtering
+const { selectedDomains } = useDomain()
+
 // Types
 interface DataSource {
     id: string
@@ -160,17 +163,24 @@ const fetchRecentInstructions = async () => {
     
     isLoading.value = true
     try {
+        const query: Record<string, any> = {
+            limit: 5, // Only fetch 5 recent items
+            include_own: true,
+            include_drafts: false,
+            include_hidden: false,
+            status: 'published',
+            order_by: 'created_at',
+            order_direction: 'desc'
+        }
+
+        // Add data source filter
+        if (selectedDomains.value.length > 0) {
+            query.data_source_ids = selectedDomains.value.join(',')
+        }
+
         const response = await useMyFetch<{ items: Instruction[], total: number, page: number, per_page: number, pages: number }>('/api/instructions', {
             method: 'GET',
-            query: {
-                limit: 5, // Only fetch 5 recent items
-                include_own: true,
-                include_drafts: false,
-                include_hidden: false,
-                status: 'published',
-                order_by: 'created_at',
-                order_direction: 'desc'
-            }
+            query
         })
 
         if (response.error.value) {
@@ -277,6 +287,11 @@ const getDisplayText = (instruction: Instruction) => {
 
 // Watch for dateRange changes (though instructions might not be date-filtered)
 watch(() => props.dateRange, () => {
+    fetchRecentInstructions()
+}, { deep: true })
+
+// Watch for domain selection changes
+watch(selectedDomains, () => {
     fetchRecentInstructions()
 }, { deep: true })
 
