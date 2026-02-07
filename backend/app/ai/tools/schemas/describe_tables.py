@@ -33,6 +33,8 @@ class DescribeTablesOutput(BaseModel):
     class TableColumnPreview(BaseModel):
         name: str
         dtype: Optional[str] = None
+        description: Optional[str] = None
+        metadata: Optional[dict] = None  # Column-level metadata (formula, role, __typename, etc.)
 
     class TableUsagePreview(BaseModel):
         usage_count: Optional[int] = None
@@ -50,6 +52,7 @@ class DescribeTablesOutput(BaseModel):
         name: str
         full_name: Optional[str] = None
         description: Optional[str] = None
+        metadata: Optional[dict] = None  # Table-level metadata (tableau info, schema, etc.)
         columns: List["DescribeTablesOutput.TableColumnPreview"] = Field(default_factory=list)
         usage: Optional["DescribeTablesOutput.TableUsagePreview"] = None
 
