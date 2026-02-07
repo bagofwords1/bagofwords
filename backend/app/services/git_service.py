@@ -22,7 +22,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, and_, or_
+from sqlalchemy import select, update, and_, or_, func, distinct
 from urllib.parse import urlparse
 
 from app.models.git_repository import GitRepository
@@ -360,10 +360,9 @@ class GitService:
         Supports both:
         - New flow: instructions matched by source_file_path prefix (repo_name/)
         - Legacy flow: instructions linked via source_metadata_resource_id
-        
+
         Returns the count of distinct instructions matching either criteria.
         """
-        from sqlalchemy import func, distinct
         from app.core.git_file_walker import extract_repo_name
 
         repository = await self._verify_repository(db, repository_id, organization)
