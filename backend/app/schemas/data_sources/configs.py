@@ -526,6 +526,33 @@ class DatabricksSqlConfig(BaseModel):
     )
 
 
+# Power BI
+class PowerBICredentials(BaseModel):
+    tenant_id: str = Field(
+        ...,
+        title="Tenant ID",
+        description="Azure AD Tenant ID (Directory ID)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="Azure AD App Registration Client ID",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="Azure AD App Registration Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class PowerBIConfig(BaseModel):
+    """Auto-discovers all workspaces and datasets the service principal has access to."""
+    pass
+
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -579,4 +606,7 @@ __all__ = [
     # Databricks SQL
     "DatabricksSqlCredentials",
     "DatabricksSqlConfig",
+    # Power BI
+    "PowerBICredentials",
+    "PowerBIConfig",
 ]

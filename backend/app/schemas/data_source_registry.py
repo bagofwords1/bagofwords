@@ -39,6 +39,9 @@ from app.schemas.data_sources.configs import (
     # Databricks SQL
     DatabricksSqlConfig,
     DatabricksSqlCredentials,
+    # Power BI
+    PowerBIConfig,
+    PowerBICredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -399,6 +402,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.databricks_sql_client.DatabricksSqlClient",
+    ),
+    "powerbi": DataSourceRegistryEntry(
+        type="powerbi",
+        title="Power BI",
+        description="Query Power BI semantic models via DAX. Auto-discovers workspaces, datasets, and reports.",
+        config_schema=PowerBIConfig,
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Service Principal (Azure AD)",
+                    schema=PowerBICredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
     ),
 }
 

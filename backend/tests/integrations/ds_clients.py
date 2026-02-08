@@ -27,6 +27,7 @@ DATA_SOURCES = [
     "snowflake",
     "bigquery",
     "databricks_sql",
+    "powerbi",
 ]
 
 
