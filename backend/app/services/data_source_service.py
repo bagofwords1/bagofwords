@@ -83,6 +83,7 @@ class DataSourceService:
                         db=db,
                         connection=conn,
                         user=current_user,
+                        data_source=data_source,
                         live_test=live_test
                     )
                 except Exception as e:

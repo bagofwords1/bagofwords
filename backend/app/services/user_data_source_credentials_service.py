@@ -189,6 +189,7 @@ class UserDataSourceCredentialsService:
         db: AsyncSession,
         connection,  # Connection model
         user: User,
+        data_source: DataSource = None,
         live_test: bool = False
     ) -> DataSourceUserStatus:
         """
@@ -213,16 +214,8 @@ class UserDataSourceCredentialsService:
 
         # For system-only connections, report system connection status
         if auth_policy != "user_required":
-            conn_status = "unknown"
-            last_checked = None
-            if live_test:
-                # For live test, we'd need to construct a client for this specific connection
-                # For now, use cached status to avoid complexity
-                conn_status = get_cached_status()
-                last_checked = get_last_checked_at()
-            else:
-                conn_status = get_cached_status()
-                last_checked = get_last_checked_at()
+            conn_status = get_cached_status()
+            last_checked = get_last_checked_at()
             return DataSourceUserStatus(
                 has_user_credentials=False,
                 connection=conn_status,
@@ -230,17 +223,61 @@ class UserDataSourceCredentialsService:
                 last_checked_at=last_checked
             )
 
-        # For user_required, check if user has credentials for this connection
-        # Note: Currently credentials are stored at data_source level, not connection level
-        # This may need to be updated for true multi-connection credential support
-        conn_status = get_cached_status()
-        last_checked = get_last_checked_at()
+        # For user_required, check if user has credentials
+        row = None
+        if data_source:
+            row = await self.get_primary_active_row(db, data_source, user)
 
+        if not row:
+            # Owner/admin fallback: owner/admin can use system creds (e.g., SQLite)
+            is_owner = False
+            has_update_perm = False
+
+            if data_source:
+                is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
+
+                # Check if user has admin permission (update_data_source)
+                try:
+                    from app.models.membership import Membership, ROLES_PERMISSIONS
+                    mem_res = await db.execute(
+                        select(Membership).where(
+                            Membership.user_id == user.id,
+                            Membership.organization_id == getattr(data_source, "organization_id", None),
+                        )
+                    )
+                    membership = mem_res.scalar_one_or_none()
+                    has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                except Exception:
+                    has_update_perm = False
+
+            if is_owner or has_update_perm:
+                return DataSourceUserStatus(
+                    has_user_credentials=False,
+                    connection=get_cached_status(),
+                    effective_auth="system",
+                    uses_fallback=True,
+                    last_checked_at=get_last_checked_at()
+                )
+
+            # User has no credentials and no fallback permission
+            return DataSourceUserStatus(
+                has_user_credentials=False,
+                connection="offline",
+                effective_auth="none"
+            )
+
+        # User has stored credentials
         return DataSourceUserStatus(
-            has_user_credentials=False,
-            connection=conn_status,
-            effective_auth="system",
-            last_checked_at=last_checked
+            has_user_credentials=True,
+            auth_mode=row.auth_mode,
+            is_primary=row.is_primary,
+            last_used_at=row.last_used_at,
+            expires_at=row.expires_at,
+            connection=get_cached_status(),
+            effective_auth="user",
+            uses_fallback=False,
+            credentials_id=str(getattr(row, "id", "")) if getattr(row, "id", None) else None,
+            last_checked_at=get_last_checked_at(),
         )
 
     async def test_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> dict:
