@@ -18,6 +18,10 @@ FIXTURES_DIR = os.path.join(TEST_DIR, "config")
 TEST_SOURCE_QVD = os.path.join(FIXTURES_DIR, "test_source.qvd")
 PRODUCTS_SOURCE_QVD = os.path.join(FIXTURES_DIR, "products_source.qvd")
 
+# Expected row counts in fixture files (based on actual data)
+TEST_SOURCE_ROW_COUNT = 120  # test_source.qvd contains 120 rows
+PRODUCTS_SOURCE_ROW_COUNT = 77  # products_source.qvd contains 77 rows
+
 
 class TestQVDClient:
     """Test suite for QVDClient functionality"""
@@ -123,7 +127,7 @@ class TestQVDClient:
         assert df is not None
         assert len(df) == 1
         assert "row_count" in df.columns
-        assert df["row_count"].iloc[0] == 120  # Based on fixture inspection
+        assert df["row_count"].iloc[0] == TEST_SOURCE_ROW_COUNT
 
     def test_execute_query_with_filter(self):
         """Test that execute_query can run queries with WHERE clauses"""
@@ -146,8 +150,8 @@ class TestQVDClient:
         df1 = client.execute_query("SELECT COUNT(*) as cnt FROM test_source")
         df2 = client.execute_query("SELECT COUNT(*) as cnt FROM products_source")
         
-        assert df1["cnt"].iloc[0] == 120
-        assert df2["cnt"].iloc[0] == 77
+        assert df1["cnt"].iloc[0] == TEST_SOURCE_ROW_COUNT
+        assert df2["cnt"].iloc[0] == PRODUCTS_SOURCE_ROW_COUNT
 
     def test_test_connection_success(self):
         """Test that test_connection returns success for valid files"""
@@ -165,7 +169,7 @@ class TestQVDClient:
         result = client.test_connection()
         
         assert result["success"] is True
-        assert "2 QVD file" in result["message"]
+        assert "2 QVD file(s)" in result["message"]
 
     def test_test_connection_no_files(self):
         """Test that test_connection fails gracefully when no files are found"""
