@@ -108,6 +108,8 @@ class DataSourceRegistryEntry(BaseModel):
     dev_only: bool = False
     # Flag for document-based data sources (MongoDB, Elasticsearch, etc.)
     is_document_based: bool = False
+    # License tier required to use this data source (e.g., "enterprise")
+    requires_license: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -422,11 +424,12 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
+        requires_license="enterprise",
     ),
     "qvd": DataSourceRegistryEntry(
         type="qvd",
-        title="QVD Files",
-        description="Query QlikView Data (.qvd) files using SQL via DuckDB.",
+        title="QlikView Data",
+        description="Query QlikView Data (.qvd) files.",
         config_schema=QVDConfig,
         credentials_auth=AuthOptions(
             default="none",
@@ -439,6 +442,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.qvd_client.QVDClient",
+        requires_license="enterprise",
     ),
 }
 
@@ -461,6 +465,7 @@ def list_available_data_sources() -> list[dict]:
             "config": e.config_schema.__name__,
             "status": e.status,
             "version": e.version,
+            "requires_license": e.requires_license,
         }
         for e in REGISTRY.values()
         if e.status == "active" and _entry_visible(e)

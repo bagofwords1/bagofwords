@@ -205,6 +205,14 @@ class DataSourceService:
             auth_policy = connections_to_link[0].auth_policy
             ds_type = connections_to_link[0].type
 
+            # Check enterprise license for restricted data sources
+            from app.ee.license import is_datasource_allowed
+            if not is_datasource_allowed(ds_type):
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"The {ds_type} connector requires an enterprise license."
+                )
+
             # Extract remaining connection fields that won't be used
             data_source_dict.pop("type", None)
             data_source_dict.pop("allowed_user_auth_modes", None)
@@ -224,7 +232,15 @@ class DataSourceService:
             # Extract connection-related fields
             ds_type = data_source_dict.pop("type", None)
             allowed_user_auth_modes = data_source_dict.pop("allowed_user_auth_modes", None)
-            
+
+            # Check enterprise license for restricted data sources
+            from app.ee.license import is_datasource_allowed
+            if ds_type and not is_datasource_allowed(ds_type):
+                raise HTTPException(
+                    status_code=402,
+                    detail=f"The {ds_type} connector requires an enterprise license."
+                )
+
             # Auto-generate connection name as type-NUMBER (e.g., postgresql-1)
             from sqlalchemy import func as sql_func
             count_result = await db.execute(
