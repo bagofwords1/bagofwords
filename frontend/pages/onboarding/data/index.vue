@@ -10,15 +10,31 @@
                   v-for="ds in available_ds"
                   :key="ds.type"
                   type="button"
-                  @click="selectDataSource(ds)"
-                  class="group rounded-lg p-3 bg-white hover:bg-gray-50 transition-colors w-full"
+                  :disabled="isLocked(ds)"
+                  @click="!isLocked(ds) && selectDataSource(ds)"
+                  :class="[
+                    'group rounded-lg p-3 bg-white transition-colors w-full',
+                    isLocked(ds) ? 'opacity-60 cursor-not-allowed' : 'hover:bg-gray-50'
+                  ]"
                 >
                   <div class="flex flex-col items-center text-center">
-                    <div class="p-1">
+                    <div class="p-1 relative">
                       <DataSourceIcon class="h-5" :type="ds.type" />
+                      <!-- Lock icon overlay for enterprise -->
+                      <div v-if="isLocked(ds)" class="absolute -top-1 -right-1">
+                        <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                          <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                        </svg>
+                      </div>
                     </div>
                     <div class="text-xs text-gray-500">
                       {{ ds.title }}
+                    </div>
+                    <!-- Enterprise badge -->
+                    <div v-if="isLocked(ds)" class="mt-1">
+                      <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
+                        Enterprise
+                      </span>
                     </div>
                   </div>
                 </button>
@@ -28,8 +44,8 @@
               <div v-if="uninstalledDemos.length > 0" class="mt-6">
                 <div class="text-xs text-gray-400 mb-2">Or try a sample database:</div>
                 <div class="flex flex-wrap gap-2">
-                  <button 
-                    v-for="demo in uninstalledDemos" 
+                  <button
+                    v-for="demo in uninstalledDemos"
                     :key="`demo-${demo.id}`"
                     @click="installDemo(demo.id)"
                     :disabled="installingDemo === demo.id"
@@ -80,10 +96,13 @@ definePageMeta({ auth: true, layout: 'onboarding' })
 import OnboardingView from '@/components/onboarding/OnboardingView.vue'
 import ConnectForm from '@/components/datasources/ConnectForm.vue'
 import Spinner from '~/components/Spinner.vue'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { updateOnboarding } = useOnboarding()
 const router = useRouter()
 async function skipForNow() { await updateOnboarding({ dismissed: true }); router.push('/') }
+
+const { isLicensed } = useEnterprise()
 
 const available_ds = ref<any[]>([])
 const demo_ds = ref<any[]>([])
@@ -91,6 +110,9 @@ const selectedDataSource = ref<any | null>(null)
 const installingDemo = ref<string | null>(null)
 
 const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
+
+// Check if data source requires enterprise license and user is not licensed
+const isLocked = (ds: any) => ds.requires_license === 'enterprise' && !isLicensed.value
 
 async function getAvailableDataSources() {
   const { data, error } = await useMyFetch('/available_data_sources', { method: 'GET' })
@@ -143,5 +165,3 @@ function onCreateSuccess(ds: any) {
 }
 
 </script>
-
-

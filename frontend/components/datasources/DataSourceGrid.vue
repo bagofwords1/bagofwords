@@ -18,15 +18,33 @@
           v-for="ds in dataSources"
           :key="ds.type"
           type="button"
-          @click="$emit('select', ds)"
-          class="group rounded-lg p-3 bg-white hover:bg-gray-50 border border-gray-100 hover:border-gray-200 transition-all w-full"
+          :disabled="isLocked(ds)"
+          @click="!isLocked(ds) && $emit('select', ds)"
+          :class="[
+            'group rounded-lg p-3 bg-white border transition-all w-full',
+            isLocked(ds)
+              ? 'opacity-60 cursor-not-allowed border-gray-200'
+              : 'hover:bg-gray-50 border-gray-100 hover:border-gray-200'
+          ]"
         >
           <div class="flex flex-col items-center text-center">
-            <div class="p-1">
+            <div class="p-1 relative">
               <DataSourceIcon class="h-6" :type="ds.type" />
+              <!-- Lock icon overlay for enterprise -->
+              <div v-if="isLocked(ds)" class="absolute -top-1 -right-1">
+                <svg class="h-3 w-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd" />
+                </svg>
+              </div>
             </div>
             <div class="text-xs text-gray-500 mt-1">
               {{ ds.title }}
+            </div>
+            <!-- Enterprise badge -->
+            <div v-if="isLocked(ds)" class="mt-1">
+              <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">
+                Enterprise
+              </span>
             </div>
           </div>
         </button>
@@ -36,8 +54,8 @@
       <div v-if="showDemos && uninstalledDemos.length > 0" class="mt-6">
         <div class="text-xs text-gray-400 mb-2">Or try a sample database:</div>
         <div class="flex flex-wrap gap-2">
-          <button 
-            v-for="demo in uninstalledDemos" 
+          <button
+            v-for="demo in uninstalledDemos"
             :key="`demo-${demo.id}`"
             @click="handleInstallDemo(demo.id)"
             :disabled="installingDemo === demo.id"
@@ -56,6 +74,7 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const props = withDefaults(defineProps<{
   title?: string
@@ -76,12 +95,17 @@ const emit = defineEmits<{
   (e: 'demo-installed', result: any): void
 }>()
 
+const { isLicensed } = useEnterprise()
+
 const dataSources = ref<any[]>([])
 const demos = ref<any[]>([])
 const loading = ref(true)
 const installingDemo = ref<string | null>(null)
 
 const uninstalledDemos = computed(() => (demos.value || []).filter((demo: any) => !demo.installed))
+
+// Check if data source requires enterprise license and user is not licensed
+const isLocked = (ds: any) => ds.requires_license === 'enterprise' && !isLicensed.value
 
 async function fetchDataSources() {
   loading.value = true
@@ -90,7 +114,7 @@ async function fetchDataSources() {
       useMyFetch('/available_data_sources', { method: 'GET' }),
       useMyFetch('/data_sources/demos', { method: 'GET' })
     ])
-    
+
     if (availableRes.data.value) {
       dataSources.value = availableRes.data.value as any[]
     }
@@ -122,4 +146,3 @@ onMounted(() => {
   fetchDataSources()
 })
 </script>
-

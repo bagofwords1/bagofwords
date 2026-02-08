@@ -46,7 +46,15 @@ class ConnectionService:
         allowed_user_auth_modes: list = None,
     ) -> Connection:
         """Create a new connection with validation."""
-        
+
+        # Check enterprise license for restricted data sources
+        from app.ee.license import is_datasource_allowed
+        if not is_datasource_allowed(type):
+            raise HTTPException(
+                status_code=402,
+                detail=f"The {type} connector requires an enterprise license."
+            )
+
         # Validate connection before saving (for system_only auth)
         if auth_policy == "system_only":
             validation_result = self.test_connection_params(

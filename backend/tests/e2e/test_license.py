@@ -429,3 +429,83 @@ class TestAuditLogsGating:
         data = response.json()
         assert "items" in data
         assert "total" in data
+
+
+@pytest.mark.e2e
+class TestDataSourceLicensing:
+    """Tests for enterprise data source licensing."""
+
+    def test_community_datasource_always_allowed(self, test_client, license_env_cleanup):
+        """Community data sources (postgres, mysql, etc.) always allowed."""
+        from app.ee.license import is_datasource_allowed, clear_license_cache
+        from app.settings.config import settings
+
+        # Ensure no license
+        if "BOW_LICENSE_KEY" in os.environ:
+            del os.environ["BOW_LICENSE_KEY"]
+        if hasattr(settings.bow_config, 'license') and settings.bow_config.license:
+            settings.bow_config.license.key = None
+        clear_license_cache()
+
+        assert is_datasource_allowed("postgresql") is True
+        assert is_datasource_allowed("mysql") is True
+        assert is_datasource_allowed("sqlite") is True
+
+    def test_enterprise_datasource_blocked_without_license(self, test_client, license_env_cleanup):
+        """Enterprise data sources blocked without license."""
+        from app.ee.license import is_datasource_allowed, clear_license_cache
+        from app.settings.config import settings
+
+        # Ensure no license
+        if "BOW_LICENSE_KEY" in os.environ:
+            del os.environ["BOW_LICENSE_KEY"]
+        if hasattr(settings.bow_config, 'license') and settings.bow_config.license:
+            settings.bow_config.license.key = None
+        clear_license_cache()
+
+        assert is_datasource_allowed("powerbi") is False
+        assert is_datasource_allowed("qvd") is False
+
+    def test_enterprise_datasource_allowed_with_license(self, test_client, patch_license_key):
+        """Enterprise data sources allowed with valid license."""
+        from app.ee.license import is_datasource_allowed, clear_license_cache
+        from app.settings.config import settings
+        from app.settings.bow_config import LicenseConfig
+
+        test_license = _create_test_license(
+            org_name="Enterprise Corp",
+            tier="enterprise",
+        )
+
+        if not hasattr(settings.bow_config, 'license') or not settings.bow_config.license:
+            settings.bow_config.license = LicenseConfig(key=test_license)
+        else:
+            settings.bow_config.license.key = test_license
+
+        clear_license_cache()
+
+        assert is_datasource_allowed("powerbi") is True
+        assert is_datasource_allowed("qvd") is True
+
+    def test_enterprise_datasource_with_explicit_features(self, test_client, patch_license_key):
+        """License with explicit ds_ features restricts to those only."""
+        from app.ee.license import is_datasource_allowed, clear_license_cache
+        from app.settings.config import settings
+        from app.settings.bow_config import LicenseConfig
+
+        # License with only ds_powerbi feature
+        test_license = _create_test_license(
+            org_name="Restricted Corp",
+            tier="enterprise",
+            features=["ds_powerbi"],  # Only PowerBI allowed
+        )
+
+        if not hasattr(settings.bow_config, 'license') or not settings.bow_config.license:
+            settings.bow_config.license = LicenseConfig(key=test_license)
+        else:
+            settings.bow_config.license.key = test_license
+
+        clear_license_cache()
+
+        assert is_datasource_allowed("powerbi") is True
+        assert is_datasource_allowed("qvd") is False  # Not in features

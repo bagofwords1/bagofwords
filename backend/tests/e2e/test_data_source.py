@@ -412,3 +412,43 @@ def test_selected_state_filter(
         user_token=user_token,
         org_id=org_id
     )
+
+
+@pytest.mark.e2e
+def test_available_data_sources_includes_requires_license(
+    test_client,
+    create_user,
+    login_user,
+    whoami
+):
+    """Available data sources should include requires_license field."""
+    # Setup user
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    response = test_client.get(
+        "/available_data_sources",
+        headers={
+            "Authorization": f"Bearer {user_token}",
+            "X-Organization-Id": org_id,
+        },
+    )
+
+    assert response.status_code == 200
+    data_sources = response.json()
+
+    # Find powerbi - should require enterprise license
+    powerbi = next((ds for ds in data_sources if ds["type"] == "powerbi"), None)
+    assert powerbi is not None, "PowerBI should be in available data sources"
+    assert powerbi.get("requires_license") == "enterprise"
+
+    # Find qvd - should require enterprise license
+    qvd = next((ds for ds in data_sources if ds["type"] == "qvd"), None)
+    assert qvd is not None, "QVD should be in available data sources"
+    assert qvd.get("requires_license") == "enterprise"
+
+    # PostgreSQL should not require license
+    postgres = next((ds for ds in data_sources if ds["type"] == "postgresql"), None)
+    if postgres:
+        assert postgres.get("requires_license") is None
