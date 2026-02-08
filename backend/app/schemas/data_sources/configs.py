@@ -553,6 +553,22 @@ class PowerBIConfig(BaseModel):
     pass
 
 
+# QVD Files (QlikView Data)
+class QVDCredentials(BaseModel):
+    """No credentials needed - file system access only."""
+    class Config:
+        extra = "allow"
+
+
+class QVDConfig(BaseModel):
+    file_paths: str = Field(
+        ...,
+        title="File Paths",
+        description="QVD file paths or glob patterns (one per line). e.g., /data/*.qvd",
+        json_schema_extra={"ui:type": "textarea"}
+    )
+
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -609,4 +625,7 @@ __all__ = [
     # Power BI
     "PowerBICredentials",
     "PowerBIConfig",
+    # QVD Files
+    "QVDCredentials",
+    "QVDConfig",
 ]

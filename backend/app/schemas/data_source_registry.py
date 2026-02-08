@@ -42,6 +42,9 @@ from app.schemas.data_sources.configs import (
     # Power BI
     PowerBIConfig,
     PowerBICredentials,
+    # QVD Files
+    QVDConfig,
+    QVDCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -419,6 +422,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
+    ),
+    "qvd": DataSourceRegistryEntry(
+        type="qvd",
+        title="QVD Files",
+        description="Query QlikView Data (.qvd) files using SQL via DuckDB.",
+        config_schema=QVDConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=QVDCredentials,
+                    scopes=["system"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.qvd_client.QVDClient",
     ),
 }
 
