@@ -205,13 +205,14 @@ class DataSourceService:
             auth_policy = connections_to_link[0].auth_policy
             ds_type = connections_to_link[0].type
 
-            # Check enterprise license for restricted data sources
+            # Check enterprise license for ALL restricted data sources
             from app.ee.license import is_datasource_allowed
-            if not is_datasource_allowed(ds_type):
-                raise HTTPException(
-                    status_code=402,
-                    detail=f"The {ds_type} connector requires an enterprise license."
-                )
+            for conn in connections_to_link:
+                if not is_datasource_allowed(conn.type):
+                    raise HTTPException(
+                        status_code=402,
+                        detail=f"The {conn.type} connector requires an enterprise license."
+                    )
 
             # Extract remaining connection fields that won't be used
             data_source_dict.pop("type", None)

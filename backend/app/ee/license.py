@@ -200,8 +200,8 @@ def is_datasource_allowed(ds_type: str) -> bool:
     if license_info.features and any(f.startswith("ds_") for f in license_info.features):
         return f"ds_{ds_type}" in license_info.features
 
-    # Enterprise license without restrictions → all enterprise DS allowed
-    return True
+    # Only enterprise tier gets access to enterprise data sources
+    return license_info.tier == "enterprise"
 
 
 def require_enterprise(feature: Optional[str] = None):
