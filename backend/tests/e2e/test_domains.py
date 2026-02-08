@@ -919,8 +919,7 @@ def test_domain_user_required_owner_status_not_offline(
     our_domain = next(d for d in data_sources if d["id"] == domain["id"])
 
     # Connection status should NOT be offline for owner
-    connection = our_domain.get("connection") or {}
-    user_status = connection.get("user_status") or {}
+    user_status = our_domain.get("user_status") or {}
 
     # Status should NOT be offline (owner can use system fallback)
     assert user_status.get("connection") != "offline", \
