@@ -30,6 +30,10 @@ class DataSourceTableSchema(BaseModel):
     fks: List[Dict[str, Any]]  # Keep as raw JSON
     is_active: bool = False
     metadata_json: Optional[Dict[str, Any]] = None
+    # Connection info (for multi-connection support)
+    connection_id: Optional[str] = None
+    connection_name: Optional[str] = None
+    connection_type: Optional[str] = None
     # Topology and richness metrics
     centrality_score: Optional[float] = None
     richness: Optional[float] = None
@@ -116,6 +120,16 @@ class DataSourceTableUpdateSchema(BaseModel):
         from_attributes = True
 
 
+class ConnectionInfo(BaseModel):
+    """Minimal connection info for filter dropdown."""
+    id: str
+    name: str
+    type: str
+
+    class Config:
+        from_attributes = True
+
+
 class PaginatedTablesResponse(BaseModel):
     """Paginated response for large table lists."""
     tables: List[DataSourceTableSchema]
@@ -124,10 +138,11 @@ class PaginatedTablesResponse(BaseModel):
     page_size: int
     total_pages: int
     schemas: List[str]  # Distinct schema names for filter dropdown
+    connections: List[ConnectionInfo]  # Connections for filter dropdown
     selected_count: int  # Count of is_active=True across ALL tables
     total_tables: int  # Total count of ALL tables for this datasource (no filters)
     has_more: bool
-    
+
     class Config:
         from_attributes = True
 

@@ -202,6 +202,12 @@ export function useInstructionHelpers() {
       'dataform_table': '/icons/dataform.png',
       'dataform_view': '/icons/dataform.png',
       'dataform_incremental': '/icons/dataform.png',
+      // Snowflake semantic
+      'snowflake_semantic_view': '/data_sources_icons/snowflake.png',
+      // Generic file types
+      'sql_file': '/icons/resource.png',
+      'yaml_file': '/icons/resource.png',
+      'generic_file': '/icons/resource.png',
     }
 
     return iconMap[resourceType] || null
@@ -241,6 +247,12 @@ export function useInstructionHelpers() {
       'dataform_table': 'Dataform Table',
       'dataform_view': 'Dataform View',
       'dataform_incremental': 'Dataform Incremental',
+      // Snowflake semantic
+      'snowflake_semantic_view': 'Snowflake Semantic View',
+      // Generic file types
+      'sql_file': 'SQL File',
+      'yaml_file': 'YAML File',
+      'generic_file': 'File',
     }
 
     return tooltipMap[resourceType] || resourceType.replace(/_/g, ' ')
@@ -267,6 +279,15 @@ export function useInstructionHelpers() {
       return 'i-heroicons-table-cells'
     }
     if (resourceType.includes('markdown')) {
+      return 'i-heroicons-document-text'
+    }
+    if (resourceType === 'snowflake_semantic_view') {
+      return 'i-heroicons-circle-stack'
+    }
+    if (resourceType === 'sql_file') {
+      return 'i-heroicons-command-line'
+    }
+    if (resourceType === 'yaml_file') {
       return 'i-heroicons-document-text'
     }
 

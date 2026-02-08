@@ -184,6 +184,102 @@ class UserDataSourceCredentialsService:
             last_checked_at=last_checked,
         )
 
+    async def build_user_status_for_connection(
+        self,
+        db: AsyncSession,
+        connection,  # Connection model
+        user: User,
+        data_source: DataSource = None,
+        live_test: bool = False
+    ) -> DataSourceUserStatus:
+        """
+        Build user status for a specific connection.
+        Used for multi-connection support where each connection needs its own status.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        auth_policy = connection.auth_policy or "system_only"
+
+        # Helper to get cached status from connection
+        def get_cached_status():
+            if connection and connection.last_connection_status:
+                return connection.last_connection_status
+            return "unknown"
+
+        def get_last_checked_at():
+            if connection and connection.last_connection_checked_at:
+                return connection.last_connection_checked_at
+            return None
+
+        # For system-only connections, report system connection status
+        if auth_policy != "user_required":
+            conn_status = get_cached_status()
+            last_checked = get_last_checked_at()
+            return DataSourceUserStatus(
+                has_user_credentials=False,
+                connection=conn_status,
+                effective_auth="system",
+                last_checked_at=last_checked
+            )
+
+        # For user_required, check if user has credentials
+        row = None
+        if data_source:
+            row = await self.get_primary_active_row(db, data_source, user)
+
+        if not row:
+            # Owner/admin fallback: owner/admin can use system creds (e.g., SQLite)
+            is_owner = False
+            has_update_perm = False
+
+            if data_source:
+                is_owner = str(getattr(data_source, "owner_user_id", "")) == str(getattr(user, "id", ""))
+
+                # Check if user has admin permission (update_data_source)
+                try:
+                    from app.models.membership import Membership, ROLES_PERMISSIONS
+                    mem_res = await db.execute(
+                        select(Membership).where(
+                            Membership.user_id == user.id,
+                            Membership.organization_id == getattr(data_source, "organization_id", None),
+                        )
+                    )
+                    membership = mem_res.scalar_one_or_none()
+                    has_update_perm = bool(membership and "update_data_source" in ROLES_PERMISSIONS.get(membership.role, set()))
+                except Exception:
+                    has_update_perm = False
+
+            if is_owner or has_update_perm:
+                return DataSourceUserStatus(
+                    has_user_credentials=False,
+                    connection=get_cached_status(),
+                    effective_auth="system",
+                    uses_fallback=True,
+                    last_checked_at=get_last_checked_at()
+                )
+
+            # User has no credentials and no fallback permission
+            return DataSourceUserStatus(
+                has_user_credentials=False,
+                connection="offline",
+                effective_auth="none"
+            )
+
+        # User has stored credentials
+        return DataSourceUserStatus(
+            has_user_credentials=True,
+            auth_mode=row.auth_mode,
+            is_primary=row.is_primary,
+            last_used_at=row.last_used_at,
+            expires_at=row.expires_at,
+            connection=get_cached_status(),
+            effective_auth="user",
+            uses_fallback=False,
+            credentials_id=str(getattr(row, "id", "")) if getattr(row, "id", None) else None,
+            last_checked_at=get_last_checked_at(),
+        )
+
     async def test_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> dict:
         # Get connection info
         ds_type, config, auth_policy, allowed_user_auth_modes, connection = self._get_connection_info(data_source)

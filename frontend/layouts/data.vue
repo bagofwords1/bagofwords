@@ -9,9 +9,19 @@
                                 {{ fetchError ? 'Data Source' : (integration?.name || 'Domain') }}
                             </h1>
                             <div v-if="!isLoading && integration && !fetchError" class="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                                <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
-                                <DataSourceIcon :type="connectionType" class="h-4" />
-                                <span>{{ connectionName }}</span>
+                                <template v-if="integration.connections && integration.connections.length > 0">
+                                    <template v-for="conn in integration.connections" :key="conn.id">
+                                        <span :class="['w-2 h-2 rounded-full', getConnectionStatus(conn) === 'success' ? 'bg-green-500' : 'bg-red-500']"></span>
+                                        <UTooltip :text="conn.name">
+                                            <DataSourceIcon :type="conn.type" class="h-4" />
+                                        </UTooltip>
+                                    </template>
+                                </template>
+                                <template v-else>
+                                    <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
+                                    <DataSourceIcon :type="connectionType" class="h-4" />
+                                    <span>{{ connectionName }}</span>
+                                </template>
                             </div>
                         </div>
                         <div class="flex items-center gap-2">
@@ -126,6 +136,10 @@ const isConnected = computed(() => {
     const c = connection.value
     return c === 'success'
 })
+
+function getConnectionStatus(conn: any): string {
+    return conn?.user_status?.connection || conn?.status || 'unknown'
+}
 
 async function fetchIntegration() {
     if (!id.value) return

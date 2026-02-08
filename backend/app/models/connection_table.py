@@ -53,15 +53,20 @@ class ConnectionTable(BaseSchema):
     def to_prompt_table(self) -> Table:
         """Convert to prompt formatter Table model."""
         columns = [
-            TableColumn(name=col['name'], dtype=col.get('dtype'))
+            TableColumn(
+                name=col['name'],
+                dtype=col.get('dtype'),
+                description=col.get('description'),
+                metadata=col.get('metadata'),
+            )
             for col in self.columns
         ]
-        
+
         pks = [
             TableColumn(name=pk['name'], dtype=pk.get('dtype'))
             for pk in self.pks
         ]
-        
+
         fks = [
             PromptForeignKey(
                 column=TableColumn(name=fk['column']['name'], dtype=fk['column'].get('dtype')),
@@ -74,8 +79,14 @@ class ConnectionTable(BaseSchema):
             for fk in self.fks
         ]
 
+        # Extract table description from metadata_json if present
+        table_description = None
+        if self.metadata_json and isinstance(self.metadata_json, dict):
+            table_description = self.metadata_json.get('description')
+
         return Table(
             name=self.name,
+            description=table_description,
             columns=columns,
             pks=pks,
             fks=fks,

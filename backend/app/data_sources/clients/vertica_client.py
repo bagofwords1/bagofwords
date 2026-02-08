@@ -69,33 +69,116 @@ class VerticaClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns in the specified database."""
+        """Get tables with graceful fallback if enriched query fails."""
+        try:
+            return self._get_tables_enriched()
+        except Exception:
+            return self._get_tables_basic()
+
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column comments. May fail on some Vertica configurations."""
+        self.connect()
+
+        # Query with column comments (Vertica supports comments in v_catalog.comments)
+        query = f"""
+        SELECT
+            t.table_schema,
+            t.table_name,
+            'TABLE' AS object_type,
+            c.column_name,
+            c.data_type,
+            cm.comment AS column_comment,
+            tcm.comment AS table_comment
+        FROM v_catalog.tables t
+        JOIN v_catalog.columns c
+            ON t.table_id = c.table_id AND t.table_schema = c.table_schema
+        LEFT JOIN v_catalog.comments cm
+            ON cm.object_id = c.column_id
+            AND cm.object_type = 'COLUMN'
+        LEFT JOIN v_catalog.comments tcm
+            ON tcm.object_id = t.table_id
+            AND tcm.object_type = 'TABLE'
+        WHERE t.table_schema = '{self.schema}'
+
+        UNION ALL
+
+        SELECT
+            v.table_schema,
+            v.table_name,
+            'VIEW' AS object_type,
+            c.column_name,
+            c.data_type,
+            cm.comment AS column_comment,
+            vcm.comment AS table_comment
+        FROM v_catalog.views v
+        JOIN v_catalog.columns c
+            ON v.table_id = c.table_id AND v.table_schema = c.table_schema
+        LEFT JOIN v_catalog.comments cm
+            ON cm.object_id = c.column_id
+            AND cm.object_type = 'COLUMN'
+        LEFT JOIN v_catalog.comments vcm
+            ON vcm.object_id = v.table_id
+            AND vcm.object_type = 'VIEW'
+        WHERE v.table_schema = '{self.schema}'
+
+        ORDER BY table_name, column_name;
+        """
+
+        result_df = vp.vDataFrame(query)
+        result = result_df.to_pandas()
+
+        tables = {}
+        for _, row in result.iterrows():
+            table_name = row['table_name']
+            column_name = row['column_name']
+            data_type = row['data_type']
+            col_comment = row.get('column_comment')
+            tbl_comment = row.get('table_comment')
+
+            if table_name not in tables:
+                tables[table_name] = Table(
+                    name=table_name,
+                    description=tbl_comment if tbl_comment else None,
+                    columns=[],
+                    pks=[],
+                    fks=[],
+                    metadata_json={"schema": self.schema}
+                )
+            tables[table_name].columns.append(TableColumn(
+                name=column_name,
+                dtype=data_type,
+                description=col_comment if col_comment else None
+            ))
+
+        return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without comments (original query - always works)."""
         try:
             self.connect()
-            
-            # Query to get table and column information from Vertica system tables
+
             query = f"""
-            SELECT 
+            SELECT
                 t.table_schema,
                 t.table_name,
                 'TABLE' AS object_type,
                 c.column_name,
                 c.data_type
             FROM v_catalog.tables t
-            JOIN v_catalog.columns c 
+            JOIN v_catalog.columns c
             ON t.table_id = c.table_id AND t.table_schema = c.table_schema
             WHERE t.table_schema = '{self.schema}'
 
             UNION ALL
 
-            SELECT 
+            SELECT
                 v.table_schema,
                 v.table_name,
                 'VIEW' AS object_type,
                 c.column_name,
                 c.data_type
             FROM v_catalog.views v
-            JOIN v_catalog.columns c 
+            JOIN v_catalog.columns c
             ON v.table_id = c.table_id AND v.table_schema = c.table_schema
             WHERE v.table_schema = '{self.schema}'
 
@@ -104,7 +187,7 @@ class VerticaClient(DataSourceClient):
 
             result_df = vp.vDataFrame(query)
             result = result_df.to_pandas()
-                
+
             tables = {}
             for _, row in result.iterrows():
                 table_name = row['table_name']
@@ -113,10 +196,10 @@ class VerticaClient(DataSourceClient):
 
                 if table_name not in tables:
                     tables[table_name] = Table(
-                        name=table_name, columns=[], pks=[], fks=[])
+                        name=table_name, columns=[], pks=[], fks=[], metadata_json={"schema": self.schema})
                 tables[table_name].columns.append(
                     TableColumn(name=column_name, dtype=data_type))
-            
+
             return list(tables.values())
         except Exception as e:
             print(f"Error retrieving tables: {e}")

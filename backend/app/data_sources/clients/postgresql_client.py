@@ -74,13 +74,74 @@ class PostgresqlClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns in the specified database.
-        - Emits fully-qualified names: schema.table
-        - If `schema` is configured, limits discovery to those schemas
-        """
+        """Get tables with graceful fallback if enriched query fails."""
+        try:
+            return self._get_tables_enriched()
+        except Exception:
+            return self._get_tables_basic()
+
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column/table comments via pg_description. May fail on some configurations."""
+        with self.connect() as conn:
+            params = {"database": self.database}
+            where_clauses = [
+                "c.table_catalog = :database",
+                "c.table_schema NOT IN ('information_schema', 'pg_catalog')",
+            ]
+            if self._schemas:
+                in_keys = []
+                for idx, sch in enumerate(self._schemas):
+                    key = f"s{idx}"
+                    params[key] = sch
+                    in_keys.append(f":{key}")
+                where_clauses.append(f"c.table_schema IN ({', '.join(in_keys)})")
+
+            where_sql = " WHERE " + " AND ".join(where_clauses)
+            sql = text(f"""
+                SELECT
+                    c.table_schema,
+                    c.table_name,
+                    c.column_name,
+                    c.data_type,
+                    col_desc.description AS column_comment,
+                    tbl_desc.description AS table_comment
+                FROM information_schema.columns c
+                LEFT JOIN pg_catalog.pg_statio_all_tables st
+                    ON c.table_schema = st.schemaname AND c.table_name = st.relname
+                LEFT JOIN pg_catalog.pg_description col_desc
+                    ON col_desc.objoid = st.relid AND col_desc.objsubid = c.ordinal_position
+                LEFT JOIN pg_catalog.pg_description tbl_desc
+                    ON tbl_desc.objoid = st.relid AND tbl_desc.objsubid = 0
+                {where_sql}
+                ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            """)
+            result = conn.execute(sql, params).fetchall()
+
+            tables = {}
+            for row in result:
+                table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
+                key = (table_schema, table_name)
+                fqn = f"{table_schema}.{table_name}"
+                if key not in tables:
+                    tables[key] = Table(
+                        name=fqn,
+                        description=tbl_comment,
+                        columns=[],
+                        pks=[],
+                        fks=[],
+                        metadata_json={"schema": table_schema}
+                    )
+                tables[key].columns.append(TableColumn(
+                    name=column_name,
+                    dtype=data_type,
+                    description=col_comment
+                ))
+            return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without comments (original query - always works)."""
         try:
             with self.connect() as conn:
-                # Build optional schema filter
                 params = {"database": self.database}
                 where_clauses = [
                     "table_catalog = :database",

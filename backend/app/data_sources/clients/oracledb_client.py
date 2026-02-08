@@ -72,10 +72,73 @@ class OracledbClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns in the specified database.
-        - Emits fully-qualified names: OWNER.TABLE_NAME
-        - If `schema` is configured, limits discovery to those schemas
-        """
+        """Get tables with graceful fallback if enriched query fails."""
+        try:
+            return self._get_tables_enriched()
+        except Exception:
+            return self._get_tables_basic()
+
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column/table comments. May fail on some Oracle configurations."""
+        with self.connect() as conn:
+            params = {}
+            where_clauses = []
+            if self._schemas:
+                in_keys = []
+                for idx, sch in enumerate(self._schemas):
+                    key = f"o{idx}"
+                    params[key] = sch
+                    in_keys.append(f":{key}")
+                where_clauses.append(f"c.owner IN ({', '.join(in_keys)})")
+            else:
+                params["owner"] = self.user.upper()
+                where_clauses.append("c.owner = :owner")
+
+            where_sql = " WHERE " + " AND ".join(where_clauses)
+            sql = text(f"""
+                SELECT
+                    c.owner,
+                    c.table_name,
+                    c.column_name,
+                    c.data_type,
+                    cc.comments AS column_comment,
+                    tc.comments AS table_comment
+                FROM all_tab_columns c
+                LEFT JOIN all_col_comments cc
+                    ON c.owner = cc.owner
+                    AND c.table_name = cc.table_name
+                    AND c.column_name = cc.column_name
+                LEFT JOIN all_tab_comments tc
+                    ON c.owner = tc.owner
+                    AND c.table_name = tc.table_name
+                {where_sql}
+                ORDER BY c.owner, c.table_name, c.column_id
+            """)
+            result = conn.execute(sql, params).fetchall()
+
+            tables = {}
+            for row in result:
+                owner, table_name, column_name, data_type, col_comment, tbl_comment = row
+                key = (owner, table_name)
+                fqn = f"{owner}.{table_name}"
+                if key not in tables:
+                    tables[key] = Table(
+                        name=fqn,
+                        description=tbl_comment if tbl_comment else None,
+                        columns=[],
+                        pks=[],
+                        fks=[],
+                        metadata_json={"schema": owner}
+                    )
+                tables[key].columns.append(TableColumn(
+                    name=column_name,
+                    dtype=data_type,
+                    description=col_comment if col_comment else None
+                ))
+            return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without comments (original query - always works)."""
         try:
             with self.connect() as conn:
                 params = {}

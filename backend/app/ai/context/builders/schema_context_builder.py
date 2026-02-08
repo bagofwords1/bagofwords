@@ -14,6 +14,7 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
+from app.models.connection_table import ConnectionTable
 from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
 
@@ -70,9 +71,14 @@ class SchemaContextBuilder:
                 for s in res.scalars().all():
                     stats_map[(s.table_fqn or '').lower()] = s
 
-            # Canonical (org-level) source
+            # Canonical (org-level) source - load with connection relationships
             ds_tables_result = await self.db.execute(
-                select(DataSourceTable).where(DataSourceTable.datasource_id == str(ds.id))
+                select(DataSourceTable)
+                .options(
+                    selectinload(DataSourceTable.connection_table)
+                    .selectinload(ConnectionTable.connection)
+                )
+                .where(DataSourceTable.datasource_id == str(ds.id))
             )
             ds_tables = ds_tables_result.scalars().all()
             canonical_by_name: Dict[str, DataSourceTable] = {getattr(t, 'name', ''): t for t in ds_tables}
@@ -117,6 +123,17 @@ class SchemaContextBuilder:
                     pks = getattr(base, 'pks', []) if base is not None else []
                     fks = getattr(base, 'fks', []) if base is not None else []
                     metadata_json = getattr(base, 'metadata_json', None) if base is not None else None
+                    # Extract connection info from the base table
+                    conn_id = None
+                    conn_name = None
+                    conn_type = None
+                    if base is not None and getattr(base, 'connection_table', None):
+                        ct = base.connection_table
+                        if getattr(ct, 'connection', None):
+                            conn_id = str(ct.connection.id)
+                            conn_name = ct.connection.name
+                            conn_type = ct.connection.type
+
                     normalized.append({
                         "name": name,
                         "table_id": str(base.id) if base is not None else None,
@@ -130,6 +147,9 @@ class SchemaContextBuilder:
                         "degree_out": getattr(base, 'degree_out', None) if base is not None else None,
                         "entity_like": getattr(base, 'entity_like', None) if base is not None else None,
                         "is_active": canonical_is_active,
+                        "connection_id": conn_id,
+                        "connection_name": conn_name,
+                        "connection_type": conn_type,
                     })
             else:
                 for t in ds_tables:
@@ -138,6 +158,18 @@ class SchemaContextBuilder:
                     if active_only and not table_is_active:
                         continue
                     columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown")} for col in (getattr(t, 'columns', []) or [])]
+
+                    # Extract connection info
+                    conn_id = None
+                    conn_name = None
+                    conn_type = None
+                    if getattr(t, 'connection_table', None):
+                        ct = t.connection_table
+                        if getattr(ct, 'connection', None):
+                            conn_id = str(ct.connection.id)
+                            conn_name = ct.connection.name
+                            conn_type = ct.connection.type
+
                     normalized.append({
                         "name": getattr(t, 'name', ''),
                         "table_id": str(t.id) if getattr(t, 'id', None) else None,
@@ -151,6 +183,9 @@ class SchemaContextBuilder:
                         "degree_out": getattr(t, 'degree_out', None),
                         "entity_like": getattr(t, 'entity_like', None),
                         "is_active": table_is_active,
+                        "connection_id": conn_id,
+                        "connection_name": conn_name,
+                        "connection_type": conn_type,
                     })
 
             # Batch-query instruction reference counts for all tables in this data source
@@ -202,6 +237,9 @@ class SchemaContextBuilder:
                     pks=pks,
                     fks=fks,
                     is_active=bool(item.get("is_active", False)),  # Default False for safety
+                    connection_id=item.get("connection_id"),
+                    connection_name=item.get("connection_name"),
+                    connection_type=item.get("connection_type"),
                     centrality_score=item.get("centrality_score"),
                     richness=item.get("richness"),
                     degree_in=item.get("degree_in"),

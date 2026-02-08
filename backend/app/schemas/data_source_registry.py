@@ -39,6 +39,12 @@ from app.schemas.data_sources.configs import (
     # Databricks SQL
     DatabricksSqlConfig,
     DatabricksSqlCredentials,
+    # Power BI
+    PowerBIConfig,
+    PowerBICredentials,
+    # QVD Files
+    QVDConfig,
+    QVDCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -102,6 +108,8 @@ class DataSourceRegistryEntry(BaseModel):
     dev_only: bool = False
     # Flag for document-based data sources (MongoDB, Elasticsearch, etc.)
     is_document_based: bool = False
+    # License tier required to use this data source (e.g., "enterprise")
+    requires_license: Optional[str] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -400,6 +408,42 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.databricks_sql_client.DatabricksSqlClient",
     ),
+    "powerbi": DataSourceRegistryEntry(
+        type="powerbi",
+        title="Power BI",
+        description="Query Power BI semantic models via DAX. Auto-discovers workspaces, datasets, and reports.",
+        config_schema=PowerBIConfig,
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Service Principal (Azure AD)",
+                    schema=PowerBICredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.powerbi_client.PowerBIClient",
+        requires_license="enterprise",
+    ),
+    "qvd": DataSourceRegistryEntry(
+        type="qvd",
+        title="QlikView Data",
+        description="Query QlikView Data (.qvd) files.",
+        config_schema=QVDConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=QVDCredentials,
+                    scopes=["system"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.qvd_client.QVDClient",
+        requires_license="enterprise",
+    ),
 }
 
 
@@ -421,6 +465,7 @@ def list_available_data_sources() -> list[dict]:
             "config": e.config_schema.__name__,
             "status": e.status,
             "version": e.version,
+            "requires_license": e.requires_license,
         }
         for e in REGISTRY.values()
         if e.status == "active" and _entry_visible(e)

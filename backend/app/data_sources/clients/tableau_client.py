@@ -180,9 +180,14 @@ class TableauClient(DataSourceClient):
         datasources = self.list_published_datasources()
         tables: List[Table] = []
         for ds in datasources:
-            fields = self._combined_fields_for_datasource(ds["id"])  # list of dicts
+            ds_description, fields = self._combined_fields_for_datasource(ds["id"])
             columns = [
-                TableColumn(name=(f.get("fieldCaption") or f.get("fieldName") or ""), dtype=(f.get("dataType") or "unknown"))
+                TableColumn(
+                    name=(f.get("fieldCaption") or f.get("fieldName") or ""),
+                    dtype=(f.get("dataType") or "unknown"),
+                    description=f.get("description"),
+                    metadata=f.get("metadata"),
+                )
                 for f in fields
             ]
             table_name = f"{(ds.get('project_name') or '').strip()}/{ds.get('name') or ds.get('id')}".strip("/")
@@ -196,7 +201,15 @@ class TableauClient(DataSourceClient):
                     "siteName": self.site_name,
                 }
             }
-            tables.append(Table(name=table_name, columns=columns, pks=[], fks=[], is_active=True, metadata_json=metadata_json))
+            tables.append(Table(
+                name=table_name,
+                description=ds_description,
+                columns=columns,
+                pks=[],
+                fks=[],
+                is_active=True,
+                metadata_json=metadata_json
+            ))
         return tables
 
     def get_schema(self, table_name: str) -> Table:
@@ -230,13 +243,18 @@ class TableauClient(DataSourceClient):
         if not target:
             raise RuntimeError(f"Datasource not found for '{table_name}'")
 
-        fields = self._combined_fields_for_datasource(target["id"])  # list of dicts
+        ds_description, fields = self._combined_fields_for_datasource(target["id"])
         if not fields:
             raise RuntimeError(
                 "No fields returned. Ensure Metadata API is enabled or VizQL Data Service (Headless BI) is available for your site."
             )
         columns = [
-            TableColumn(name=(f.get("fieldCaption") or f.get("fieldName") or ""), dtype=(f.get("dataType") or "unknown"))
+            TableColumn(
+                name=(f.get("fieldCaption") or f.get("fieldName") or ""),
+                dtype=(f.get("dataType") or "unknown"),
+                description=f.get("description"),
+                metadata=f.get("metadata"),
+            )
             for f in fields
         ]
         resolved_name = f"{(target.get('project_name') or '').strip()}/{target.get('name') or target.get('id')}".strip("/")
@@ -250,7 +268,15 @@ class TableauClient(DataSourceClient):
                 "siteName": self.site_name,
             }
         }
-        return Table(name=resolved_name, columns=columns, pks=[], fks=[], is_active=True, metadata_json=metadata_json)
+        return Table(
+            name=resolved_name,
+            description=ds_description,
+            columns=columns,
+            pks=[],
+            fks=[],
+            is_active=True,
+            metadata_json=metadata_json
+        )
 
     def execute_query(
         self,
@@ -564,10 +590,10 @@ Filter relative date periods:
             return []
         return fields
 
-    def _metadata_fields_for_datasource(self, datasource_luid: str) -> List[Dict]:
+    def _metadata_fields_for_datasource(self, datasource_luid: str) -> tuple:
         """
         Fetch fields via Tableau Metadata API using publishedDatasources(filter: { luid: "..." }).
-        Returns simplified list of dicts with fieldName/fieldCaption/dataType.
+        Returns (datasource_description, list of field dicts with enriched metadata).
         """
         self.connect()
         query = (
@@ -575,13 +601,15 @@ Filter relative date periods:
             query datasourceFieldInfo {{
               publishedDatasources(filter: {{ luid: "{datasource_luid}" }}) {{
                 name
+                description
                 fields {{
                   name
+                  description
                   __typename
-                  ... on ColumnField {{ dataType }}
-                  ... on CalculatedField {{ dataType }}
+                  ... on ColumnField {{ dataType role }}
+                  ... on CalculatedField {{ dataType role formula }}
                   ... on BinField {{ dataType }}
-                  ... on GroupField {{ dataType }}
+                  ... on GroupField {{ dataType role }}
                 }}
               }}
             }}
@@ -589,45 +617,60 @@ Filter relative date periods:
         ).strip()
         result = self._metadata_graphql_post(query)
         if not isinstance(result, dict) or not result.get("data"):
-            return []
+            return None, []
         data = result.get("data") or {}
         published = data.get("publishedDatasources") or []
         if not isinstance(published, list) or len(published) == 0:
-            return []
-        raw_fields = (published[0] or {}).get("fields") or []
+            return None, []
+        ds_info = published[0] or {}
+        ds_description = ds_info.get("description")
+        raw_fields = ds_info.get("fields") or []
         if not isinstance(raw_fields, list):
-            return []
+            return ds_description, []
         out: List[Dict] = []
         for f in raw_fields:
             if not isinstance(f, dict):
                 continue
+            # Build metadata dict for BI semantics
+            metadata = {}
+            if f.get("__typename"):
+                metadata["__typename"] = f["__typename"]
+            if f.get("formula"):
+                metadata["formula"] = f["formula"]
+            if f.get("role"):
+                metadata["role"] = f["role"]
             out.append(
                 {
                     "fieldName": f.get("name") or "",
                     "fieldCaption": f.get("name") or "",
                     "dataType": f.get("dataType") or "unknown",
+                    "description": f.get("description"),
+                    "metadata": metadata if metadata else None,
                 }
             )
-        return out
+        return ds_description, out
 
-    def _combined_fields_for_datasource(self, datasource_luid: str) -> List[Dict]:
+    def _combined_fields_for_datasource(self, datasource_luid: str) -> tuple:
         """
         Combine VizQL read-metadata with Metadata API fields by name, preferring VizQL types.
+        Returns (datasource_description, list of enriched field dicts).
         """
         read_fields = self._vizql_read_metadata(datasource_luid)  # list of dicts
-        gql_fields = self._metadata_fields_for_datasource(datasource_luid)
+        ds_description, gql_fields = self._metadata_fields_for_datasource(datasource_luid)
         if not read_fields and not gql_fields:
-            return []
+            return ds_description, []
         name_to_gql = {str(f.get("fieldName") or f.get("fieldCaption") or f.get("name") or ""): f for f in gql_fields}
         combined: List[Dict] = []
         for rf in read_fields or []:
             n = str(rf.get("fieldCaption") or rf.get("fieldName") or "")
-            gf = name_to_gql.get(n)
+            gf = name_to_gql.get(n, {})
             combined.append(
                 {
                     "fieldName": rf.get("fieldName") or n,
                     "fieldCaption": n,
-                    "dataType": rf.get("dataType") or ((gf or {}).get("dataType")) or "unknown",
+                    "dataType": rf.get("dataType") or gf.get("dataType") or "unknown",
+                    "description": gf.get("description"),
+                    "metadata": gf.get("metadata"),
                 }
             )
         # Include any extra fields present only in GQL
@@ -640,9 +683,11 @@ Filter relative date periods:
                         "fieldName": gf.get("fieldName") or n,
                         "fieldCaption": n,
                         "dataType": gf.get("dataType") or "unknown",
+                        "description": gf.get("description"),
+                        "metadata": gf.get("metadata"),
                     }
                 )
-        return combined
+        return ds_description, combined
 
     def _metadata_graphql_post(self, query: str, variables: Optional[Dict] = None) -> Dict:
         """

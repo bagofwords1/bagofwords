@@ -91,10 +91,11 @@ async def build_rich_context(
     ds_clients: Dict[str, Any] = {}
     connected_sources: List[str] = []
     failed_sources: List[str] = []
-    
+
     for ds in data_sources:
         try:
-            ds_clients[ds.name] = await ds_service.construct_client(db, ds, user)
+            clients = await ds_service.construct_clients(db, ds, user)
+            ds_clients.update(clients)
             connected_sources.append(ds.name)
         except Exception as e:
             logger.warning(f"Failed to connect to data source {ds.name}: {e}")

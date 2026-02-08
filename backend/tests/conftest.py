@@ -119,6 +119,7 @@ from tests.fixtures.data_source import (
     list_demo_data_sources,
     install_demo_data_source,
     create_domain_from_connection,
+    create_domain_from_connections,
     dynamic_sqlite_db,
     empty_sqlite_db,
 )

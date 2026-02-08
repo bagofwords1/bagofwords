@@ -324,50 +324,122 @@ class AwsRedshiftClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns in the specified schema."""
-        logger.info(f"get_tables() called with schema: {self.schema}")
+        """Get tables with graceful fallback if enriched query fails."""
         try:
-            logger.info("Starting get_tables() execution")
+            return self._get_tables_enriched()
+        except Exception:
+            return self._get_tables_basic()
+
+    def _normalize_data_type(self, data_type: str) -> str:
+        """Normalize Redshift-specific data types."""
+        if data_type == 'character varying':
+            return "varchar"
+        elif data_type == 'numeric':
+            return "numeric"
+        elif data_type == 'double precision':
+            return "double precision"
+        elif data_type == 'timestamp without time zone':
+            return "timestamp"
+        elif data_type == 'timestamp with time zone':
+            return "timestamptz"
+        return data_type
+
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column/table comments. May fail on some Redshift configurations."""
+        logger.info(f"_get_tables_enriched() called with schema: {self.schema}")
+        with self.connect() as conn:
+            with conn.cursor() as cursor:
+                # Query with JOINs to pg_description for comments (like PostgreSQL)
+                sql = """
+                    SELECT
+                        t.table_name,
+                        c.column_name,
+                        c.data_type,
+                        c.ordinal_position,
+                        pd_col.description AS column_comment,
+                        pd_tbl.description AS table_comment
+                    FROM information_schema.tables t
+                    JOIN information_schema.columns c
+                        ON t.table_name = c.table_name
+                        AND t.table_schema = c.table_schema
+                    LEFT JOIN pg_catalog.pg_class pc
+                        ON pc.relname = t.table_name
+                        AND pc.relnamespace = (SELECT oid FROM pg_catalog.pg_namespace WHERE nspname = t.table_schema)
+                    LEFT JOIN pg_catalog.pg_description pd_col
+                        ON pd_col.objoid = pc.oid
+                        AND pd_col.objsubid = c.ordinal_position
+                    LEFT JOIN pg_catalog.pg_description pd_tbl
+                        ON pd_tbl.objoid = pc.oid
+                        AND pd_tbl.objsubid = 0
+                    WHERE t.table_schema = %s
+                    AND t.table_type = 'BASE TABLE'
+                    ORDER BY t.table_name, c.ordinal_position
+                """
+
+                cursor.execute(sql, (self.schema,))
+                rows = cursor.fetchall()
+                logger.info(f"Enriched query returned {len(rows)} rows for schema '{self.schema}'")
+
+                tables = {}
+                for row in rows:
+                    table_name, column_name, data_type, ordinal_position, col_comment, tbl_comment = row
+                    full_data_type = self._normalize_data_type(data_type)
+
+                    if table_name not in tables:
+                        tables[table_name] = Table(
+                            name=table_name,
+                            description=tbl_comment if tbl_comment else None,
+                            columns=[],
+                            pks=[],
+                            fks=[],
+                            metadata_json={"schema": self.schema}
+                        )
+                    tables[table_name].columns.append(TableColumn(
+                        name=column_name,
+                        dtype=full_data_type,
+                        description=col_comment if col_comment else None
+                    ))
+
+                logger.info(f"Found {len(tables)} tables in schema '{self.schema}'")
+                return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without comments (original query - always works)."""
+        logger.info(f"_get_tables_basic() called with schema: {self.schema}")
+        try:
             with self.connect() as conn:
-                logger.info("Connection established in get_tables()")
                 with conn.cursor() as cursor:
-                    logger.info("Cursor created, executing query...")
-                    # Use a simpler query based on Redash implementation
-                    # This query is more reliable for Redshift
                     sql = """
-                        SELECT 
+                        SELECT
                             t.table_name,
                             c.column_name,
                             c.data_type,
                             c.ordinal_position
                         FROM information_schema.tables t
-                        JOIN information_schema.columns c 
-                            ON t.table_name = c.table_name 
+                        JOIN information_schema.columns c
+                            ON t.table_name = c.table_name
                             AND t.table_schema = c.table_schema
                         WHERE t.table_schema = %s
                         AND t.table_type = 'BASE TABLE'
                         ORDER BY t.table_name, c.ordinal_position
                     """
-                    
-                    logger.info(f"Executing SQL query with schema parameter: {self.schema}")
+
                     cursor.execute(sql, (self.schema,))
                     rows = cursor.fetchall()
-                    logger.info(f"Query executed, fetched {len(rows)} rows")
+                    logger.info(f"Basic query returned {len(rows)} rows for schema '{self.schema}'")
 
-                    logger.info(f"Query returned {len(rows)} rows for schema '{self.schema}'")
-                    
                     # If no tables found, try a fallback query to see what schemas exist
                     if not rows:
                         logger.warning(f"No tables found in schema '{self.schema}', checking available schemas...")
                         cursor.execute("""
-                            SELECT DISTINCT table_schema 
-                            FROM information_schema.tables 
+                            SELECT DISTINCT table_schema
+                            FROM information_schema.tables
                             WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_internal')
                             ORDER BY table_schema
                         """)
                         available_schemas = [row[0] for row in cursor.fetchall()]
                         logger.info(f"Available schemas: {available_schemas}")
-                        
+
                         # Try the 'public' schema if current schema is empty
                         if self.schema != 'public' and 'public' in available_schemas:
                             logger.info("Trying 'public' schema as fallback...")
@@ -375,31 +447,21 @@ class AwsRedshiftClient(DataSourceClient):
                             rows = cursor.fetchall()
                             logger.info(f"Fallback query returned {len(rows)} rows for 'public' schema")
 
-
                     tables = {}
                     for row in rows:
                         table_name, column_name, data_type, ordinal_position = row
-                        
-                        # Build complete data type (handle Redshift-specific types)
-                        if data_type == 'character varying':
-                            full_data_type = "varchar"
-                        elif data_type == 'numeric':
-                            full_data_type = "numeric"
-                        elif data_type == 'double precision':
-                            full_data_type = "double precision"
-                        elif data_type == 'timestamp without time zone':
-                            full_data_type = "timestamp"
-                        elif data_type == 'timestamp with time zone':
-                            full_data_type = "timestamptz"
-                        else:
-                            full_data_type = data_type
+                        full_data_type = self._normalize_data_type(data_type)
 
                         if table_name not in tables:
                             tables[table_name] = Table(
-                                name=table_name, columns=[], pks=[], fks=[])
-                        tables[table_name].columns.append(
-                            TableColumn(name=column_name, dtype=full_data_type))
-                    
+                                name=table_name,
+                                columns=[],
+                                pks=[],
+                                fks=[],
+                                metadata_json={"schema": self.schema}
+                            )
+                        tables[table_name].columns.append(TableColumn(name=column_name, dtype=full_data_type))
+
                     logger.info(f"Found {len(tables)} tables in schema '{self.schema}'")
                     return list(tables.values())
         except Exception as e:

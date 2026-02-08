@@ -2,21 +2,37 @@
   <div class="mt-1">
     <!-- Status header -->
     <Transition name="fade" appear>
-      <div 
+      <div
         class="flex items-center text-xs text-gray-500 cursor-pointer hover:text-gray-700"
         @click="toggleExpanded"
       >
-        <span v-if="status === 'running'" class="tool-shimmer flex items-center">
-          <Icon name="heroicons-command-line" class="w-3 h-3 mr-1.5 text-gray-400" />
-          Inspecting data…
+        <span v-if="status === 'running'" class="tool-shimmer flex items-center flex-wrap gap-1">
+          <Icon name="heroicons-command-line" class="w-3 h-3 mr-1 text-gray-400" />
+          <span>Inspecting</span>
+          <template v-if="groupedTables.length">
+            <template v-for="(group, gidx) in groupedTables" :key="gidx">
+              <span v-if="gidx > 0" class="text-gray-300">|</span>
+              <DataSourceIcon :type="group.type" class="h-2" />
+              <span>{{ group.names.join(', ') }}</span>
+            </template>
+          </template>
+          <span v-else>data…</span>
         </span>
-        <span v-else class="text-gray-600 flex items-center">
-          <Icon name="heroicons-command-line" class="w-3 h-3 mr-1.5 text-gray-400" />
-          <span>Inspected data</span>
-          <span v-if="duration" class="text-gray-400 ml-1.5">{{ duration }}</span>
-          <Icon 
-            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" 
-            class="w-3 h-3 ml-1 text-gray-400" 
+        <span v-else class="text-gray-600 flex items-center flex-wrap gap-1">
+          <Icon name="heroicons-command-line" class="w-3 h-3 mr-1 text-gray-400" />
+          <span>Inspected</span>
+          <template v-if="groupedTables.length">
+            <template v-for="(group, gidx) in groupedTables" :key="gidx">
+              <span v-if="gidx > 0" class="text-gray-300">|</span>
+              <DataSourceIcon :type="group.type" class="h-2.5" />
+              <span>{{ group.names.join(', ') }}</span>
+            </template>
+          </template>
+          <span v-else>data</span>
+          <span v-if="duration" class="text-gray-400 ml-1">{{ duration }}</span>
+          <Icon
+            :name="isExpanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
+            class="w-3 h-3 ml-1 text-gray-400"
           />
         </span>
       </div>
@@ -70,6 +86,7 @@
 
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
 interface ToolExecution {
   id: string
@@ -82,8 +99,16 @@ interface ToolExecution {
   duration_ms?: number
 }
 
+interface DataSource {
+  id: string
+  type?: string
+  data_source_type?: string
+  connections?: Array<{ id: string; type: string }>
+}
+
 interface Props {
   toolExecution: ToolExecution
+  dataSources?: DataSource[]
 }
 
 const props = defineProps<Props>()
@@ -116,6 +141,30 @@ const output = computed<string>(() => {
 const errorMessage = computed<string>(() => {
   const rj = props.toolExecution?.result_json || {}
   return rj.error_message || ''
+})
+
+// Group tables by connection type for display
+const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
+  const aj = props.toolExecution?.arguments_json || {}
+  if (!Array.isArray(aj.tables_by_source)) return []
+
+  const groups: Record<string, string[]> = {}
+  for (const group of aj.tables_by_source) {
+    // Look up connection type from dataSources prop
+    let connType = 'resource'
+    if (group.data_source_id && props.dataSources?.length) {
+      const ds = props.dataSources.find((d) => d.id === group.data_source_id)
+      if (ds) {
+        connType = ds.connections?.[0]?.type || ds.type || ds.data_source_type || 'resource'
+      }
+    }
+    if (!groups[connType]) groups[connType] = []
+    if (Array.isArray(group.tables)) {
+      groups[connType].push(...group.tables)
+    }
+  }
+
+  return Object.entries(groups).map(([type, names]) => ({ type, names }))
 })
 
 function toggleExpanded() {

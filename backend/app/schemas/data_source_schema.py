@@ -77,6 +77,15 @@ class ConnectionEmbedded(BaseModel):
     user_status: Optional[DataSourceUserStatus] = None  # User's credential status for this connection
     table_count: int = 0  # Number of tables in this connection
 
+    @validator('config', 'allowed_user_auth_modes', pre=True)
+    def parse_json_fields(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return v
+
     class Config:
         from_attributes = True
 
@@ -95,15 +104,15 @@ class DataSourceReportSchema(BaseModel):
     is_public: bool = False
     owner_user_id: Optional[str] = None
     use_llm_sync: bool = False
-    
-    # Connection info (Option A: nested connection)
-    connection: Optional[ConnectionEmbedded] = None
-    
-    # Legacy fields for backward compatibility - computed from connection
+
+    # Connection info (multi-connection support)
+    connections: List[ConnectionEmbedded] = []
+
+    # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     # Note: NO memberships field here
-    
+
     class Config:
         from_attributes = True
 
@@ -130,11 +139,11 @@ class DataSourceSchema(DataSourceBase):
     owner_user_id: Optional[str] = None
     git_repository: Optional[GitRepositorySchema] = None
     memberships: Optional[List[DataSourceMembershipSchema]] = []
-    
-    # Connection info (Option A: nested connection)
-    connection: Optional[ConnectionEmbedded] = None
-    
-    # Legacy fields for backward compatibility - computed from connection
+
+    # Connection info (multi-connection support)
+    connections: List[ConnectionEmbedded] = []
+
+    # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
     auth_policy: Optional[str] = None
@@ -153,11 +162,11 @@ class DataSourceListItemSchema(BaseModel):
     conversation_starters: Optional[list] = None
     created_at: UTCDatetime
     status: str  # "active" | "inactive"
-    
-    # Connection info (Option A: nested connection)
-    connection: Optional[ConnectionEmbedded] = None
-    
-    # Legacy fields for backward compatibility - computed from connection
+
+    # Connection info (multi-connection support)
+    connections: List[ConnectionEmbedded] = []
+
+    # Legacy fields for backward compatibility - computed from first connection
     type: Optional[str] = None
     auth_policy: Optional[str] = None
     user_status: Optional[DataSourceUserStatus] = None
@@ -168,10 +177,11 @@ class DataSourceListItemSchema(BaseModel):
 
 class DataSourceCreate(DataSourceBase):
     """Schema for creating a new DataSource (Domain).
-    
-    Two modes:
+
+    Three modes:
     1. Create new connection: Provide type, config, credentials
-    2. Link to existing connection: Provide connection_id (skips connection creation)
+    2. Link to existing connection: Provide connection_id (single connection)
+    3. Link to multiple connections: Provide connection_ids (array)
     """
     # Option 1: Connection-related fields (will be used to create Connection)
     type: Optional[str] = None  # Connection type: e.g., "postgresql", "bigquery", "netsuite"
@@ -179,9 +189,10 @@ class DataSourceCreate(DataSourceBase):
     credentials: Optional[dict] = None  # Will be validated based on the data source type
     auth_policy: str = "system_only"
     allowed_user_auth_modes: Optional[List[str]] = None
-    
-    # Option 2: Link to existing connection
-    connection_id: Optional[str] = None  # If provided, link to existing connection instead of creating new
+
+    # Option 2: Link to existing connection(s)
+    connection_id: Optional[str] = None  # Single connection (backward compatible)
+    connection_ids: Optional[List[str]] = None  # Multiple connections
     
     # Domain-specific fields
     generate_summary: bool = False
@@ -193,13 +204,13 @@ class DataSourceCreate(DataSourceBase):
 
     @validator('credentials')
     def validate_credentials(cls, v, values):
-        # Skip validation if linking to existing connection
-        if values.get('connection_id'):
+        # Skip validation if linking to existing connection(s)
+        if values.get('connection_id') or values.get('connection_ids'):
             return v
-        
+
         if v is None:
             return v
-            
+
         if 'type' not in values or not values['type']:
             raise ValueError('Data source type must be specified when creating a new connection')
 
@@ -209,20 +220,24 @@ class DataSourceCreate(DataSourceBase):
         auth_type = (cfg or {}).get('auth_type')
         schema_cls = credentials_schema_for(ds_type, auth_type)
         return schema_cls(**v).dict()
-    
-    @validator('connection_id', always=True)
-    def validate_connection_or_type(cls, v, values):
-        """Ensure either connection_id OR (type, config, credentials) is provided."""
-        if v:
-            # Using existing connection - no need for type/config/credentials
+
+    @validator('connection_ids', always=True)
+    def validate_connection_ids_or_type(cls, v, values):
+        """Ensure either connection_id, connection_ids, OR (type, config, credentials) is provided."""
+        # If connection_ids is provided, use it
+        if v and len(v) > 0:
             return v
-        
+
+        # If connection_id (singular) is provided, that's fine too
+        if values.get('connection_id'):
+            return v
+
         # Creating new connection - require type and config
         if not values.get('type'):
-            raise ValueError('Either connection_id or type must be provided')
+            raise ValueError('Either connection_id, connection_ids, or type must be provided')
         if values.get('config') is None:
             raise ValueError('Config is required when creating a new connection')
-        
+
         return v
 
 
@@ -249,8 +264,8 @@ class DataSourceUpdate(DataSourceBase):
 class DataSourceInDBBase(DataSourceBase):
     """Internal schema for DataSource in DB."""
     id: str
-    # Connection info
-    connection: Optional[ConnectionEmbedded] = None
+    # Connection info (multi-connection support)
+    connections: List[ConnectionEmbedded] = []
 
     class Config:
         from_attributes = True

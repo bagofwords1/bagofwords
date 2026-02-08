@@ -88,14 +88,68 @@ class BigqueryClient(DataSourceClient):
             raise e
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns across one or more datasets.
-        - Supports comma-separated datasets via the existing `dataset` config field.
-        - If no dataset provided, auto-discovers all datasets in the project.
-        - Emits fully qualified table names: DATASET.TABLE
-        """
+        """Get tables with graceful fallback if enriched query fails."""
+        try:
+            return self._get_tables_enriched()
+        except Exception:
+            return self._get_tables_basic()
+
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column/table descriptions. May fail on some BigQuery configurations."""
+        with self.connect() as conn:
+            if self._datasets:
+                datasets = self._datasets
+            else:
+                datasets = [d.dataset_id for d in conn.list_datasets()]
+
+            tables = {}
+            for ds in datasets:
+                # Query with column descriptions and table descriptions
+                sql = f"""
+                    SELECT
+                        c.table_name,
+                        c.column_name,
+                        c.data_type,
+                        c.description AS column_description,
+                        t.option_value AS table_description
+                    FROM `{self.project_id}.{ds}.INFORMATION_SCHEMA.COLUMNS` c
+                    LEFT JOIN `{self.project_id}.{ds}.INFORMATION_SCHEMA.TABLE_OPTIONS` t
+                        ON c.table_name = t.table_name AND t.option_name = 'description'
+                    ORDER BY c.table_name, c.ordinal_position
+                """
+                query_job = conn.query(sql)
+                results = query_job.result().to_dataframe()
+
+                for _, row in results.iterrows():
+                    table_name = row["table_name"]
+                    column_name = row["column_name"]
+                    data_type = row["data_type"]
+                    col_desc = row.get("column_description")
+                    tbl_desc = row.get("table_description")
+
+                    key = (ds, table_name)
+                    fqn = f"{ds}.{table_name}"
+                    if key not in tables:
+                        tables[key] = Table(
+                            name=fqn,
+                            description=tbl_desc,
+                            columns=[],
+                            pks=None,
+                            fks=None,
+                            metadata_json={"dataset": ds}
+                        )
+                    tables[key].columns.append(TableColumn(
+                        name=column_name,
+                        dtype=data_type,
+                        description=col_desc
+                    ))
+
+            return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without descriptions (original query - always works)."""
         try:
             with self.connect() as conn:
-                # Determine datasets to scan
                 if self._datasets:
                     datasets = self._datasets
                 else:

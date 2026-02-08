@@ -60,7 +60,51 @@ class MysqlClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns in the specified database."""
+        """Get tables with graceful fallback if enriched query fails."""
+        try:
+            return self._get_tables_enriched()
+        except Exception:
+            return self._get_tables_basic()
+
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column/table comments. May fail on some MySQL versions."""
+        with self.connect() as conn:
+            sql = """
+                SELECT
+                    c.table_name,
+                    c.column_name,
+                    c.data_type,
+                    c.column_comment,
+                    t.table_comment
+                FROM information_schema.columns c
+                LEFT JOIN information_schema.tables t
+                    ON c.table_schema = t.table_schema AND c.table_name = t.table_name
+                WHERE c.table_schema = :database
+                ORDER BY c.table_name, c.ordinal_position
+            """
+            result = conn.execute(text(sql), {'database': self.database}).fetchall()
+
+            tables = {}
+            for row in result:
+                table_name, column_name, data_type, col_comment, tbl_comment = row
+
+                if table_name not in tables:
+                    tables[table_name] = Table(
+                        name=table_name,
+                        description=tbl_comment if tbl_comment else None,
+                        columns=[],
+                        pks=None,
+                        fks=None
+                    )
+                tables[table_name].columns.append(TableColumn(
+                    name=column_name,
+                    dtype=data_type,
+                    description=col_comment if col_comment else None
+                ))
+            return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without comments (original query - always works)."""
         try:
             with self.connect() as conn:
                 sql = """

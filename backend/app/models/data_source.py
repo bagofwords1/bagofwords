@@ -106,21 +106,58 @@ class DataSource(BaseSchema):
         lazy="selectin"
     )
     
-    def get_client(self):
+    def get_client(self, connection_name: str | None = None, connection_id: str | None = None):
         """
-        Get database client from the first associated connection.
+        Get database client from an associated connection.
+
+        Args:
+            connection_name: Name of the connection to use. If None, uses first connection.
+            connection_id: ID of the connection to use. Takes precedence over connection_name.
+
+        Returns:
+            Database client for the specified connection.
         """
         if not self.connections:
             raise ValueError(f"Data source '{self.name}' has no associated connections.")
-        return self.connections[0].get_client()
-    
-    def get_credentials(self):
+
+        connection = self._find_connection(connection_name, connection_id)
+        return connection.get_client()
+
+    def get_credentials(self, connection_name: str | None = None, connection_id: str | None = None):
         """
-        Get decrypted credentials from the first associated connection.
+        Get decrypted credentials from an associated connection.
+
+        Args:
+            connection_name: Name of the connection to use. If None, uses first connection.
+            connection_id: ID of the connection to use. Takes precedence over connection_name.
+
+        Returns:
+            Decrypted credentials dict for the specified connection.
         """
         if not self.connections:
             return {}
-        return self.connections[0].get_credentials()
+
+        connection = self._find_connection(connection_name, connection_id)
+        return connection.get_credentials()
+
+    def _find_connection(self, connection_name: str | None = None, connection_id: str | None = None):
+        """
+        Find a connection by name or ID, or return the first connection.
+        """
+        if connection_id:
+            for conn in self.connections:
+                if str(conn.id) == str(connection_id):
+                    return conn
+            raise ValueError(f"Connection with ID '{connection_id}' not found in data source '{self.name}'")
+
+        if connection_name:
+            for conn in self.connections:
+                if conn.name == connection_name:
+                    return conn
+            raise ValueError(f"Connection '{connection_name}' not found in data source '{self.name}'")
+
+        # Default to first connection for backward compatibility
+        return self.connections[0]
 
     async def get_schemas(self, db: AsyncSession = None, include_inactive: bool = False, with_stats: bool = False, organization: Organization | None = None, top_k: int | None = None) -> List[Table]:
         """
@@ -132,8 +169,13 @@ class DataSource(BaseSchema):
         if not isinstance(session, AsyncSession):
             raise RuntimeError("An async database session is required")
             
-        # Load the data source with its tables
-        stmt = select(DataSource).where(DataSource.id == self.id).options(selectinload(DataSource.tables))
+        # Load the data source with its tables and connection info
+        from app.models.connection_table import ConnectionTable
+        stmt = select(DataSource).where(DataSource.id == self.id).options(
+            selectinload(DataSource.tables)
+            .selectinload(DataSourceTable.connection_table)
+            .selectinload(ConnectionTable.connection)
+        )
         result = await session.execute(stmt)
         data_source = result.scalar_one()
         
@@ -162,6 +204,16 @@ class DataSource(BaseSchema):
                 for col in table.columns
             ]
             
+            # Extract connection info from relationship
+            conn_id = None
+            conn_name = None
+            conn_type = None
+            if table.connection_table and table.connection_table.connection:
+                conn = table.connection_table.connection
+                conn_id = str(conn.id)
+                conn_name = conn.name
+                conn_type = conn.type
+
             tbl = Table(
                 id=str(table.id),  # Include table ID for mention service
                 name=table.name,
@@ -170,6 +222,10 @@ class DataSource(BaseSchema):
                 fks=table.fks,
                 is_active=table.is_active,
                 metadata_json=table.metadata_json,
+                # Connection info (for multi-connection support)
+                connection_id=conn_id,
+                connection_name=conn_name,
+                connection_type=conn_type,
                 # expose structural metrics so callers (UI) can render centrality/related stats
                 centrality_score=float(getattr(table, 'centrality_score', 0.0) or 0.0),
                 richness=getattr(table, 'richness', None),

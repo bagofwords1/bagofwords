@@ -143,6 +143,7 @@ async def get_data_source_full_schema(
     page: Optional[int] = Query(None, ge=1, description="Page number (1-indexed)"),
     page_size: Optional[int] = Query(None, ge=1, le=500, description="Items per page (max 500)"),
     schema_filter: Optional[str] = Query(None, description="Comma-separated schema names to filter"),
+    connection_filter: Optional[str] = Query(None, description="Comma-separated connection IDs to filter"),
     search: Optional[str] = Query(None, description="Search tables by name"),
     sort_by: str = Query("name", description="Sort by: name, centrality_score, is_active, richness"),
     sort_dir: str = Query("asc", description="Sort direction: asc or desc"),
@@ -156,12 +157,17 @@ async def get_data_source_full_schema(
         # Default pagination values
         page = page or 1
         page_size = page_size or 100
-        
+
         # Parse schema filter (comma-separated string to list)
         schema_filter_list = None
         if schema_filter:
             schema_filter_list = [s.strip() for s in schema_filter.split(",") if s.strip()]
-        
+
+        # Parse connection filter (comma-separated string to list)
+        connection_filter_list = None
+        if connection_filter:
+            connection_filter_list = [c.strip() for c in connection_filter.split(",") if c.strip()]
+
         return await data_source_service.get_data_source_schema_paginated(
             db=db,
             data_source_id=data_source_id,
@@ -169,6 +175,7 @@ async def get_data_source_full_schema(
             page=page,
             page_size=page_size,
             schema_filter=schema_filter_list,
+            connection_filter=connection_filter_list,
             search=search,
             sort_by=sort_by,
             sort_dir=sort_dir,

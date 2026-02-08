@@ -127,13 +127,73 @@ class SnowflakeClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns across one or more schemas.
-        - Supports comma-separated schemas via the existing `schema` config field.
-        - Always emits fully qualified table names: SCHEMA.TABLE
-        """
+        """Get tables with graceful fallback if enriched query fails."""
+        try:
+            return self._get_tables_enriched()
+        except Exception:
+            # Fallback to basic query without comments
+            return self._get_tables_basic()
+
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column/table comments. May fail on older Snowflake versions."""
         tables = {}
         with self.connect() as conn:
-            # Build WHERE clause for single vs multi schema
+            params = {}
+            where_clauses = []
+            if self._schemas:
+                in_keys = []
+                for idx, sch in enumerate(self._schemas):
+                    key = f"s{idx}"
+                    in_keys.append(f":{key}")
+                    params[key] = sch
+                where_clauses.append(f"c.table_schema IN ({', '.join(in_keys)})")
+            elif self._primary_schema:
+                params["schema"] = self._primary_schema
+                where_clauses.append("c.table_schema = :schema")
+
+            where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            sql = text(f"""
+                SELECT
+                    c.table_schema,
+                    c.table_name,
+                    c.column_name,
+                    c.data_type,
+                    c.comment AS column_comment,
+                    t.comment AS table_comment
+                FROM {self.database}.INFORMATION_SCHEMA.COLUMNS c
+                LEFT JOIN {self.database}.INFORMATION_SCHEMA.TABLES t
+                    ON c.table_schema = t.table_schema AND c.table_name = t.table_name
+                {where_sql}
+                ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            """)
+
+            results = conn.execute(sql, params).fetchall()
+
+            for row in results:
+                table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
+                key = (table_schema, table_name)
+                fqn = f"{table_schema}.{table_name}"
+                if key not in tables:
+                    tables[key] = Table(
+                        name=fqn,
+                        description=tbl_comment,
+                        columns=[],
+                        pks=None,
+                        fks=None,
+                        metadata_json={"schema": table_schema}
+                    )
+                tables[key].columns.append(TableColumn(
+                    name=column_name,
+                    dtype=data_type,
+                    description=col_comment
+                ))
+
+        return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without comments (original query - always works)."""
+        tables = {}
+        with self.connect() as conn:
             params = {}
             where_clauses = []
             if self._schemas:

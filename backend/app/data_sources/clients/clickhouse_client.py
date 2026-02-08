@@ -62,22 +62,73 @@ class ClickhouseClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns across one or more databases.
-        - Supports comma-separated databases via the existing `database` config field.
-        - Emits fully qualified table names: database.table
-        """
+        """Get tables with graceful fallback if enriched query fails."""
+        try:
+            return self._get_tables_enriched()
+        except Exception:
+            return self._get_tables_basic()
+
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column/table comments. May fail on some ClickHouse versions."""
+        with self.connect() as conn:
+            if self._databases:
+                quoted = ", ".join([f"'{d.replace("'", "''")}'" for d in self._databases])
+                where_sql = f"WHERE c.database IN ({quoted})"
+            elif self._primary_database:
+                where_sql = f"WHERE c.database = '{self._primary_database.replace("'", "''")}'"
+            else:
+                where_sql = ""
+
+            sql = f"""
+                SELECT
+                    c.database,
+                    c.table AS table_name,
+                    c.name AS column_name,
+                    c.type AS data_type,
+                    c.comment AS column_comment,
+                    t.comment AS table_comment
+                FROM system.columns c
+                LEFT JOIN system.tables t
+                    ON c.database = t.database AND c.table = t.name
+                {where_sql}
+                ORDER BY c.database, c.table, c.position
+            """
+
+            result = conn.query(sql).result_rows
+
+            tables = {}
+            for row in result:
+                database_name, table_name, column_name, data_type, col_comment, tbl_comment = row
+                fqn = f"{database_name}.{table_name}"
+
+                if fqn not in tables:
+                    tables[fqn] = Table(
+                        name=fqn,
+                        description=tbl_comment if tbl_comment else None,
+                        columns=[],
+                        pks=None,
+                        fks=None,
+                        metadata_json={"database": database_name}
+                    )
+                tables[fqn].columns.append(TableColumn(
+                    name=column_name,
+                    dtype=data_type,
+                    description=col_comment if col_comment else None
+                ))
+
+            return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without comments (original query - always works)."""
         try:
             with self.connect() as conn:
-                # Build WHERE clause for single vs multi database
                 if self._databases:
                     quoted = ", ".join([f"'{d.replace("'", "''")}'" for d in self._databases])
                     where_sql = f"WHERE database IN ({quoted})"
+                elif self._primary_database:
+                    where_sql = f"WHERE database = '{self._primary_database.replace("'", "''")}'"
                 else:
-                    # Fall back to the primary database if provided
-                    if self._primary_database:
-                        where_sql = f"WHERE database = '{self._primary_database.replace("'", "''")}'"
-                    else:
-                        where_sql = ""
+                    where_sql = ""
 
                 sql = f"""
                     SELECT
