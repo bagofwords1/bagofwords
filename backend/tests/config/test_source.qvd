@@ -1,0 +1,447 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+ <QvdTableHeader>
+   <QvBuildNo>11282</QvBuildNo>
+   <CreatorDoc>C:\Projekte\QVXConverter\examples\test.qvw</CreatorDoc>
+   <CreateUtcTime>2012-07-06 17:32:31</CreateUtcTime>
+   <SourceCreateUtcTime></SourceCreateUtcTime>
+   <SourceFileUtcTime></SourceFileUtcTime>
+   <SourceFileSize>-1</SourceFileSize>
+   <StaleUtcTime></StaleUtcTime>
+   <TableName>test</TableName>
+   <Fields>
+     <QvdFieldHeader>
+       <FieldName>AddressNumber</FieldName>
+       <BitOffset>8</BitOffset>
+       <BitWidth>8</BitWidth>
+       <Bias>0</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>32</NoOfSymbols>
+       <Offset>0</Offset>
+       <Length>160</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$numeric</String>
+         <String>$integer</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>ItemNumber</FieldName>
+       <BitOffset>0</BitOffset>
+       <BitWidth>8</BitWidth>
+       <Bias>0</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>69</NoOfSymbols>
+       <Offset>160</Offset>
+       <Length>345</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$numeric</String>
+         <String>$integer</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>InvoiceDate</FieldName>
+       <BitOffset>55</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>505</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>PromisedDeliveryDate</FieldName>
+       <BitOffset>36</BitOffset>
+       <BitWidth>5</BitWidth>
+       <Bias>0</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>18</NoOfSymbols>
+       <Offset>505</Offset>
+       <Length>296</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$numeric</String>
+         <String>$timestamp</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>Date</FieldName>
+       <BitOffset>41</BitOffset>
+       <BitWidth>5</BitWidth>
+       <Bias>0</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>18</NoOfSymbols>
+       <Offset>801</Offset>
+       <Length>296</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$numeric</String>
+         <String>$timestamp</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>InvoiceNumber</FieldName>
+       <BitOffset>56</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>1097</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>OrderNumber</FieldName>
+       <BitOffset>22</BitOffset>
+       <BitWidth>7</BitWidth>
+       <Bias>0</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>76</NoOfSymbols>
+       <Offset>1097</Offset>
+       <Length>912</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$numeric</String>
+         <String>$integer</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>ItemDesc</FieldName>
+       <BitOffset>29</BitOffset>
+       <BitWidth>7</BitWidth>
+       <Bias>0</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>69</NoOfSymbols>
+       <Offset>2009</Offset>
+       <Length>1705</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>SalesQty</FieldName>
+       <BitOffset>57</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>3714</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>OpenQty</FieldName>
+       <BitOffset>46</BitOffset>
+       <BitWidth>5</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>30</NoOfSymbols>
+       <Offset>3714</Offset>
+       <Length>250</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$numeric</String>
+         <String>$integer</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>OpenOrder</FieldName>
+       <BitOffset>51</BitOffset>
+       <BitWidth>2</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>1</NoOfSymbols>
+       <Offset>3964</Offset>
+       <Length>7</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$numeric</String>
+         <String>$integer</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>GrossSales</FieldName>
+       <BitOffset>58</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>3971</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>Sales</FieldName>
+       <BitOffset>59</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>3971</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>BackOrder</FieldName>
+       <BitOffset>53</BitOffset>
+       <BitWidth>2</BitWidth>
+       <Bias>0</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>4</NoOfSymbols>
+       <Offset>3971</Offset>
+       <Length>51</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$numeric</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>Cost</FieldName>
+       <BitOffset>60</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>4022</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>Margin</FieldName>
+       <BitOffset>61</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>4022</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>SalesKey</FieldName>
+       <BitOffset>16</BitOffset>
+       <BitWidth>6</BitWidth>
+       <Bias>0</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>36</NoOfSymbols>
+       <Offset>4022</Offset>
+       <Length>900</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>#ofDaysLate</FieldName>
+       <BitOffset>62</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>4922</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+     <QvdFieldHeader>
+       <FieldName>#ofDaystoShip</FieldName>
+       <BitOffset>63</BitOffset>
+       <BitWidth>1</BitWidth>
+       <Bias>-2</Bias>
+       <NumberFormat>
+         <Type>UNKNOWN</Type>
+         <nDec>0</nDec>
+         <UseThou>0</UseThou>
+         <Fmt></Fmt>
+         <Dec></Dec>
+         <Thou></Thou>
+       </NumberFormat>
+       <NoOfSymbols>0</NoOfSymbols>
+       <Offset>4922</Offset>
+       <Length>0</Length>
+       <Comment></Comment>
+       <Tags>
+         <String>$ascii</String>
+         <String>$text</String>
+       </Tags>
+     </QvdFieldHeader>
+   </Fields>
+   <Compression></Compression>
+   <RecordByteSize>8</RecordByteSize>
+   <NoOfRecords>120</NoOfRecords>
+   <Offset>4922</Offset>
+   <Length>960</Length>
+   <Lineage>
+     <LineageInfo>
+       <Discriminator>C:\Projekte\QVXConverter\examples\test.qvx</Discriminator>
+       <Statement></Statement>
+     </LineageInfo>
+   </Lineage>
+   <Comment></Comment>
+ </QvdTableHeader>
+ cÔò ZÓò ªò N÷ò ø˚ò Wˇò gÈò !ºò ^≤ò Tƒò >¯ò A¯ò [ò aÊò :µò UÂò 2Óò Ïò Wòò TÈò +»ò g¯ò bÛò *Íò Hòò #—ò `Ìò ˘ò 0˘ò Mòò  ˘ò >±ò E*  (  ¨*  ›)  ‡'  €'  Î)  )  è(  Â)  (  <'  í*  !)  :)  O)  ë(  .'  «*  h+  +*  ê(  b)  â*  ]'  z'  5'  µ)  Í)  *'  0'  ;'  /'  ,'  '  ·*  '  m'  $'  ^'  ´(  õ(  Â'  O(  J*  u*  `*  w*  t*  v*  g)  h)  n'  k'  =)  %'  ='  '  d'  \'  3'  ∞(  ò)  Ü*  3(  )  Ã*  f'  t'  6û  11/20/2010 ´™™™>∑„@07/19/2010 ^û  12/30/2010 ´™™™˛∞„@05/30/2010 <û  11/26/2010 fû  01/07/2011 Qû  12/17/2010 Jû  12/10/2010 Cû  12/03/2010 ;û  11/25/2010 Bû  12/02/2010 7û  11/21/2010 /û  11/13/2010 5û  11/19/2010 8û  11/22/2010 =û  11/27/2010 4û  11/18/2010 Sû  12/19/2010 6û  11/20/2010 ´™™™>∑„@07/19/2010 ^û  12/30/2010 ´™™™˛∞„@05/30/2010 <û  11/26/2010 fû  01/07/2011 Qû  12/17/2010 Jû  12/10/2010 Cû  12/03/2010 ;û  11/25/2010 Bû  12/02/2010 7û  11/21/2010 /û  11/13/2010 5û  11/19/2010 8û  11/22/2010 =û  11/27/2010 4û  11/18/2010 Sû  12/19/2010 ÅF 214657 X 200280 | 203132 w 203127 S 200275 …J 215753 ú 200092 »? 212936 I 215297  I 215296 ˇH 215295 ¸H 215292 êG 214928 ‘I 215508 Ω@ 213181 æ@ 213182 ‰J 215780 È3 209897 ; 211737 aH 215137 .J 215598 kJ 215659 ƒF 214724 ± 202929 äF 214666 ÈI 215529 ´J 215723 ãI 215435 âI 215433 ”J 215763 ÆI 215470 ì 203155 ä3 209802 P8 211024 Ä> 212608 ¥H 215220 i7 210793 LE 214348 A; 211777 }J 215677 |( 206972 ≠I 215469 ø 204479 q@ 213105 (; 211752 G 214815 M6 210509 ˚? 212987 Û/ 208883 ‰F 214756 ‘B 213716 	I 215305 g7 210791 ÚE 214514 |H 215164 U) 207189 (H 215080 ûJ 215710 †4 210080 ¶4 210086 ö4 210074 ù4 210077 ñ4 210070 ä4 210058 á4 210055 ãJ 215691 ˇ8 211199 ÔH 215279 ΩJ 215741 ƒJ 215748 »J 215752 ‹J 215772 „J 215779 V3 209750 œ6 210639 L 204364 Ebony Lemons Best Choice Dried Apricots BBB Best Strawberry Jelly Imagine Frozen Carrots High Top Cantelope High Top Broccoli Imagine Popsicles Tell Tale Golden Delcious Apples Moms Corned Beef Imagine Ice Cream Good Chardonnay Wine Club Low Fat Sour Cream Pearl Chardonnay Fast BBQ Potato Chips Fast Dried Apples Shady Lake Thai Rice Moms Sliced Ham Blue Label Canned Tuna in Water Special Corn Puffs American Cole Slaw Ebony Asparagus Moms Sliced Turkey Landslide Sesame Oil Discover Manicotti Blue Medal Small Brown Eggs Golden Frozen Broccoli Blue Label Rice Soup Gorilla Large Curd Cottage Cheese Imagine Frozen Peas Blue Label Turkey Noodle Soup Blue Label Large Canned Shrimp Club Low Fat Cottage Cheese Blue Label Canned Tuna in Oil Blue Label Canned Peas Washington Cranberry Juice Big City Canned Peaches Washington Diet Cola Golden Frozen Mushroom Pizza Blue Label Canned Yams Blue Medal Large Brown Eggs Big Time Grape Popsicles Big Time Frozen Chicken Breast High Top Tangerines Excellent Orange Juice Ebony Mandarin Oranges Nationeel Grape Fruit Roll Nationeel Lemon Cookies Nationeel Raisins Nationeel Raspberry Fruit Roll Nationeel Dried Dates Landslide French Roast Coffee Landslide Decaf Coffee Golden Apple Cinnamon Waffles Golden Frozen Pepperoni Pizza Fast Raspberry Fruit Roll Blue Label Vegetable Soup Club Sour Cream Washington Cola Golden Frozen Chicken Breast Red Spade Sliced Chicken Blue Label Fancy Canned Oysters Big Time Frozen Cauliflower Bravo Turkey Noodle Soup Monarch Thai Rice Super Vegetable Oil Tell Tale Mushrooms Just Right Canned String Beans Golden Low Fat French Fries Golden Grape Popsicles    1 ˇˇˇˇ-1 u   117 [   91 è   143 Ç   130 N   78    8 
+   10 2   50    3    2    5 (   40    20    30 $   36 }   125 »   200 Ù  500    25 à  5000 ƒ	  2500 3   51 d   100 o  367 ,  300 ˙   250 ∏  3000    6     0 ÖÎQ∏ıX@99.83     0 ÖÎQ∏û%@10.81 =
+◊£p=@6.56 11/01/2010_10022755_118 07/01/2010_10022490_107 11/01/2010_10009356_103 12/01/2010_10016334_120 11/01/2010_10025919_108 05/01/2010_10026839_130 11/01/2010_10021223_183 01/01/2011_10021223_183 12/01/2010_10021223_183 11/01/2010_10009633_127 12/01/2010_10007134_182 11/01/2010_10011732_136 11/01/2010_10025022_170 11/01/2010_10025025_143 11/01/2010_10023003_158 11/01/2010_10020449_149 11/01/2010_10007866_149 11/01/2010_10020181_134 11/01/2010_10022450_167 11/01/2010_10021911_175 11/01/2010_10000471_154 11/01/2010_10021204_120 11/01/2010_10012715_180 11/01/2010_10025063_162 11/01/2010_10023778_124 11/01/2010_10007134_182 12/01/2010_10025063_162 11/01/2010_10021418_130 11/01/2010_10000456_119 11/01/2010_10015011_142 11/01/2010_10022240_111 11/01/2010_10025239_121 11/01/2010_10025264_162 11/01/2010_10000461_160 11/01/2010_10025248_145 11/01/2010_10006846_117         A   Ç@  @ ¬`  ` Å   °   D¡ Ä0 Ö·0∆0 DÄ0 	∆!A1 	"QJ1 	H"aå1 	à"qŒ1 	»"Å2 
+	Cëí0 Jc°î0 DÅÄ0 D°Ä0 D¡Ä0 D·Ä0 DÄ0 	ã#íí0 	À#íí0 	D≤ñ0 
+Ld@2 çdíí0 …Ñ¬ò0 •Bà0 I≈≤ñ0 èÂ“ö0 èe“ö0 è”ö2 è%”⁄2 œ%”⁄2 è•—⁄2 œE”3 	f”ö0 	KÜ”ö0 	ãF‚\3 	ÀFíí0 	Gíí0 	KG‚ú0 êßC»2 ê«Cà2 êgBà3 ê'B»3 êÁC4  êD»2 !ê'D»2 "êGDH4 #êgDH4 $êáDH4 %êßD4 &ê«D4 'êÁD4 (êEà4 êá@à3 )—'Eà0 hBà0 RhBH3 ìhBà2 (—EH2 (—EH2 *IE»4 +iE»4 ,UâEà0 -U©Eà0 .U…Eà0 /UÈEà0 0U	Fà0 1U)Fà0 ñiíí4 	À…·ú0 ™Û5 2XJˆû0 3Xjˆû0 4óäˆ^5 5Ÿ™°5 5´ˆﬁ2 5Y´°5 5ô´ˆû0 5J£¶î5 5◊´ˆﬁ5 5¨#6 6[Ãˆﬁ2 úÃÛ^6 (›ıﬁ4 5≠ˆﬁ2 6Õˆﬁ2 7Ìˆû6 8W 5 8ó˜^5 5ÿ≠ˆﬁ6 9.˜^3 :YK°5 ;	Kn∑ñ0 <†é∑ñ0 <‡é∑ñ0 < è∑ñ0 <`èÄ0 <†è∑ñ0 <‡è∑ñ0 < ê∑ñ0 =‡Ø∑ñ0 >I–∑ñ0 ù∞≥7 ù0≤V7 ·∞≥ñ7 ?D·Ä0 @∏ñ0 AI1∏ñ0 û±≥5 	À±ñ0 B"R∏÷7 C"r∏÷7 4	KíÊú5 4	ãí∂ñ6 D	ãí∏÷2 =D°Ä0 4„íÊú0 
