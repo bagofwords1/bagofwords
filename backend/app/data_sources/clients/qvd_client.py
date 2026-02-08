@@ -51,7 +51,7 @@ class QVDClient(DataSourceClient):
     def _load_qvd_files(self, con: duckdb.DuckDBPyConnection) -> dict[str, str]:
         """Load QVD files into DuckDB as views. Returns {table_name: filepath}."""
         try:
-            from pyqvd import read_qvd
+            from pyqvd import QvdTable
         except ImportError:
             raise ImportError(
                 "The 'pyqvd' package is required for QVD support. "
@@ -65,7 +65,8 @@ class QVDClient(DataSourceClient):
         for filepath in files:
             table_name = self._safe_table_name(filepath, used)
             # Read QVD into pandas DataFrame
-            df = read_qvd(filepath)
+            qvd_table = QvdTable.from_qvd(filepath)
+            df = qvd_table.to_pandas()
             # Register as DuckDB view
             con.register(table_name, df)
             table_map[table_name] = filepath
@@ -171,3 +172,7 @@ df = client.execute_query("SELECT * FROM sales LIMIT 10")
 df = client.execute_query("SELECT product, SUM(amount) AS total FROM sales GROUP BY product")
 ```
 """
+
+
+# Compatibility alias for dynamic resolver expecting 'QvdClient'
+QvdClient = QVDClient

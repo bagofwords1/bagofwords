@@ -466,3 +466,7 @@ CALCULATETABLE(
             "Authorization": f"Bearer {self._access_token}",
             "Content-Type": "application/json",
         }
+
+
+# Compatibility alias for dynamic resolver expecting 'PowerbiClient'
+PowerbiClient = PowerBIClient

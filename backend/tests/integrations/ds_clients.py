@@ -28,6 +28,7 @@ DATA_SOURCES = [
     "bigquery",
     "databricks_sql",
     "powerbi",
+    "qvd",
 ]
 
 
