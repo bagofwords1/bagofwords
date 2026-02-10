@@ -106,6 +106,7 @@ from tests.fixtures.completion import create_completion, get_completions, create
 from tests.fixtures.data_source import (
     create_data_source,
     get_data_sources,
+    get_data_source,
     test_connection,
     update_data_source,
     delete_data_source,

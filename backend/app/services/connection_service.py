@@ -228,22 +228,29 @@ class ConnectionService:
         organization: Organization,
         current_user: User,
     ) -> dict:
-        """Delete a connection and all related data."""
+        """Delete a connection and all related data.
+
+        This will cascade delete:
+        - ConnectionTable records (schema cache)
+        - DataSourceTable records linked to those ConnectionTables
+        - UserConnectionCredentials (per-user auth)
+        - UserConnectionTable/Column (user overlays)
+        - domain_connection junction records (DB-level cascade)
+
+        Domains themselves remain intact but lose this connection link.
+        """
         connection = await self.get_connection(db, connection_id, organization)
 
-        # Check if connection is used by any domains
-        if connection.data_sources:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot delete connection that is linked to {len(connection.data_sources)} domain(s). Remove domain links first."
-            )
-
-        # Tables and credentials will cascade delete
+        # Log impact for audit
+        domain_count = len(connection.data_sources) if connection.data_sources else 0
+        if domain_count > 0:
+            domain_names = [ds.name for ds in connection.data_sources]
+            logger.info(f"Deleting connection {connection.name} ({connection_id}) which is linked to {domain_count} domain(s): {domain_names}")
 
         await db.delete(connection)
         await db.commit()
 
-        return {"message": "Connection deleted successfully"}
+        return {"message": "Connection deleted successfully", "impacted_domains": domain_count}
 
     def test_connection_params(
         self,

@@ -72,6 +72,7 @@ async def list_connections(
             organization_id=str(conn.organization_id),
             table_count=table_count,
             domain_count=len(conn.data_sources) if conn.data_sources else 0,
+            domain_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
         ))
     return result
 
@@ -142,6 +143,7 @@ async def get_connection(
         organization_id=str(connection.organization_id),
         table_count=len(connection.connection_tables) if connection.connection_tables else 0,
         domain_count=len(connection.data_sources) if connection.data_sources else 0,
+        domain_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
         has_credentials=bool(connection.credentials),
     )
 
