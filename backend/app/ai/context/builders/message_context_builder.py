@@ -250,6 +250,17 @@ class MessageContextBuilder:
                                     answer_text = rj.get('answer') or ((rj.get('output') or {}).get('answer') if isinstance(rj.get('output'), dict) else None)
                                     if answer_text:
                                         tool_info += f" - AI answer: {answer_text}"
+                                elif tool_execution.tool_name == 'create_artifact' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    digest_parts = []
+                                    if rj.get('title'):
+                                        digest_parts.append(f"artifact: {rj.get('title')}")
+                                    if rj.get('mode'):
+                                        digest_parts.append(f"mode: {rj.get('mode')}")
+                                    if rj.get('artifact_id'):
+                                        digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.created_widget_id:
                                     # Get widget details for other tools
                                     widget_result = await self.db.execute(
@@ -630,6 +641,17 @@ class MessageContextBuilder:
                                 answer_text = rj.get('answer') or ((rj.get('output') or {}).get('answer') if isinstance(rj.get('output'), dict) else None)
                                 if answer_text:
                                     tool_info += f" - AI answer: {answer_text}"
+                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'create_artifact' and tool_execution.result_json:
+                                rj = tool_execution.result_json or {}
+                                digest_parts = []
+                                if rj.get('title'):
+                                    digest_parts.append(f"artifact: {rj.get('title')}")
+                                if rj.get('mode'):
+                                    digest_parts.append(f"mode: {rj.get('mode')}")
+                                if rj.get('artifact_id'):
+                                    digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'error' and tool_execution.error_message:
                                 error = tool_execution.error_message
                                 if len(error) > 50:

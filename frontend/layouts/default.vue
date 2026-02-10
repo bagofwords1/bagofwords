@@ -202,7 +202,7 @@
               <span class="flex items-center justify-center w-5 h-5 text-lg">
                 <UIcon name="heroicons-circle-stack" />
               </span>
-              <span v-if="showText" class="text-sm">Data</span>
+              <span v-if="showText" class="text-sm">Data Agents</span>
             </template>
           </a>
         </li>

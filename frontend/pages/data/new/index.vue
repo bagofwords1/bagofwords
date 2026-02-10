@@ -71,56 +71,15 @@
             type="button"
             class="mt-2 inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700"
             :disabled="creatingFromConnection"
-            @click="handleCreateNewConnection"
+            @click="showAddConnectionModal = true"
           >
             <UIcon name="heroicons-plus-circle" class="h-3.5 w-3.5" />
             <span>Create new connection</span>
           </button>
         </div>
 
-        <!-- New connection flow (DataSourceGrid + ConnectForm) -->
-        <div v-if="showNewConnectionFlow">
-          <div v-if="!selectedDataSource" class="mt-2">
-            <div class="flex items-center gap-2 mb-4">
-              <button type="button" @click="showNewConnectionFlow = false" class="text-gray-500 hover:text-gray-700">
-                <UIcon name="heroicons-chevron-left" class="w-5 h-5" />
-              </button>
-              <span class="text-sm font-medium text-gray-800">Select connection type</span>
-            </div>
-            <DataSourceGrid @select="selectDataSource" :navigate-on-demo="true" />
-          </div>
-
-          <div v-else class="mt-4">
-            <div class="flex items-center gap-2 mb-4">
-              <button type="button" @click="backToGrid" class="text-gray-500 hover:text-gray-700">
-                <UIcon name="heroicons-chevron-left" class="w-5 h-5" />
-              </button>
-              <DataSourceIcon :type="selectedDataSource.type" class="h-5" />
-              <span class="text-sm font-medium text-gray-800">{{ selectedDataSource.title }}</span>
-            </div>
-
-            <ConnectForm
-              @success="handleNewConnectionSuccess"
-              :initialType="selectedDataSource.type"
-              :forceShowSystemCredentials="true"
-              :showRequireUserAuthToggle="true"
-              :initialRequireUserAuth="false"
-              :showTestButton="true"
-              :showLLMToggle="false"
-              :hideHeader="true"
-              mode="create_connection_only"
-            />
-          </div>
-
-          <div class="mt-6 text-center">
-            <button type="button" @click="showNewConnectionFlow = false" class="text-sm text-gray-500 hover:text-gray-700">
-              ← Back
-            </button>
-          </div>
-        </div>
-
         <!-- Existing connection flow (main form) -->
-        <div v-else-if="selectedConnections.length > 0">
+        <div v-if="selectedConnections.length > 0">
           <div class="flex items-center gap-2 mb-4">
             <UToggle v-model="useLlmSync" :disabled="creatingFromConnection" size="xs" color="blue" />
             <span class="text-xs text-gray-700">Use LLM to learn domain</span>
@@ -153,6 +112,9 @@
           </NuxtLink>
         </div>
       </div>
+
+      <!-- Add Connection Modal -->
+      <AddConnectionModal v-model="showAddConnectionModal" :skipSuccessStep="true" @created="handleNewConnectionCreated" />
     </div>
   </div>
 </template>
@@ -160,9 +122,8 @@
 <script setup lang="ts">
 definePageMeta({ auth: true })
 import Spinner from '~/components/Spinner.vue'
-import ConnectForm from '@/components/datasources/ConnectForm.vue'
 import WizardSteps from '@/components/datasources/WizardSteps.vue'
-import DataSourceGrid from '@/components/datasources/DataSourceGrid.vue'
+import AddConnectionModal from '~/components/AddConnectionModal.vue'
 
 const route = useRoute()
 
@@ -181,29 +142,10 @@ const domainName = ref('')
 const useLlmSync = ref(true)
 const creatingFromConnection = ref(false)
 const errorMessage = ref('')
-const showNewConnectionFlow = ref(false)
+const showAddConnectionModal = ref(false)
 
-const selectedDataSource = ref<any | null>(null)
-
-const existingConnections = computed<Connection[]>(() => {
-  return connections.value
-})
-
-function handleCreateNewConnection() {
-  showNewConnectionFlow.value = true
-  selectedDataSource.value = null
-}
-
-function selectDataSource(ds: any) {
-  selectedDataSource.value = ds
-}
-
-function backToGrid() {
-  selectedDataSource.value = null
-}
-
-async function handleNewConnectionSuccess(connectionData: any) {
-  // Add the new connection to selections and refresh list
+async function handleNewConnectionCreated(connectionData: any) {
+  // Refresh connections list
   await loadConnections()
 
   // Find and select the newly created connection
@@ -213,10 +155,6 @@ async function handleNewConnectionSuccess(connectionData: any) {
       selectedConnections.value = [...selectedConnections.value, newConn]
     }
   }
-
-  // Exit new connection flow
-  showNewConnectionFlow.value = false
-  selectedDataSource.value = null
 }
 
 const canSubmitExisting = computed(() => {
@@ -283,26 +221,20 @@ onMounted(async () => {
   await loadConnections()
 
   const forcedNew = String(route.query.mode || '') === 'new_connection'
-  if (forcedNew || connections.value.length === 0) {
-    showNewConnectionFlow.value = true
+  const connectionParam = route.query.connection as string
+
+  // Pre-select connection if passed via query param (from AddConnectionModal)
+  if (connectionParam) {
+    const matchingConn = connections.value.find(c => c.id === connectionParam)
+    if (matchingConn) {
+      selectedConnections.value = [matchingConn]
+    }
+  } else if (forcedNew || connections.value.length === 0) {
+    // Open Add Connection modal if no connections exist or forced
+    showAddConnectionModal.value = true
   } else if (connections.value.length === 1) {
     // Single connection - auto-select it
     selectedConnections.value = [connections.value[0]]
-  }
-
-  // Check if type was passed via query param (for backward compatibility)
-  const typeParam = route.query.type as string
-  if (typeParam) {
-    // Fetch available data sources to find the matching type
-    const response = await useMyFetch('/available_data_sources', { method: 'GET' })
-    if (response.data.value) {
-      const availableDs = response.data.value as any[]
-      const matchingDs = availableDs.find((ds: any) => ds.type === typeParam)
-      if (matchingDs) {
-        showNewConnectionFlow.value = true
-        selectedDataSource.value = matchingDs
-      }
-    }
   }
 })
 </script>

@@ -7,9 +7,9 @@
       </div>
 
       <form @submit.prevent="onSubmit" class="space-y-3">
-        <div v-if="allowNameEdit !== false">
-          <label class="text-sm font-medium text-gray-700 mb-1 block">Name</label>
-          <input v-model="name" type="text" placeholder="Name (e.g. 'Sales')" class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" />
+        <div v-if="props.allowNameEdit !== false" class="p-3 rounded border">
+          <label class="text-sm font-medium text-gray-700 mb-1 block">Connection Name</label>
+          <input v-model="name" type="text" placeholder="e.g., 'Sales DB', 'Production'" class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" />
         </div>
 
         <div v-if="fields.config" class="p-3 rounded border">

@@ -428,7 +428,7 @@ def test_available_data_sources_includes_requires_license(
     org_id = whoami(user_token)['organizations'][0]['id']
 
     response = test_client.get(
-        "/available_data_sources",
+        "/api/available_data_sources",
         headers={
             "Authorization": f"Bearer {user_token}",
             "X-Organization-Id": org_id,

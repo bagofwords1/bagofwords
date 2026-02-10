@@ -8,20 +8,120 @@
             </div>
 
             <div v-else>
-                <!-- Header -->
-                <div class="mb-4">
-                    <h1 class="text-lg font-semibold">
-                        <GoBackChevron v-if="isExcel" />
-                        Data
-                    </h1>
-                    <p class="mt-1 text-gray-500">
-                        Manage your database connections and organize tables into domains.
-                    </p>
+                <!-- Data Agents Section -->
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-1">
+                        <h1 class="text-lg font-semibold">
+                            <GoBackChevron v-if="isExcel" />
+                            Data Agents
+                        </h1>
+                        <UButton
+                            v-if="canCreateDataSource && connections.length > 0"
+                            @click="navigateTo('/data/new')"
+                            color="blue"
+                            size="xs"
+                        >
+                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                            Create Data Agent
+                        </UButton>
+                    </div>
+                    <p class="text-gray-500 mb-3">Organize tables and instructions into domains.</p>
+
+                    <!-- Data Agents grid -->
+                    <div v-if="filteredDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        <div
+                            v-for="ds in filteredDomains"
+                            :key="ds.id"
+                            class="block p-4 rounded-lg border border-gray-100 bg-white hover:border-gray-200 hover:shadow-md transition-all group"
+                        >
+                            <NuxtLink :to="`/data/${ds.id}`" class="block">
+                                <!-- Card header -->
+                                <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
+
+                                <!-- Metadata -->
+                                <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
+                                    <UTooltip v-for="conn in (ds.connections || [])" :key="conn.id" :text="conn.name">
+                                        <DataSourceIcon class="h-3.5" :type="conn.type" />
+                                    </UTooltip>
+                                    <span>{{ getTableCount(ds) }} tables</span>
+                                </div>
+
+                                <!-- Description (2 lines max) -->
+                                <p v-if="ds.description" class="text-xs text-gray-500 leading-relaxed line-clamp-2">
+                                    {{ ds.description }}
+                                </p>
+                                <p v-else class="text-xs text-gray-300 italic">
+                                    No description
+                                </p>
+                            </NuxtLink>
+
+                            <!-- Connect button for user auth required but not connected -->
+                            <button
+                                v-if="needsUserConnection(ds)"
+                                @click.stop="openCredentialsModal(ds)"
+                                class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                            >
+                                <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
+                                Connect
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Empty state for filtered view (connection selected but no domains) -->
+                    <div v-else-if="selectedConnectionId !== null && canCreateDataSource" class="py-12 text-center border border-dashed border-gray-200 rounded-lg">
+                        <div class="text-gray-400 mb-2">
+                            <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto opacity-50" />
+                        </div>
+                        <p class="text-sm text-gray-500 mb-1">No data agents in this connection</p>
+                        <p class="text-xs text-gray-400 mb-4">Create a data agent to start organizing your data</p>
+                        <UButton
+                            @click="navigateTo('/data/new')"
+                            color="blue"
+                            variant="soft"
+                            size="xs"
+                        >
+                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                            Create Data Agent
+                        </UButton>
+                    </div>
+
+                    <!-- Empty state: has connections but no domains at all -->
+                    <div v-else-if="connections.length > 0 && allDomains.length === 0 && canCreateDataSource" class="py-12 text-center border border-dashed border-gray-200 rounded-lg">
+                        <div class="text-gray-400 mb-2">
+                            <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto opacity-50" />
+                        </div>
+                        <p class="text-sm text-gray-500 mb-1">No data agents yet</p>
+                        <p class="text-xs text-gray-400 mb-4">Create your first data agent to start organizing tables and instructions</p>
+                        <UButton
+                            @click="navigateTo('/data/new')"
+                            color="blue"
+                            variant="soft"
+                            size="xs"
+                        >
+                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                            Create Data Agent
+                        </UButton>
+                    </div>
                 </div>
 
-                <!-- Connection Filters -->
-                <div class="mb-5">
-                    <div class="flex flex-wrap items-center gap-2">
+                <!-- Connections Section -->
+                <div class="mb-6">
+                    <div class="flex items-center justify-between mb-1">
+                        <h1 class="text-lg font-semibold">Connections</h1>
+                        <UButton
+                            v-if="canCreateDataSource"
+                            @click="showAddConnectionModal = true"
+                            color="blue"
+                            size="xs"
+                        >
+                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
+                            Add Connection
+                        </UButton>
+                    </div>
+                    <p class="text-gray-500 mb-3">Manage your database connections.</p>
+
+                    <!-- Connection chips (when connections exist) -->
+                    <div v-if="connections.length > 0" class="flex flex-wrap items-center gap-2">
                         <!-- All filter -->
                         <button
                             @click="selectedConnectionId = null"
@@ -73,103 +173,25 @@
                                 </button>
                             </UDropdown>
                         </div>
+                    </div>
 
-                        <!-- New data button -->
-                        <UButton 
-                            v-if="canCreateDataSource"
-                            @click="navigateTo('/data/new')"
+                    <!-- Empty state when no connections -->
+                    <div v-else-if="canCreateDataSource" class="py-8 text-center border border-dashed border-gray-200 rounded-lg">
+                        <div class="text-gray-400 mb-2">
+                            <UIcon name="heroicons-server-stack" class="w-8 h-8 mx-auto opacity-50" />
+                        </div>
+                        <p class="text-sm text-gray-500 mb-1">No connections yet</p>
+                        <p class="text-xs text-gray-400 mb-4">Add a database connection to get started</p>
+                        <UButton
+                            @click="showAddConnectionModal = true"
                             color="blue"
+                            variant="soft"
                             size="xs"
-                            class="ml-auto"
                         >
                             <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            New data
+                            Add Connection
                         </UButton>
                     </div>
-                </div>
-
-                <!-- Domains grid -->
-                <div v-if="filteredDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-                    <div 
-                        v-for="ds in filteredDomains" 
-                        :key="ds.id"
-                        class="block p-4 rounded-lg border border-gray-100 bg-white hover:border-gray-200 hover:shadow-md transition-all group"
-                    >
-                        <NuxtLink :to="`/data/${ds.id}`" class="block">
-                            <!-- Card header -->
-                            <div class="font-medium text-gray-900 text-sm leading-tight mb-1">{{ ds.name }}</div>
-                            
-                            <!-- Metadata -->
-                            <div class="flex items-center gap-1.5 text-[11px] text-gray-400 mb-2">
-                                <UTooltip v-for="conn in (ds.connections || [])" :key="conn.id" :text="conn.name">
-                                    <DataSourceIcon class="h-3.5" :type="conn.type" />
-                                </UTooltip>
-                                <span>{{ getTableCount(ds) }} tables</span>
-                            </div>
-                            
-                            <!-- Description (2 lines max) -->
-                            <p v-if="ds.description" class="text-xs text-gray-500 leading-relaxed line-clamp-2">
-                                {{ ds.description }}
-                            </p>
-                            <p v-else class="text-xs text-gray-300 italic">
-                                No description
-                            </p>
-                        </NuxtLink>
-                        
-                        <!-- Connect button for user auth required but not connected -->
-                        <button 
-                            v-if="needsUserConnection(ds)"
-                            @click.stop="openCredentialsModal(ds)"
-                            class="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs text-blue-600 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
-                        >
-                            <UIcon name="heroicons-key" class="w-3.5 h-3.5" />
-                            Connect
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Empty state for filtered view (connection selected but no domains) -->
-                <div v-else-if="selectedConnectionId !== null && canCreateDataSource" class="py-12 text-center border border-dashed border-gray-200 rounded-lg mb-6">
-                    <div class="text-gray-400 mb-2">
-                        <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto opacity-50" />
-                    </div>
-                    <p class="text-sm text-gray-500 mb-1">No domains in this connection</p>
-                    <p class="text-xs text-gray-400 mb-4">Create a domain to start organizing your data</p>
-                    <UButton 
-                        @click="navigateTo('/data/new')"
-                        color="blue"
-                        variant="soft"
-                        size="xs"
-                    >
-                        <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                        Create Domain
-                    </UButton>
-                </div>
-
-                <!-- Empty state: has connections but no domains at all -->
-                <div v-else-if="connections.length > 0 && allDomains.length === 0 && canCreateDataSource" class="py-12 text-center border border-dashed border-gray-200 rounded-lg mb-6">
-                    <div class="text-gray-400 mb-2">
-                        <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto opacity-50" />
-                    </div>
-                    <p class="text-sm text-gray-500 mb-1">No domains yet</p>
-                    <p class="text-xs text-gray-400 mb-4">Create your first domain to start organizing tables and instructions</p>
-                    <UButton 
-                        @click="navigateTo('/data/new')"
-                        color="blue"
-                        variant="soft"
-                        size="xs"
-                    >
-                        <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                        Create Domain
-                    </UButton>
-                </div>
-
-                <!-- Empty State: Show DataSourceGrid when no connections (admin only) -->
-                <div v-if="allDomains.length === 0 && connections.length === 0 && canCreateDataSource">
-                    <DataSourceGrid 
-                        @select="handleDataSourceSelect"
-                        @demo-installed="handleDemoInstalled"
-                    />
                 </div>
             </div>
 
@@ -182,6 +204,9 @@
 
             <!-- User Credentials Modal (for per-user auth) -->
             <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="selectedDs" @saved="refreshData" />
+
+            <!-- Add Connection Modal -->
+            <AddConnectionModal v-model="showAddConnectionModal" @created="refreshData" />
         </div>
     </div>
 </template>
@@ -190,7 +215,7 @@
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
-import DataSourceGrid from '~/components/datasources/DataSourceGrid.vue'
+import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 
@@ -211,6 +236,7 @@ const showConnectionModal = ref(false)
 const selectedConnection = ref<any>(null)
 const showCredsModal = ref(false)
 const selectedDs = ref<any>(null)
+const showAddConnectionModal = ref(false)
 
 // Filter state
 const selectedConnectionId = ref<string | null>(null)
@@ -401,16 +427,6 @@ async function refreshData() {
 }
 
 const canCreateDataSource = computed(() => useCan('create_data_source'))
-
-function handleDataSourceSelect(ds: any) {
-    // Navigate to the new connection form with the selected type
-    navigateTo(`/data/new?type=${ds.type}`)
-}
-
-async function handleDemoInstalled(result: any) {
-    // Refresh data after demo is installed
-    await refreshData()
-}
 
 onMounted(async () => {
     nextTick(async () => {
