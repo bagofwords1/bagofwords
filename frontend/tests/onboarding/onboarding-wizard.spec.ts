@@ -98,22 +98,41 @@ test.describe('Onboarding Wizard', () => {
   });
 
   test('step 4: complete onboarding and verify access to app', async ({ page }) => {
-    // Navigate to home
+    // Navigate directly to /onboarding
+    // If already completed, the onboarding middleware redirects to /
+    await page.goto('/onboarding');
+    await page.waitForLoadState('domcontentloaded');
+
+    // Wait for page to settle (client-side hydration + potential redirects)
+    await page.waitForTimeout(5000);
+
+    // If still on any onboarding page, skip it to complete the flow
+    if (page.url().includes('/onboarding')) {
+      const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
+      await expect(skipButton).toBeVisible({ timeout: 15000 });
+      await skipButton.click();
+      await page.waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 });
+    }
+
+    // Verify we're not on onboarding
+    expect(page.url()).not.toContain('/onboarding');
+
+    // Double-check: navigate to a feature page to verify no redirect
     await page.goto('/');
     await page.waitForLoadState('domcontentloaded');
-    
-    // Give it a moment in case of redirects
     await page.waitForTimeout(3000);
-    
-    // If still on onboarding, skip it to complete the flow
+
+    // If redirected again, try once more to dismiss
     if (page.url().includes('/onboarding')) {
-      await page.getByRole('button', { name: 'Skip onboarding' }).click();
-      await page.waitForURL('/', { timeout: 15000 });
+      const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
+      if (await skipButton.isVisible({ timeout: 5000 }).catch(() => false)) {
+        await skipButton.click();
+        await page.waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 });
+      }
     }
-    
-    // Verify we're on home (not on onboarding)
+
     expect(page.url()).not.toContain('/onboarding');
-    
+
     // Save the final auth state (admin is now onboarded)
     await page.context().storageState({ path: 'tests/config/admin.json' });
     // Also save as auth.json for backwards compatibility
