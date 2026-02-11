@@ -96,6 +96,10 @@
 
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
+
+const { isLicensed } = useEnterprise()
+
 function selectProvider(ds: any) {
   selectedType.value = String(ds?.type || '')
   handleTypeChange()
@@ -144,7 +148,7 @@ const isConnectionEdit = computed(() => isEditMode.value && !!props.connectionId
 
 const typeOptions = computed(() => available_ds.value || [])
 
-const showRequireUserAuth = computed(() => (props.showRequireUserAuthToggle !== false))
+const showRequireUserAuth = computed(() => (props.showRequireUserAuthToggle !== false) && isLicensed.value)
 
 const configFields = computed(() => {
   if (!fields.value?.config?.properties) return [] as any[]

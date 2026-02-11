@@ -48,11 +48,18 @@ class ConnectionService:
         """Create a new connection with validation."""
 
         # Check enterprise license for restricted data sources
-        from app.ee.license import is_datasource_allowed
+        from app.ee.license import is_datasource_allowed, is_enterprise_licensed
         if not is_datasource_allowed(type):
             raise HTTPException(
                 status_code=402,
                 detail=f"The {type} connector requires an enterprise license."
+            )
+
+        # Check enterprise license for user_required auth policy
+        if auth_policy == "user_required" and not is_enterprise_licensed():
+            raise HTTPException(
+                status_code=402,
+                detail="User authentication mode requires an enterprise license."
             )
 
         # Validate connection before saving (for system_only auth)
@@ -169,6 +176,16 @@ class ConnectionService:
     ) -> Connection:
         """Update a connection."""
         connection = await self.get_connection(db, connection_id, organization)
+
+        # Check enterprise license if switching to user_required auth policy
+        new_auth_policy = updates.get("auth_policy")
+        if new_auth_policy == "user_required" and connection.auth_policy != "user_required":
+            from app.ee.license import is_enterprise_licensed
+            if not is_enterprise_licensed():
+                raise HTTPException(
+                    status_code=402,
+                    detail="User authentication mode requires an enterprise license."
+                )
 
         # Track if connection-relevant fields changed
         connection_changed = False

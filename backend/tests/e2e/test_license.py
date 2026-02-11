@@ -509,3 +509,144 @@ class TestDataSourceLicensing:
 
         assert is_datasource_allowed("powerbi") is True
         assert is_datasource_allowed("qvd") is False  # Not in features
+
+
+@pytest.mark.e2e
+class TestUserAuthPolicyLicensing:
+    """Tests for user_required auth policy enterprise licensing."""
+
+    def test_user_required_auth_blocked_without_license(
+        self,
+        test_client,
+        create_user,
+        login_user,
+        whoami,
+        license_env_cleanup,
+    ):
+        """Creating connection with auth_policy=user_required blocked without license."""
+        from app.ee.license import clear_license_cache
+        from app.settings.config import settings
+
+        # Create user and login
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        org_id = whoami(token)['organizations'][0]['id']
+
+        # Ensure no license
+        if hasattr(settings.bow_config, 'license') and settings.bow_config.license:
+            settings.bow_config.license.key = None
+        clear_license_cache()
+
+        # Try to create connection with user_required auth policy
+        response = test_client.post(
+            "/api/connections",
+            json={
+                "name": "Test Connection",
+                "type": "postgresql",
+                "config": {"host": "localhost", "port": 5432, "database": "test"},
+                "credentials": {"username": "test", "password": "test"},
+                "auth_policy": "user_required",
+            },
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Organization-Id": org_id,
+            }
+        )
+
+        # Should be denied (402 Payment Required)
+        assert response.status_code == 402
+        assert "enterprise license" in response.json()["detail"].lower()
+
+    def test_user_required_auth_allowed_with_license(
+        self,
+        test_client,
+        create_user,
+        login_user,
+        whoami,
+        patch_license_key,
+    ):
+        """Creating connection with auth_policy=user_required allowed with license."""
+        from app.ee.license import clear_license_cache
+        from app.settings.config import settings
+        from app.settings.bow_config import LicenseConfig
+
+        # Create user and login
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        org_id = whoami(token)['organizations'][0]['id']
+
+        # Set valid enterprise license
+        test_license = _create_test_license(
+            org_name="User Auth Test Corp",
+            tier="enterprise",
+        )
+
+        if not hasattr(settings.bow_config, 'license') or not settings.bow_config.license:
+            settings.bow_config.license = LicenseConfig(key=test_license)
+        else:
+            settings.bow_config.license.key = test_license
+        clear_license_cache()
+
+        # Try to create connection with user_required auth policy
+        # Note: This will pass the license check but may fail connection validation
+        # (which is expected since we don't have a real database)
+        response = test_client.post(
+            "/api/connections",
+            json={
+                "name": "Test Connection",
+                "type": "postgresql",
+                "config": {"host": "localhost", "port": 5432, "database": "test"},
+                "credentials": {"username": "test", "password": "test"},
+                "auth_policy": "user_required",
+            },
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Organization-Id": org_id,
+            }
+        )
+
+        # Should NOT be 402 (license check passed)
+        # May be 400 (connection validation failed) or 200 (success)
+        assert response.status_code != 402
+
+    def test_system_only_auth_allowed_without_license(
+        self,
+        test_client,
+        create_user,
+        login_user,
+        whoami,
+        license_env_cleanup,
+    ):
+        """Creating connection with auth_policy=system_only allowed without license."""
+        from app.ee.license import clear_license_cache
+        from app.settings.config import settings
+
+        # Create user and login
+        user = create_user()
+        token = login_user(user["email"], user["password"])
+        org_id = whoami(token)['organizations'][0]['id']
+
+        # Ensure no license
+        if hasattr(settings.bow_config, 'license') and settings.bow_config.license:
+            settings.bow_config.license.key = None
+        clear_license_cache()
+
+        # Try to create connection with system_only auth policy (default)
+        response = test_client.post(
+            "/api/connections",
+            json={
+                "name": "Test Connection",
+                "type": "postgresql",
+                "config": {"host": "localhost", "port": 5432, "database": "test"},
+                "credentials": {"username": "test", "password": "test"},
+                "auth_policy": "system_only",
+            },
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Organization-Id": org_id,
+            }
+        )
+
+        # Should NOT be 402 (no license needed for system_only)
+        # May be 400 (connection validation failed) or 200 (success)
+        assert response.status_code != 402

@@ -10,22 +10,45 @@
             <div v-else>
                 <!-- Data Agents Section -->
                 <div class="mb-6">
-                    <div class="flex items-center justify-between mb-1">
+                    <div>
                         <h1 class="text-lg font-semibold">
                             <GoBackChevron v-if="isExcel" />
                             Data Agents
                         </h1>
-                        <UButton
-                            v-if="canCreateDataSource && connections.length > 0"
-                            @click="navigateTo('/data/new')"
-                            color="blue"
-                            size="xs"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            Create Data Agent
-                        </UButton>
+                        <p class="mt-2 text-gray-500">Organize tables and instructions into domains.</p>
                     </div>
-                    <p class="text-gray-500 mb-3">Organize tables and instructions into domains.</p>
+
+                    <!-- Header with search -->
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 my-4">
+                        <div class="flex-1 max-w-md w-full">
+                            <div class="relative">
+                                <input
+                                    v-model="searchQuery"
+                                    type="text"
+                                    placeholder="Search data agents..."
+                                    class="w-full pl-10 pr-4 text-xs py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                />
+                                <UIcon
+                                    name="i-heroicons-magnifying-glass"
+                                    class="absolute left-3 top-2.5 h-4 w-4 text-gray-400"
+                                />
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-end gap-2 w-full md:w-auto">
+                            <UButton
+                                v-if="canCreateDataSource && connections.length > 0"
+                                color="blue"
+                                variant="solid"
+                                size="xs"
+                                icon="i-heroicons-plus"
+                                class="w-full md:w-auto"
+                                @click="navigateTo('/data/new')"
+                            >
+                                Create Data Agent
+                            </UButton>
+                        </div>
+                    </div>
 
                     <!-- Data Agents grid -->
                     <div v-if="filteredDomains.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -240,6 +263,7 @@ const showAddConnectionModal = ref(false)
 
 // Filter state
 const selectedConnectionId = ref<string | null>(null)
+const searchQuery = ref('')
 
 // Connection menu items for dropdown (per connection)
 function getConnectionMenuItems(conn: any) {
@@ -270,12 +294,21 @@ function getDomainsForConnection(connectionId: string): any[] {
     })
 }
 
-// Filtered domains based on selected connection
+// Filtered domains based on selected connection and search query
 const filteredDomains = computed(() => {
-    if (selectedConnectionId.value === null) {
-        return allDomains.value
+    let domains = selectedConnectionId.value === null
+        ? allDomains.value
+        : getDomainsForConnection(selectedConnectionId.value)
+
+    if (searchQuery.value.trim()) {
+        const query = searchQuery.value.toLowerCase().trim()
+        domains = domains.filter(ds =>
+            ds.name?.toLowerCase().includes(query) ||
+            ds.description?.toLowerCase().includes(query)
+        )
     }
-    return getDomainsForConnection(selectedConnectionId.value)
+
+    return domains
 })
 
 const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
