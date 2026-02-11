@@ -1,5 +1,5 @@
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures/feature-test';
 
 test('can list data sources', async ({ page }) => {
   await page.goto('/data');

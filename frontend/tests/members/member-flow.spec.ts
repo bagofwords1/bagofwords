@@ -28,6 +28,19 @@ test.describe.serial('Member Flow', () => {
     // Navigate to settings/members
     await page.goto('/settings/members');
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(3000);
+
+    // If redirected to onboarding, dismiss it first
+    if (page.url().includes('/onboarding')) {
+      const skipButton = page.getByRole('button', { name: 'Skip onboarding' });
+      if (await skipButton.isVisible({ timeout: 10000 }).catch(() => false)) {
+        await skipButton.click();
+        await page.waitForURL((url) => !url.pathname.includes('/onboarding'), { timeout: 15000 });
+      }
+      // Now navigate to the actual target page
+      await page.goto('/settings/members');
+      await page.waitForLoadState('networkidle');
+    }
 
     // Verify we're on the members page (longer timeout for CI)
     await expect(page.getByRole('heading', { name: 'Settings' }))
