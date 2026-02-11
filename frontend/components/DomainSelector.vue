@@ -57,7 +57,7 @@
                     isAllDomains ? 'bg-indigo-50 text-indigo-700' : 'text-gray-600 hover:bg-gray-50'
                   ]"
                 >
-                  <span class="text-xs font-medium">All Domains</span>
+                  <span class="text-xs font-medium">All Agents</span>
                   <UIcon v-if="isAllDomains" name="heroicons-check" class="w-3 h-3 ml-auto text-indigo-600" />
                 </button>
 
@@ -164,7 +164,7 @@
                   :href="`/data/${hoveredDomainId}`"
                   class="text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:underline flex-shrink-0 whitespace-nowrap"
                 >
-                  Open data source →
+                  Open agent →
                 </a>
               </div>
             </div>
