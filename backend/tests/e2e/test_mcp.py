@@ -650,7 +650,7 @@ def test_mcp_get_context(
     context_text = data["result"]["content"][0]["text"]
     # Verify context contains expected data
     assert "data_sources" in context_text
-    assert "Chinook" in context_text or "chinook" in context_text.lower()
+    assert "Music Store" in context_text or "music store" in context_text.lower()
     # No manual cleanup needed - database reset by run_migrations fixture
 
 

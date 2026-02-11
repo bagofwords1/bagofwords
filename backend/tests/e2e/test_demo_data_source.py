@@ -34,7 +34,7 @@ def test_list_demo_data_sources(
 
     # Verify chinook demo structure
     chinook = next(d for d in demos if d["id"] == "chinook")
-    assert chinook["name"] == "Chinook Music Store"
+    assert chinook["name"] == "Music Store"
     assert chinook["type"] == "sqlite"
     assert "description" in chinook
     assert chinook["installed"] is False
@@ -42,7 +42,7 @@ def test_list_demo_data_sources(
 
     # Verify stocks demo structure
     stocks = next(d for d in demos if d["id"] == "stocks")
-    assert stocks["name"] == "Financial Markets Data"
+    assert stocks["name"] == "Financial Market Agent"
     assert stocks["type"] == "duckdb"
     assert stocks["installed"] is False
 
@@ -88,7 +88,7 @@ def test_install_chinook_demo(
 
     # Find the installed data source
     installed_ds = next(ds for ds in data_sources if ds["id"] == data_source_id)
-    assert installed_ds["name"] == "Chinook Music Store"
+    assert installed_ds["name"] == "Music Store"
     assert installed_ds["type"] == "sqlite"
 
     # Verify schema was loaded
@@ -225,7 +225,7 @@ def test_install_stocks_demo(
     # Verify data source appears in list
     data_sources = get_data_sources(user_token=user_token, org_id=org_id)
     installed_ds = next(ds for ds in data_sources if ds["id"] == data_source_id)
-    assert installed_ds["name"] == "Financial Markets Data"
+    assert installed_ds["name"] == "Financial Market Agent"
     assert installed_ds["type"] == "duckdb"
 
     # Verify schema was loaded

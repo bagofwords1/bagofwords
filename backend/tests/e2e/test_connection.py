@@ -209,7 +209,7 @@ def test_connection_delete_with_domains_cascades(
     - Remove the connection
     - Cascade delete DataSourceTable records linked via ConnectionTable
     - Remove domain_connection junction records
-    - Leave the domain itself intact (but with no connection)
+    - Delete domains that only have this connection (single-connection domains)
     """
     if not CONNECTION_TEST_DB_PATH.exists():
         pytest.skip(f"SQLite test database missing at {CONNECTION_TEST_DB_PATH}")
@@ -245,21 +245,13 @@ def test_connection_delete_with_domains_cascades(
 
     assert delete_response.status_code == 200
 
-    # Domain should still exist but with no connection
+    # Domain should be deleted since it only had this one connection
     domain_after = get_data_source(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
-    assert domain_after is not None
-    assert domain_after["id"] == domain["id"]
-
-    # Cleanup: delete the orphaned domain
-    delete_data_source(
-        data_source_id=domain["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
+    assert domain_after is None, "Domain with single connection should be deleted when connection is deleted"
 
 
 @pytest.mark.e2e
