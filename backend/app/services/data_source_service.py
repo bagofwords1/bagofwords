@@ -103,6 +103,19 @@ class DataSourceService:
             )
             table_count = table_count_result.scalar() or 0
 
+            # Fallback: count legacy tables without connection_table_id
+            # This handles data sources created before the ConnectionTable architecture
+            if table_count == 0:
+                legacy_count_result = await db.execute(
+                    select(func.count(DataSourceTable.id))
+                    .where(
+                        DataSourceTable.datasource_id == str(data_source.id),
+                        DataSourceTable.is_active == True,
+                        DataSourceTable.connection_table_id == None
+                    )
+                )
+                table_count = legacy_count_result.scalar() or 0
+
             connections_list.append(ConnectionEmbedded(
                 id=str(conn.id),
                 name=conn.name,
@@ -1500,10 +1513,10 @@ class DataSourceService:
             .filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id)
         )
         data_source = result.scalar_one_or_none()
-        
+
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
-            
+
 
         client = await self.construct_client(db=db, data_source=data_source, current_user=current_user)
         try:
@@ -2815,12 +2828,25 @@ class DataSourceService:
 
         # Deactivate domain tables that no longer exist in the connection
         # (table was deleted from the database)
+        # IMPORTANT: Only check tables that belong to THIS connection, not all domain tables
         conn_table_names = {t.name for t in conn_tables}
-        missing_tables = set(existing_by_name.keys()) - conn_table_names
+
+        # Get domain tables that are linked to THIS connection (via ConnectionTable)
+        existing_for_this_conn = await db.execute(
+            select(DataSourceTable)
+            .join(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
+            .where(
+                DataSourceTable.datasource_id == data_source.id,
+                ConnectionTable.connection_id == connection_id_str
+            )
+        )
+        existing_for_this_conn = {t.name: t for t in existing_for_this_conn.scalars().all()}
+
+        missing_tables = set(existing_for_this_conn.keys()) - conn_table_names
         if missing_tables:
             from sqlalchemy import update
             for table_name in missing_tables:
-                domain_table = existing_by_name[table_name]
+                domain_table = existing_for_this_conn[table_name]
                 await db.execute(
                     update(DataSourceTable)
                     .where(DataSourceTable.id == domain_table.id)

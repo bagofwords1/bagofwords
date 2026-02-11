@@ -127,11 +127,12 @@ class ConnectionService:
         organization: Organization,
     ) -> Connection:
         """Get a connection by ID."""
+        from app.models.data_source import DataSource
         result = await db.execute(
             select(Connection)
             .options(
                 selectinload(Connection.connection_tables),
-                selectinload(Connection.data_sources),
+                selectinload(Connection.data_sources).selectinload(DataSource.connections),
             )
             .filter(
                 Connection.id == connection_id,
@@ -139,10 +140,10 @@ class ConnectionService:
             )
         )
         connection = result.scalar_one_or_none()
-        
+
         if not connection:
             raise HTTPException(status_code=404, detail="Connection not found")
-        
+
         return connection
 
     async def get_connections(
@@ -254,20 +255,33 @@ class ConnectionService:
         - UserConnectionTable/Column (user overlays)
         - domain_connection junction records (DB-level cascade)
 
-        Domains themselves remain intact but lose this connection link.
+        Data sources that only have this connection will also be deleted.
         """
         connection = await self.get_connection(db, connection_id, organization)
 
         # Log impact for audit
         domain_count = len(connection.data_sources) if connection.data_sources else 0
+        deleted_domain_names = []
+
         if domain_count > 0:
             domain_names = [ds.name for ds in connection.data_sources]
             logger.info(f"Deleting connection {connection.name} ({connection_id}) which is linked to {domain_count} domain(s): {domain_names}")
 
+            # Delete data sources that only have this connection
+            for ds in connection.data_sources:
+                if len(ds.connections) == 1:
+                    deleted_domain_names.append(ds.name)
+                    logger.info(f"Deleting data source {ds.name} ({ds.id}) as it only has this connection")
+                    await db.delete(ds)
+
         await db.delete(connection)
         await db.commit()
 
-        return {"message": "Connection deleted successfully", "impacted_domains": domain_count}
+        return {
+            "message": "Connection deleted successfully",
+            "impacted_domains": domain_count,
+            "deleted_domains": deleted_domain_names,
+        }
 
     def test_connection_params(
         self,

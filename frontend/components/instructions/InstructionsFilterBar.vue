@@ -208,13 +208,13 @@
                         >
                             <template #label>
                                 <span class="flex items-center gap-2 text-xs">
-                                    <DataSourceIcon v-if="selectedDataSource?.type" :type="selectedDataSource.type" class="h-4 w-4" />
+                                    <DataSourceIcon v-if="selectedDataSource?.type" :type="selectedDataSource.type" class="h-4" />
                                     {{ selectedDataSource?.label || 'All Data Sources' }}
                                 </span>
                             </template>
                             <template #option="{ option }">
                                 <span class="flex items-center gap-2 text-xs">
-                                    <DataSourceIcon v-if="option.type" :type="option.type" class="h-4 w-4" />
+                                    <DataSourceIcon v-if="option.type" :type="option.type" class="h-4" />
                                     {{ option.label }}
                                 </span>
                             </template>

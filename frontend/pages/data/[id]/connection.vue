@@ -164,7 +164,7 @@
                             v-model="selectedConnectionId"
                             class="sr-only"
                         />
-                        <DataSourceIcon :type="conn.type" class="w-6 h-6 mr-3" />
+                        <DataSourceIcon :type="conn.type" class="h-6 mr-3" />
                         <div class="flex-1 min-w-0">
                             <div class="font-medium text-gray-900 truncate">{{ conn.name }}</div>
                             <div class="text-xs text-gray-500">{{ conn.type }}</div>
@@ -206,7 +206,7 @@
             <template #header>
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                        <DataSourceIcon :type="editingConnection?.type" class="h-5 w-5" />
+                        <DataSourceIcon :type="editingConnection?.type" class="h-5" />
                         <h3 class="text-lg font-semibold">Edit Connection</h3>
                     </div>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />

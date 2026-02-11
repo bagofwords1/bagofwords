@@ -135,7 +135,7 @@
                           v-for="conn in (hoveredDomainDetails.connections || []).slice(0, 3)"
                           :key="conn.id"
                           :type="conn.type"
-                          class="w-4 h-4 flex-shrink-0 ring-1 ring-white rounded"
+                          class="h-4 flex-shrink-0 ring-1 ring-white rounded"
                         />
                       </div>
                       <span class="text-xs text-gray-500 truncate">
@@ -300,7 +300,7 @@
                             @click="selectTable(t)"
                             class="w-full px-3 py-2 text-left text-xs flex items-center gap-2 hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
                           >
-                            <DataSourceIcon v-if="hasMultipleConnections" :type="t.connection_type" class="w-3.5 h-3.5 flex-shrink-0" />
+                            <DataSourceIcon v-if="hasMultipleConnections" :type="t.connection_type" class="h-3.5 flex-shrink-0" />
                             <span class="truncate flex-1 text-gray-800 font-medium">{{ t.name }}</span>
                             <span v-if="t.columns?.length" class="text-[11px] text-gray-400 flex-shrink-0">{{ t.columns.length }} cols</span>
                           </button>

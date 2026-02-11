@@ -119,7 +119,7 @@
                                     v-for="ds in getSelectedDataSourceObjects.slice(0, 3)" 
                                     :key="ds.id" 
                                     :type="ds.type" 
-                                    class="h-4 w-4 border border-white rounded" 
+                                    class="h-4 border border-white rounded" 
                                 />
                             </div>
                             <span class="text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
@@ -309,7 +309,7 @@ Tip: Type @ to reference other instructions"
                                     <template v-else>
                                         <span class="font-mono font-medium text-gray-900 block">{{ item.name }}</span>
                                         <div class="flex items-center gap-1 mt-0.5">
-                                            <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="w-2.5 h-2.5" />
+                                            <DataSourceIcon v-if="item.dataSourceType" :type="item.dataSourceType" class="h-2.5" />
                                             <span class="text-[10px] text-gray-500">{{ item.dataSourceName }}</span>
                                         </div>
                                     </template>
@@ -535,7 +535,7 @@ Tip: Type @ to reference other instructions"
                             <span v-if="isAllDataSourcesSelected" class="text-xs text-gray-700">All sources</span>
                             <span v-else-if="selectedDataSources.length === 0" class="text-gray-400 text-xs">Sources</span>
                             <div v-else class="flex items-center gap-1 text-xs text-gray-700">
-                                <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" class="w-3 h-3" />
+                                <DataSourceIcon :type="getSelectedDataSourceObjects[0]?.type" class="h-3" />
                                 <span class="truncate max-w-[100px]">{{ getSelectedDataSourceObjects[0]?.name }}</span>
                                 <span v-if="getSelectedDataSourceObjects.length > 1" class="text-gray-500">+{{ getSelectedDataSourceObjects.length - 1 }}</span>
                             </div>
@@ -543,9 +543,9 @@ Tip: Type @ to reference other instructions"
                         <template #option="{ option }">
                             <div class="flex items-center w-full py-0.5">
                                 <div v-if="option.id === 'all'" class="flex -space-x-1 mr-1.5">
-                                    <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 w-3 border border-white rounded" />
+                                    <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 border border-white rounded" />
                                 </div>
-                                <DataSourceIcon v-else :type="option.type" class="w-3 h-3 mr-1.5" />
+                                <DataSourceIcon v-else :type="option.type" class="h-3 mr-1.5" />
                                 <span class="text-xs">{{ option.name }}</span>
                             </div>
                         </template>
@@ -580,7 +580,7 @@ Tip: Type @ to reference other instructions"
                                     <span class="text-[11px] font-medium text-gray-900 break-all">{{ option.name || option.text_preview?.slice(0, 40) + '...' }}</span>
                                 </div>
                                 <div v-if="option.data_source_name" class="flex items-center gap-1">
-                                    <DataSourceIcon :type="option.data_source_type" class="w-2.5 h-2.5 flex-shrink-0" />
+                                    <DataSourceIcon :type="option.data_source_type" class="h-2.5 flex-shrink-0" />
                                     <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
                                 </div>
                                 <div v-else-if="option.type === 'instruction'" class="flex items-center gap-1">

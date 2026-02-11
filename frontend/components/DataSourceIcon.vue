@@ -1,5 +1,5 @@
 <template>
-    <img :src="imgSrc" :class="computedClass" alt="" @error="handleError" />
+    <img :src="imgSrc" :class="computedClass" class="w-auto" alt="" @error="handleError" />
 </template>
 
 <script setup lang="ts">

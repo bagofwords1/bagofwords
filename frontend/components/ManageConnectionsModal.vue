@@ -33,7 +33,7 @@
           >
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <DataSourceIcon :type="conn.type" class="h-6 w-6" />
+                <DataSourceIcon :type="conn.type" class="h-6" />
                 <div>
                   <div class="font-medium text-gray-900">{{ conn.name }}</div>
                   <div class="text-xs text-gray-500">
@@ -96,7 +96,7 @@
       <template #header>
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" class="h-5 w-5" />
+            <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" class="h-5" />
             <h3 class="text-lg font-semibold">Edit Connection</h3>
           </div>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />

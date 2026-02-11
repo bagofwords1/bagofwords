@@ -263,7 +263,7 @@
                 <button type="button" class="flex items-center justify-between text-left flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 mr-1 text-gray-500" />
-                    <DataSourceIcon v-if="availableConnections.length > 1" :type="table.connection_type" class="w-3.5 h-3.5 mr-1.5 flex-shrink-0" />
+                    <DataSourceIcon v-if="availableConnections.length > 1" :type="table.connection_type" class="h-3.5 mr-1.5 flex-shrink-0" />
                     <span class="text-sm text-gray-800 truncate">{{ table.name }}</span>
                     <span v-if="!isTableActive(table.name) && canUpdate" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
                     <span v-if="isTableDirty(table.name)" class="ml-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
@@ -407,32 +407,34 @@ type PaginatedResponse = {
   has_more: boolean;
 }
 
-const props = withDefaults(defineProps<{ 
-  dsId: string; 
-  schema: 'full' | 'user'; 
-  canUpdate?: boolean; 
-  showRefresh?: boolean; 
-  refreshIconOnly?: boolean; 
-  showSave?: boolean; 
-  saveLabel?: string; 
-  maxHeight?: string; 
-  showHeader?: boolean; 
-  headerTitle?: string; 
-  headerSubtitle?: string; 
+const props = withDefaults(defineProps<{
+  dsId: string;
+  schema: 'full' | 'user';
+  canUpdate?: boolean;
+  showRefresh?: boolean;
+  refreshIconOnly?: boolean;
+  showSave?: boolean;
+  saveLabel?: string;
+  maxHeight?: string;
+  showHeader?: boolean;
+  headerTitle?: string;
+  headerSubtitle?: string;
   showStats?: boolean;
   pageSize?: number;
-}>(), { 
-  canUpdate: true, 
-  showRefresh: true, 
-  refreshIconOnly: false, 
-  showSave: true, 
-  saveLabel: 'Save', 
-  maxHeight: '50vh', 
-  showHeader: false, 
-  headerTitle: 'Select tables', 
-  headerSubtitle: 'Choose which tables to enable', 
+  skipRefreshOnSave?: boolean;
+}>(), {
+  canUpdate: true,
+  showRefresh: true,
+  refreshIconOnly: false,
+  showSave: true,
+  saveLabel: 'Save',
+  maxHeight: '50vh',
+  showHeader: false,
+  headerTitle: 'Select tables',
+  headerSubtitle: 'Choose which tables to enable',
   showStats: false,
   pageSize: 100,
+  skipRefreshOnSave: false,
 })
 
 const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void }>()
@@ -871,8 +873,10 @@ async function onSave() {
     pendingBulkActions.value = []
     originalActiveState.value.clear()
     currentActiveState.value.clear()
-    await fetchTables()
-    
+    if (!props.skipRefreshOnSave) {
+      await fetchTables()
+    }
+
     toast.add({
       title: 'Tables updated',
       description: 'Table selection saved successfully',

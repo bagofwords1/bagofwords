@@ -39,7 +39,7 @@
             @click="selectItem(item, category.name)"
           >
             <div class="flex items-center space-x-2 flex-1 min-w-0">
-              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables'" :type="item.icon_type" class="w-3.5 h-3.5 flex-shrink-0" />
+              <DataSourceIcon v-if="category.name === 'data_sources' || category.name === 'tables'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
               <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
@@ -71,7 +71,7 @@
             <button @click="closeItemCard" class="text-gray-500 hover:bg-gray-100 rounded p-1">
               <Icon name="heroicons-chevron-left" class="w-4 h-4" />
             </button>
-            <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" class="w-3.5 h-3.5 flex-shrink-0" />
+            <DataSourceIcon v-if="expandedCategory === 'data_sources' || expandedCategory === 'tables'" :type="expandedItem?.icon_type" class="h-3.5 flex-shrink-0" />
             <Icon v-else-if="expandedCategory === 'files'" name="heroicons-document" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
             <Icon v-else-if="expandedCategory === 'entities'" :name="expandedItem?.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
             <div class="text-[13px] font-medium truncate">{{ expandedItem?.name }}</div>
@@ -90,7 +90,7 @@
                 :key="t.id" 
                 class="px-2 py-1 text-[12px] flex items-center gap-2 hover:bg-gray-50"
               >
-                <DataSourceIcon :type="t.icon_type" class="w-3 h-3" />
+                <DataSourceIcon :type="t.icon_type" class="h-3" />
                 <span class="truncate">{{ t.name }}</span>
               </div>
               <div v-if="tablesForExpandedDataSource.length === 0" class="px-2 py-2 text-[12px] text-gray-400">No tables.</div>

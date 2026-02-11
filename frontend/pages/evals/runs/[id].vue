@@ -133,7 +133,7 @@
                       <div class="flex flex-wrap gap-2">
                         <template v-for="dsId in (row.case.data_source_ids_json || [])" :key="dsId">
                           <div class="inline-flex items-center px-2 py-1 rounded border text-[11px]" v-if="dataSourceById[dsId]" :title="dataSourceById[dsId].name">
-                            <DataSourceIcon :type="dataSourceById[dsId].type" class="w-3.5 h-3.5" />
+                            <DataSourceIcon :type="dataSourceById[dsId].type" class="h-3.5" />
                             <span class="ml-1 truncate max-w-[120px]">{{ dataSourceById[dsId].name }}</span>
                           </div>
                         </template>

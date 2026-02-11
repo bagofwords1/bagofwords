@@ -8,14 +8,14 @@
             </div>
 
             <div v-else>
-                <!-- Data Agents Section -->
-                <div class="mb-6">
+                <!-- Data Agents Section - only show if there are data agents -->
+                <div v-if="allDomains.length > 0" class="mb-6">
                     <div>
                         <h1 class="text-lg font-semibold">
                             <GoBackChevron v-if="isExcel" />
                             Data Agents
                         </h1>
-                        <p class="mt-2 text-gray-500">Organize tables and instructions into domains.</p>
+                        <p class="mt-2 text-gray-500">Organize tables and instructions into agents.</p>
                     </div>
 
                     <!-- Header with search -->
@@ -47,6 +47,25 @@
                             >
                                 Create Data Agent
                             </UButton>
+                        </div>
+                    </div>
+
+                    <!-- Sample databases -->
+                    <div v-if="uninstalledDemos.length > 0" class="mb-4">
+                        <div class="text-xs text-gray-400 mb-2">Try a sample database:</div>
+                        <div class="flex flex-wrap gap-2">
+                            <button
+                                v-for="demo in uninstalledDemos"
+                                :key="`demo-${demo.id}`"
+                                @click="installDemo(demo.id)"
+                                :disabled="installingDemo === demo.id"
+                                class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
+                                <DataSourceIcon v-else class="h-4" :type="demo.type" />
+                                {{ demo.name }}
+                                <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
+                            </button>
                         </div>
                     </div>
 
@@ -90,40 +109,13 @@
                         </div>
                     </div>
 
-                    <!-- Empty state for filtered view (connection selected but no domains) -->
-                    <div v-else-if="selectedConnectionId !== null && canCreateDataSource" class="py-12 text-center border border-dashed border-gray-200 rounded-lg">
+                    <!-- Empty state for search with no results -->
+                    <div v-else-if="searchQuery.trim()" class="py-12 text-center border border-dashed border-gray-200 rounded-lg">
                         <div class="text-gray-400 mb-2">
-                            <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto opacity-50" />
+                            <UIcon name="heroicons-magnifying-glass" class="w-8 h-8 mx-auto opacity-50" />
                         </div>
-                        <p class="text-sm text-gray-500 mb-1">No data agents in this connection</p>
-                        <p class="text-xs text-gray-400 mb-4">Create a data agent to start organizing your data</p>
-                        <UButton
-                            @click="navigateTo('/data/new')"
-                            color="blue"
-                            variant="soft"
-                            size="xs"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            Create Data Agent
-                        </UButton>
-                    </div>
-
-                    <!-- Empty state: has connections but no domains at all -->
-                    <div v-else-if="connections.length > 0 && allDomains.length === 0 && canCreateDataSource" class="py-12 text-center border border-dashed border-gray-200 rounded-lg">
-                        <div class="text-gray-400 mb-2">
-                            <UIcon name="heroicons-circle-stack" class="w-8 h-8 mx-auto opacity-50" />
-                        </div>
-                        <p class="text-sm text-gray-500 mb-1">No data agents yet</p>
-                        <p class="text-xs text-gray-400 mb-4">Create your first data agent to start organizing tables and instructions</p>
-                        <UButton
-                            @click="navigateTo('/data/new')"
-                            color="blue"
-                            variant="soft"
-                            size="xs"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            Create Data Agent
-                        </UButton>
+                        <p class="text-sm text-gray-500 mb-1">No data agents found</p>
+                        <p class="text-xs text-gray-400">Try a different search term</p>
                     </div>
                 </div>
 
@@ -133,7 +125,7 @@
                         <h1 class="text-lg font-semibold">Connections</h1>
                         <UButton
                             v-if="canCreateDataSource"
-                            @click="showAddConnectionModal = true"
+                            @click="selectedDataSourceType = undefined; showAddConnectionModal = true"
                             color="blue"
                             size="xs"
                         >
@@ -145,75 +137,26 @@
 
                     <!-- Connection chips (when connections exist) -->
                     <div v-if="connections.length > 0" class="flex flex-wrap items-center gap-2">
-                        <!-- All filter -->
                         <button
-                            @click="selectedConnectionId = null"
-                            :class="[
-                                'inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded-full border transition-all',
-                                selectedConnectionId === null
-                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
-                            ]"
-                        >
-                            <span>All</span>
-                        </button>
-
-                        <!-- Connection filters with inline dropdown -->
-                        <div
                             v-for="conn in connections"
                             :key="conn.id"
-                            :class="[
-                                'inline-flex items-center gap-1.5 pl-3 pr-1 py-1 text-xs rounded-full border transition-all',
-                                selectedConnectionId === conn.id
-                                    ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                    : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
-                            ]"
+                            @click="openConnectionDetail(conn)"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all"
                         >
-                            <button
-                                @click="selectedConnectionId = conn.id"
-                                class="inline-flex items-center gap-1.5"
-                            >
-                                <DataSourceIcon class="h-3.5" :type="conn.type" />
-                                <span>{{ conn.name }}</span>
-                                <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-green-500' : 'bg-red-500']"></span>
-                            </button>
-
-                            <!-- Ellipsis dropdown (for admins) -->
-                            <UDropdown
-                                v-if="canUpdateDataSource"
-                                :items="getConnectionMenuItems(conn)"
-                                :popper="{ placement: 'bottom-end' }"
-                            >
-                                <button
-                                    :class="[
-                                        'p-1 rounded-full transition-colors',
-                                        selectedConnectionId === conn.id
-                                            ? 'hover:bg-blue-100 text-blue-600'
-                                            : 'hover:bg-gray-100 text-gray-400'
-                                    ]"
-                                >
-                                    <UIcon name="heroicons-ellipsis-vertical" class="w-3.5 h-3.5" />
-                                </button>
-                            </UDropdown>
-                        </div>
+                            <DataSourceIcon class="h-3.5" :type="conn.type" />
+                            <span>{{ conn.name }}</span>
+                            <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-green-500' : 'bg-red-500']"></span>
+                        </button>
                     </div>
 
-                    <!-- Empty state when no connections -->
-                    <div v-else-if="canCreateDataSource" class="py-8 text-center border border-dashed border-gray-200 rounded-lg">
-                        <div class="text-gray-400 mb-2">
-                            <UIcon name="heroicons-server-stack" class="w-8 h-8 mx-auto opacity-50" />
-                        </div>
-                        <p class="text-sm text-gray-500 mb-1">No connections yet</p>
-                        <p class="text-xs text-gray-400 mb-4">Add a database connection to get started</p>
-                        <UButton
-                            @click="showAddConnectionModal = true"
-                            color="blue"
-                            variant="soft"
-                            size="xs"
-                        >
-                            <UIcon name="heroicons-plus" class="w-3 h-3 mr-1" />
-                            Add Connection
-                        </UButton>
+                    <!-- Empty state when no connections - show data source grid -->
+                    <div v-else-if="canCreateDataSource">
+                        <DataSourceGrid
+                            :show-demos="true"
+                            :navigate-on-demo="false"
+                            @select="handleDataSourceSelect"
+                            @demo-installed="handleDemoInstalled"
+                        />
                     </div>
                 </div>
             </div>
@@ -229,7 +172,11 @@
             <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="selectedDs" @saved="refreshData" />
 
             <!-- Add Connection Modal -->
-            <AddConnectionModal v-model="showAddConnectionModal" @created="refreshData" />
+            <AddConnectionModal
+                v-model="showAddConnectionModal"
+                :initial-selected-type="selectedDataSourceType"
+                @created="handleConnectionCreated"
+            />
         </div>
     </div>
 </template>
@@ -239,6 +186,7 @@ import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
+import DataSourceGrid from '~/components/datasources/DataSourceGrid.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 
@@ -260,71 +208,31 @@ const selectedConnection = ref<any>(null)
 const showCredsModal = ref(false)
 const selectedDs = ref<any>(null)
 const showAddConnectionModal = ref(false)
+const selectedDataSourceType = ref<string | undefined>(undefined)
 
 // Filter state
-const selectedConnectionId = ref<string | null>(null)
 const searchQuery = ref('')
-
-// Connection menu items for dropdown (per connection)
-function getConnectionMenuItems(conn: any) {
-    return [[
-        {
-            label: 'Settings',
-            icon: 'i-heroicons-cog-6-tooth',
-            click: () => openConnectionDetail(conn)
-        }
-    ]]
-}
-
-// Permission checks
-const canViewDataSource = computed(() => useCan('view_data_source'))
-const canUpdateDataSource = computed(() => useCan('update_data_source'))
 
 const loading = computed(() => loadingConnected.value || loadingDemos.value || loadingConnections.value)
 
 // All domains
 const allDomains = computed(() => connected_ds.value || [])
 
-// Get domains for a specific connection
-function getDomainsForConnection(connectionId: string): any[] {
-    return allDomains.value.filter(ds => {
-        // Check if any connection matches
-        const connections = ds.connections || []
-        return connections.some((conn: any) => conn.id === connectionId)
-    })
-}
-
-// Filtered domains based on selected connection and search query
-const filteredDomains = computed(() => {
-    let domains = selectedConnectionId.value === null
-        ? allDomains.value
-        : getDomainsForConnection(selectedConnectionId.value)
-
-    if (searchQuery.value.trim()) {
-        const query = searchQuery.value.toLowerCase().trim()
-        domains = domains.filter(ds =>
-            ds.name?.toLowerCase().includes(query) ||
-            ds.description?.toLowerCase().includes(query)
-        )
-    }
-
-    return domains
-})
-
+// Uninstalled demo data sources
 const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
 
-// Helper functions for domain display
-function getConnectionType(ds: any): string {
-    // Return type from first connection, or legacy type field
-    const connections = ds.connections || []
-    return connections[0]?.type || ds.type || 'unknown'
-}
+// Filtered domains based on search query
+const filteredDomains = computed(() => {
+    if (!searchQuery.value.trim()) {
+        return allDomains.value
+    }
 
-function getConnectionName(ds: any): string {
-    // Return name from first connection, or domain name
-    const connections = ds.connections || []
-    return connections[0]?.name || ds.name || 'Connection'
-}
+    const query = searchQuery.value.toLowerCase().trim()
+    return allDomains.value.filter(ds =>
+        ds.name?.toLowerCase().includes(query) ||
+        ds.description?.toLowerCase().includes(query)
+    )
+})
 
 function getTableCount(ds: any): number {
     // Sum table counts from all connections
@@ -333,10 +241,6 @@ function getTableCount(ds: any): number {
         return connections.reduce((sum: number, conn: any) => sum + (conn.table_count || 0), 0)
     }
     return ds.tables?.length || 0
-}
-
-function getConnectionCount(ds: any): number {
-    return (ds.connections || []).length
 }
 
 // Check if domain requires user auth (any connection)
@@ -399,6 +303,28 @@ function openConnectionDetail(conn: any) {
     showConnectionModal.value = true
 }
 
+function handleDataSourceSelect(ds: any) {
+    selectedDataSourceType.value = ds.type
+    showAddConnectionModal.value = true
+}
+
+function handleConnectionCreated() {
+    selectedDataSourceType.value = undefined
+    refreshData()
+}
+
+const toast = useToast()
+
+function handleDemoInstalled(result: any) {
+    toast.add({
+        title: 'Sample data added',
+        description: 'Sample database has been added successfully.',
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+    })
+    refreshData()
+}
+
 async function getConnectedDataSources() {
     loadingConnected.value = true
     try {
@@ -441,10 +367,14 @@ async function installDemo(demoId: string) {
         const response = await useMyFetch(`/data_sources/demos/${demoId}`, { method: 'POST' })
         const result = response.data.value as any
         if (result?.success) {
+            const demoName = demo_ds.value.find((d: any) => d.id === demoId)?.name || 'Sample data'
+            toast.add({
+                title: 'Sample data added',
+                description: `${demoName} has been added successfully.`,
+                icon: 'i-heroicons-check-circle',
+                color: 'green'
+            })
             await refreshData()
-            if (result.data_source_id) {
-                navigateTo(`/data/${result.data_source_id}`)
-            }
         }
     } finally {
         installingDemo.value = null

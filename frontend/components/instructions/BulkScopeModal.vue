@@ -27,7 +27,7 @@
                         </template>
                         <template v-else>
                             <span v-for="val in selectedValues.slice(0, 2)" :key="val" class="flex items-center gap-1 text-xs">
-                                <DataSourceIcon :type="getOptionType(val)" class="w-3.5 h-3.5" />
+                                <DataSourceIcon :type="getOptionType(val)" class="h-3.5" />
                                 {{ getOptionLabel(val) }}
                             </span>
                             <span v-if="selectedValues.length > 2" class="text-xs text-gray-400">
@@ -40,7 +40,7 @@
                 <template #option="{ option }">
                     <div class="flex items-center gap-2">
                         <UIcon v-if="option.value === 'global'" name="i-heroicons-globe-alt" class="w-4 h-4 text-gray-500" />
-                        <DataSourceIcon v-else :type="option.type" class="w-4 h-4" />
+                        <DataSourceIcon v-else :type="option.type" class="h-4" />
                         <span>{{ option.label }}</span>
                     </div>
                 </template>

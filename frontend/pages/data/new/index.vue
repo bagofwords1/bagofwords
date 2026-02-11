@@ -2,8 +2,8 @@
   <div class="flex pl-2 md:pl-4 text-sm mx-auto md:w-1/2 md:pt-10">
     <div class="w-full px-4 pl-0 py-4">
       <div>
-        <h1 class="text-lg font-semibold text-center">New Data</h1>
-        <p class="mt-2 text-gray-500 text-center">Connect a data source and define its business context for querying        </p>
+        <h1 class="text-lg font-semibold text-center">Create Data Agent</h1>
+        <p class="mt-2 text-gray-500 text-center">Set data source, select tables, and define additional context</p>
       </div>
 
       <WizardSteps class="mt-7" current="connect" />
@@ -48,7 +48,7 @@
               <div v-if="selectedConnections.length > 0" class="flex items-center gap-1.5 flex-wrap">
                 <template v-for="conn in selectedConnections" :key="conn.id">
                   <div class="flex items-center gap-1 bg-gray-100 rounded px-1.5 py-0.5">
-                    <DataSourceIcon :type="conn.type" class="h-3.5 w-3.5 flex-shrink-0" />
+                    <DataSourceIcon :type="conn.type" class="h-3.5 flex-shrink-0" />
                     <span class="text-xs truncate max-w-[100px]">{{ conn.name }}</span>
                   </div>
                 </template>
@@ -57,7 +57,7 @@
             </template>
             <template #option="{ option }">
               <div class="flex items-center gap-2 w-full">
-                <DataSourceIcon :type="option.type" class="h-4 w-4 flex-shrink-0" />
+                <DataSourceIcon :type="option.type" class="h-4 flex-shrink-0" />
                 <div class="flex-1 min-w-0">
                   <div class="font-medium truncate">{{ option.name }}</div>
                   <div class="text-[10px] text-gray-400">

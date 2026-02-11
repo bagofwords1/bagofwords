@@ -4,7 +4,7 @@
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-3">
-          <DataSourceIcon :type="connection?.type" class="h-6 w-6" />
+          <DataSourceIcon :type="connection?.type" class="h-6" />
           <div>
             <div class="font-medium text-gray-900">{{ connection?.name }}</div>
             <div class="text-xs text-gray-400">{{ connection?.type }}</div>
@@ -139,7 +139,7 @@
       <template #header>
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <DataSourceIcon :type="connection?.type" class="h-5 w-5" />
+            <DataSourceIcon :type="connection?.type" class="h-5" />
             <h3 class="text-lg font-semibold">Edit Connection</h3>
           </div>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />

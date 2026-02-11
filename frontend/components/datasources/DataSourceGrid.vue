@@ -62,7 +62,7 @@
             class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
-            <DataSourceIcon v-else class="h-4 w-4" :type="demo.type" />
+            <DataSourceIcon v-else class="h-4" :type="demo.type" />
             {{ demo.name }}
             <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
           </button>

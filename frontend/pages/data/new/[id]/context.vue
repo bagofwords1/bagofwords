@@ -3,15 +3,15 @@
   <div class="min-h-screen py-10 px-4 md:w-1/2 mx-auto text-sm">
       <div class="w-full px-4 pl-0 py-4">
       <div>
-        <h1 class="text-lg font-semibold text-center">Create Domain</h1>
-        <p class="mt-4 text-gray-500 text-center">Add instructions and enrichment for this domain</p>
+        <h1 class="text-lg font-semibold text-center">Create Data Agent</h1>
+        <p class="mt-4 text-gray-500 text-center">Set data source, select tables, and define additional context</p>
       </div>
         <WizardSteps class="mb-5 mt-4" current="context" :ds-id="dsId" />
 
       <!-- Loading State -->
-      <div v-if="isLLMSyncInProgress" class="flex items-center justify-center min-h-[200px] space-x-2">
+      <div v-if="isInitialLoading || isLLMSyncInProgress" class="flex items-center justify-center min-h-[200px] space-x-2">
         <Spinner class="w-4 h-4" />
-        <span class="thinking-shimmer text-sm">Thinking...</span>
+        <span class="thinking-shimmer text-sm">{{ isLLMSyncInProgress ? 'Thinking...' : 'Loading...' }}</span>
       </div>
 
       <div v-else class="space-y-6">
@@ -128,32 +128,17 @@ const router = useRouter()
 const dsId = computed(() => String(route.params.id || ''))
 
 const saving = ref(false)
+const isInitialLoading = ref(true)
 const isLoadingInstructions = ref(false)
 const isLLMSyncInProgress = ref(false)
 const showInstructionCreate = ref(false)
 const showGitModal = ref(false)
-const isLoadingMetadataResources = ref(false)
-const isUpdatingResources = ref(false)
 const hasAttemptedLLMSync = ref(false)
 const metadataResources = ref<any>({ resources: [] })
-const resourceSearch = ref('')
 const enrichmentExpanded = ref(true)
 const instructionsExpanded = ref(true)
 
 const integration = ref<any>(null)
-
-const totalResources = computed(() => metadataResources.value?.resources?.length || 0)
-const filteredResources = computed(() => {
-  const q = resourceSearch.value.trim().toLowerCase()
-  const list = metadataResources.value?.resources || []
-  if (!q) return list
-  return list.filter((r: any) => String(r.name || '').toLowerCase().includes(q))
-})
-
-const expandedResources = ref<Record<string, boolean>>({})
-function toggleResource(resource: any) {
-  expandedResources.value[resource.id] = !expandedResources.value[resource.id]
-}
 
 function toggleEnrichmentSection() { enrichmentExpanded.value = !enrichmentExpanded.value }
 function toggleInstructionsSection() { instructionsExpanded.value = !instructionsExpanded.value }
@@ -231,31 +216,7 @@ async function rejectInstruction(instruction: any) {
   } catch (e) {}
 }
 
-async function fetchMetadataResources() {
-  if (!dsId.value) return
-  isLoadingMetadataResources.value = true
-  try {
-    const response = await useMyFetch(`/data_sources/${dsId.value}/metadata_resources`, { method: 'GET' })
-    metadataResources.value = (response.data as any)?.value || { resources: [] }
-  } finally {
-    isLoadingMetadataResources.value = false
-  }
-}
-
-async function updateResourceStatus() {
-  if (!dsId.value || !metadataResources.value?.resources) return
-  isUpdatingResources.value = true
-  try {
-    const res = await useMyFetch(`/data_sources/${dsId.value}/update_metadata_resources`, { method: 'PUT', body: metadataResources.value.resources })
-    if ((res.status as any)?.value === 'success') {
-      metadataResources.value = (res.data as any)?.value || metadataResources.value
-    }
-  } finally {
-    isUpdatingResources.value = false
-  }
-}
-
-function handleGitModalClose(value: boolean) { if (!value) { fetchMetadataResources(); fetchIntegration() } }
+function handleGitModalClose(value: boolean) { if (!value) { fetchIntegration() } }
 
 async function handleSave() {
   if (saving.value) return
@@ -275,10 +236,16 @@ async function fetchIntegration() {
 }
 
 onMounted(async () => {
-  await fetchIntegration()
-  await fetchMetadataResources()
-  await fetchInstructions()
-  if (shouldRunLLMSync()) await runLLMSync()
+  isInitialLoading.value = true
+  try {
+    await fetchIntegration()
+    await fetchInstructions()
+    if (shouldRunLLMSync()) {
+      await runLLMSync()
+    }
+  } finally {
+    isInitialLoading.value = false
+  }
 })
 </script>
 

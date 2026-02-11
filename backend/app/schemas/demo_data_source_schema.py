@@ -13,7 +13,8 @@ from datetime import datetime
 class DemoDataSourceDefinition(BaseModel):
     """Definition of a demo data source that can be installed."""
     id: str
-    name: str
+    name: str  # Data source (agent) name
+    connection_name: Optional[str] = None  # Connection name (defaults to name if not set)
     description: str
     type: str  # e.g., "sqlite", "postgresql"
     config: Dict[str, Any]
@@ -45,7 +46,8 @@ class DemoDataSourceInstallResponse(BaseModel):
 DEMO_DATA_SOURCES: Dict[str, DemoDataSourceDefinition] = {
     "chinook": DemoDataSourceDefinition(
         id="chinook",
-        name="Chinook Music Store",
+        name="Music Store",
+        connection_name="SQLite Chinook",
         description="Sample music store database with artists, albums, tracks, customers, and invoices. Powered by SQLite.",
         type="sqlite",
         config={
@@ -66,7 +68,8 @@ DEMO_DATA_SOURCES: Dict[str, DemoDataSourceDefinition] = {
     ),
     "stocks": DemoDataSourceDefinition(
         id="stocks",
-        name="Financial Markets Data",
+        name="Financial Market Agent",
+        connection_name="Finance DuckDB",
         description="Sample financial database with candlestick data, gold vs bitcoin prices, quotes, bank failures, and country statistics. Powered by DuckDB.",
         type="duckdb",
         config={

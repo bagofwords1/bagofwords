@@ -11,6 +11,25 @@
         </div>
         <p class="text-sm text-gray-500 mb-4">Select a data source type to connect.</p>
 
+        <!-- Demo data sources at the top -->
+        <div v-if="uninstalledDemos.length > 0" class="mb-4">
+          <div class="text-xs text-gray-400 mb-2">Try a sample database:</div>
+          <div class="flex flex-wrap gap-2">
+            <button
+              v-for="demo in uninstalledDemos"
+              :key="`demo-${demo.id}`"
+              @click="handleInstallDemo(demo.id)"
+              :disabled="installingDemo === demo.id"
+              class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Spinner v-if="installingDemo === demo.id" class="h-3 w-3" />
+              <DataSourceIcon v-else class="h-4" :type="demo.type" />
+              {{ demo.name }}
+              <span class="text-[9px] font-medium uppercase tracking-wide text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded">sample</span>
+            </button>
+          </div>
+        </div>
+
         <!-- Search input -->
         <div class="mb-4">
           <UInput
@@ -94,40 +113,6 @@
         />
       </div>
 
-      <!-- Step 3: Success -->
-      <div v-else-if="step === 'success'">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold">Connection Created</h3>
-          <button @click="close" class="text-gray-400 hover:text-gray-600">
-            <UIcon name="heroicons-x-mark" class="w-5 h-5" />
-          </button>
-        </div>
-
-        <div class="text-center py-6">
-          <div class="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-4">
-            <UIcon name="heroicons-check" class="w-6 h-6 text-green-600" />
-          </div>
-          <p class="text-sm text-gray-700 mb-2">
-            <span class="font-medium">{{ createdConnection?.name }}</span> has been connected successfully.
-          </p>
-          <p class="text-sm text-gray-500">Would you like to create a Data Agent with this connection?</p>
-        </div>
-
-        <div class="flex items-center gap-3 pt-4 border-t border-gray-100">
-          <button
-            @click="close"
-            class="flex-1 px-4 py-2 text-sm text-gray-600 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
-          >
-            Not Now
-          </button>
-          <button
-            @click="createDataAgent"
-            class="flex-1 px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-          >
-            Create Data Agent
-          </button>
-        </div>
-      </div>
     </div>
   </UModal>
 </template>
@@ -139,7 +124,7 @@ import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const props = defineProps<{
   modelValue: boolean
-  skipSuccessStep?: boolean
+  initialSelectedType?: string
 }>()
 
 const emit = defineEmits<{
@@ -153,14 +138,19 @@ const isOpen = computed({
 })
 
 const { isLicensed } = useEnterprise()
+const toast = useToast()
 
 // State
-const step = ref<'select' | 'form' | 'success'>('select')
+const step = ref<'select' | 'form'>('select')
 const searchQuery = ref('')
 const dataSources = ref<any[]>([])
+const demos = ref<any[]>([])
 const loadingDataSources = ref(true)
 const selectedDataSource = ref<any>(null)
-const createdConnection = ref<any>(null)
+const installingDemo = ref<string | null>(null)
+
+// Computed
+const uninstalledDemos = computed(() => (demos.value || []).filter((demo: any) => !demo.installed))
 
 // Check if data source requires enterprise license
 const isLocked = (ds: any) => ds.requires_license === 'enterprise' && !isLicensed.value
@@ -175,16 +165,44 @@ const filteredDataSources = computed(() => {
   )
 })
 
-// Fetch available data sources
+// Fetch available data sources and demos
 async function fetchDataSources() {
   loadingDataSources.value = true
   try {
-    const response = await useMyFetch('/available_data_sources', { method: 'GET' })
-    if (response.data.value) {
-      dataSources.value = response.data.value as any[]
+    const [availableRes, demosRes] = await Promise.all([
+      useMyFetch('/available_data_sources', { method: 'GET' }),
+      useMyFetch('/data_sources/demos', { method: 'GET' })
+    ])
+    if (availableRes.data.value) {
+      dataSources.value = availableRes.data.value as any[]
+    }
+    if (demosRes.data.value) {
+      demos.value = demosRes.data.value as any[]
     }
   } finally {
     loadingDataSources.value = false
+  }
+}
+
+// Install a demo data source
+async function handleInstallDemo(demoId: string) {
+  installingDemo.value = demoId
+  try {
+    const response = await useMyFetch(`/data_sources/demos/${demoId}`, { method: 'POST' })
+    const result = response.data.value as any
+    if (result?.success) {
+      const demoName = demos.value.find(d => d.id === demoId)?.name || 'Sample data'
+      toast.add({
+        title: 'Sample data added',
+        description: `${demoName} has been added successfully.`,
+        icon: 'i-heroicons-check-circle',
+        color: 'green'
+      })
+      emit('created', { id: result.data_source_id, isDemo: true })
+      isOpen.value = false
+    }
+  } finally {
+    installingDemo.value = null
   }
 }
 
@@ -199,29 +217,15 @@ function backToSelect() {
 }
 
 function handleConnectionSuccess(connection: any) {
-  createdConnection.value = connection
   emit('created', connection)
 
-  // Skip success step if requested (e.g., when already on /data/new page)
-  if (props.skipSuccessStep) {
-    isOpen.value = false
-    return
-  }
+  toast.add({
+    title: 'Connection created',
+    description: `${connection?.name || 'Connection'} has been connected successfully.`,
+    icon: 'i-heroicons-check-circle',
+    color: 'green'
+  })
 
-  step.value = 'success'
-}
-
-function createDataAgent() {
-  isOpen.value = false
-  // Navigate to create data agent with connection pre-selected
-  if (createdConnection.value?.id) {
-    navigateTo(`/data/new?connection=${createdConnection.value.id}`)
-  } else {
-    navigateTo('/data/new')
-  }
-}
-
-function close() {
   isOpen.value = false
 }
 
@@ -229,14 +233,21 @@ function reset() {
   step.value = 'select'
   searchQuery.value = ''
   selectedDataSource.value = null
-  createdConnection.value = null
 }
 
 // Reset state when modal opens
-watch(isOpen, (val) => {
+watch(isOpen, async (val) => {
   if (val) {
     reset()
-    fetchDataSources()
+    await fetchDataSources()
+
+    // If initial type provided, auto-select it
+    if (props.initialSelectedType) {
+      const ds = dataSources.value.find((d: any) => d.type === props.initialSelectedType)
+      if (ds) {
+        selectType(ds)
+      }
+    }
   }
 })
 </script>
