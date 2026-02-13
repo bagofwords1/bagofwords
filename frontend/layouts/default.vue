@@ -75,139 +75,52 @@
           </div>
         </li>
 
-        <li class="">
-           <a href="/reports" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Reports" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-chart-pie" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-chart-pie" />
-              </span>
-              <span v-if="showText" class="text-sm">Reports</span>
-            </template>
-          </a>
-        </li>
-
-        <li class="hidden">
-           <NuxtLink to="/files" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Files" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-document-duplicate" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-document-duplicate" />
-              </span>
-              <span v-if="showText" class="text-sm">Files</span>
-            </template>
-          </NuxtLink>
-        </li>
-
-        <li class="">
-           <a href="/instructions" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Instructions" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-cube" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-cube" />
-              </span>
-              <span v-if="showText" class="text-sm">Instructions</span>
-            </template>
-          </a>
-        </li>
-        <li>
-          <a href="/queries" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Queries" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-library-icon lucide-library"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
-              </span>
-              <span v-if="showText" class="text-sm">Queries</span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-library-icon lucide-library"><path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/></svg>
-              </span>
-              <span v-if="showText" class="text-sm">Queries</span>
-            </template>
-          </a>
-        </li>
-        <li class="" v-if="isAdmin">
-           <a href="/monitoring" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Monitoring" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-activity-icon lucide-activity"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-activity-icon lucide-activity"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg>
-              </span>
-              <span v-if="showText" class="text-sm">Monitoring</span>
-            </template>
-          </a>
-        </li>
-        <li class="" v-if="isAdmin">
-           <a href="/evals" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Evals" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-check-circle" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-check-circle" />
-              </span>
-              <span v-if="showText" class="text-sm">Evals</span>
-            </template>
-          </a>
-        </li>
-      </ul>
-      <ul class="font-normal text-sm">
-        <li class="">
-          <a href="/data" :class="[
-            'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
+        <template v-for="item in mainNavItems" :key="item.href">
+        <li v-if="!item.adminOnly || isAdmin" :class="{ hidden: item.hidden }">
+          <a :href="item.href" :class="[
+            'flex items-center px-2 py-2 w-full rounded-lg',
+            isRouteActive(item.href) ? 'text-black bg-gray-200' : 'text-gray-600 hover:text-black hover:bg-gray-200',
             isCollapsed ? 'justify-center' : 'gap-3'
           ]">
-            <UTooltip v-if="isCollapsed" text="Data" :popper="{ placement: 'right' }">
+            <UTooltip v-if="isCollapsed" :text="item.label" :popper="{ placement: 'right' }">
               <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-circle-stack" />
+                <UIcon v-if="item.icon" :name="item.icon" />
+                <component v-else-if="item.component" :is="item.component" />
               </span>
             </UTooltip>
             <template v-else>
               <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-circle-stack" />
+                <UIcon v-if="item.icon" :name="item.icon" />
+                <component v-else-if="item.component" :is="item.component" />
               </span>
-              <span v-if="showText" class="text-sm">Data Agents</span>
+              <span v-if="showText" class="text-sm">{{ item.label }}</span>
+            </template>
+          </a>
+        </li>
+        </template>
+      </ul>
+      <ul class="font-normal text-sm">
+        <li v-for="item in bottomNavItems" :key="item.href">
+          <a :href="item.href" :target="item.external ? '_blank' : undefined" :class="[
+            'flex items-center px-2 py-2 w-full rounded-lg',
+            item.external ? 'text-gray-600 hover:text-black hover:bg-gray-200' : (isRouteActive(item.href) ? 'text-black bg-gray-200' : 'text-gray-600 hover:text-black hover:bg-gray-200'),
+            isCollapsed ? 'justify-center' : 'gap-3'
+          ]">
+            <UTooltip v-if="isCollapsed" :text="item.label" :popper="{ placement: 'right' }">
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <UIcon :name="item.icon" />
+              </span>
+            </UTooltip>
+            <template v-else>
+              <span class="flex items-center justify-center w-5 h-5 text-lg">
+                <UIcon :name="item.icon" />
+              </span>
+              <span v-if="showText" class="text-sm">{{ item.label }}</span>
             </template>
           </a>
         </li>
         <li v-if="isMcpEnabled">
-          <button 
+          <button
             @click="showMcpModal = true"
             :class="[
               'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
@@ -226,42 +139,6 @@
               <span v-if="showText" class="text-sm">MCP Server</span>
             </template>
           </button>
-        </li>
-        <li>
-           <a href="/settings" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Settings" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-cog-6-tooth" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-cog-6-tooth" />
-              </span>
-              <span v-if="showText" class="text-sm">Settings</span>
-            </template>
-          </a>
-        </li>
-        <li>
-           <a href="https://docs.bagofwords.com" target="_blank" :class="[
-             'flex items-center px-2 py-2 w-full rounded-lg text-gray-600 hover:text-black hover:bg-gray-200',
-             isCollapsed ? 'justify-center' : 'gap-3'
-           ]">
-            <UTooltip v-if="isCollapsed" text="Documentation" :popper="{ placement: 'right' }">
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-book-open" />
-              </span>
-            </UTooltip>
-            <template v-else>
-              <span class="flex items-center justify-center w-5 h-5 text-lg">
-                <UIcon name="heroicons-book-open" />
-              </span>
-              <span v-if="showText" class="text-sm">Documentation</span>
-            </template>
-          </a>
         </li>
         <li>
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }">
@@ -307,11 +184,34 @@
 <script setup lang="ts">
   import Spinner from '~/components/Spinner.vue'
   import McpIcon from '~/components/icons/McpIcon.vue'
+  import LibraryIcon from '~/components/icons/LibraryIcon.vue'
+  import ActivityIcon from '~/components/icons/ActivityIcon.vue'
   import McpModal from '~/components/McpModal.vue'
   import DomainSelector from '~/components/DomainSelector.vue'
 
   const { isMcpEnabled } = useOrgSettings()
   const showMcpModal = ref(false)
+
+  const route = useRoute()
+  const isRouteActive = (path: string) => {
+    if (path === '/') return route.path === '/'
+    return route.path === path || route.path.startsWith(path + '/')
+  }
+
+  const mainNavItems = [
+    { href: '/reports', icon: 'heroicons-chart-pie', label: 'Data Agents' },
+    { href: '/files', icon: 'heroicons-document-duplicate', label: 'Files', hidden: true },
+    { href: '/instructions', icon: 'heroicons-cube', label: 'Instructions' },
+    { href: '/queries', component: LibraryIcon, label: 'Queries' },
+    { href: '/monitoring', component: ActivityIcon, label: 'Monitoring', adminOnly: true },
+    { href: '/evals', icon: 'heroicons-check-circle', label: 'Evals', adminOnly: true },
+  ]
+
+  const bottomNavItems = [
+    { href: '/data', icon: 'heroicons-circle-stack', label: 'Data' },
+    { href: '/settings', icon: 'heroicons-cog-6-tooth', label: 'Settings' },
+    { href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'Documentation', external: true },
+  ]
   
   // Domain management - use selectedDomainObjects for new report creation
   const { initDomain, selectedDomainObjects, domains, hasDomains } = useDomain()
