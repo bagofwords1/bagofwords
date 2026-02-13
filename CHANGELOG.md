@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.310 (February 13, 2026)
+- Multi-connection support: data sources can now have multiple connections
+- Added PowerBI and Qlik (QVD) data source integrations (Enterprise)
+- Configurable step retention per organization (Enterprise)
+- Exclude shared conversations and published reports from step cleanup
+- Connection icons shown when describing/inspecting tables
+- Schema enrichment with metadata and column comments
+- Data agents and example agent templates
+- Delete connections support
+- Artifact thumbnails
+- Report filtering by schedule
+
 ## Version 0.0.309 (February 4, 2026)
 - Create artifact (dashboard/slides) tool is now available via MCP 
 - Added support for Databricks SQL

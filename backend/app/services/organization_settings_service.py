@@ -6,6 +6,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.organization_settings import OrganizationSettings
+from app.ee.license import has_feature
 from app.schemas.organization_settings_schema import (
     OrganizationSettingsCreate, 
     OrganizationSettingsUpdate,
@@ -159,6 +160,20 @@ class OrganizationSettingsService:
             # Handle top-level feature updates
             for key, value_update in update_data['config'].items():
                 if key != 'ai_features':
+                    # Enterprise check for step_retention_days
+                    if key == 'step_retention_days':
+                        if not has_feature("step_retention_config"):
+                            raise HTTPException(
+                                status_code=402,
+                                detail="Configuring step retention requires an enterprise license."
+                            )
+                        # Validate range (7-365 days)
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if not isinstance(new_value, int) or new_value < 7 or new_value > 365:
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Step retention days must be between 7 and 365."
+                            )
                     # Get current config dict from DB or default from schema
                     current_value_dict = current_config.get(key)
                     is_feature = False
