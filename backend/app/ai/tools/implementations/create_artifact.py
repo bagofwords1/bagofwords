@@ -53,13 +53,12 @@ class CreateArtifactTool(Tool):
         return ToolMetadata(
             name="create_artifact",
             description=(
-                "Compose multiple visualizations into a unified, interactive dashboard or slide presentation. "
-                "Use this AFTER creating visualizations with create_data to combine them into a polished layout with "
-                "KPI cards, charts, and responsive grids. Supports two modes: 'page' for interactive dashboards, "
+                "Create or update artifacts (dashboards, pages, slide presentations) from visualizations. "
+                "Requires visualization_ids from create_data results in the conversation. "
+                "Modes: 'page' for interactive dashboards with KPI cards, charts, and responsive grids; "
                 "'slides' for presentation decks (exportable to PPTX). "
-                "Pass visualization_ids from previously created visualizations. "
-                "IMPORTANT: Only use visualizations with successful step status (step.status == 'success'). "
-                "Visualizations with failed or pending steps will be automatically excluded."
+                "To update an existing artifact, provide existing_artifact_id - the previous layout and code will be used as a base. "
+                "Only visualizations with successful step status are included."
             ),
             category="action",
             version="1.0.0",
