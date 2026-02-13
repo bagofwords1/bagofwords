@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.310 (February 13, 2026)
+## Version 0.0.311 (February 13, 2026)
 - Multi-connection support: data sources can now have multiple connections
 - Added PowerBI and Qlik (QVD) data source integrations (Enterprise)
 - Configurable step retention per organization (Enterprise)
