@@ -199,7 +199,7 @@
   }
 
   const mainNavItems = [
-    { href: '/reports', icon: 'heroicons-chart-pie', label: 'Data Agents' },
+    { href: '/reports', icon: 'heroicons-chart-pie', label: 'Reports' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'Files', hidden: true },
     { href: '/instructions', icon: 'heroicons-cube', label: 'Instructions' },
     { href: '/queries', component: LibraryIcon, label: 'Queries' },
@@ -208,7 +208,7 @@
   ]
 
   const bottomNavItems = [
-    { href: '/data', icon: 'heroicons-circle-stack', label: 'Data' },
+    { href: '/data', icon: 'heroicons-circle-stack', label: 'Data Agents' },
     { href: '/settings', icon: 'heroicons-cog-6-tooth', label: 'Settings' },
     { href: 'https://docs.bagofwords.com', icon: 'heroicons-book-open', label: 'Documentation', external: true },
   ]
@@ -258,7 +258,6 @@
 
   onMounted(async () => {
     try {
-      const route = useRoute()
       const inOnboarding = route.path.startsWith('/onboarding')
       if (!inOnboarding) {
         // Fetch onboarding and domains in parallel for faster load
