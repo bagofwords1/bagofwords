@@ -19,7 +19,6 @@ def test_git_repository_create_index_delete(
     create_git_repository,
     get_git_repository,
     index_git_repository,
-    get_metadata_resources,
     get_instructions_by_source_type,
     delete_git_repository,
 ):
@@ -77,37 +76,25 @@ def test_git_repository_create_index_delete(
     )
     assert reindex_response.get("status") == "success"
 
-    metadata_resources = get_metadata_resources(
-        data_source_id=data_source["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
-
-    assert metadata_resources["status"] == "completed"
-    assert isinstance(metadata_resources.get("resources"), list)
-    resources = metadata_resources.get("resources", [])
-    assert len(resources) > 0, "Expected metadata resources after indexing"
-
-    # Verify instructions were created from metadata resources
-    # Fixture returns items directly (not paginated response)
+    # Verify instructions were created directly from files (new file-based flow)
     instructions = get_instructions_by_source_type(
         source_types=["git", "dbt", "markdown"],
         user_token=user_token,
         org_id=org_id,
         data_source_id=data_source["id"],
     )
-    
+
     assert len(instructions) > 0, "Expected instructions to be created after indexing"
-    
+
     # Verify instructions have correct properties based on git repo settings
     for instruction in instructions:
         assert instruction["source_type"] == "git", "Instruction should have source_type='git'"
-        assert instruction["source_metadata_resource_id"] is not None, "Instruction should be linked to a resource"
+        # New flow: source_file_path should be prefixed with repo name
+        assert instruction.get("source_file_path") is not None, "Instruction should have source_file_path"
+        assert "/" in instruction["source_file_path"], "source_file_path should be prefixed with repo name"
         # Verify auto_publish=True results in published status
         assert instruction["status"] == "published", "Instruction should be published (auto_publish=True)"
         # Verify load_mode respects priority: frontmatter > git repo default_load_mode
-        # Markdown files with alwaysApply: false in frontmatter will have 'intelligent'
-        # Others should inherit 'always' from git repo's default_load_mode
         assert instruction["load_mode"] in ["always", "intelligent"], (
             f"Instruction should have valid load_mode, got {instruction.get('load_mode')}"
         )
@@ -124,6 +111,7 @@ def test_git_repository_create_index_delete(
     )
 
 
+@pytest.mark.skip(reason="New file-based indexing flow bypasses MetadataResource creation. MetadataResource cleanup in separate PR.")
 @pytest.mark.e2e
 @pytest.mark.parametrize("repo_url", TEST_GIT_REPO_PATHS)
 def test_git_repository_update_metadata_resources(

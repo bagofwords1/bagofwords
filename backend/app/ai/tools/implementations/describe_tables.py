@@ -165,6 +165,8 @@ class DescribeTablesTool(Tool):
                                 col_items.append({
                                     "name": getattr(c, "name", None),
                                     "dtype": getattr(c, "dtype", None),
+                                    "description": getattr(c, "description", None),
+                                    "metadata": getattr(c, "metadata", None),
                                 })
                         except Exception:
                             col_items = []
@@ -182,11 +184,12 @@ class DescribeTablesTool(Tool):
                         top_tables.append({
                             "data_source_id": ds_id,
                             "data_source_name": ds_name,
-                            "data_source_type": ds_type,
+                            "data_source_type": getattr(t, "connection_type", None) or ds_type,
                             "schema": None,
                             "name": getattr(t, "name", None),
                             "full_name": None,
-                            "description": None,
+                            "description": getattr(t, "description", None),
+                            "metadata": getattr(t, "metadata_json", None),
                             "columns": col_items,
                             "usage": usage,
                         })

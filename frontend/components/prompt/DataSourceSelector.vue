@@ -12,7 +12,7 @@
                     <span v-else-if="internalSelectedDataSources.length > 0" class="flex items-center">
                         <template v-if="isCompactFinal">
                             <!-- Compact: show only first icon -->
-                            <DataSourceIcon :type="internalSelectedDataSources[0].type" class="h-4 w-4" />
+                            <DataSourceIcon :type="internalSelectedDataSources[0].type" class="h-4" />
                         </template>
                         <template v-else>
                             <!-- Non-compact: show all icons with spacing -->
@@ -20,7 +20,7 @@
                                 v-for="(ds, index) in internalSelectedDataSources" 
                                 :key="ds.id" 
                                 :type="ds.type" 
-                                :class="`w-4 ${index > 0 ? 'ml-0.5' : ''}`"
+                                :class="`h-4 ${index > 0 ? 'ml-0.5' : ''}`"
                             />
                         </template>
                     </span>
@@ -47,7 +47,7 @@
                             @click="() => { toggleDataSource(ds); }"
                         >
                             <div class="flex items-center">
-                                <DataSourceIcon :type="ds.type" class="w-4" />
+                                <DataSourceIcon :type="ds.type" class="h-4" />
                                 <span class="ml-2 text-[13px]">{{ ds.name }}</span>
                             </div>
                             <Icon v-if="isSelected(ds)" name="heroicons-check" class="w-4 h-4 text-blue-500" />

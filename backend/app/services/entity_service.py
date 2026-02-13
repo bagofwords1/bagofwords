@@ -407,7 +407,12 @@ class EntityService:
         # Resolve report/data sources context via any linked data sources on the entity
         # When entities are not tied to a report, we execute with all entity data sources
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
-        ds_clients = {ds.name: ds.get_client() for ds in (entity.data_sources or [])}
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        ds_clients = {}
+        for ds in (entity.data_sources or []):
+            ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
+            ds_clients.update(ds_conns)
         excel_files = []
 
         executor = StreamingCodeExecutor()
@@ -463,7 +468,12 @@ class EntityService:
         code_to_run = (getattr(payload, "code", None) if payload else None) or entity.code or ""
 
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
-        ds_clients = {ds.name: ds.get_client() for ds in (entity.data_sources or [])}
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        ds_clients = {}
+        for ds in (entity.data_sources or []):
+            ds_conns = await ds_service.construct_clients(db, ds, current_user=None)
+            ds_clients.update(ds_conns)
         excel_files = []
 
         executor = StreamingCodeExecutor()

@@ -40,6 +40,7 @@ class ConnectionSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     domain_count: int = 0
+    domain_names: List[str] = []  # Names of linked domains (for delete confirmation)
 
     class Config:
         from_attributes = True
@@ -58,6 +59,7 @@ class ConnectionDetailSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     domain_count: int = 0
+    domain_names: List[str] = []  # Names of linked domains (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
 
     class Config:

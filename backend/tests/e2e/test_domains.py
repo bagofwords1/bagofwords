@@ -364,6 +364,108 @@ def test_domain_delete_keeps_connection(
 
 
 @pytest.mark.e2e
+def test_domain_creation_with_multiple_connections(
+    create_connection,
+    create_domain_from_connections,
+    get_data_sources,
+    get_schema,
+    refresh_connection_schema,
+    delete_data_source,
+    delete_connection,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Test creating a domain linked to multiple connections."""
+    if not DOMAIN_TEST_DB_PATH.exists():
+        pytest.skip(f"SQLite test database missing at {DOMAIN_TEST_DB_PATH}")
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+
+    # Create two connections
+    connection1 = create_connection(
+        name="Connection One",
+        type="sqlite",
+        config={"database": str(DOMAIN_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    connection2 = create_connection(
+        name="Connection Two",
+        type="sqlite",
+        config={"database": str(DOMAIN_TEST_DB_PATH)},
+        credentials={},
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Refresh schemas on both connections
+    refresh_connection_schema(
+        connection_id=connection1["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    refresh_connection_schema(
+        connection_id=connection2["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    # Create domain with multiple connections
+    domain = create_domain_from_connections(
+        name="Multi-Connection Domain",
+        connection_ids=[connection1["id"], connection2["id"]],
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+    assert domain is not None
+    assert domain["name"] == "Multi-Connection Domain"
+    assert "id" in domain
+
+    # Verify domain has connections array with 2 connections
+    assert "connections" in domain
+    assert len(domain["connections"]) == 2
+    connection_ids_in_domain = [c["id"] for c in domain["connections"]]
+    assert connection1["id"] in connection_ids_in_domain
+    assert connection2["id"] in connection_ids_in_domain
+
+    # Verify domain appears in list with connections
+    domains = get_data_sources(user_token=user_token, org_id=org_id)
+    our_domain = next(d for d in domains if d["id"] == domain["id"])
+    assert len(our_domain.get("connections", [])) == 2
+
+    # Get schema - should have tables from both connections
+    schema = get_schema(
+        data_source_id=domain["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    assert isinstance(schema, list)
+
+    # Cleanup
+    delete_data_source(
+        data_source_id=domain["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    delete_connection(
+        connection_id=connection1["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+    delete_connection(
+        connection_id=connection2["id"],
+        user_token=user_token,
+        org_id=org_id,
+    )
+
+
+@pytest.mark.e2e
 def test_multiple_domains_same_connection(
     create_connection,
     create_domain_from_connection,
@@ -817,8 +919,7 @@ def test_domain_user_required_owner_status_not_offline(
     our_domain = next(d for d in data_sources if d["id"] == domain["id"])
 
     # Connection status should NOT be offline for owner
-    connection = our_domain.get("connection") or {}
-    user_status = connection.get("user_status") or {}
+    user_status = our_domain.get("user_status") or {}
 
     # Status should NOT be offline (owner can use system fallback)
     assert user_status.get("connection") != "offline", \
@@ -926,8 +1027,8 @@ def test_domain_user_required_non_owner_blocked(
 
     if ds_response.status_code == 200:
         ds_data = ds_response.json()
-        connection = ds_data.get("connection") or {}
-        user_status = connection.get("user_status") or {}
+        # user_status is now at top level (legacy field from first connection)
+        user_status = ds_data.get("user_status") or {}
 
         # Non-owner without credentials should see "offline"
         assert user_status.get("connection") == "offline", \
@@ -1018,8 +1119,8 @@ def test_domain_user_required_admin_can_access(
     )
 
     ds_data = ds_response.json()
-    connection = ds_data.get("connection") or {}
-    user_status = connection.get("user_status") or {}
+    # user_status is now at top level (legacy field from first connection)
+    user_status = ds_data.get("user_status") or {}
 
     # Admin with permission should use system fallback
     assert user_status.get("connection") != "offline", \

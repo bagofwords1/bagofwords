@@ -21,8 +21,12 @@ TIER_FEATURES = {
     ],
     "enterprise": [
         "audit_logs",
+        "step_retention_config",
     ],
 }
+
+# Data sources that require an enterprise license
+ENTERPRISE_DATASOURCES = ["powerbi", "qvd"]
 
 # Public key for license verification (RS256)
 # This key is used to verify license signatures without exposing the private key
@@ -174,6 +178,31 @@ def has_feature(feature: str) -> bool:
     # Otherwise, use tier defaults
     tier_features = TIER_FEATURES.get(license_info.tier, [])
     return feature in tier_features
+
+
+def is_datasource_allowed(ds_type: str) -> bool:
+    """
+    Check if a data source type is allowed under current license.
+
+    Logic:
+    - Non-enterprise data sources → always allowed
+    - Enterprise data sources → require enterprise license
+    - If license has explicit ds_ features → check that list
+    - Otherwise enterprise tier → all enterprise DS allowed
+    """
+    if ds_type not in ENTERPRISE_DATASOURCES:
+        return True
+
+    license_info = get_license_info()
+    if not license_info.licensed:
+        return False
+
+    # If license has explicit ds_ features, check that (for custom/restricted licenses)
+    if license_info.features and any(f.startswith("ds_") for f in license_info.features):
+        return f"ds_{ds_type}" in license_info.features
+
+    # Only enterprise tier gets access to enterprise data sources
+    return license_info.tier == "enterprise"
 
 
 def require_enterprise(feature: Optional[str] = None):

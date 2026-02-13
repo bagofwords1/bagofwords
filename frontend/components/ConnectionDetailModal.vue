@@ -4,7 +4,7 @@
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-3">
-          <DataSourceIcon :type="connection?.type" class="h-6 w-6" />
+          <DataSourceIcon :type="connection?.type" class="h-6" />
           <div>
             <div class="font-medium text-gray-900">{{ connection?.name }}</div>
             <div class="text-xs text-gray-400">{{ connection?.type }}</div>
@@ -86,25 +86,30 @@
       <div v-if="canUpdateDataSource" class="pt-4 mt-4 border-t border-gray-100">
         <div v-if="!confirmingDelete">
           <button
-            @click="domainCount === 0 ? confirmingDelete = true : null"
-            :disabled="domainCount > 0"
-            :class="[
-              'w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors',
-              domainCount === 0
-                ? 'text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer'
-                : 'text-gray-400 bg-gray-50 border border-gray-200 cursor-not-allowed'
-            ]"
+            @click="confirmingDelete = true"
+            class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer"
           >
             <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
             Delete Connection
           </button>
-          <p v-if="domainCount > 0" class="text-[10px] text-gray-400 text-center mt-1.5">
-            Remove all domains first to delete this connection
-          </p>
         </div>
 
         <!-- Confirm delete -->
-        <div v-else class="space-y-2">
+        <div v-else class="space-y-3">
+          <!-- Warning for impacted domains -->
+          <div v-if="domainCount > 0" class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div class="flex items-start gap-2">
+              <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div class="text-xs">
+                <p class="font-medium text-amber-800">This will impact {{ domainCount }} domain{{ domainCount > 1 ? 's' : '' }}</p>
+                <p class="text-amber-700 mt-1">
+                  {{ domainNames.slice(0, 3).join(', ') }}{{ domainNames.length > 3 ? ` and ${domainNames.length - 3} more` : '' }}
+                </p>
+                <p class="text-amber-600 mt-1">All tables from this connection will be removed from these domains.</p>
+              </div>
+            </div>
+          </div>
+
           <p class="text-xs text-gray-600 text-center">Are you sure? This cannot be undone.</p>
           <div class="flex gap-2">
             <button
@@ -134,7 +139,7 @@
       <template #header>
         <div class="flex items-center justify-between">
           <div class="flex items-center gap-2">
-            <DataSourceIcon :type="connection?.type" class="h-5 w-5" />
+            <DataSourceIcon :type="connection?.type" class="h-5" />
             <h3 class="text-lg font-semibold">Edit Connection</h3>
           </div>
           <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />
@@ -225,6 +230,7 @@ const isConnected = computed(() => {
 
 const tableCount = computed(() => props.connection?.table_count || 0)
 const domainCount = computed(() => props.connection?.domain_count || 0)
+const domainNames = computed(() => props.connection?.domain_names || [])
 
 const lastCheckedDisplay = computed(() => {
   const lastChecked = props.connection?.last_checked_at || props.connection?.user_status?.last_checked_at

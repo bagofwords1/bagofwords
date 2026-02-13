@@ -75,7 +75,7 @@ def test_mentions_include_data_sources_and_tables_after_demo_install(
         assert len(ds_in_mentions) == 1, f"Installed data source {data_source_id} should appear in mentions"
         
         installed_ds = ds_in_mentions[0]
-        assert installed_ds.get("name") == "Chinook Music Store"
+        assert installed_ds.get("name") == "Music Store"
         assert installed_ds.get("type") == "data_source"
         assert "data_source_type" in installed_ds  # Should have the db type (sqlite)
 

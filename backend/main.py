@@ -308,7 +308,7 @@ async def startup_event():
             coalesce=True,
             max_instances=1,
             misfire_grace_time=3600,
-            kwargs={"retention_days": 14, "null_fields": ("data", "data_model", "view")},
+            kwargs={"null_fields": ("data", "data_model", "view")},
         )
         logger.info("Scheduled job: purge_step_payloads_keep_latest_per_query @ 03:00 daily")
     except Exception as e:

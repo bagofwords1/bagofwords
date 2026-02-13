@@ -7,9 +7,9 @@
       </div>
 
       <form @submit.prevent="onSubmit" class="space-y-3">
-        <div v-if="allowNameEdit !== false">
-          <label class="text-sm font-medium text-gray-700 mb-1 block">Name</label>
-          <input v-model="name" type="text" placeholder="Name (e.g. 'Sales')" class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" />
+        <div v-if="props.allowNameEdit !== false" class="p-3 rounded border">
+          <label class="text-sm font-medium text-gray-700 mb-1 block">Connection Name</label>
+          <input v-model="name" type="text" placeholder="e.g., 'Sales DB', 'Production'" class="border border-gray-300 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500" />
         </div>
 
         <div v-if="fields.config" class="p-3 rounded border">
@@ -50,7 +50,7 @@
             <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" rows="3" />
             <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
           </div>
-          <div v-if="showRequireUserAuth && (isCreateMode || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
+          <div v-if="showRequireUserAuth && (isCreateMode || isCreateConnectionOnly || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
             <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
             <span class="text-xs text-gray-700">Require user authentication</span>
           </div>
@@ -96,6 +96,10 @@
 
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
+import { useEnterprise } from '~/ee/composables/useEnterprise'
+
+const { isLicensed } = useEnterprise()
+
 function selectProvider(ds: any) {
   selectedType.value = String(ds?.type || '')
   handleTypeChange()
@@ -139,11 +143,12 @@ const preserveOnNextFetch = ref(false)
 const auth_policy = computed(() => (require_user_auth.value ? 'user_required' : 'system_only'))
 const isEditMode = computed(() => props.mode === 'edit')
 const isCreateMode = computed(() => props.mode === 'create')
+const isCreateConnectionOnly = computed(() => props.mode === 'create_connection_only')
 const isConnectionEdit = computed(() => isEditMode.value && !!props.connectionId)
 
 const typeOptions = computed(() => available_ds.value || [])
 
-const showRequireUserAuth = computed(() => (props.showRequireUserAuthToggle !== false))
+const showRequireUserAuth = computed(() => (props.showRequireUserAuthToggle !== false) && isLicensed.value)
 
 const configFields = computed(() => {
   if (!fields.value?.config?.properties) return [] as any[]
@@ -339,6 +344,25 @@ async function onSubmit() {
         const err = (errAny && (errAny.value || errAny)) || {}
         const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to update data source'
         toast.add({ title: 'Failed to update data source', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
+      }
+    } else if (isCreateConnectionOnly.value) {
+      // Create connection only (without domain)
+      const connectionPayload = {
+        name: name.value || selectedType.value,
+        type: selectedType.value,
+        config: { ...formData.config, auth_type: selectedAuth.value || undefined },
+        credentials: showSystemCredentialFields.value ? formData.credentials : {},
+        auth_policy: auth_policy.value
+      }
+      const res = await useMyFetch('/connections', { method: 'POST', body: JSON.stringify(connectionPayload), headers: { 'Content-Type': 'application/json' } })
+      if ((res.status as any)?.value === 'success') {
+        const created = (res.data as any)?.value
+        emit('success', created)
+      } else {
+        const errAny = (res.error as any)
+        const err = (errAny && (errAny.value || errAny)) || {}
+        const detail = err?.data?.detail || err?.data?.message || err?.message || 'Failed to create connection'
+        toast.add({ title: 'Failed to create connection', description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else {
       const res = await useMyFetch('/data_sources', { method: 'POST', body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } })

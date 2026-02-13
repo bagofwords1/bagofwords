@@ -1066,11 +1066,13 @@ class InstructionSyncService:
         content_hash: str,
         organization: Organization,
         git_repo: GitRepository,
+        resource_type: str = 'generic_file',
+        build: Optional[InstructionBuild] = None,
         data_source: Optional[DataSource] = None,
     ) -> Optional[Instruction]:
         """
         Sync a single file to its instruction (1 file = 1 instruction).
-        
+
         Follows the 5-rule reindex logic:
         1. New file -> Create instruction
         2. User-created -> Never touch
@@ -1078,42 +1080,108 @@ class InstructionSyncService:
         4. Linked -> Update text field directly
         5. Deleted files -> Archive (handled separately)
         """
-        import hashlib
-        
+        from pathlib import Path as PurePath
+
         existing = await self._find_instruction_by_file_path(db, file_path, organization.id)
-        
+
         # Rule 1: New file -> Create
         if existing is None:
             return await self._create_file_instruction(
-                db, file_path, file_content, content_hash, organization, git_repo, data_source
+                db, file_path, file_content, content_hash, organization,
+                git_repo, resource_type=resource_type, build=build,
+                data_source=data_source,
             )
-        
+
         # Rule 2: User-created -> Never touch
         if existing.source_type != 'git':
             logger.debug(f"Skipping user-created instruction {existing.id}")
             return None
-        
+
         # Rule 3: Unlinked -> Skip
         if not existing.source_sync_enabled:
             logger.debug(f"Skipping unlinked instruction {existing.id}")
             return None
-        
+
         # Rule 4: Linked -> Update text field directly
         # Check if content actually changed (using hash)
         if existing.content_hash == content_hash:
-            # Just update the commit SHA
             existing.source_git_commit_sha = git_repo.last_indexed_commit_sha
             await db.commit()
             return existing
-        
+
         # Content changed - update
+        ext = PurePath(file_path).suffix.lower()
         existing.text = file_content
+        existing.formatted_content = file_content
         existing.content_hash = content_hash
         existing.source_git_commit_sha = git_repo.last_indexed_commit_sha
         existing.updated_at = datetime.utcnow()
+        existing.structured_data = {
+            'resource_type': resource_type,
+            'path': file_path,
+            'extension': ext,
+        }
+
+        # Update frontmatter-driven fields for markdown
+        if ext in ('.md', '.markdown'):
+            frontmatter = self._parse_frontmatter_from_content(file_content)
+            fm_status = frontmatter.get('status')
+            if fm_status in ('published', 'draft', 'archived'):
+                existing.status = fm_status
+                existing.global_status = 'approved' if fm_status == 'published' else None
+            fm_category = frontmatter.get('category')
+            if fm_category:
+                existing.category = fm_category
+            fm_load_mode = frontmatter.get('load_mode')
+            if fm_load_mode in ('always', 'intelligent', 'never'):
+                existing.load_mode = fm_load_mode
+            else:
+                always_apply = frontmatter.get('alwaysApply')
+                if always_apply is True:
+                    existing.load_mode = 'always'
+                elif always_apply is False:
+                    existing.load_mode = 'intelligent'
+
         await db.commit()
         await db.refresh(existing)
-        
+
+        # Re-extract table references
+        from sqlalchemy import delete as sa_delete
+        await db.execute(
+            sa_delete(InstructionReference).where(
+                InstructionReference.instruction_id == existing.id
+            )
+        )
+        await db.commit()
+        await self._extract_table_references(db, existing, organization.id)
+
+        # Build integration: create version + add to build
+        if build:
+            try:
+                inst_stmt = (
+                    select(Instruction)
+                    .options(
+                        selectinload(Instruction.data_sources),
+                        selectinload(Instruction.labels),
+                        selectinload(Instruction.references),
+                    )
+                    .where(Instruction.id == existing.id)
+                )
+                inst_result = await db.execute(inst_stmt)
+                instruction_with_rels = inst_result.scalar_one()
+
+                version = await self.version_service.create_version(
+                    db, instruction_with_rels, user_id=existing.user_id
+                )
+                instruction_with_rels.current_version_id = version.id
+                await self.build_service.add_to_build(
+                    db, build.id, instruction_with_rels.id, version.id
+                )
+                await db.commit()
+                logger.debug(f"Created version {version.id} for updated file instruction {existing.id}")
+            except Exception as e:
+                logger.warning(f"Failed to create version for file instruction {existing.id}: {e}")
+
         logger.info(f"Updated instruction {existing.id} from file {file_path}")
         return existing
     
@@ -1142,21 +1210,23 @@ class InstructionSyncService:
         content_hash: str,
         organization: Organization,
         git_repo: GitRepository,
+        resource_type: str = 'generic_file',
+        build: Optional[InstructionBuild] = None,
         data_source: Optional[DataSource] = None,
     ) -> Instruction:
         """Create new instruction for a git file."""
         from pathlib import Path
-        
+
         # Extract title from file path
         title = Path(file_path).stem
-        
+        ext = Path(file_path).suffix.lower()
+
         # Parse frontmatter from file content (for .md files)
         frontmatter = self._parse_frontmatter_from_content(file_content)
-        
+
         # Determine load mode: frontmatter > file extension > repo default
         load_mode = frontmatter.get('load_mode')
         if load_mode not in ('always', 'intelligent', 'never'):
-            # Check alwaysApply alias
             always_apply = frontmatter.get('alwaysApply')
             if always_apply is True:
                 load_mode = 'always'
@@ -1164,20 +1234,25 @@ class InstructionSyncService:
                 load_mode = 'intelligent'
             else:
                 load_mode = self._get_load_mode_for_file(file_path, git_repo)
-        
-        # Parse status from frontmatter (default: 'published')
+
+        # Parse status from frontmatter; default to 'draft' (auto_publish upgrades below)
         status = frontmatter.get('status')
         if status not in ('published', 'draft', 'archived'):
-            status = 'published'
-        
+            status = 'draft'
+
         # Parse category from frontmatter (default: 'general')
         category = frontmatter.get('category') or 'general'
-        
-        # Derive global_status based on status
+
+        # Auto-publish: override status to 'published' when enabled
+        if git_repo.auto_publish:
+            status = 'published'
+
+        # Derive global_status based on final status
         global_status = 'approved' if status == 'published' else None
-        
+
         instruction = Instruction(
             text=file_content,
+            formatted_content=file_content,
             title=title,
             source_type='git',
             source_file_path=file_path,
@@ -1193,17 +1268,61 @@ class InstructionSyncService:
             user_id=git_repo.user_id,
             is_seen=True,
             can_user_toggle=True,
+            structured_data={
+                'resource_type': resource_type,
+                'path': file_path,
+                'extension': ext,
+            },
         )
-        
+
         db.add(instruction)
         await db.commit()
         await db.refresh(instruction)
-        
+
         # Associate instruction with the data source
         if data_source:
             instruction.data_sources.append(data_source)
             await db.commit()
-        
+
+        # Resolve frontmatter references for markdown files
+        if ext in ('.md', '.markdown') and frontmatter:
+            try:
+                await self._resolve_frontmatter_references_from_dict(
+                    db, instruction, frontmatter, organization.id
+                )
+            except Exception as e:
+                logger.warning(f"Failed to resolve frontmatter references for {file_path}: {e}")
+
+        # Extract table references for all files
+        await self._extract_table_references(db, instruction, organization.id)
+
+        # Build integration: create version + add to build
+        if build:
+            try:
+                inst_stmt = (
+                    select(Instruction)
+                    .options(
+                        selectinload(Instruction.data_sources),
+                        selectinload(Instruction.labels),
+                        selectinload(Instruction.references),
+                    )
+                    .where(Instruction.id == instruction.id)
+                )
+                inst_result = await db.execute(inst_stmt)
+                instruction_with_rels = inst_result.scalar_one()
+
+                version = await self.version_service.create_version(
+                    db, instruction_with_rels, user_id=git_repo.user_id
+                )
+                instruction_with_rels.current_version_id = version.id
+                await self.build_service.add_to_build(
+                    db, build.id, instruction_with_rels.id, version.id
+                )
+                await db.commit()
+                logger.debug(f"Created version {version.id} for new file instruction {instruction.id}")
+            except Exception as e:
+                logger.warning(f"Failed to create version for file instruction {instruction.id}: {e}")
+
         logger.info(f"Created file instruction {instruction.id} for {file_path}")
         return instruction
     
@@ -1330,37 +1449,195 @@ class InstructionSyncService:
         db: AsyncSession,
         org_id: str,
         current_file_paths: set,
+        path_prefix: Optional[str] = None,
+        build: Optional[InstructionBuild] = None,
     ) -> int:
         """
         Archive instructions for files that no longer exist in git.
-        
+
         Rule 5: Deleted files -> Archive
-        
+
+        Args:
+            path_prefix: If provided, only consider instructions whose
+                         source_file_path starts with this prefix (e.g. 'my-repo/').
+                         This scopes the archival to a single repo.
+            build: If provided, add archived instructions to the build.
+
         Returns:
             Number of instructions archived
         """
-        # Find all git-sourced, linked instructions not in current file paths
-        stmt = select(Instruction).where(
-            and_(
-                Instruction.source_type == 'git',
-                Instruction.source_sync_enabled == True,
-                Instruction.organization_id == org_id,
-                Instruction.source_file_path != None,
-                Instruction.deleted_at == None,
-                Instruction.status != 'archived',
-            )
-        )
+        conditions = [
+            Instruction.source_type == 'git',
+            Instruction.source_sync_enabled == True,
+            Instruction.organization_id == org_id,
+            Instruction.source_file_path != None,
+            Instruction.deleted_at == None,
+            Instruction.status != 'archived',
+        ]
+        if path_prefix:
+            conditions.append(Instruction.source_file_path.like(f'{path_prefix}%'))
+
+        stmt = select(Instruction).where(and_(*conditions))
         result = await db.execute(stmt)
         instructions = result.scalars().all()
-        
+
         archived_count = 0
         for instruction in instructions:
             if instruction.source_file_path not in current_file_paths:
                 instruction.status = 'archived'
                 archived_count += 1
                 logger.info(f"Archived instruction {instruction.id} - file {instruction.source_file_path} was deleted")
-        
+
+                if build:
+                    try:
+                        version = await self.version_service.create_version(
+                            db, instruction, user_id=instruction.user_id
+                        )
+                        instruction.current_version_id = version.id
+                        await self.build_service.add_to_build(
+                            db, build.id, instruction.id, version.id
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to add archived instruction {instruction.id} to build: {e}")
+
         if archived_count > 0:
             await db.commit()
-        
+
         return archived_count
+
+    async def _resolve_frontmatter_references_from_dict(
+        self,
+        db: AsyncSession,
+        instruction: Instruction,
+        frontmatter: Dict[str, Any],
+        org_id: str,
+    ) -> int:
+        """Resolve frontmatter references from a dict (new file-based flow)."""
+        references = frontmatter.get('references', [])
+        if not references or not isinstance(references, list):
+            return 0
+
+        await db.refresh(instruction, ['data_sources'])
+        data_source_ids = [ds.id for ds in instruction.data_sources] if instruction.data_sources else []
+
+        created_count = 0
+        for ref_name in references:
+            if not isinstance(ref_name, str) or not ref_name.strip():
+                continue
+
+            ref_name = ref_name.strip()
+            table_query = select(DataSourceTable).where(
+                and_(
+                    DataSourceTable.name == ref_name,
+                    DataSourceTable.is_active == True,
+                )
+            )
+            if data_source_ids:
+                table_query = table_query.where(
+                    DataSourceTable.datasource_id.in_(data_source_ids)
+                )
+
+            result = await db.execute(table_query)
+            table = result.scalars().first()
+
+            if table:
+                existing_ref = await db.execute(
+                    select(InstructionReference).where(
+                        and_(
+                            InstructionReference.instruction_id == instruction.id,
+                            InstructionReference.object_type == 'datasource_table',
+                            InstructionReference.object_id == table.id,
+                        )
+                    )
+                )
+                if not existing_ref.scalars().first():
+                    instruction_ref = InstructionReference(
+                        instruction_id=instruction.id,
+                        object_type='datasource_table',
+                        object_id=table.id,
+                    )
+                    db.add(instruction_ref)
+                    created_count += 1
+
+        if created_count > 0:
+            await db.commit()
+        return created_count
+
+    async def _extract_table_references(
+        self,
+        db: AsyncSession,
+        instruction: Instruction,
+        org_id: str,
+    ) -> int:
+        """
+        Auto-extract table references by scanning instruction text for known
+        DataSourceTable names (case-sensitive, word-boundary match).
+
+        Works for any file format: dbt SQL, dbt YAML, Snowflake semantic YAML,
+        LookML, raw SQL, etc.
+        """
+        import re as _re
+
+        text = instruction.formatted_content or instruction.text
+        if not text:
+            return 0
+
+        # Get instruction's data source ids for scoping
+        await db.refresh(instruction, ['data_sources'])
+        data_source_ids = [ds.id for ds in instruction.data_sources] if instruction.data_sources else []
+
+        # If no data sources on instruction, look at all org data sources
+        if not data_source_ids:
+            from app.models.data_source import DataSource as DS
+            ds_stmt = select(DS.id).where(
+                and_(DS.organization_id == org_id, DS.deleted_at == None)
+            )
+            ds_result = await db.execute(ds_stmt)
+            data_source_ids = [row[0] for row in ds_result.all()]
+
+        if not data_source_ids:
+            return 0
+
+        # Load all active table names for these data sources
+        table_stmt = select(DataSourceTable).where(
+            and_(
+                DataSourceTable.datasource_id.in_(data_source_ids),
+                DataSourceTable.is_active == True,
+            )
+        )
+        table_result = await db.execute(table_stmt)
+        tables = table_result.scalars().all()
+
+        created_count = 0
+        for table in tables:
+            name = table.name
+            # Filter names < 3 chars to avoid false positives
+            if not name or len(name) < 3:
+                continue
+
+            pattern = r'\b' + _re.escape(name) + r'\b'
+            if _re.search(pattern, text):
+                # Check if reference already exists
+                existing_ref = await db.execute(
+                    select(InstructionReference).where(
+                        and_(
+                            InstructionReference.instruction_id == instruction.id,
+                            InstructionReference.object_type == 'datasource_table',
+                            InstructionReference.object_id == table.id,
+                        )
+                    )
+                )
+                if not existing_ref.scalars().first():
+                    instruction_ref = InstructionReference(
+                        instruction_id=instruction.id,
+                        object_type='datasource_table',
+                        object_id=table.id,
+                    )
+                    db.add(instruction_ref)
+                    created_count += 1
+
+        if created_count > 0:
+            await db.commit()
+            logger.debug(f"Extracted {created_count} table references for instruction {instruction.id}")
+
+        return created_count

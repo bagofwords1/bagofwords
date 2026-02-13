@@ -7,7 +7,7 @@
 
       <div class="mb-4">
         <h1 class="text-base font-semibold flex items-center">
-            <DataSourceIcon :type="connectionType" class="w-4 mr-2" />
+            <DataSourceIcon :type="connectionType" class="h-4 mr-2" />
             Connect {{ ds?.name }}</h1>
         <p class="mt-1 text-xs text-gray-500">Provide your credentials to enable access for you.</p>
       </div>

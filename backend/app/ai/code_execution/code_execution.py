@@ -259,7 +259,7 @@ class CodeExecutionManager:
         executor = StreamingCodeExecutor(organization_settings=self.organization_settings, logger=self.logger)
         return executor.execute_code(code=code, ds_clients=db_clients, excel_files=excel_files)
 
-    def format_df_for_widget(self, df: pd.DataFrame, max_rows: int = 1000) -> Dict:
+    def format_df_for_widget(self, df: pd.DataFrame, max_rows: Optional[int] = None) -> Dict:
         executor = StreamingCodeExecutor(organization_settings=self.organization_settings, logger=self.logger)
         return executor.format_df_for_widget(df=df, max_rows=max_rows)
 
@@ -423,12 +423,25 @@ class StreamingCodeExecutor:
             info_dict["column_info"][column] = column_info
         return info_dict
 
-    def format_df_for_widget(self, df: pd.DataFrame, max_rows: int = 1000) -> Dict:
+    def format_df_for_widget(self, df: pd.DataFrame, max_rows: Optional[int] = None) -> Dict:
         """Format a DataFrame into a widget-compatible structure.
-        
+
         Uses pandas' native JSON serialization which handles datetime, time,
         timedelta, numpy types, NaN/NaT, and other edge cases robustly.
+
+        Args:
+            df: The DataFrame to format
+            max_rows: Maximum rows to include. If None, uses organization setting
+                      'limit_row_count' or defaults to 1000.
         """
+        if max_rows is None:
+            if self.organization_settings is not None:
+                try:
+                    max_rows = int(self.organization_settings.get_config("limit_row_count").value)
+                except (AttributeError, TypeError, ValueError):
+                    max_rows = 1000
+            else:
+                max_rows = 1000
         columns = [{"headerName": str(col), "field": str(col)} for col in df.columns]
         if df.empty:
             rows = []

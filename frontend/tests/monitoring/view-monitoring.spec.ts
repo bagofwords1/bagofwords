@@ -1,8 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures/feature-test';
 
 test('can view monitoring page', async ({ page }) => {
   await page.goto('/monitoring');
-  await page.waitForLoadState('domcontentloaded');
+  await page.waitForLoadState('networkidle');
 
   // Verify page heading (longer timeout for CI)
   await expect(page.getByRole('heading', { name: 'Monitoring', exact: true }))
@@ -10,6 +10,6 @@ test('can view monitoring page', async ({ page }) => {
 
   // Verify navigation tabs are present
   await expect(page.getByText('Explore'))
-    .toBeVisible({ timeout: 10000 });
+    .toBeVisible({ timeout: 15000 });
 });
 

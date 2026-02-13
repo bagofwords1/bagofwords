@@ -120,7 +120,38 @@
               </label>
             </div>
           </div>
-          
+
+          <!-- Connection filter section -->
+          <div v-if="availableConnections.length >= 1" class="py-1 border-t border-gray-100">
+            <div class="px-2 py-1 text-[10px] font-medium text-gray-400 uppercase tracking-wider flex items-center justify-between">
+              <span>Connection</span>
+              <button
+                v-if="selectedConnections.length > 0"
+                type="button"
+                @click.stop="clearConnectionFilter"
+                class="text-[9px] text-gray-400 hover:text-gray-600"
+              >
+                Clear
+              </button>
+            </div>
+            <div class="max-h-32 overflow-y-auto">
+              <label
+                v-for="conn in availableConnections"
+                :key="conn.id"
+                class="flex items-center px-2 py-1 text-xs hover:bg-gray-50 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  :checked="selectedConnections.includes(conn.id)"
+                  @change="toggleConnectionFilter(conn.id)"
+                  class="mr-1.5 h-3 w-3 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span class="truncate">{{ conn.name }}</span>
+                <span class="ml-1 text-[9px] text-gray-400">({{ conn.type }})</span>
+              </label>
+            </div>
+          </div>
+
           <!-- Clear all filters -->
           <div v-if="hasActiveFilters" class="border-t border-gray-100 p-1.5">
             <button
@@ -232,6 +263,7 @@
                 <button type="button" class="flex items-center justify-between text-left flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 mr-1 text-gray-500" />
+                    <DataSourceIcon v-if="availableConnections.length > 1" :type="table.connection_type" class="h-3.5 mr-1.5 flex-shrink-0" />
                     <span class="text-sm text-gray-800 truncate">{{ table.name }}</span>
                     <span v-if="!isTableActive(table.name) && canUpdate" class="ml-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 text-gray-500">inactive</span>
                     <span v-if="isTableDirty(table.name)" class="ml-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
@@ -336,20 +368,30 @@
 
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
+import DataSourceIcon from '@/components/DataSourceIcon.vue'
 
 type Column = { name: string; dtype?: string; type?: string }
-type Table = { 
-  name: string; 
-  is_active: boolean; 
-  columns?: Column[]; 
-  pks?: any[]; 
-  fks?: any[]; 
-  usage_count?: number; 
-  success_count?: number; 
-  failure_count?: number; 
-  pos_feedback_count?: number; 
+type Table = {
+  name: string;
+  is_active: boolean;
+  columns?: Column[];
+  pks?: any[];
+  fks?: any[];
+  usage_count?: number;
+  success_count?: number;
+  failure_count?: number;
+  pos_feedback_count?: number;
   neg_feedback_count?: number;
   metadata_json?: { schema?: string };
+  connection_id?: string;
+  connection_name?: string;
+  connection_type?: string;
+}
+
+type ConnectionInfo = {
+  id: string;
+  name: string;
+  type: string;
 }
 
 type PaginatedResponse = {
@@ -359,37 +401,40 @@ type PaginatedResponse = {
   page_size: number;
   total_pages: number;
   schemas: string[];
+  connections: ConnectionInfo[];
   selected_count: number;
   total_tables: number;
   has_more: boolean;
 }
 
-const props = withDefaults(defineProps<{ 
-  dsId: string; 
-  schema: 'full' | 'user'; 
-  canUpdate?: boolean; 
-  showRefresh?: boolean; 
-  refreshIconOnly?: boolean; 
-  showSave?: boolean; 
-  saveLabel?: string; 
-  maxHeight?: string; 
-  showHeader?: boolean; 
-  headerTitle?: string; 
-  headerSubtitle?: string; 
+const props = withDefaults(defineProps<{
+  dsId: string;
+  schema: 'full' | 'user';
+  canUpdate?: boolean;
+  showRefresh?: boolean;
+  refreshIconOnly?: boolean;
+  showSave?: boolean;
+  saveLabel?: string;
+  maxHeight?: string;
+  showHeader?: boolean;
+  headerTitle?: string;
+  headerSubtitle?: string;
   showStats?: boolean;
   pageSize?: number;
-}>(), { 
-  canUpdate: true, 
-  showRefresh: true, 
-  refreshIconOnly: false, 
-  showSave: true, 
-  saveLabel: 'Save', 
-  maxHeight: '50vh', 
-  showHeader: false, 
-  headerTitle: 'Select tables', 
-  headerSubtitle: 'Choose which tables to enable', 
+  skipRefreshOnSave?: boolean;
+}>(), {
+  canUpdate: true,
+  showRefresh: true,
+  refreshIconOnly: false,
+  showSave: true,
+  saveLabel: 'Save',
+  maxHeight: '50vh',
+  showHeader: false,
+  headerTitle: 'Select tables',
+  headerSubtitle: 'Choose which tables to enable',
   showStats: false,
   pageSize: 100,
+  skipRefreshOnSave: false,
 })
 
 const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void }>()
@@ -414,6 +459,8 @@ const totalMatching = ref(0)
 const totalTables = ref(0)
 const selectedCount = ref(0)
 const availableSchemas = ref<string[]>([])
+const availableConnections = ref<ConnectionInfo[]>([])
+const selectedConnections = ref<string[]>([])
 
 // Filter state
 const searchInput = ref('')
@@ -463,7 +510,7 @@ const paginationStart = computed(() => ((page.value - 1) * props.pageSize) + 1)
 const paginationEnd = computed(() => Math.min(page.value * props.pageSize, totalMatching.value))
 
 const hasActiveFilters = computed(() => {
-  return searchDebounced.value.trim() !== '' || selectedSchemas.value.length > 0 || filters.value.selectedState !== null
+  return searchDebounced.value.trim() !== '' || selectedSchemas.value.length > 0 || selectedConnections.value.length > 0 || filters.value.selectedState !== null
 })
 
 const hasPendingChanges = computed(() => {
@@ -540,9 +587,27 @@ function clearSchemaFilter() {
   fetchTables()
 }
 
+function toggleConnectionFilter(connectionId: string) {
+  const idx = selectedConnections.value.indexOf(connectionId)
+  if (idx >= 0) {
+    selectedConnections.value.splice(idx, 1)
+  } else {
+    selectedConnections.value.push(connectionId)
+  }
+  page.value = 1
+  fetchTables()
+}
+
+function clearConnectionFilter() {
+  selectedConnections.value = []
+  page.value = 1
+  fetchTables()
+}
+
 function clearAllFilters() {
   filters.value.selectedState = null
   selectedSchemas.value = []
+  selectedConnections.value = []
   filterMenuOpen.value = false
   page.value = 1
   fetchTables()
@@ -577,6 +642,9 @@ async function fetchTables() {
       if (selectedSchemas.value.length > 0) {
         params.set('schema_filter', selectedSchemas.value.join(','))
       }
+      if (selectedConnections.value.length > 0) {
+        params.set('connection_filter', selectedConnections.value.join(','))
+      }
       if (sort.key) {
         // Map frontend sort keys to backend
         let sortBy = sort.key
@@ -609,6 +677,10 @@ async function fetchTables() {
           // Update available schemas (only on first load or refresh)
           if (paginatedData.schemas && paginatedData.schemas.length > 0) {
             availableSchemas.value = paginatedData.schemas
+          }
+          // Update available connections
+          if (paginatedData.connections && paginatedData.connections.length > 0) {
+            availableConnections.value = paginatedData.connections
           }
           
           // Update tracking maps for loaded tables
@@ -693,6 +765,9 @@ function selectAllMatching() {
   if (selectedSchemas.value.length > 0) {
     filterObj.schema = selectedSchemas.value
   }
+  if (selectedConnections.value.length > 0) {
+    filterObj.connection = selectedConnections.value
+  }
   if (searchDebounced.value.trim()) {
     filterObj.search = searchDebounced.value.trim()
   }
@@ -720,6 +795,9 @@ function deselectAllMatching() {
   const filterObj: Record<string, any> = {}
   if (selectedSchemas.value.length > 0) {
     filterObj.schema = selectedSchemas.value
+  }
+  if (selectedConnections.value.length > 0) {
+    filterObj.connection = selectedConnections.value
   }
   if (searchDebounced.value.trim()) {
     filterObj.search = searchDebounced.value.trim()
@@ -795,8 +873,10 @@ async function onSave() {
     pendingBulkActions.value = []
     originalActiveState.value.clear()
     currentActiveState.value.clear()
-    await fetchTables()
-    
+    if (!props.skipRefreshOnSave) {
+      await fetchTables()
+    }
+
     toast.add({
       title: 'Tables updated',
       description: 'Table selection saved successfully',
@@ -829,6 +909,7 @@ async function onRefresh() {
     pendingBulkActions.value = []
     originalActiveState.value.clear()
     currentActiveState.value.clear()
+    selectedConnections.value = []
     page.value = 1
 
     await fetchTables()
@@ -847,6 +928,7 @@ watch(() => [props.dsId, props.schema], () => {
     searchInput.value = ''
     searchDebounced.value = ''
     selectedSchemas.value = []
+    selectedConnections.value = []
     filters.value.selectedState = null
     pendingBulkActions.value = []
     originalActiveState.value.clear()

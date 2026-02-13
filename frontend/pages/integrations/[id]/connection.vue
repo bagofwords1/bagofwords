@@ -85,7 +85,7 @@
             <template #header>
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
-                        <DataSourceIcon :type="connectionType" class="h-5 w-5" />
+                        <DataSourceIcon :type="connectionType" class="h-5" />
                         <h3 class="text-lg font-semibold">Edit Connection</h3>
                     </div>
                     <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />

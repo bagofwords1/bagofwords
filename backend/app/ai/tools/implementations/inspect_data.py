@@ -76,7 +76,10 @@ Use when:
             )
             return
         
-        yield ToolStartEvent(type="tool.start", payload={"title": "Inspecting Data"})
+        yield ToolStartEvent(type="tool.start", payload={
+            "title": "Inspecting Data",
+            "tables_by_source": data.tables_by_source,
+        })
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init_inspection"})
 
         context_hub = runtime_ctx.get("context_hub")
@@ -112,10 +115,10 @@ Use when:
                     if group.get("data_source_id"):
                         ds_ids.append(group["data_source_id"])
                     all_resolved_names.extend(group.get("tables", []))
-                
+
                 ds_scope = list(set(ds_ids)) if ds_ids else None
                 name_patterns = [f"(?i)(?:^|\\.){re.escape(n)}$" for n in all_resolved_names] if all_resolved_names else None
-                
+
                 ctx = await context_hub.schema_builder.build(
                     with_stats=True,
                     data_source_ids=ds_scope,
@@ -124,7 +127,7 @@ Use when:
                 schemas_excerpt = ctx.render_combined(top_k_per_ds=10, index_limit=0, include_index=False)
             except Exception:
                 schemas_excerpt = ""
-        
+
         codegen_context = await build_codegen_context(
             runtime_ctx=runtime_ctx,
             user_prompt=data.user_prompt,
@@ -202,7 +205,7 @@ Use when:
                     "code": generated_code,
                     "execution_log": output_log,
                     "error_message": execution_error,
-                    "execution_duration_ms": execution_duration_ms
+                    "execution_duration_ms": execution_duration_ms,
                 },
                 "observation": {
                     "summary": f"Inspection finished for: {data.user_prompt}",

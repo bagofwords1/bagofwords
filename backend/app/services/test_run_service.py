@@ -965,7 +965,8 @@ class TestRunService:
                             clients = {}
                             for data_source in getattr(report_obj, "data_sources", []):
                                 try:
-                                    clients[data_source.name] = await self.completions.data_source_service.construct_client(session, data_source, current_user)
+                                    ds_clients = await self.completions.data_source_service.construct_clients(session, data_source, current_user)
+                                    clients.update(ds_clients)
                                 except Exception:
                                     pass
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__

@@ -39,7 +39,7 @@
             <span v-if="selectedDataSourceIds.length === 0" class="text-gray-500">Select data sources</span>
             <div v-else class="flex items-center flex-wrap gap-1">
               <span v-for="ds in selectedDataSourceObjects" :key="ds.id" class="flex items-center bg-blue-100 text-blue-800 text-[10px] px-1.5 py-0.5 rounded">
-                <DataSourceIcon :type="ds.type" class="h-3 w-3 mr-1" />
+                <DataSourceIcon :type="ds.type" class="h-3 mr-1" />
                 {{ ds.name }}
               </span>
             </div>
@@ -48,7 +48,7 @@
         <template #option="{ option }">
           <div class="flex items-center justify-between w-full py-1 pr-2">
             <div class="flex items-center">
-              <DataSourceIcon :type="option.type" class="w-3 h-3 mr-2" />
+              <DataSourceIcon :type="option.type" class="h-3 mr-2" />
               <span class="text-xs">{{ option.name }}</span>
             </div>
             <UCheckbox 

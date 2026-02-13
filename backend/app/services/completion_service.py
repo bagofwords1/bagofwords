@@ -273,7 +273,8 @@ class CompletionService:
 
             clients = {}
             for data_source in report.data_sources:
-                clients[data_source.name] = await self.data_source_service.construct_client(db, data_source, current_user)
+                ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
+                clients.update(ds_clients)
             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
             _ = report.files
 
@@ -490,7 +491,8 @@ class CompletionService:
                             
                             clients = {}
                             for data_source in report_obj.data_sources:
-                                clients[data_source.name] = await self.data_source_service.construct_client(session, data_source, current_user)
+                                ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
+                                clients.update(ds_clients)
                             # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                             _ = report_obj.files
 
@@ -540,7 +542,8 @@ class CompletionService:
                     # Foreground execution (wait and return final v2)
                     clients = {}
                     for data_source in report.data_sources:
-                        clients[data_source.name] = await self.data_source_service.construct_client(db, data_source, current_user)
+                        ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
+                        clients.update(ds_clients)
                     # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                     _ = report.files
                     agent = AgentV2(
@@ -1503,7 +1506,8 @@ class CompletionService:
                         
                         clients = {}
                         for data_source in report_obj.data_sources:
-                            clients[data_source.name] = await self.data_source_service.construct_client(session, data_source, current_user)
+                            ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
+                            clients.update(ds_clients)
 
                         # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                         # (AgentV2.__init__ is synchronous, so lazy-loading files there would fail)

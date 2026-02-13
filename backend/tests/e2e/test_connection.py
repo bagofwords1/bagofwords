@@ -193,16 +193,24 @@ def test_connection_refresh_schema(
 
 
 @pytest.mark.e2e
-def test_connection_cannot_delete_with_domains(
+def test_connection_delete_with_domains_cascades(
     create_connection,
     create_domain_from_connection,
     delete_connection,
+    get_data_source,
     delete_data_source,
     create_user,
     login_user,
     whoami,
 ):
-    """Test that a connection cannot be deleted if domains are linked to it."""
+    """Test that deleting a connection with linked domains succeeds and cascades properly.
+
+    The connection deletion should:
+    - Remove the connection
+    - Cascade delete DataSourceTable records linked via ConnectionTable
+    - Remove domain_connection junction records
+    - Delete domains that only have this connection (single-connection domains)
+    """
     if not CONNECTION_TEST_DB_PATH.exists():
         pytest.skip(f"SQLite test database missing at {CONNECTION_TEST_DB_PATH}")
 
@@ -228,30 +236,22 @@ def test_connection_cannot_delete_with_domains(
         org_id=org_id,
     )
 
-    # Try to delete connection - should fail
+    # Delete connection - should succeed even with linked domain
     delete_response = delete_connection(
         connection_id=connection["id"],
         user_token=user_token,
         org_id=org_id,
-        expect_success=False,
     )
 
-    # Should return error (400 or 409)
-    assert delete_response.status_code in [400, 409]
+    assert delete_response.status_code == 200
 
-    # Cleanup: delete domain first, then connection
-    delete_data_source(
+    # Domain should be deleted since it only had this one connection
+    domain_after = get_data_source(
         data_source_id=domain["id"],
         user_token=user_token,
         org_id=org_id,
     )
-
-    # Now connection can be deleted
-    delete_connection(
-        connection_id=connection["id"],
-        user_token=user_token,
-        org_id=org_id,
-    )
+    assert domain_after is None, "Domain with single connection should be deleted when connection is deleted"
 
 
 @pytest.mark.e2e

@@ -12,6 +12,7 @@
               :showSave="true"
               saveLabel="Save & Continue"
               maxHeight="50vh"
+              :skipRefreshOnSave="true"
               @saved="onSaved"
             />
           </div>

@@ -27,7 +27,7 @@
                         <div v-for="dataSource in instruction.data_sources" 
                              :key="dataSource.id" 
                              class="flex items-center gap-1.5 text-xs text-gray-600">
-                            <DataSourceIcon :type="dataSource.type" class="w-3 h-3" />
+                            <DataSourceIcon :type="dataSource.type" class="h-3" />
                             <span>{{ dataSource.name }}</span>
                         </div>
                     </div>
@@ -40,7 +40,7 @@
                         <div v-for="ref in (instruction as any).references" 
                              :key="ref.id" 
                              class="flex items-center gap-1.5 text-xs text-gray-600 bg-gray-100 p-1 rounded-md">
-                             <DataSourceIcon :type="ref.data_source_type" class="w-3 h-3" />
+                             <DataSourceIcon :type="ref.data_source_type" class="h-3" />
                              <span>{{ ref.data_source_name }}</span>
                             <UIcon :name="getRefIcon(ref.object_type)" class="w-3 h-3" />
                             <span>{{ getRefDisplayName(ref) }}</span>

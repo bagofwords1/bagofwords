@@ -157,7 +157,7 @@ class DemoDataSourceService:
         # Create the Connection first
         from app.models.connection import Connection
         connection = Connection(
-            name=demo.name,
+            name=demo.connection_name or demo.name,
             type=demo.type,
             config=json.dumps(config),
             organization_id=str(organization.id),
@@ -334,21 +334,38 @@ class DemoDataSourceService:
         current_user: User,
     ):
         """
-        Load tables from the demo data source and save them.
-        
-        Uses DataSourceService.save_or_update_tables for consistency.
+        Load tables from the demo data source connection.
+
+        Uses ConnectionService.refresh_schema to create ConnectionTable records,
+        then syncs them to DataSourceTable records. This ensures demo connections
+        can be linked to other domains later.
         """
+        from app.services.connection_service import ConnectionService
         from app.services.data_source_service import DataSourceService
-        
+
         try:
+            if not data_source.connections:
+                logger.warning(f"Demo data source {data_source.name} has no connections")
+                return
+
+            connection = data_source.connections[0]
+
+            # Step 1: Refresh schema to create ConnectionTable records
+            conn_service = ConnectionService()
+            await conn_service.refresh_schema(
+                db=db,
+                connection=connection,
+                current_user=current_user,
+            )
+            logger.info(f"Created ConnectionTable records for demo connection: {connection.name}")
+
+            # Step 2: Sync ConnectionTable records to DataSourceTable records
             ds_service = DataSourceService()
-            await ds_service.save_or_update_tables(
+            await ds_service.sync_domain_tables_from_connection(
                 db=db,
                 data_source=data_source,
-                organization=organization,
-                should_set_active=True,
-                current_user=current_user,
-                force_all_active=True,  # Demo data sources should have all tables active
+                connection=connection,
+                max_auto_select=9999,  # Activate all tables for demos
             )
             logger.info(f"Loaded tables for demo data source: {data_source.name}")
         except Exception as e:
@@ -374,15 +391,18 @@ class DemoDataSourceService:
         result = await db.execute(stmt)
         data_sources = result.scalars().all()
 
-        # Filter to those that have a demo_id in their config (from connection)
+        # Filter to those that have a demo_id in their config (from any connection)
         installed = {}
         for ds in data_sources:
-            # Get config from first connection
-            conn = ds.connections[0] if ds.connections else None
-            if not conn:
+            if not ds.connections:
                 continue
-            config = conn.config if isinstance(conn.config, dict) else json.loads(conn.config or "{}")
-            demo_id = config.get(DEMO_ID_KEY)
+            # Check ALL connections for demo_id marker (not just the first one)
+            demo_id = None
+            for conn in ds.connections:
+                config = conn.config if isinstance(conn.config, dict) else json.loads(conn.config or "{}")
+                demo_id = config.get(DEMO_ID_KEY)
+                if demo_id:
+                    break  # Found a demo connection
             if demo_id and demo_id in DEMO_DATA_SOURCES:
                 installed[demo_id] = ds
 

@@ -1,6 +1,15 @@
 # Release Notes
 
-## Version 0.0.310 (February 7, 2026)
+## Version 0.0.310 (February 13, 2026)
+- Multi-connection support: data sources can now have multiple connections
+- Added PowerBI and Qlik (QVD) data source integrations (Enterprise)
+- Configurable step retention per organization (Enterprise)
+- Exclude shared conversations and published reports from step cleanup
+- Connection icons shown when describing/inspecting tables
+- Schema enrichment with metadata and column comments
+- Data agents and example agent templates
+- Delete connections support
+- Artifact thumbnails
 - Added filtering for reports by schedule to easily view reports based on their schedule settings
 - Added domain filtering for monitoring diagnosis to filter by specific domains
 - Added report thumbnail generation and preview cards on home page for quick visual reference

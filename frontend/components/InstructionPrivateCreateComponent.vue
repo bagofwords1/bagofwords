@@ -89,7 +89,7 @@
                                     v-for="ds in getSelectedDataSourceObjects.slice(0, 3)" 
                                     :key="ds.id" 
                                     :type="ds.type" 
-                                    class="h-4 w-4 border border-white rounded" 
+                                    class="h-4 border border-white rounded" 
                                 />
                             </div>
                             <span class="text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
@@ -375,9 +375,9 @@ Examples:
                             <div class="flex items-center justify-between w-full py-0.5 pr-1">
                                 <div class="flex items-center">
                                     <div v-if="option.id === 'all'" class="flex -space-x-1 mr-1.5">
-                                        <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 w-3 border border-white rounded" />
+                                        <DataSourceIcon v-for="ds in availableDataSources.slice(0, 3)" :key="ds.id" :type="ds.type" class="h-3 border border-white rounded" />
                                     </div>
-                                    <DataSourceIcon v-else :type="option.type" class="w-3 h-3 mr-1.5" />
+                                    <DataSourceIcon v-else :type="option.type" class="h-3 mr-1.5" />
                                     <span class="text-xs">{{ option.name }}</span>
                                 </div>
                                 <UCheckbox :model-value="option.id === 'all' ? isAllDataSourcesSelected : selectedDataSources.includes(String(option.id))" @update:model-value="handleDataSourceToggle(String(option.id))" @click.stop class="flex-shrink-0 ml-1" />
@@ -410,7 +410,7 @@ Examples:
                                     <span class="text-xs font-medium text-gray-900 truncate">{{ option.name }}</span>
                                 </div>
                                 <div class="flex items-center gap-1.5 ml-6">
-                                    <DataSourceIcon :type="option.data_source_type" class="w-2.5 h-2.5 flex-shrink-0" />
+                                    <DataSourceIcon :type="option.data_source_type" class="h-2.5 flex-shrink-0" />
                                     <span class="text-[10px] text-gray-500 truncate">{{ option.data_source_name }}</span>
                                 </div>
                             </div>

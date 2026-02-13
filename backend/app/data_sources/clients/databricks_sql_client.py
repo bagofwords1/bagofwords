@@ -73,32 +73,84 @@ class DatabricksSqlClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get all tables and their columns across one or more schemas.
+        """Get tables with graceful fallback if enriched query fails."""
+        try:
+            return self._get_tables_enriched()
+        except Exception:
+            return self._get_tables_basic()
 
-        Uses system.information_schema (Unity Catalog) to discover tables.
-        Supports comma-separated schemas via the `schema` config field.
-        Always emits fully qualified table names: schema.table
-        """
+    def _get_tables_enriched(self) -> List[Table]:
+        """Get tables with column/table comments. May fail on some Databricks configurations."""
         tables = {}
         with self.connect() as conn:
             cursor = conn.cursor()
 
-            # Build WHERE clause for schema filtering
-            # Unity Catalog uses system.information_schema for metadata
-            where_clauses = [f"table_catalog = '{self.catalog}'"]
+            where_clauses = [f"c.table_catalog = '{self.catalog}'"]
+            if self.catalog.lower() != 'system':
+                where_clauses.append("c.table_schema NOT IN ('information_schema', 'default')")
+            if self._schemas:
+                schema_list = ", ".join([f"'{s}'" for s in self._schemas])
+                where_clauses.append(f"c.table_schema IN ({schema_list})")
 
-            # Exclude system schemas only for non-system catalogs
+            where_sql = " WHERE " + " AND ".join(where_clauses)
+
+            sql = f"""
+                SELECT
+                    c.table_schema,
+                    c.table_name,
+                    c.column_name,
+                    c.data_type,
+                    c.comment AS column_comment,
+                    t.comment AS table_comment
+                FROM system.information_schema.columns c
+                LEFT JOIN system.information_schema.tables t
+                    ON c.table_catalog = t.table_catalog
+                    AND c.table_schema = t.table_schema
+                    AND c.table_name = t.table_name
+                {where_sql}
+                ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            """
+
+            cursor.execute(sql)
+            results = cursor.fetchall()
+            cursor.close()
+
+            for row in results:
+                table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
+                key = (table_schema, table_name)
+                fqn = f"{table_schema}.{table_name}"
+                if key not in tables:
+                    tables[key] = Table(
+                        name=fqn,
+                        description=tbl_comment if tbl_comment else None,
+                        columns=[],
+                        pks=[],
+                        fks=[],
+                        metadata_json={"schema": table_schema, "catalog": self.catalog}
+                    )
+                tables[key].columns.append(TableColumn(
+                    name=column_name,
+                    dtype=data_type,
+                    description=col_comment if col_comment else None
+                ))
+
+        return list(tables.values())
+
+    def _get_tables_basic(self) -> List[Table]:
+        """Get tables without comments (original query - always works)."""
+        tables = {}
+        with self.connect() as conn:
+            cursor = conn.cursor()
+
+            where_clauses = [f"table_catalog = '{self.catalog}'"]
             if self.catalog.lower() != 'system':
                 where_clauses.append("table_schema NOT IN ('information_schema', 'default')")
-
             if self._schemas:
-                # Filter to specific schemas
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"table_schema IN ({schema_list})")
 
             where_sql = " WHERE " + " AND ".join(where_clauses)
 
-            # Query Unity Catalog's system information_schema
             sql = f"""
                 SELECT table_schema, table_name, column_name, data_type
                 FROM system.information_schema.columns
