@@ -259,6 +259,10 @@ class MessageContextBuilder:
                                         digest_parts.append(f"mode: {rj.get('mode')}")
                                     if rj.get('artifact_id'):
                                         digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                    # Surface visualization_ids used to build the artifact
+                                    viz_ids = rj.get('visualization_ids') or []
+                                    if viz_ids:
+                                        digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.created_widget_id:
@@ -650,6 +654,10 @@ class MessageContextBuilder:
                                     digest_parts.append(f"mode: {rj.get('mode')}")
                                 if rj.get('artifact_id'):
                                     digest_parts.append(f"artifact_id: {rj.get('artifact_id')}")
+                                # Surface visualization_ids used to build the artifact
+                                viz_ids = rj.get('visualization_ids') or []
+                                if viz_ids:
+                                    digest_parts.append(f"viz_ids: {', '.join(viz_ids)}")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'error' and tool_execution.error_message:
