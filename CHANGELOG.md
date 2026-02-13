@@ -10,7 +10,10 @@
 - Data agents and example agent templates
 - Delete connections support
 - Artifact thumbnails
-- Report filtering by schedule
+- Added filtering for reports by schedule to easily view reports based on their schedule settings
+- Added domain filtering for monitoring diagnosis to filter by specific domains
+- Added report thumbnail generation and preview cards on home page for quick visual reference
+- Added support for Claude Opus 4.6 model
 
 ## Version 0.0.309 (February 4, 2026)
 - Create artifact (dashboard/slides) tool is now available via MCP 
