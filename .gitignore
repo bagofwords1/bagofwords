@@ -2,6 +2,7 @@
 
 backend/uploads/
 backend/db/
+backend/venv/
 backend/backend_venv/
 backend/tests/integrations/integrations.json
 test_data_sources/
@@ -33,3 +34,5 @@ backend/logs
 
 
 *.pyc
+backend/alembic.ini
+backend/app.db
