@@ -577,8 +577,86 @@ function handleClick(event: MouseEvent) {
   }
 }
 
+// Convert HTML to plain text with markdown-style formatting
+function htmlToPlainText(html: string): string {
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(html, 'text/html')
+
+  function processNode(node: Node, listContext: { type: 'ul' | 'ol', index: number } | null = null): string {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent || ''
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return ''
+    }
+
+    const el = node as HTMLElement
+    const tag = el.tagName.toLowerCase()
+
+    // Process children
+    const processChildren = (ctx: { type: 'ul' | 'ol', index: number } | null = listContext) => {
+      return Array.from(el.childNodes).map(child => processNode(child, ctx)).join('')
+    }
+
+    switch (tag) {
+      case 'br':
+        return '\n'
+      case 'p':
+      case 'div':
+        const pContent = processChildren()
+        return pContent ? pContent + '\n' : ''
+      case 'ul':
+        return Array.from(el.children).map(child => processNode(child, { type: 'ul', index: 0 })).join('') + '\n'
+      case 'ol':
+        let olIndex = 0
+        return Array.from(el.children).map(child => {
+          olIndex++
+          return processNode(child, { type: 'ol', index: olIndex })
+        }).join('') + '\n'
+      case 'li':
+        const liContent = processChildren(null).trim()
+        if (listContext?.type === 'ol') {
+          return `${listContext.index}. ${liContent}\n`
+        }
+        return `• ${liContent}\n`
+      case 'strong':
+      case 'b':
+        return processChildren()
+      case 'em':
+      case 'i':
+        return processChildren()
+      case 'code':
+        return '`' + processChildren() + '`'
+      case 'pre':
+        return '\n' + processChildren() + '\n'
+      case 'h1':
+      case 'h2':
+      case 'h3':
+      case 'h4':
+      case 'h5':
+      case 'h6':
+        return processChildren() + '\n'
+      default:
+        return processChildren()
+    }
+  }
+
+  const result = processNode(doc.body)
+  // Clean up excessive newlines
+  return result.replace(/\n{3,}/g, '\n\n').trim()
+}
+
 function handlePaste(event: ClipboardEvent) {
-  const text = event.clipboardData?.getData('text/plain') || ''
+  const html = event.clipboardData?.getData('text/html')
+  const plain = event.clipboardData?.getData('text/plain') || ''
+
+  // Use HTML conversion if available and contains list elements, otherwise use plain text
+  let text = plain
+  if (html && (html.includes('<li') || html.includes('<ol') || html.includes('<ul'))) {
+    text = htmlToPlainText(html)
+  }
+
   const selection = window.getSelection()
   if (selection && selection.rangeCount > 0) {
     const range = selection.getRangeAt(0)
@@ -928,6 +1006,7 @@ function scrollSelectedIntoView() {
   text-align: left !important;
   vertical-align: top;
   line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 [contenteditable]:empty:before {

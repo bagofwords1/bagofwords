@@ -1,7 +1,7 @@
 <template>
 
-	<!-- Loading until report is fetched (allow streaming UI to render while report loads) -->
-	<div v-if="!reportLoaded && messages.length === 0" class="h-screen w-full flex items-center justify-center text-gray-500">
+	<!-- Loading until report and completions are fetched -->
+	<div v-if="(!reportLoaded || !completionsLoaded) && messages.length === 0" class="h-screen w-full flex items-center justify-center text-gray-500">
 		<Spinner class="w-5 h-5 mr-2" />
 		<span class="text-sm">Loading report…</span>
 	</div>
@@ -516,6 +516,7 @@ const selectedCompletionForTrace = ref<string | null>(null)
 
 // Report and Dashboard state
 const reportLoaded = ref(false)
+const completionsLoaded = ref(false)
 const report = ref<any | null>(null)
 const visualizations = ref<any[]>([])
 const dashboardRef = ref<any | null>(null)
@@ -1528,6 +1529,8 @@ async function loadCompletions() {
 		await promptBoxRef.value?.refreshContextEstimate?.()
 	} catch (e) {
 		console.error('Error loading completions:', e)
+	} finally {
+		completionsLoaded.value = true
 	}
 }
 
