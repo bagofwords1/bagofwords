@@ -314,6 +314,9 @@ async def export_artifact_pptx(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Export a slides artifact as PowerPoint (PPTX)."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+
     artifact = await service.get(db, artifact_id)
     if not artifact:
         raise HTTPException(status_code=404, detail="Artifact not found")
@@ -321,10 +324,32 @@ async def export_artifact_pptx(
     if artifact.mode != "slides":
         raise HTTPException(status_code=400, detail="Only slides artifacts can be exported to PPTX")
 
-    # Get slides data from artifact content (or parse from HTML as fallback)
+    # Check if artifact generation failed
+    if artifact.status == "failed":
+        raise HTTPException(
+            status_code=400,
+            detail="Slides generation failed. Please regenerate the slides before exporting."
+        )
+
+    # Sanitize filename for HTTP headers (ASCII only)
+    safe_title = (artifact.title or "presentation").encode("ascii", "ignore").decode("ascii")
+    safe_title = re.sub(r'[^\w\s-]', '', safe_title).strip() or "presentation"
+    filename = f"{safe_title}.pptx"
+
+    # Check if we have a pre-generated PPTX file (new python-pptx approach)
+    if artifact.pptx_path:
+        pptx_file = Path(artifact.pptx_path)
+        if pptx_file.exists():
+            return FileResponse(
+                path=str(pptx_file),
+                media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                filename=filename,
+            )
+
+    # Fallback: Generate PPTX from HTML (legacy approach)
     slides_data = artifact.content.get("slides") if artifact.content else None
     if not slides_data:
-        # Fallback: parse slides structure from HTML code
+        # Parse slides structure from HTML code
         html_code = artifact.content.get("code", "") if artifact.content else ""
         if html_code:
             slides_data = _parse_slides_from_html(html_code)
@@ -340,12 +365,75 @@ async def export_artifact_pptx(
     )
 
     # Return as downloadable file
-    # Sanitize filename for HTTP headers (ASCII only)
-    safe_title = (artifact.title or "presentation").encode("ascii", "ignore").decode("ascii")
-    safe_title = re.sub(r'[^\w\s-]', '', safe_title).strip() or "presentation"
-    filename = f"{safe_title}.pptx"
     return StreamingResponse(
         pptx_buffer,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.get("/{artifact_id}/previews")
+@requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
+async def list_slide_previews(
+    artifact_id: str,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """List all preview image URLs for a slides artifact."""
+    artifact = await service.get(db, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    if artifact.mode != "slides":
+        raise HTTPException(status_code=400, detail="Only slides artifacts have previews")
+
+    preview_images = (artifact.content or {}).get("preview_images", [])
+
+    return {
+        "artifact_id": artifact_id,
+        "slide_count": len(preview_images),
+        "previews": [
+            f"/artifacts/{artifact_id}/preview/{i}"
+            for i in range(len(preview_images))
+        ],
+        "preview_paths": preview_images,
+    }
+
+
+@router.get("/{artifact_id}/preview/{slide_index}")
+@requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
+async def get_slide_preview(
+    artifact_id: str,
+    slide_index: int,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Get preview image for a specific slide."""
+    from pathlib import Path
+    from fastapi.responses import FileResponse
+
+    artifact = await service.get(db, artifact_id)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    if artifact.mode != "slides":
+        raise HTTPException(status_code=400, detail="Only slides artifacts have previews")
+
+    preview_images = (artifact.content or {}).get("preview_images", [])
+
+    if slide_index < 0 or slide_index >= len(preview_images):
+        raise HTTPException(status_code=404, detail=f"Slide {slide_index} not found")
+
+    # Preview images are stored relative to uploads folder
+    uploads_dir = Path(__file__).parent.parent.parent / "uploads"
+    image_path = uploads_dir / preview_images[slide_index]
+
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail="Preview image not found")
+
+    return FileResponse(
+        path=str(image_path),
+        media_type="image/png",
     )

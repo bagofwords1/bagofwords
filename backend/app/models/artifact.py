@@ -52,6 +52,9 @@ class Artifact(BaseSchema):
     # Thumbnail path for preview cards (relative to uploads folder)
     thumbnail_path = Column(String(512), nullable=True)
 
+    # Path to generated PPTX file (for slides mode)
+    pptx_path = Column(String(512), nullable=True)
+
     # Optional: Reference to the completion that generated this
     completion_id = Column(String(36), ForeignKey('completions.id'), nullable=True, index=True)
     completion = relationship("Completion", lazy="selectin")

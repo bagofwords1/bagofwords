@@ -83,6 +83,8 @@ RUN apt-get update && \
     dpkg -i /tmp/packages-microsoft-prod.deb && rm /tmp/packages-microsoft-prod.deb && \
     apt-get update && \
     ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 mssql-tools18 unixodbc && \
+    # For PPTX to PNG preview generation (slides mode)
+    apt-get install -y --no-install-recommends libreoffice-impress poppler-utils && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

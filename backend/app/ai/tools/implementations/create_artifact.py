@@ -35,6 +35,7 @@ from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
 from app.services.thumbnail_service import ThumbnailService
+from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from sqlalchemy import desc
 
 
@@ -584,25 +585,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
         warnings: List[str] = []
         included_viz_ids: List[str] = []
 
-        # Build a lookup of query data from context_hub for enrichment
-        query_data_lookup: Dict[str, Dict[str, Any]] = {}
-        try:
-            if context_hub is not None:
-                view = context_hub.get_view()
-                qsec = getattr(getattr(view, 'warm', None), 'queries', None)
-                items = getattr(qsec, 'items', []) if qsec else []
-                for it in (items or []):
-                    query_id = getattr(it, 'query_id', None)
-                    if query_id:
-                        query_data_lookup[str(query_id)] = {
-                            "columns": list(getattr(it, 'column_names', []) or []),
-                            "row_count": getattr(it, 'row_count', 0),
-                            "rows": list(getattr(it, 'rows', []) or [])[:100],
-                            "dataModel": getattr(it, 'data_model', None) or {},
-                        }
-        except Exception:
-            pass
-
         # Fetch and validate visualizations from DB
         from app.models.query import Query
         from app.models.step import Step
@@ -629,22 +611,40 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     warnings.append(f"Visualization {viz_id} does not belong to this report")
                     continue
 
-                # Check if the associated step is successful
-                step_status = None
+                # Get the step with data (prefer default_step, fallback to latest step)
+                step = None
                 if viz.query and viz.query.default_step:
-                    step_status = viz.query.default_step.status
+                    step = viz.query.default_step
                 elif viz.query and viz.query.steps:
-                    # Fallback to the latest step if no default_step
-                    step_status = viz.query.steps[-1].status if viz.query.steps else None
+                    step = viz.query.steps[-1] if viz.query.steps else None
 
+                # Check if the associated step is successful
+                step_status = step.status if step else None
                 if step_status != "success":
                     warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
                     continue
 
+                # Get data directly from step (like frontend does)
+                step_data = step.data if step else {}
+                rows = (step_data.get("rows") or [])[:100] if step_data else []
+                raw_columns = step_data.get("columns") or [] if step_data else []
+                data_model = step.data_model if step else {}
+
+                # Normalize columns to list of strings (may be objects with field/colId/headerName)
+                columns = []
+                for c in raw_columns:
+                    if isinstance(c, str):
+                        columns.append(c)
+                    elif isinstance(c, dict):
+                        col_name = c.get("field") or c.get("colId") or c.get("headerName") or c.get("name")
+                        if col_name:
+                            columns.append(col_name)
+                    else:
+                        columns.append(str(c))
+
                 # Build visualization entry
                 view_dict = viz.view or {}
                 query_id = str(viz.query_id) if viz.query_id else None
-                query_data = query_data_lookup.get(query_id, {}) if query_id else {}
 
                 ventry = {
                     "id": str(viz.id),
@@ -652,11 +652,17 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     "query_id": query_id,
                     "view": self._trim_none(view_dict),
                     "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
-                    "columns": query_data.get("columns", []),
-                    "row_count": query_data.get("row_count", 0),
-                    "rows": query_data.get("rows", []),
-                    "dataModel": query_data.get("dataModel", {}),
+                    "columns": columns,
+                    "row_count": len(rows),
+                    "rows": rows,
+                    "dataModel": data_model or {},
                 }
+
+                # Debug logging
+                logger.info(f"Visualization {viz.title}: {len(rows)} rows, {len(columns)} columns: {columns[:5] if columns else 'none'}")
+                if rows:
+                    logger.info(f"  Sample row keys: {list(rows[0].keys())[:5] if isinstance(rows[0], dict) else 'not a dict'}")
+
                 visualizations.append(ventry)
                 included_viz_ids.append(str(viz.id))
 
@@ -790,83 +796,160 @@ Fix these errors while keeping the same design and functionality. Output the cor
         code = self._extract_code(buffer, mode=data.mode)
 
         # ═══════════════════════════════════════════════════════════════════════
-        # Validation loop: render in headless browser and fix errors if needed
+        # Mode-specific processing: slides uses python-pptx, page uses browser validation
         # ═══════════════════════════════════════════════════════════════════════
-        max_validation_attempts = 3
-        validation_result: Optional[ValidationResult] = None
 
-        for attempt in range(max_validation_attempts):
+        validation_result: Optional[ValidationResult] = None
+        pptx_path: Optional[str] = None
+        preview_images: List[str] = []
+
+        if data.mode == "slides":
+            # ═══════════════════════════════════════════════════════════════════
+            # SLIDES MODE: Execute python-pptx code and generate previews
+            # ═══════════════════════════════════════════════════════════════════
             yield ToolProgressEvent(
                 type="tool.progress",
-                payload={
-                    "stage": "validating",
-                    "attempt": attempt + 1,
-                    "max_attempts": max_validation_attempts,
+                payload={"stage": "executing_pptx_code"}
+            )
+
+            try:
+                # Prepare data for execution
+                report_data = {
+                    "id": str(report.id) if report else None,
+                    "title": getattr(report, "title", None) if report else None,
+                    "theme": getattr(report, "theme", None) if report else None,
                 }
-            )
 
-            validation_result = await self._validate_artifact(
-                code=code,
-                mode=data.mode,
-                visualizations=visualizations,
-                report=report,
-                allow_llm_see_data=allow_llm_see_data,
-            )
+                # Setup output path
+                uploads_dir = Path(__file__).parent.parent.parent.parent.parent / "uploads" / "pptx"
+                uploads_dir.mkdir(parents=True, exist_ok=True)
+                output_path = uploads_dir / f"{artifact.id}.pptx"
 
-            if validation_result.success:
-                # Validation passed
-                break
+                # Execute the python-pptx code
+                executor = PptxCodeExecutor(logger=logger)
+                result_path, output_log = executor.execute_pptx_code(
+                    code=code,
+                    visualizations=visualizations,
+                    report=report_data,
+                    output_path=output_path,
+                )
 
-            if attempt < max_validation_attempts - 1:
-                # Try to fix the code
+                pptx_path = str(result_path)
+                validation_result = ValidationResult(success=True)
+
+                yield ToolProgressEvent(
+                    type="tool.progress",
+                    payload={"stage": "generating_previews"}
+                )
+
+                # Generate preview images
+                preview_service = PptxPreviewService(logger=logger)
+                preview_images = preview_service.generate_previews(
+                    pptx_path=result_path,
+                    artifact_id=str(artifact.id),
+                )
+
+            except Exception as e:
+                logger.error(f"PPTX execution failed: {e}")
+                validation_result = ValidationResult(
+                    success=False,
+                    errors=[str(e)],
+                )
+
+        else:
+            # ═══════════════════════════════════════════════════════════════════
+            # PAGE MODE: Validate in headless browser
+            # ═══════════════════════════════════════════════════════════════════
+            max_validation_attempts = 3
+
+            for attempt in range(max_validation_attempts):
                 yield ToolProgressEvent(
                     type="tool.progress",
                     payload={
-                        "stage": "fixing_errors",
+                        "stage": "validating",
                         "attempt": attempt + 1,
-                        "errors": validation_result.errors[:3],  # Show first 3 errors
+                        "max_attempts": max_validation_attempts,
                     }
                 )
-                code = await self._fix_code(
+
+                validation_result = await self._validate_artifact(
                     code=code,
-                    errors=validation_result.errors,
                     mode=data.mode,
-                    runtime_ctx=runtime_ctx,
-                    prompt_context=prompt_context,
-                    screenshot_base64=validation_result.screenshot_base64,
+                    visualizations=visualizations,
+                    report=report,
+                    allow_llm_see_data=allow_llm_see_data,
                 )
+
+                if validation_result.success:
+                    # Validation passed
+                    break
+
+                if attempt < max_validation_attempts - 1:
+                    # Try to fix the code
+                    yield ToolProgressEvent(
+                        type="tool.progress",
+                        payload={
+                            "stage": "fixing_errors",
+                            "attempt": attempt + 1,
+                            "errors": validation_result.errors[:3],  # Show first 3 errors
+                        }
+                    )
+                    code = await self._fix_code(
+                        code=code,
+                        errors=validation_result.errors,
+                        mode=data.mode,
+                        runtime_ctx=runtime_ctx,
+                        prompt_context=prompt_context,
+                        screenshot_base64=validation_result.screenshot_base64,
+                    )
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
-        # Build content object (slides structure is parsed from HTML at export time)
+        # Build content object
         content: Dict[str, Any] = {
             "code": code,
             "visualization_ids": included_viz_ids,
         }
 
+        # Add slides-specific content
+        if data.mode == "slides" and preview_images:
+            content["preview_images"] = preview_images
+
         # Update the pending artifact with content and mark as completed
         artifact.content = content
-        artifact.status = "completed" if (validation_result and validation_result.success) else "completed"
+        artifact.status = "completed" if (validation_result and validation_result.success) else "failed"
+
+        # Set pptx_path for slides mode
+        if pptx_path:
+            artifact.pptx_path = pptx_path
+
         await db.commit()
         await db.refresh(artifact)
 
-        # Generate thumbnail in background (truly non-blocking)
-        artifact_data = {
-            "report": {
-                "id": str(report.id) if report else None,
-                "title": getattr(report, "title", None) if report else None,
-                "theme": getattr(report, "theme", None) if report else None,
-            },
-            "visualizations": visualizations,
-        }
-        thumbnail_html = self._build_validation_html(artifact_data, code, mode=data.mode)
-        asyncio.create_task(
-            self._generate_thumbnail_background(
-                artifact_id=str(artifact.id),
-                html_content=thumbnail_html,
-                mode=data.mode,
+        # Generate thumbnail in background (for page mode or as fallback)
+        if data.mode == "page":
+            artifact_data = {
+                "report": {
+                    "id": str(report.id) if report else None,
+                    "title": getattr(report, "title", None) if report else None,
+                    "theme": getattr(report, "theme", None) if report else None,
+                },
+                "visualizations": visualizations,
+            }
+            thumbnail_html = self._build_validation_html(artifact_data, code, mode=data.mode)
+            asyncio.create_task(
+                self._generate_thumbnail_background(
+                    artifact_id=str(artifact.id),
+                    html_content=thumbnail_html,
+                    mode=data.mode,
+                )
             )
-        )
+        elif preview_images:
+            # For slides mode, use the first preview image as thumbnail
+            first_preview = Path(__file__).parent.parent.parent.parent.parent / "uploads" / preview_images[0]
+            if first_preview.exists():
+                artifact.thumbnail_path = preview_images[0]
+                await db.commit()
 
         output = CreateArtifactOutput(
             artifact_id=str(artifact.id),
@@ -876,10 +959,12 @@ Fix these errors while keeping the same design and functionality. Output the cor
             version=artifact.version,
         )
 
-        # Build observation message - include screenshot context if available
+        # Build observation message
         has_screenshot = validation_result and validation_result.screenshot_base64
         summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
-        if has_screenshot:
+        if data.mode == "slides" and preview_images:
+            summary_msg += f". Generated {len(preview_images)} slide preview images."
+        elif has_screenshot:
             summary_msg += ". Screenshot of the rendered dashboard is attached for validation."
 
         observation: Dict[str, Any] = {
@@ -890,13 +975,21 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "visualization_ids": included_viz_ids,
         }
 
+        # Add slides-specific info
+        if data.mode == "slides":
+            if preview_images:
+                observation["preview_images"] = preview_images
+                observation["slide_count"] = len(preview_images)
+            if pptx_path:
+                observation["pptx_path"] = pptx_path
+
         # Add validation info to observation
         if validation_result:
             observation["validation"] = {
                 "success": validation_result.success,
                 "errors": validation_result.errors if not validation_result.success else [],
             }
-            # Add screenshot as images array for vision model consumption
+            # Add screenshot as images array for vision model consumption (page mode only)
             if validation_result.screenshot_base64:
                 observation["images"] = [{
                     "data": validation_result.screenshot_base64,
@@ -946,70 +1039,32 @@ Fix these errors while keeping the same design and functionality. Output the cor
         messages_context: str = "",
         previous_artifacts: List[Dict[str, Any]] | None = None,
     ) -> str:
-        """Build the prompt for generating slides (pure HTML + vanilla JS)."""
+        """Build the prompt for generating slides using python-pptx code."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
 
-        # Build previous artifacts context
-        previous_artifacts_context = ""
-        if previous_artifacts:
-            previous_artifacts_context = "\n═══════════════════════════════════════════════════════════════════════════════\nPREVIOUS ARTIFACTS (for reference/iteration)\n═══════════════════════════════════════════════════════════════════════════════\n\n"
-            for i, art in enumerate(previous_artifacts):
-                previous_artifacts_context += f"**Artifact {i+1}: {art.get('title', 'Untitled')}** (ID: {art.get('id')})\n"
-                if art.get('code'):
-                    previous_artifacts_context += f"```html\n{art.get('code')}\n```\n\n"
-
-        return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality slide presentation.
+        return f"""You are an expert at creating professional presentations using python-pptx.
+Generate python-pptx code to create a polished slide deck.
 
 ═══════════════════════════════════════════════════════════════════════════════
-AVAILABLE (pre-loaded globally)
+AVAILABLE IN NAMESPACE (do not import - already provided)
 ═══════════════════════════════════════════════════════════════════════════════
 
-• **Tailwind CSS** - All utility classes available
-  - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
-  - Dark themes: bg-slate-900, text-white, text-slate-400
-  - Flexbox, grid, spacing utilities
+Python-pptx classes and FUNCTIONS:
+- Presentation, Inches, Pt, Emu, RGBColor
+- PP_ALIGN, MSO_ANCHOR, MSO_SHAPE
+- XL_CHART_TYPE, XL_LEGEND_POSITION
+- CategoryChartData, ChartData
 
-• **Vanilla JavaScript** - No frameworks needed
-  - DOM manipulation: querySelector, classList, addEventListener
-  - Access data via window.ARTIFACT_DATA
+⚠️ CRITICAL: Inches, Pt, Emu are FUNCTIONS, not methods!
+   ✅ CORRECT: Inches(1), Pt(24), Emu(914400)
+   ❌ WRONG: 1.inches, 24.pt, value.inches
 
-**DO NOT USE:** React, Babel, JSX, or any framework. Pure HTML + JS only.
+Data variables:
+- visualizations: List[Dict] - each has 'title', 'columns', 'rows'
+- report: Dict with 'id', 'title', 'theme'
 
-═══════════════════════════════════════════════════════════════════════════════
-DATA ACCESS
-═══════════════════════════════════════════════════════════════════════════════
-
-Data is available via `window.ARTIFACT_DATA`:
-```javascript
-const data = window.ARTIFACT_DATA;
-const report = data.report;  // {{id, title, theme}}
-const visualizations = data.visualizations;  // Array of viz objects
-```
-
-**Note:** A global loading spinner is shown until data arrives. You do NOT need to implement loading state.
-
-Each visualization object has this EXACT structure:
-```js
-{{
-  id: "uuid-string",
-  title: "Visualization Title",
-  columns: [
-    {{ "headerName": "AlbumId", "field": "AlbumId" }},
-    {{ "headerName": "Album Title", "field": "AlbumTitle" }},
-    {{ "headerName": "Total Revenue", "field": "total_revenue" }}
-  ],
-  rows: [
-    {{ "AlbumId": 253, "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }},
-    {{ "AlbumId": 251, "AlbumTitle": "The Office", "total_revenue": 31.84 }},
-    // ... more rows
-  ]
-}}
-```
-
-**CRITICAL - How to access data:**
-- Use `column.field` to get the key for accessing row data: `row[column.field]`
-- Use `column.headerName` for display labels in table headers
-- Example: `rows.map(row => row[columns[0].field])` to get values for first column
+Output:
+- _pptx_output_path: str - path where you MUST save the presentation
 
 ═══════════════════════════════════════════════════════════════════════════════
 YOUR VISUALIZATIONS
@@ -1017,218 +1072,293 @@ YOUR VISUALIZATIONS
 
 {viz_json}
 
-{"(Full sample data included above)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count to understand the data structure)"}
+{"(Full sample data included above)" if allow_llm_see_data else "(Data samples hidden for privacy - use column names and row_count)"}
 
 ═══════════════════════════════════════════════════════════════════════════════
-SLIDES MODE - PURE HTML PRESENTATION (NO REACT)
+TASK
 ═══════════════════════════════════════════════════════════════════════════════
 
-You are creating a **slide presentation** using PURE HTML + Tailwind CSS.
-**DO NOT use React, Babel, or JSX.** Use vanilla JavaScript only.
-
-**CRITICAL: Use these EXACT CSS classes for PPTX export compatibility:**
-
-**Slide Container:**
-```html
-<section class="slide" data-slide="0" data-type="title">
-  <!-- data-type: "title", "metrics", "bullets", "chart", "text" -->
-</section>
-```
-
-**Title Slide (data-type="title"):**
-```html
-<h1 class="pptx-title">Main Title Here</h1>
-<p class="pptx-subtitle">Subtitle or date here</p>
-```
-
-**Slide Heading (all other slides):**
-```html
-<h2 class="pptx-heading">Slide Heading</h2>
-```
-
-**Metrics/KPIs (data-type="metrics"):**
-```html
-<div class="pptx-metric">
-  <div class="pptx-metric-value">$1.2M</div>
-  <div class="pptx-metric-label">Total Revenue</div>
-  <div class="pptx-metric-change">+15% vs last month</div>
-</div>
-```
-
-**Bullet Points (data-type="bullets"):**
-```html
-<ul>
-  <li class="pptx-bullet">First key point</li>
-  <li class="pptx-bullet">Second key point</li>
-</ul>
-```
-
-**Insights/Takeaways:**
-```html
-<p class="pptx-insight">Key insight or takeaway text</p>
-```
-
-**Code Snippets (data-type="code"):**
-```html
-<pre class="pptx-code">SELECT * FROM sales</pre>
-```
-
-**Chart Placeholders (data-type="chart"):**
-```html
-<div class="pptx-chart" data-chart-type="bar">
-  <!-- Chart rendered by ECharts -->
-</div>
-```
-
-**Navigation (vanilla JS):**
-- Toggle `hidden` class to show/hide slides
-- Arrow keys: ArrowRight/Space = next, ArrowLeft = previous
-- Click navigation dots at bottom
-- Navigation arrows on edges
-
-**Design:**
-- Dark background (bg-slate-900) with light text
-- Each slide: `min-h-screen flex flex-col items-center justify-center`
-- Large typography, high contrast
-- One key insight per slide
-
-**Slide count:** 4-8 slides depending on data.
-
-**IMPORTANT:** Always include the pptx-* classes even if you add additional Tailwind classes.
-Example: `<h1 class="pptx-title text-6xl font-bold text-white">Title</h1>`
-
-═══════════════════════════════════════════════════════════════════════════════
-DESIGN REQUEST
-═══════════════════════════════════════════════════════════════════════════════
-
-**Report Title:** {report_title or title or 'Dashboard'}
-**Artifact Mode:** slides
+**Report Title:** {report_title or title or 'Presentation'}
 **User Request:** {user_prompt}
 
-{f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
-
-{f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
-
-{previous_artifacts_context}
-═══════════════════════════════════════════════════════════════════════════════
-DESIGN PRINCIPLES
-═══════════════════════════════════════════════════════════════════════════════
-
-Create something BEAUTIFUL. Think:
-- **Visual hierarchy** - What's the main story? Lead with it
-- **Whitespace** - Let elements breathe, don't crowd
-- **Color harmony** - Use a cohesive palette, accent colors for emphasis
-- **Typography** - Clear hierarchy, readable sizes
-- **Cards & containers** - Group related content, subtle shadows
-- **Micro-interactions** - Hover states, smooth transitions
-- **Data storytelling** - Choose chart types that reveal insights
-
-Example slide patterns:
-- Slide 1: Title with report name, date, key metric teaser
-- Slide 2-3: Hero KPI cards with big numbers and trend indicators
-- Slide 4-5: Full-width charts with key insights as subtitles
-- Slide 6: Comparison or breakdown visualization
-- Slide 7: Summary with key takeaways as bullet points
-
-**DO NOT include:**
-- Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")
-- Branding badges or watermarks
-- Footer credits or attribution text
+{f"**Organization Instructions:** {instructions_context}" if instructions_context else ""}
 
 ═══════════════════════════════════════════════════════════════════════════════
-OUTPUT FORMAT
+PYTHON-PPTX QUICK REFERENCE
 ═══════════════════════════════════════════════════════════════════════════════
 
-```html
-<!-- Slides Container -->
-<div id="slides-container" class="relative w-full h-screen overflow-hidden bg-slate-900">
-
-  <!-- Slide 0: Title -->
-  <section class="slide min-h-screen flex flex-col items-center justify-center px-8" data-slide="0" data-type="title">
-    <h1 class="pptx-title text-6xl font-bold text-white text-center">Monthly Sales Report</h1>
-    <p class="pptx-subtitle text-2xl text-slate-400 mt-4">January 2025 Performance Review</p>
-  </section>
-
-  <!-- Slide 1: Metrics -->
-  <section class="slide min-h-screen flex flex-col items-center justify-center px-8 hidden" data-slide="1" data-type="metrics">
-    <h2 class="pptx-heading text-4xl font-bold text-white mb-12">Key Metrics</h2>
-    <div class="flex gap-8">
-      <div class="pptx-metric text-center">
-        <div class="pptx-metric-value text-5xl font-bold text-white">$1.2M</div>
-        <div class="pptx-metric-label text-slate-400 mt-2">Total Revenue</div>
-        <div class="pptx-metric-change text-green-400 text-sm mt-1">+15% vs last month</div>
-      </div>
-      <div class="pptx-metric text-center">
-        <div class="pptx-metric-value text-5xl font-bold text-white">2,450</div>
-        <div class="pptx-metric-label text-slate-400 mt-2">Orders</div>
-        <div class="pptx-metric-change text-green-400 text-sm mt-1">+8%</div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Slide 2: Key Points -->
-  <section class="slide min-h-screen flex flex-col items-center justify-center px-8 hidden" data-slide="2" data-type="bullets">
-    <h2 class="pptx-heading text-4xl font-bold text-white mb-8">Key Insights</h2>
-    <ul class="space-y-4">
-      <li class="pptx-bullet text-xl text-white">Revenue grew 15% compared to last quarter</li>
-      <li class="pptx-bullet text-xl text-white">Customer retention improved by 12%</li>
-      <li class="pptx-bullet text-xl text-white">New product line exceeded expectations</li>
-    </ul>
-    <p class="pptx-insight text-lg text-blue-400 mt-8 italic">Overall performance exceeded targets across all metrics</p>
-  </section>
-
-  <!-- Navigation Dots -->
-  <div class="fixed bottom-8 left-1/2 -translate-x-1/2 flex gap-2">
-    <button class="nav-dot w-3 h-3 rounded-full bg-white" data-goto="0"></button>
-    <button class="nav-dot w-3 h-3 rounded-full bg-white/30" data-goto="1"></button>
-    <button class="nav-dot w-3 h-3 rounded-full bg-white/30" data-goto="2"></button>
-  </div>
-
-  <!-- Arrow Navigation -->
-  <button id="prev-btn" class="fixed left-4 top-1/2 -translate-y-1/2 text-white/50 hover:text-white text-4xl">&larr;</button>
-  <button id="next-btn" class="fixed right-4 top-1/2 -translate-y-1/2 text-white/50 hover:text-white text-4xl">&rarr;</button>
-</div>
-
-<script>
-  let currentSlide = 0;
-  const slides = document.querySelectorAll('.slide');
-  const dots = document.querySelectorAll('.nav-dot');
-  const totalSlides = slides.length;
-
-  function showSlide(index) {{
-    slides.forEach((s, i) => s.classList.toggle('hidden', i !== index));
-    dots.forEach((d, i) => {{
-      d.classList.toggle('bg-white', i === index);
-      d.classList.toggle('bg-white/30', i !== index);
-    }});
-    currentSlide = index;
-  }}
-
-  document.getElementById('prev-btn').onclick = () => showSlide(Math.max(0, currentSlide - 1));
-  document.getElementById('next-btn').onclick = () => showSlide(Math.min(totalSlides - 1, currentSlide + 1));
-  dots.forEach(d => d.onclick = () => showSlide(parseInt(d.dataset.goto)));
-
-  document.addEventListener('keydown', (e) => {{
-    if (e.key === 'ArrowRight' || e.key === ' ') showSlide(Math.min(totalSlides - 1, currentSlide + 1));
-    if (e.key === 'ArrowLeft') showSlide(Math.max(0, currentSlide - 1));
-  }});
-</script>
+**Setup (16:9 widescreen):**
+```python
+prs = Presentation()
+prs.slide_width = Inches(13.333)
+prs.slide_height = Inches(7.5)
 ```
 
-REQUIREMENTS:
-1. Output HTML code only (NO React/Babel - pure HTML + vanilla JS)
-2. Use `<section class="slide">` for each slide with `data-slide="N"` attribute
-3. First slide visible, others have `hidden` class
-4. Include navigation: dots at bottom, arrow buttons on sides
-5. Include vanilla JS for keyboard navigation (arrows, space)
-6. Access data via `window.ARTIFACT_DATA` directly (no React hooks)
-7. Each slide: `min-h-screen flex flex-col items-center justify-center`
-8. Dark theme: bg-slate-900 background, white/slate text
-9. Make it GORGEOUS - this is a presentation showcase
+**Add blank slide with dark background:**
+```python
+slide = prs.slides.add_slide(prs.slide_layouts[6])  # Blank layout
+background = slide.background
+fill = background.fill
+fill.solid()
+fill.fore_color.rgb = RGBColor(15, 23, 42)  # slate-900
+```
 
-DO NOT use React, Babel, JSX, or any framework - PURE HTML + Tailwind + vanilla JavaScript only.
+**Add text box:**
+```python
+txBox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
+tf = txBox.text_frame
+tf.word_wrap = True
+p = tf.paragraphs[0]
+p.text = "Title Text"
+p.font.size = Pt(44)
+p.font.bold = True
+p.font.color.rgb = RGBColor(255, 255, 255)
+p.alignment = PP_ALIGN.CENTER
+```
 
-Now create the slide presentation:"""
+**Add BAR CHART (CRITICAL - use this for charts):**
+```python
+chart_data = CategoryChartData()
+chart_data.categories = ['Q1', 'Q2', 'Q3', 'Q4']
+chart_data.add_series('Revenue', (1.2, 1.5, 1.8, 2.1))
+
+x, y, cx, cy = Inches(1), Inches(2), Inches(11), Inches(5)
+chart = slide.shapes.add_chart(
+    XL_CHART_TYPE.BAR_CLUSTERED, x, y, cx, cy, chart_data
+).chart
+
+# Style the chart
+chart.has_legend = True
+chart.legend.position = XL_LEGEND_POSITION.BOTTOM
+chart.legend.include_in_layout = False
+plot = chart.plots[0]
+plot.has_data_labels = True
+```
+
+**Other chart types:**
+- XL_CHART_TYPE.COLUMN_CLUSTERED - vertical bars
+- XL_CHART_TYPE.LINE - line chart
+- XL_CHART_TYPE.PIE - pie chart
+- XL_CHART_TYPE.AREA - area chart
+
+**Dark background (slate-900 = RGB(15, 23, 42)):**
+```python
+from pptx.dml.color import RGBColor
+from pptx.enum.dml import MSO_THEME_COLOR
+background = slide.background
+fill = background.fill
+fill.solid()
+fill.fore_color.rgb = RGBColor(15, 23, 42)
+```
+
+**Access visualization data:**
+```python
+viz = visualizations[0]
+columns = viz['columns']  # e.g. ['AlbumTitle', 'Revenue', 'UnitsSold']
+rows = viz['rows']        # list of dicts like {{'AlbumTitle': 'Greatest Hits', 'Revenue': 1500.0}}
+
+# Get categories and values for a chart:
+categories = [str(row[columns[0]]) for row in rows]  # First column as labels
+values = [float(row[columns[1]]) if row[columns[1]] else 0 for row in rows]  # Second column as values
+
+# IMPORTANT: columns[i] returns a string like 'Revenue', then use that to index into row
+# row[columns[1]] is the same as row['Revenue'] if columns[1] == 'Revenue'
+```
+
+═══════════════════════════════════════════════════════════════════════════════
+DESIGN PHILOSOPHY - CREATE BEAUTIFUL, PROFESSIONAL SLIDES
+═══════════════════════════════════════════════════════════════════════════════
+
+**COLOR STRATEGY - Be Topic-Specific:**
+Choose colors that feel designed for THIS topic. If your colors would work for any presentation, you haven't made specific enough choices.
+
+Structure: One DOMINANT color (60-70% visual weight), 1-2 supporting tones, one accent.
+
+Example palettes (pick one that fits the topic):
+- **Midnight Executive**: Navy (0,31,63), Steel (119,136,153), Gold accent (212,175,55)
+- **Forest & Moss**: Deep green (34,87,76), Sage (138,154,91), Cream (245,245,220)
+- **Coral Energy**: Coral (255,127,80), Teal (0,128,128), Sand (244,232,214)
+- **Ocean Depths**: Deep blue (0,51,102), Aqua (0,180,180), Pearl (240,248,255)
+- **Sunset Warm**: Burgundy (128,0,32), Orange (255,140,0), Cream (255,253,240)
+- **Modern Minimal**: Charcoal (54,69,79), Light gray (220,220,220), Teal accent (0,150,136)
+
+**LAYOUT VARIETY - Never Repeat:**
+Every slide MUST have visual elements - charts, shapes, or decorative elements. NO text-only slides.
+
+Vary layouts between:
+- Two-column (text left, chart right or vice versa)
+- Full-width chart with title above
+- KPI cards in a row (3-4 metric boxes)
+- Chart with callout boxes for key insights
+- Split layout with accent shape dividers
+
+**TYPOGRAPHY:**
+- Titles: 36-44pt bold, interesting positioning (not always centered)
+- Body text: 18-24pt, LEFT-aligned (never center-align body text)
+- KPI numbers: 48-72pt bold for impact
+- Use font color contrast: white on dark, dark on light accents
+
+**VISUAL ELEMENTS TO ADD:**
+- Accent shapes: rectangles, rounded rectangles for backgrounds
+- Divider lines or shapes between sections
+- Colored boxes behind KPI numbers
+- Subtle shape overlays for visual interest
+
+**COMMON MISTAKES TO AVOID:**
+- ⚠️ Using `value.inches` instead of `Inches(value)` - Inches/Pt/Emu are FUNCTIONS!
+- Repeating the same layout across slides (VARY IT!)
+- Center-aligning body text (use LEFT alignment)
+- Using only blue without topic-specific reasoning
+- Creating text-only slides without visual elements
+- Accent lines directly under titles (hallmark of generic slides)
+- Cramming too much data - limit charts to top 8-10 items
+
+**TECHNICAL REQUIREMENTS:**
+1. Define `generate_slides(visualizations, report)` returning a Presentation
+2. Use 16:9 widescreen: Inches(13.333) x Inches(7.5)
+3. Create REAL charts with slide.shapes.add_chart() + CategoryChartData
+4. Use visualization data from the visualizations list
+5. Margins: start shapes at Inches(0.75) to Inches(1) from edges
+
+═══════════════════════════════════════════════════════════════════════════════
+OUTPUT FORMAT - Example with Design Principles Applied
+═══════════════════════════════════════════════════════════════════════════════
+
+```python
+def generate_slides(visualizations, report):
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+
+    # Color palette - choose colors that fit the topic
+    PRIMARY = RGBColor(0, 51, 102)      # Deep blue
+    SECONDARY = RGBColor(0, 128, 128)   # Teal
+    ACCENT = RGBColor(255, 140, 0)      # Orange accent
+    BG_DARK = RGBColor(15, 23, 42)      # Dark background
+    TEXT_LIGHT = RGBColor(255, 255, 255)
+    TEXT_MUTED = RGBColor(148, 163, 184)
+
+    def set_background(slide, color=BG_DARK):
+        bg = slide.background
+        fill = bg.fill
+        fill.solid()
+        fill.fore_color.rgb = color
+
+    def add_accent_shape(slide, left, top, width, height, color):
+        shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
+        shape.fill.solid()
+        shape.fill.fore_color.rgb = color
+        shape.line.fill.background()
+        return shape
+
+    # ═══════════════════════════════════════════════════════════════
+    # SLIDE 1: Title with accent shape
+    # ═══════════════════════════════════════════════════════════════
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    set_background(slide)
+
+    # Accent shape behind title
+    add_accent_shape(slide, Inches(0), Inches(2.5), Inches(5), Inches(2.5), PRIMARY)
+
+    title_box = slide.shapes.add_textbox(Inches(0.75), Inches(3), Inches(12), Inches(1.5))
+    tf = title_box.text_frame
+    p = tf.paragraphs[0]
+    p.text = report.get('title', 'Presentation')
+    p.font.size = Pt(48)
+    p.font.bold = True
+    p.font.color.rgb = TEXT_LIGHT
+
+    # ═══════════════════════════════════════════════════════════════
+    # SLIDE 2: KPI Cards Row (if we have numeric data)
+    # ═══════════════════════════════════════════════════════════════
+    if visualizations and visualizations[0].get('rows'):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        set_background(slide)
+
+        viz = visualizations[0]
+        rows = viz.get('rows', [])
+        columns = viz.get('columns', [])
+
+        # Create 3 KPI cards across the slide
+        card_width = Inches(3.5)
+        card_height = Inches(2.5)
+        start_x = Inches(1)
+        card_y = Inches(2.5)
+        gap = Inches(0.5)
+
+        for i, col in enumerate(columns[:3]):
+            if i >= 3:
+                break
+            x = start_x + i * (card_width + gap)
+
+            # Card background
+            card = add_accent_shape(slide, x, card_y, card_width, card_height, PRIMARY)
+
+            # Value (large number)
+            val = rows[0].get(col, 0) if rows else 0
+            val_box = slide.shapes.add_textbox(x + Inches(0.3), card_y + Inches(0.5), card_width - Inches(0.6), Inches(1.2))
+            tf = val_box.text_frame
+            p = tf.paragraphs[0]
+            p.text = "{{:,.0f}}".format(float(val)) if isinstance(val, (int, float)) else str(val)
+            p.font.size = Pt(36)
+            p.font.bold = True
+            p.font.color.rgb = TEXT_LIGHT
+
+            # Label
+            label_box = slide.shapes.add_textbox(x + Inches(0.3), card_y + Inches(1.7), card_width - Inches(0.6), Inches(0.6))
+            tf = label_box.text_frame
+            p = tf.paragraphs[0]
+            p.text = col
+            p.font.size = Pt(14)
+            p.font.color.rgb = TEXT_MUTED
+
+    # ═══════════════════════════════════════════════════════════════
+    # SLIDE 3: Chart with title (different layout)
+    # ═══════════════════════════════════════════════════════════════
+    if visualizations:
+        viz = visualizations[0]
+        columns = viz.get('columns', [])
+        rows = viz.get('rows', [])
+
+        if len(columns) >= 2 and rows:
+            slide = prs.slides.add_slide(prs.slide_layouts[6])
+            set_background(slide)
+
+            # Title on left side
+            title_box = slide.shapes.add_textbox(Inches(0.75), Inches(0.5), Inches(5), Inches(1))
+            tf = title_box.text_frame
+            p = tf.paragraphs[0]
+            p.text = viz.get('title', 'Data Analysis')
+            p.font.size = Pt(32)
+            p.font.bold = True
+            p.font.color.rgb = TEXT_LIGHT
+
+            # Extract data
+            col_label = columns[0]
+            col_value = columns[1]
+            categories = [str(row.get(col_label, ''))[:20] for row in rows[:8]]
+            values = [float(row.get(col_value, 0) or 0) for row in rows[:8]]
+
+            # Chart (full width below title)
+            chart_data = CategoryChartData()
+            chart_data.categories = categories
+            chart_data.add_series(col_value, tuple(values))
+
+            chart = slide.shapes.add_chart(
+                XL_CHART_TYPE.BAR_CLUSTERED,
+                Inches(0.75), Inches(1.5), Inches(11.833), Inches(5.5),
+                chart_data
+            ).chart
+            chart.has_legend = False
+
+    return prs
+
+# Execute and save
+prs = generate_slides(visualizations, report)
+prs.save(_pptx_output_path)
+```
+
+Create a beautiful, varied presentation following these design principles. Each slide should look DIFFERENT from the others. Use visual elements, accent shapes, and thoughtful color choices:"""
 
     def _build_page_prompt(
         self,
@@ -1468,10 +1598,10 @@ Now create the dashboard:"""
         """Extract the code from the LLM response.
 
         For 'page' mode: Extract React code from <script type="text/babel"> tags
-        For 'slides' mode: Extract HTML content (everything after the JSON block)
+        For 'slides' mode: Extract python-pptx code from python code blocks
         """
         if mode == "slides":
-            return self._extract_slides_html(response)
+            return self._extract_slides_python(response)
 
         # Dashboard mode - extract React code from script tags
         start_marker = "<script type=\"text/babel\">"
@@ -1495,26 +1625,31 @@ Now create the dashboard:"""
 
         return code
 
-    def _extract_slides_html(self, response: str) -> str:
-        """Extract HTML content for slides mode."""
+    def _extract_slides_python(self, response: str) -> str:
+        """Extract python-pptx code for slides mode."""
         import re
 
-        # Try to find HTML code block
-        html_match = re.search(r'```html?\s*([\s\S]*?)```', response)
-        if html_match:
-            return html_match.group(1).strip()
+        # Try to find Python code block
+        python_match = re.search(r'```python\s*([\s\S]*?)```', response)
+        if python_match:
+            return python_match.group(1).strip()
 
-        # Look for the slides container div
-        div_start = response.find('<div id="slides-container"')
-        if div_start == -1:
-            div_start = response.find('<div class="')
+        # Try generic code block
+        code_match = re.search(r'```\s*([\s\S]*?)```', response)
+        if code_match:
+            return code_match.group(1).strip()
 
-        if div_start != -1:
-            # Find the matching closing and script
-            script_end = response.rfind('</script>')
-            if script_end != -1:
-                return response[div_start:script_end + 9].strip()
-            return response[div_start:].strip()
+        # Look for function definition as start marker
+        func_start = response.find('def generate_slides')
+        if func_start != -1:
+            # Find the prs.save() call at the end
+            save_end = response.rfind('prs.save(')
+            if save_end != -1:
+                # Include the full save line
+                end_idx = response.find(')', save_end)
+                if end_idx != -1:
+                    return response[func_start:end_idx + 1].strip()
+            return response[func_start:].strip()
 
         # Fallback: return the response as-is
         return response.strip()
