@@ -1,8 +1,8 @@
 # Release Notes
 
 ## Version 0.0.312 (February 14, 2026)
-- refactor sidebar to use nav config and proper active states
-- improved slides artifact generation 
+- Refactor sidebar to use nav config and proper active states
+- Improved slides artifact generation 
 
 ## Version 0.0.311 (February 13, 2026)
 - Multi-connection support: data sources can now have multiple connections

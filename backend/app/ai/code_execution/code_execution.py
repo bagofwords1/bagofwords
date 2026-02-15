@@ -9,7 +9,7 @@ import json
 import uuid
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
-from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+from app.schemas.organization_settings_schema import OrganizationSettingsConfig, FeatureState
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
@@ -434,10 +434,16 @@ class StreamingCodeExecutor:
             max_rows: Maximum rows to include. If None, uses organization setting
                       'limit_row_count' or defaults to 1000.
         """
+        # Determine row limit: None means no limit (disabled)
+        row_limit_disabled = False
         if max_rows is None:
             if self.organization_settings is not None:
                 try:
-                    max_rows = int(self.organization_settings.get_config("limit_row_count").value)
+                    limit_config = self.organization_settings.get_config("limit_row_count")
+                    if limit_config.state == FeatureState.DISABLED:
+                        row_limit_disabled = True
+                    else:
+                        max_rows = int(limit_config.value)
                 except (AttributeError, TypeError, ValueError):
                     max_rows = 1000
             else:
@@ -462,8 +468,9 @@ class StreamingCodeExecutor:
             # Use pandas' native JSON serialization for robust type handling:
             # - date_format='iso' handles datetime, date, time, Timestamp
             # - default_handler=str catches anything else (UUID, Decimal, etc.)
+            df_to_serialize = df if row_limit_disabled else df.head(max_rows)
             rows = json.loads(
-                df.head(max_rows).to_json(orient='records', date_format='iso', default_handler=str)
+                df_to_serialize.to_json(orient='records', date_format='iso', default_handler=str)
             )
             df_info = self.get_df_info(df)
         return {
