@@ -68,9 +68,16 @@
         <div class="flex-1 min-h-0 relative">
             <!-- Report Tab: Artifact/Dashboard Content -->
             <template v-if="activeTab === 'report'">
+                <!-- Slides with Preview Images - Use SlideViewer -->
+                <SlideViewer
+                    v-if="hasSlidesWithPreviews && artifact"
+                    :artifact-id="artifact.id"
+                    class="absolute inset-0"
+                />
+
                 <!-- Artifact Content - Full screen (modern reports with artifacts) -->
                 <iframe
-                    v-if="hasArtifacts && iframeSrcdoc"
+                    v-else-if="hasArtifacts && iframeSrcdoc && !hasSlidesWithPreviews"
                     :srcdoc="iframeSrcdoc"
                     sandbox="allow-scripts allow-same-origin"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
@@ -123,6 +130,7 @@
 <script setup lang="ts">
 import DashboardComponent from '~/components/DashboardComponent.vue';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
+import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 
 const route = useRoute();
 const report_id = route.params.id;
@@ -179,6 +187,14 @@ const toolExecutions = computed(() => {
             status: 'success'
         }]
     }));
+});
+
+// Check if we have slides mode with preview images (use SlideViewer instead of iframe)
+const hasSlidesWithPreviews = computed(() => {
+    if (!artifact.value) return false;
+    if (artifact.value.mode !== 'slides') return false;
+    const previewImages = artifact.value.content?.preview_images;
+    return Array.isArray(previewImages) && previewImages.length > 0;
 });
 
 definePageMeta({

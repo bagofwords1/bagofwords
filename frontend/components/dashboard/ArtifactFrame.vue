@@ -49,7 +49,7 @@
         </span>
 
         <!-- Refresh Dashboard (rerun + refresh) -->
-        <UTooltip text="Refresh Dashboard">
+        <UTooltip text="Refresh Data">
           <button
             @click="refreshDashboard"
             :disabled="isRefreshing"
@@ -132,13 +132,22 @@
       <div v-else-if="isPendingArtifact" class="absolute inset-0 flex items-center justify-center bg-white">
         <div class="flex flex-col items-center gap-3">
           <Spinner class="w-6 h-6 text-gray-400" />
-          <span class="text-sm text-gray-400">Generating dashboard...</span>
+          <span class="text-sm text-gray-400">
+            {{ selectedArtifact?.mode === 'slides' ? 'Generating slides...' : 'Generating dashboard...' }}
+          </span>
         </div>
       </div>
 
+      <!-- Slides Mode with Preview Images - Use SlideViewer -->
+      <SlideViewer
+        v-else-if="hasSlidesWithPreviews && selectedArtifact"
+        :artifact-id="selectedArtifact.id"
+        class="absolute inset-0"
+      />
+
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && iframeSrcdoc"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin"
@@ -160,10 +169,17 @@
             <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" @click="closeFullscreen" />
           </div>
 
-          <!-- Modal Content - Full artifact iframe -->
+          <!-- Modal Content - Full artifact iframe or SlideViewer -->
           <div class="flex-1 min-h-0 relative bg-white">
+            <!-- Slides with previews use SlideViewer -->
+            <SlideViewer
+              v-if="isFullscreenOpen && hasSlidesWithPreviews && selectedArtifact"
+              :artifact-id="selectedArtifact.id"
+              class="absolute inset-0"
+            />
+            <!-- Other artifacts use iframe -->
             <iframe
-              v-if="isFullscreenOpen && iframeSrcdoc"
+              v-else-if="isFullscreenOpen && iframeSrcdoc"
               :srcdoc="iframeSrcdoc"
               sandbox="allow-scripts allow-same-origin"
               class="absolute inset-0 w-full h-full border-0"
@@ -181,6 +197,7 @@ import { useMyFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
 import PublishModal from '../PublishModal.vue';
 import Spinner from '../Spinner.vue';
+import SlideViewer from './SlideViewer.vue';
 
 const toast = useToast();
 const config = useRuntimeConfig();
@@ -346,6 +363,14 @@ const hasVisualizations = computed(() => {
 // Check if any visualization has a successful step status
 const hasSuccessfulVisualizations = computed(() => {
   return visualizationsData.value.some(viz => viz.stepStatus === 'success');
+});
+
+// Check if we have slides mode with preview images (use SlideViewer instead of iframe)
+const hasSlidesWithPreviews = computed(() => {
+  if (!selectedArtifact.value) return false;
+  if (selectedArtifact.value.mode !== 'slides') return false;
+  const previewImages = selectedArtifact.value.content?.preview_images;
+  return Array.isArray(previewImages) && previewImages.length > 0;
 });
 
 // Generate dashboard prompt - dispatches event to update and submit prompt box
