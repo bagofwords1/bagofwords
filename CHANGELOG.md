@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.312 (February 16, 2026)
+## Version 0.0.313 (February 16, 2026)
 - Update license env variable and secret configuration in k8s and docker-compose
 
 ## Version 0.0.312 (February 14, 2026)
