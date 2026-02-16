@@ -13,6 +13,7 @@
 #   POSTGRES_PASSWORD=your_secure_pw      # PostgreSQL password (CHANGE THIS!)
 #   POSTGRES_DB=bagofwords                # Database name
 #   BOW_ENCRYPTION_KEY=                   # Fernet encryption key (44 chars, ends with =)
+#   BOW_LICENSE_KEY=                      # Enterprise license key (optional)
 #
 # Generate encryption key:
 #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
@@ -55,6 +56,8 @@ services:
       - BOW_DATABASE_URL=postgresql://${POSTGRES_USER:-bow}:${POSTGRES_PASSWORD:-bowpassword}@postgres:5432/${POSTGRES_DB:-bagofwords}
       # Encryption key
       - BOW_ENCRYPTION_KEY=${BOW_ENCRYPTION_KEY:-}
+      # Enterprise license key (optional)
+      - BOW_LICENSE_KEY=${BOW_LICENSE_KEY:-}
       # Config path
       - BOW_CONFIG_PATH=/app/bow-config.yaml
     volumes:

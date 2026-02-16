@@ -51,6 +51,9 @@ config:
   #     extraAuthorizeParams: {}
   #     extraTokenParams: {}
   oidcProviders: []
+  # Enterprise license key (optional)
+  # For security, prefer using secretRef to store the license key
+  licenseKey: ""
   smtp:
     host: ""
     port: ""
