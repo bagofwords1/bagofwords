@@ -32,6 +32,10 @@ data:
   BOW_VERIFY_EMAILS: {{.Values.config.verifyEmails | quote}}
   # OIDC providers rendered as YAML inside the config file
   BOW_OIDC_JSON: {{ .Values.config.oidcProviders | toJson | quote }}
+  # Enterprise license key (optional - prefer using secretRef for security)
+  {{- if .Values.config.licenseKey }}
+  BOW_LICENSE_KEY: {{.Values.config.licenseKey | quote}}
+  {{- end }}
   
   bowConfig: |
     # Deployment Configuration
@@ -64,6 +68,9 @@ data:
 
     intercom:
       enabled: ${BOW_INTERCOM_ENABLED}
+
+    license:
+      key: ${BOW_LICENSE_KEY}
 
     features:
       auth:
