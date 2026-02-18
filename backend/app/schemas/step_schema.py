@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, field_validator
 from typing import List, Optional
 from datetime import datetime
 from app.schemas.view_schema import ViewSchema
@@ -26,6 +26,11 @@ class StepSchema(StepBase):
     class Config:
         from_attributes = True
 
+    @field_validator("data", "data_model", mode="before")
+    @classmethod
+    def _none_to_dict(cls, v):
+        return v if v is not None else {}
+
     @model_validator(mode="after")
     def _ensure_view(self) -> "StepSchema":
         if self.view is None:
@@ -37,6 +42,11 @@ class StepCreate(StepBase):
     data: dict = Field(default_factory=dict)
     data_model: dict = Field(default_factory=dict)
     view: Optional[ViewSchema] = Field(default_factory=ViewSchema)
+
+    @field_validator("data", "data_model", mode="before")
+    @classmethod
+    def _none_to_dict(cls, v):
+        return v if v is not None else {}
 
     @model_validator(mode="after")
     def _ensure_view(self) -> "StepCreate":
@@ -60,4 +70,9 @@ class PublicStepSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @field_validator("data", "data_model", mode="before")
+    @classmethod
+    def _none_to_dict(cls, v):
+        return v if v is not None else {}
 

@@ -172,9 +172,11 @@ class WidgetService:
         last_step = await db_session.execute(select(Step).filter(Step.widget_id == widget_id).order_by(Step.created_at.desc()).limit(1))
         last_step = last_step.scalar_one_or_none()
         if last_step:
-            # Ensure data_model is a dictionary, defaulting to an empty dict if None
+            # Ensure data and data_model are dictionaries, defaulting to empty dict if None
+            # (maintenance service purges these fields for old steps)
             step_dict = {
                 **last_step.__dict__,
+                'data': last_step.data or {},
                 'data_model': last_step.data_model or {}
             }
             return StepSchema.model_validate(step_dict)
