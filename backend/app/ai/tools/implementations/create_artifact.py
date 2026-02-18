@@ -54,11 +54,12 @@ class CreateArtifactTool(Tool):
         return ToolMetadata(
             name="create_artifact",
             description=(
-                "Create or update artifacts (dashboards, pages, slide presentations) from visualizations. "
-                "Requires visualization_ids from create_data results in the conversation. "
+                "Create artifacts (dashboards, pages, slide presentations) from visualizations in the current report. "
                 "Modes: 'page' for interactive dashboards with KPI cards, charts, and responsive grids; "
                 "'slides' for presentation decks (exportable to PPTX). "
-                "To update an existing artifact, provide existing_artifact_id - the previous layout and code will be used as a base. "
+                "IMPORTANT: visualization_ids are required - find them in previous create_data tool results "
+                "shown as 'viz_id: <uuid>' in the conversation history. "
+                "Do NOT ask the user for URLs or IDs - extract them from the conversation context. "
                 "Only visualizations with successful step status are included."
             ),
             category="action",
@@ -369,7 +370,7 @@ class CreateArtifactTool(Tool):
             runtime_ctx: Runtime context for LLM access
             prompt_context: Context needed to rebuild the original prompt
                 (user_prompt, title, viz_profiles, instructions_context,
-                 report_title, allow_llm_see_data, messages_context, previous_artifacts)
+                 report_title, allow_llm_see_data, messages_context)
             screenshot_base64: Optional screenshot of the broken render for visual context
 
         Returns:
@@ -387,7 +388,6 @@ class CreateArtifactTool(Tool):
             report_title=prompt_context["report_title"],
             allow_llm_see_data=prompt_context["allow_llm_see_data"],
             messages_context=prompt_context.get("messages_context", ""),
-            previous_artifacts=prompt_context.get("previous_artifacts"),
         )
 
         # Build screenshot context if available
@@ -556,29 +556,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
         except Exception:
             messages_context = ""
 
-        # Fetch previous artifacts for the same report and mode (for iterative refinement)
-        previous_artifacts: List[Dict[str, Any]] = []
-        try:
-            if report:
-                result = await db.execute(
-                    select(Artifact)
-                    .where(Artifact.report_id == str(report.id))
-                    .where(Artifact.mode == data.mode)
-                    .where(Artifact.status == "completed")
-                    .order_by(desc(Artifact.created_at))
-                    .limit(3)
-                )
-                prev_artifacts = result.scalars().all()
-                for art in prev_artifacts:
-                    artifact_info = {
-                        "id": str(art.id),
-                        "title": art.title,
-                        "created_at": str(art.created_at) if art.created_at else None,
-                        "code": (art.content or {}).get("code", "")[:2000],  # Limit code length
-                    }
-                    previous_artifacts.append(artifact_info)
-        except Exception:
-            previous_artifacts = []
+        # Note: Previous artifacts are now available via observation context (from create_artifact/read_artifact)
+        # No need to fetch from DB - the planner can call read_artifact if needed
 
         # Fetch visualizations by ID from database
         visualizations: List[Dict[str, Any]] = []
@@ -741,7 +720,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "report_title": getattr(report, 'title', None) if report else None,
             "allow_llm_see_data": allow_llm_see_data,
             "messages_context": messages_context,
-            "previous_artifacts": previous_artifacts,
         }
 
         prompt = self._build_prompt(
@@ -753,7 +731,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
             report_title=prompt_context["report_title"],
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
-            previous_artifacts=previous_artifacts,
         )
 
         # Stream from LLM
@@ -957,7 +934,28 @@ Fix these errors while keeping the same design and functionality. Output the cor
             mode=data.mode,
             title=data.title,
             version=artifact.version,
-        )
+        ).model_dump()
+
+        # Add UI preview fields (similar to read_artifact)
+        code_lines = code.count('\n') + 1 if code else 0
+        output["artifact_preview"] = {
+            "artifact_id": str(artifact.id),
+            "title": data.title or "Untitled",
+            "mode": data.mode,
+            "version": artifact.version,
+            "code_stats": {
+                "chars": len(code),
+                "lines": code_lines,
+            },
+            "visualization_ids": included_viz_ids,
+            "visualization_count": len(visualizations),
+        }
+        # Code for collapsible toggle (collapsed by default in UI)
+        output["code_preview"] = {
+            "language": "jsx",
+            "code": code,
+            "collapsed_default": True,
+        }
 
         # Build observation message
         has_screenshot = validation_result and validation_result.screenshot_base64
@@ -973,6 +971,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "mode": data.mode,
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
+            "code": code,  # Include code for iteration context (compacted by observation builder after next artifact)
         }
 
         # Add slides-specific info
@@ -1003,7 +1002,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
         yield ToolEndEvent(
             type="tool.end",
             payload={
-                "output": output.model_dump(),
+                "output": output,
                 "observation": observation,
             }
         )
@@ -1037,7 +1036,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
         report_title: str | None,
         allow_llm_see_data: bool,
         messages_context: str = "",
-        previous_artifacts: List[Dict[str, Any]] | None = None,
     ) -> str:
         """Build the prompt for generating slides using python-pptx code."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
@@ -1369,19 +1367,12 @@ Create a beautiful, varied presentation following these design principles. Each 
         report_title: str | None,
         allow_llm_see_data: bool,
         messages_context: str = "",
-        previous_artifacts: List[Dict[str, Any]] | None = None,
     ) -> str:
         """Build the prompt for generating page/dashboard (React + ECharts)."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
 
-        # Build previous artifacts context
-        previous_artifacts_context = ""
-        if previous_artifacts:
-            previous_artifacts_context = "\n═══════════════════════════════════════════════════════════════════════════════\nPREVIOUS ARTIFACTS (for reference/iteration)\n═══════════════════════════════════════════════════════════════════════════════\n\nThe user may want to modify or build upon these existing artifacts. Reference them if the user asks to change, update, or improve something:\n\n"
-            for i, art in enumerate(previous_artifacts):
-                previous_artifacts_context += f"**Artifact {i+1}: {art.get('title', 'Untitled')}** (ID: {art.get('id')})\n"
-                if art.get('code'):
-                    previous_artifacts_context += f"```jsx\n{art.get('code')}\n```\n\n"
+        # Note: Previous artifact code is now available via observation context (from create_artifact/read_artifact)
+        # The planner can call read_artifact if needed to load previous code into context
 
         return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality dashboard.
 
@@ -1470,7 +1461,6 @@ DESIGN REQUEST
 
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
 
-{previous_artifacts_context}
 ═══════════════════════════════════════════════════════════════════════════════
 DESIGN PRINCIPLES
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1484,7 +1474,7 @@ Create a polished, executive-ready dashboard. Think:
 - **Generous whitespace** - Let elements breathe, use padding liberally
 - **Clean typography** - Simple, readable fonts. No fancy headers or badges
 - **Subtle containers** - Light borders or shadows, not heavy cards
-- **Beautiful, colorful charts** - Use vibrant but harmonious color palettes for data visualization
+- **Beautiful, colorful charts** - Use vibrant but harmonious color palettes for data visualization. By default use light mode unless the user/instructions indicate dark theme
 - **Professional feel** - Like a Bloomberg terminal or modern analytics platform
 - **Data-focused** - The data is the star, UI should support not distract
 **Color Guidelines for Charts:**
@@ -1492,6 +1482,7 @@ Create a polished, executive-ready dashboard. Think:
 - Apply smooth gradients for area charts and backgrounds
 - Ensure sufficient contrast for readability
 - Use color consistently across related metrics
+- Filters should be cross visualizations, and always top z-index, so it will be above charts visualizations
 
 **DO NOT include:**
 - Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")
@@ -1569,7 +1560,6 @@ Now create the dashboard:"""
         report_title: str | None,
         allow_llm_see_data: bool,
         messages_context: str = "",
-        previous_artifacts: List[Dict[str, Any]] | None = None,
     ) -> str:
         """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
         if mode == "slides":
@@ -1581,7 +1571,6 @@ Now create the dashboard:"""
                 report_title=report_title,
                 allow_llm_see_data=allow_llm_see_data,
                 messages_context=messages_context,
-                previous_artifacts=previous_artifacts,
             )
         return self._build_page_prompt(
             user_prompt=user_prompt,
@@ -1591,7 +1580,6 @@ Now create the dashboard:"""
             report_title=report_title,
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
-            previous_artifacts=previous_artifacts,
         )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:

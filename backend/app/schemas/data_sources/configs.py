@@ -553,6 +553,49 @@ class PowerBIConfig(BaseModel):
     pass
 
 
+# Microsoft Fabric
+class MSFabricCredentials(BaseModel):
+    tenant_id: str = Field(
+        ...,
+        title="Tenant ID",
+        description="Azure AD Tenant ID (Directory ID)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_id: str = Field(
+        ...,
+        title="Client ID",
+        description="Azure AD App Registration Client ID",
+        json_schema_extra={"ui:type": "string"}
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="Azure AD App Registration Secret",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+
+class MSFabricConfig(BaseModel):
+    server_hostname: str = Field(
+        ...,
+        title="Server Hostname",
+        description="Fabric SQL endpoint (e.g., abc123.datawarehouse.fabric.microsoft.com)",
+        json_schema_extra={"ui:type": "string"}
+    )
+    database: str = Field(
+        ...,
+        title="Database",
+        description="Warehouse or Lakehouse name",
+        json_schema_extra={"ui:type": "string"}
+    )
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas. If empty, all schemas will be discovered.",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 # QVD Files (QlikView Data)
 class QVDCredentials(BaseModel):
     """No credentials needed - file system access only."""
@@ -628,4 +671,7 @@ __all__ = [
     # QVD Files
     "QVDCredentials",
     "QVDConfig",
+    # Microsoft Fabric
+    "MSFabricCredentials",
+    "MSFabricConfig",
 ]

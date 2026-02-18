@@ -389,6 +389,7 @@ import CreateWidgetTool from '~/components/tools/CreateWidgetTool.vue'
 import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
+import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -681,6 +682,8 @@ function getToolComponent(toolName: string) {
 			return CreateDashboardTool
 		case 'create_artifact':
 			return CreateArtifactTool
+		case 'read_artifact':
+			return ReadArtifactTool
 		case 'answer_question':
 			return AnswerQuestionTool
 		case 'read_resources':

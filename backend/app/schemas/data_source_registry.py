@@ -45,6 +45,9 @@ from app.schemas.data_sources.configs import (
     # QVD Files
     QVDConfig,
     QVDCredentials,
+    # Microsoft Fabric
+    MSFabricConfig,
+    MSFabricCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -443,6 +446,23 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.qvd_client.QVDClient",
         requires_license="enterprise",
+    ),
+    "ms_fabric": DataSourceRegistryEntry(
+        type="ms_fabric",
+        title="Microsoft Fabric",
+        description="Microsoft Fabric Warehouse and Lakehouse SQL endpoints with Azure AD authentication.",
+        config_schema=MSFabricConfig,
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Service Principal (Azure AD)",
+                    schema=MSFabricCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.ms_fabric_client.MsFabricClient",
     ),
 }
 

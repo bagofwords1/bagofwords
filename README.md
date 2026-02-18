@@ -121,6 +121,7 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | Snowflake                | Database/Warehouse  |
 | Google BigQuery          | Database/Warehouse  |
 | Databricks SQL           | Database/Warehouse  |
+| Microsoft Fabric         | Database/Warehouse  |
 | NetSuite                 | Service             |
 | MySQL                    | Database/Warehouse  |
 | AWS Athena               | Database/Warehouse  |
