@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.314 (February 18, 2026)
+- Added Microsoft Fabric data source integration (Warehouse and Lakehouse SQL endpoints)
+- Azure AD Service Principal authentication support for Fabric
+
 ## Version 0.0.313 (February 16, 2026)
 - Update license env variable and secret configuration in k8s and docker-compose
 
