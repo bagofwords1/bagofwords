@@ -11,10 +11,10 @@ class CreateArtifactInput(BaseModel):
     - visualization_ids: ordered list of visualization IDs to include
     """
 
-    prompt: str = Field(..., description="User's goal for what the artifact should display/visualize, including any style preferences")
+    prompt: str = Field(..., description="Instructions for the artifact. For new artifacts: describe layout, visualizations, and style. For modifications: describe what to change - previous code is automatically available in context.")
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
-    visualization_ids: List[str] = Field(..., min_length=1, description="Ordered list of visualization IDs to include in the artifact. Must contain at least one visualization. Be sure to include only visualizations that are important to dashboard goal and narrative.")
+    visualization_ids: List[str] = Field(..., min_length=1, description="Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. Must contain at least one. Include only visualizations important to the dashboard goal.")
 
 
 class CreateArtifactOutput(BaseModel):

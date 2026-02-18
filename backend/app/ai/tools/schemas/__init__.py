@@ -12,6 +12,7 @@ from .read_resources import ReadResourcesInput, ReadResourcesOutput
 from .create_instruction import CreateInstructionInput, CreateInstructionOutput
 from .edit_instruction import EditInstructionInput, EditInstructionOutput
 from .create_artifact import CreateArtifactInput, CreateArtifactOutput
+from .read_artifact import ReadArtifactInput, ReadArtifactOutput
 from .events import (
     ToolEvent,
     ToolStartEvent,
@@ -47,6 +48,8 @@ __all__ = [
     "EditInstructionOutput",
     "CreateArtifactInput",
     "CreateArtifactOutput",
+    "ReadArtifactInput",
+    "ReadArtifactOutput",
     "ToolEvent",
     "ToolStartEvent",
     "ToolProgressEvent",

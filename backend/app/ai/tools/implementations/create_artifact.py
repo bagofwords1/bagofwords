@@ -54,11 +54,12 @@ class CreateArtifactTool(Tool):
         return ToolMetadata(
             name="create_artifact",
             description=(
-                "Create or update artifacts (dashboards, pages, slide presentations) from visualizations. "
-                "Requires visualization_ids from create_data results in the conversation. "
+                "Create artifacts (dashboards, pages, slide presentations) from visualizations in the current report. "
                 "Modes: 'page' for interactive dashboards with KPI cards, charts, and responsive grids; "
                 "'slides' for presentation decks (exportable to PPTX). "
-                "To update an existing artifact, provide existing_artifact_id - the previous layout and code will be used as a base. "
+                "IMPORTANT: visualization_ids are required - find them in previous create_data tool results "
+                "shown as 'viz_id: <uuid>' in the conversation history. "
+                "Do NOT ask the user for URLs or IDs - extract them from the conversation context. "
                 "Only visualizations with successful step status are included."
             ),
             category="action",
@@ -957,7 +958,28 @@ Fix these errors while keeping the same design and functionality. Output the cor
             mode=data.mode,
             title=data.title,
             version=artifact.version,
-        )
+        ).model_dump()
+
+        # Add UI preview fields (similar to read_artifact)
+        code_lines = code.count('\n') + 1 if code else 0
+        output["artifact_preview"] = {
+            "artifact_id": str(artifact.id),
+            "title": data.title or "Untitled",
+            "mode": data.mode,
+            "version": artifact.version,
+            "code_stats": {
+                "chars": len(code),
+                "lines": code_lines,
+            },
+            "visualization_ids": included_viz_ids,
+            "visualization_count": len(visualizations),
+        }
+        # Code for collapsible toggle (collapsed by default in UI)
+        output["code_preview"] = {
+            "language": "jsx",
+            "code": code,
+            "collapsed_default": True,
+        }
 
         # Build observation message
         has_screenshot = validation_result and validation_result.screenshot_base64
@@ -973,6 +995,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "mode": data.mode,
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
+            "code": code,  # Include code for iteration context (compacted by observation builder after next artifact)
         }
 
         # Add slides-specific info
@@ -1003,7 +1026,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
         yield ToolEndEvent(
             type="tool.end",
             payload={
-                "output": output.model_dump(),
+                "output": output,
                 "observation": observation,
             }
         )
@@ -1484,7 +1507,7 @@ Create a polished, executive-ready dashboard. Think:
 - **Generous whitespace** - Let elements breathe, use padding liberally
 - **Clean typography** - Simple, readable fonts. No fancy headers or badges
 - **Subtle containers** - Light borders or shadows, not heavy cards
-- **Beautiful, colorful charts** - Use vibrant but harmonious color palettes for data visualization
+- **Beautiful, colorful charts** - Use vibrant but harmonious color palettes for data visualization. By default use light mode unless the user/instructions indicate dark theme
 - **Professional feel** - Like a Bloomberg terminal or modern analytics platform
 - **Data-focused** - The data is the star, UI should support not distract
 **Color Guidelines for Charts:**
@@ -1492,6 +1515,7 @@ Create a polished, executive-ready dashboard. Think:
 - Apply smooth gradients for area charts and backgrounds
 - Ensure sufficient contrast for readability
 - Use color consistently across related metrics
+- Filters should be cross visualizations, and always top z-index, so it will be above charts visualizations
 
 **DO NOT include:**
 - Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")

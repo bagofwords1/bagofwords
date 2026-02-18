@@ -33,14 +33,26 @@ class ObservationContextBuilder:
     def add_tool_observation(self, tool_name: str, tool_input: Dict[str, Any], observation: Dict[str, Any]):
         """
         Add an observation from a tool execution.
-        
+
         Args:
             tool_name: Name of the tool that was executed
             tool_input: Input parameters passed to the tool
             observation: Tool execution result with summary and artifacts
         """
         self.execution_count += 1
-        
+
+        # Compact previous artifact observations (keep-last-only for code)
+        # This ensures only the most recent artifact code is in context
+        # Applies to both create_artifact and read_artifact tools
+        if tool_name in ("create_artifact", "read_artifact"):
+            for prev_obs in self.tool_observations:
+                if prev_obs["tool_name"] in ("create_artifact", "read_artifact"):
+                    prev_observation = prev_obs.get("observation", {})
+                    if "code" in prev_observation:
+                        code_len = len(prev_observation["code"])
+                        del prev_observation["code"]
+                        prev_observation["code_compacted"] = f"{code_len} chars (artifact_id available for reference)"
+
         tool_observation = {
             "execution_number": self.execution_count,
             "tool_name": tool_name,
@@ -48,7 +60,7 @@ class ObservationContextBuilder:
             "timestamp": datetime.utcnow().isoformat(),
             "observation": observation
         }
-        
+
         self.tool_observations.append(tool_observation)
         
         # Extract useful artifacts if present
