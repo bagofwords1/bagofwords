@@ -249,7 +249,7 @@ class OrganizationSettingsService:
         current_user: User,
         file: UploadFile
     ):
-        """Validate, process (square resize), store icon on disk and update settings.general.icon fields."""
+        """Validate, process (resize preserving aspect ratio), store icon on disk and update settings.general.icon fields."""
         settings = await self.get_settings(db, organization, current_user)
         if settings.config is None:
             settings.config = {}
@@ -270,13 +270,14 @@ class OrganizationSettingsService:
         # Convert to RGBA for consistent output
         image = image.convert("RGBA")
         width, height = image.size
-        # center-crop to square
-        side = min(width, height)
-        left = (width - side) // 2
-        top = (height - side) // 2
-        image = image.crop((left, top, left + side, top + side))
-        # resize to 256x256
-        image = image.resize((256, 256))
+
+        # Resize to fit within max bounds while preserving aspect ratio
+        max_width, max_height = 512, 256
+        scale = min(max_width / width, max_height / height, 1.0)  # Don't upscale
+        if scale < 1.0:
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
 
         # storage path
         base_dir = os.path.abspath(os.path.join(os.getcwd(), "uploads", "branding"))

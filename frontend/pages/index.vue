@@ -37,7 +37,7 @@
           <span class="flex items-center">Setup complete — you can now start asking questions in natural language.</span>
         </div>
       </div>
-      <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="w-10 mx-auto" />
+      <img :src="orgIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-12 max-w-[180px] object-contain mx-auto" />
       <h1 class="text-5xl mt-5 font-bold">
         {{ orgAIAnalystName || 'AI Analyst' }}
       </h1>
