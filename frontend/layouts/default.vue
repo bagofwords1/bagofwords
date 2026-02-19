@@ -39,7 +39,7 @@
       <ul class="font-normal text-sm">
         <li>
             <button @click="router.push('/')" class="flex items-center text-center p-1 text-gray-700 group">
-              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="w-10 " />
+              <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-10 max-w-[120px] object-contain" />
             </button>
         </li>
 

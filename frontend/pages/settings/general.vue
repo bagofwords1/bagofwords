@@ -24,8 +24,8 @@
             <div class="md:w-2/3 space-y-2">
                 <div class="text-sm font-medium text-gray-800">Organization icon</div>
                 <div class="flex items-center space-x-4">
-                    <div class="w-14 h-14 rounded border bg-white overflow-hidden flex items-center justify-center">
-                        <img v-if="form.icon_url" :src="form.icon_url" class="w-full h-full object-cover" />
+                    <div class="w-20 h-14 rounded border bg-white overflow-hidden flex items-center justify-center">
+                        <img v-if="form.icon_url" :src="form.icon_url" class="max-w-full max-h-full object-contain" />
                         <Icon v-else name="heroicons:building-office" class="w-6 h-6 text-gray-400" />
                     </div>
                     <div class="space-x-2">
@@ -34,7 +34,7 @@
                         <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onIconSelected" />
                     </div>
                 </div>
-                <div class="text-xs text-gray-500">Square PNG/JPEG, ≤ 512 KB.</div>
+                <div class="text-xs text-gray-500">PNG/JPEG, ≤ 512 KB.</div>
             </div>
 
 

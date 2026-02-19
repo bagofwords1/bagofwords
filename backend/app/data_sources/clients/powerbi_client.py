@@ -1,8 +1,50 @@
 from app.data_sources.clients.base import DataSourceClient
-from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
-from typing import List, Dict, Optional
+from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
+from typing import List, Dict, Optional, Tuple
 import requests
 import pandas as pd
+import re
+from urllib.parse import unquote
+
+
+def _clean_table_display_name(table_name: str) -> str:
+    """
+    Clean up Power BI table names for display.
+
+    SharePoint-connected tables have ugly URL-based names like:
+    'https://tenant-my sharepoint com/personal/user/Documents/file xlsx'
+
+    This extracts a cleaner display name (e.g., 'file' or 'Documents_file').
+    """
+    if not table_name:
+        return table_name
+
+    # Detect SharePoint/OneDrive URL patterns (dots already replaced with spaces by Power BI)
+    if "sharepoint" in table_name.lower() or table_name.startswith("http"):
+        # Try to extract the last meaningful segment from the path
+        # Replace spaces back to dots for URL parsing, then decode
+        normalized = table_name.replace(" ", ".")
+
+        # Remove protocol and domain
+        path = re.sub(r'^https?://[^/]+/', '', normalized)
+
+        # Split by / and get meaningful segments
+        segments = [s for s in path.split('/') if s and s.lower() not in ('personal', 'documents', 'sites')]
+
+        if segments:
+            # Get the last segment (usually the file name)
+            last = segments[-1]
+            # Remove file extension if present
+            last = re.sub(r'\.(xlsx|xls|csv|txt)$', '', last, flags=re.IGNORECASE)
+            # Clean up any remaining encoded chars
+            last = unquote(last)
+            # Replace dots/underscores with spaces, then clean up
+            last = re.sub(r'[._]+', ' ', last).strip()
+
+            if last:
+                return last
+
+    return table_name
 
 
 class PowerBIClient(DataSourceClient):
@@ -157,37 +199,61 @@ class PowerBIClient(DataSourceClient):
 
         return results
 
-    def get_dataset_tables(self, workspace_id: str, dataset_id: str) -> List[Dict]:
+    def get_dataset_tables(self, workspace_id: str, dataset_id: str) -> tuple:
         """
         Get tables and columns for a dataset.
-        Tries multiple approaches in order:
+        Tries multiple approaches in order for tables:
         1. REST API /tables endpoint (works for Push datasets)
         2. DAX COLUMNSTATISTICS() function (works for most datasets)
         3. Admin Scanner API (works for all datasets with admin permissions)
+
+        Then tries Admin Scanner API separately for relationships (if not already fetched).
+
+        Returns:
+            tuple: (tables_list, relationships_list)
         """
+        import logging
+
         self.connect()
         headers = self._build_headers()
+        tables = []
+        relationships = []
+
+        # Step 1: Get tables from first method that works
 
         # Try REST API first (only works for Push datasets)
         url = f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/tables"
         resp = self._http.get(url, headers=headers, timeout=30)
         if resp.status_code < 300:
-            tables = (resp.json() or {}).get("value") or []
-            if tables and any(t.get("columns") for t in tables):
-                return tables
+            rest_tables = (resp.json() or {}).get("value") or []
+            if rest_tables and any(t.get("columns") for t in rest_tables):
+                tables = rest_tables
 
-        # Try DAX COLUMNSTATISTICS() - works for most datasets
-        tables = self._get_tables_via_column_stats(workspace_id, dataset_id)
-        if tables:
-            return tables
+        # Try DAX COLUMNSTATISTICS() if REST API didn't work
+        if not tables:
+            tables, _ = self._get_tables_via_column_stats(workspace_id, dataset_id)
 
-        # Fallback: Use Admin Scanner API for schema discovery (needs admin perms)
-        return self._get_tables_via_admin_scan(workspace_id, dataset_id)
+        # Try Admin Scanner API if nothing else worked
+        if not tables:
+            tables, relationships = self._get_tables_via_admin_scan(workspace_id, dataset_id)
 
-    def _get_tables_via_column_stats(self, workspace_id: str, dataset_id: str) -> List[Dict]:
+        # Step 2: If we have tables but no relationships, try Admin Scanner for relationships
+        if tables and not relationships:
+            try:
+                _, relationships = self._get_tables_via_admin_scan(workspace_id, dataset_id)
+            except Exception as e:
+                logging.debug(f"Admin Scanner failed for relationships (continuing without): {e}")
+                relationships = []
+
+        return tables, relationships
+
+    def _get_tables_via_column_stats(self, workspace_id: str, dataset_id: str) -> tuple:
         """
         Get table/column metadata using DAX COLUMNSTATISTICS() function.
         Works for most imported and DirectQuery datasets.
+
+        Returns:
+            tuple: (tables_list, relationships_list) - relationships always empty for this method
         """
         import logging
 
@@ -195,9 +261,8 @@ class PowerBIClient(DataSourceClient):
             # COLUMNSTATISTICS() returns: Table Name, Column Name, Min, Max, Cardinality, Max Length
             stats_dax = "EVALUATE COLUMNSTATISTICS()"
             stats_df = self._execute_dax_internal(workspace_id, dataset_id, stats_dax)
-
             if stats_df.empty:
-                return []
+                return [], []
 
             # Build tables structure from column stats
             tables_dict: Dict[str, Dict] = {}
@@ -221,16 +286,20 @@ class PowerBIClient(DataSourceClient):
                     "dataType": "unknown",  # COLUMNSTATISTICS doesn't return data type
                 })
 
-            return list(tables_dict.values())
+            # No relationships available via COLUMNSTATISTICS
+            return list(tables_dict.values()), []
 
         except Exception as e:
             logging.debug(f"COLUMNSTATISTICS failed for dataset {dataset_id}: {e}")
-            return []
+            return [], []
 
-    def _get_tables_via_admin_scan(self, workspace_id: str, dataset_id: str) -> List[Dict]:
+    def _get_tables_via_admin_scan(self, workspace_id: str, dataset_id: str) -> tuple:
         """
         Get table/column metadata using the Admin Scanner API.
         Requires the service principal to have admin permissions.
+
+        Returns:
+            tuple: (tables_list, relationships_list)
         """
         import time
         import logging
@@ -245,13 +314,13 @@ class PowerBIClient(DataSourceClient):
             resp = self._http.post(scan_url, json=body, headers=headers, timeout=30)
             if resp.status_code >= 300:
                 logging.warning(f"Admin scan initiation failed: HTTP {resp.status_code} {resp.text}")
-                return []
+                return [], []
 
             scan_data = resp.json() or {}
             scan_id = scan_data.get("id")
             if not scan_id:
                 logging.warning("Admin scan did not return scan ID")
-                return []
+                return [], []
 
             # Step 2: Poll for scan completion (max 30 seconds)
             status_url = f"{self.BASE_URL}/admin/workspaces/scanStatus/{scan_id}"
@@ -265,14 +334,14 @@ class PowerBIClient(DataSourceClient):
                     break
             else:
                 logging.warning(f"Admin scan timed out for workspace {workspace_id}")
-                return []
+                return [], []
 
             # Step 3: Get scan results
             result_url = f"{self.BASE_URL}/admin/workspaces/scanResult/{scan_id}"
             result_resp = self._http.get(result_url, headers=headers, timeout=60)
             if result_resp.status_code >= 300:
                 logging.warning(f"Failed to get scan results: HTTP {result_resp.status_code}")
-                return []
+                return [], []
 
             result_data = result_resp.json() or {}
             workspaces = result_data.get("workspaces") or []
@@ -283,14 +352,18 @@ class PowerBIClient(DataSourceClient):
                     if ds.get("id") == dataset_id:
                         return self._parse_admin_scan_tables(ds)
 
-            return []
+            return [], []
 
         except Exception as e:
             logging.warning(f"Failed to get tables via admin scan for dataset {dataset_id}: {e}")
-            return []
+            return [], []
 
-    def _parse_admin_scan_tables(self, dataset: Dict) -> List[Dict]:
-        """Parse tables/columns/measures from Admin Scanner API response."""
+    def _parse_admin_scan_tables(self, dataset: Dict) -> tuple:
+        """Parse tables/columns/measures/relationships from Admin Scanner API response.
+
+        Returns:
+            tuple: (tables_list, relationships_list)
+        """
         tables_dict: Dict[str, Dict] = {}
 
         for tbl in dataset.get("tables") or []:
@@ -319,12 +392,28 @@ class PowerBIClient(DataSourceClient):
                         "expression": measure.get("expression") or "",
                     })
 
-        return list(tables_dict.values())
+        # Extract relationships
+        relationships = []
+        for rel in dataset.get("relationships") or []:
+            from_table = rel.get("fromTable") or ""
+            from_column = rel.get("fromColumn") or ""
+            to_table = rel.get("toTable") or ""
+            to_column = rel.get("toColumn") or ""
+            if from_table and from_column and to_table and to_column:
+                relationships.append({
+                    "fromTable": from_table,
+                    "fromColumn": from_column,
+                    "toTable": to_table,
+                    "toColumn": to_column,
+                    "crossFilteringBehavior": rel.get("crossFilteringBehavior"),
+                })
+
+        return list(tables_dict.values()), relationships
 
     def get_schemas(self) -> List[Table]:
         """
-        Build Table objects representing all datasets across all workspaces.
-        Each dataset becomes one Table with columns from all its internal tables.
+        Build Table objects representing all internal tables across all datasets.
+        Each internal Power BI table becomes one BOW Table named "{Dataset}/{Table}".
         """
         workspaces = self.list_workspaces()
         tables: List[Table] = []
@@ -354,105 +443,124 @@ class PowerBIClient(DataSourceClient):
                 ds_id = ds.get("id")
                 ds_name = ds.get("name") or ds_id
 
-                # Get tables/columns for this dataset
-                ds_tables = self.get_dataset_tables(ws_id, ds_id)
+                # Get tables/columns and relationships for this dataset
+                ds_tables, ds_relationships = self.get_dataset_tables(ws_id, ds_id)
 
-                # Flatten all columns from all internal tables
-                columns: List[TableColumn] = []
-                internal_table_names: List[str] = []
-
+                # Create one BOW Table per internal Power BI table
                 for tbl in ds_tables:
                     tbl_name = tbl.get("name") or ""
-                    internal_table_names.append(tbl_name)
+                    if not tbl_name:
+                        continue
 
+                    # Clean up display name for SharePoint URL tables
+                    tbl_display_name = _clean_table_display_name(tbl_name)
+
+                    # 2-level naming: Dataset/Table (like Snowflake's schema.table)
+                    full_name = f"{ds_name}/{tbl_display_name}"
+
+                    # Columns for this table only
+                    columns: List[TableColumn] = []
                     for col in tbl.get("columns") or []:
                         col_name = col.get("name") or ""
                         col_type = col.get("dataType") or "unknown"
+                        if col_name:
+                            columns.append(TableColumn(
+                                name=col_name,
+                                dtype=col_type,
+                                description=None,
+                                metadata={"role": "column"},
+                            ))
 
-                        columns.append(TableColumn(
-                            name=col_name,
-                            dtype=col_type,
-                            description=None,
-                            metadata={
-                                "table": tbl_name,
-                                "role": "column",
-                            }
-                        ))
-
-                    # Include measures if available
+                    # Measures for this table
                     for measure in tbl.get("measures") or []:
                         measure_name = measure.get("name") or ""
                         expression = measure.get("expression") or ""
+                        if measure_name:
+                            columns.append(TableColumn(
+                                name=measure_name,
+                                dtype="measure",
+                                description=expression[:200] if expression else None,
+                                metadata={
+                                    "role": "measure",
+                                    "expression": expression,
+                                },
+                            ))
 
-                        columns.append(TableColumn(
-                            name=measure_name,
-                            dtype="measure",
-                            description=expression[:200] if expression else None,
-                            metadata={
-                                "table": tbl_name,
-                                "role": "measure",
-                                "expression": expression,
-                            }
-                        ))
+                    # Build FKs for relationships FROM this table
+                    fks: List[ForeignKey] = []
+                    for rel in ds_relationships:
+                        if rel.get("fromTable") == tbl_name:
+                            to_table = rel.get("toTable") or ""
+                            to_table_display = _clean_table_display_name(to_table)
+                            fks.append(ForeignKey(
+                                column=TableColumn(
+                                    name=rel.get("fromColumn") or "",
+                                    dtype="unknown",
+                                ),
+                                references_name=f"{ds_name}/{to_table_display}",
+                                references_column=TableColumn(
+                                    name=rel.get("toColumn") or "",
+                                    dtype="unknown",
+                                ),
+                            ))
 
-                # Build table name as workspace/dataset
-                table_name = f"{ws_name}/{ds_name}"
-
-                metadata_json = {
-                    "powerbi": {
-                        "datasetId": ds_id,
-                        "workspaceId": ws_id,
-                        "workspaceName": ws_name,
-                        "datasetName": ds_name,
-                        "configuredBy": ds.get("configuredBy"),
-                        "webUrl": ds.get("webUrl"),
-                        "tables": internal_table_names,
-                        "reports": reports_by_dataset.get(ds_id, []),
+                    # Metadata for query execution (workspace at connection level)
+                    metadata_json = {
+                        "powerbi": {
+                            "datasetId": ds_id,
+                            "workspaceId": ws_id,
+                            "workspaceName": ws_name,
+                            "datasetName": ds_name,
+                            "tableName": tbl_name,
+                            "configuredBy": ds.get("configuredBy"),
+                            "webUrl": ds.get("webUrl"),
+                            "reports": reports_by_dataset.get(ds_id, []),
+                        }
                     }
-                }
 
-                tables.append(Table(
-                    name=table_name,
-                    description=None,
-                    columns=columns,
-                    pks=[],
-                    fks=[],
-                    is_active=True,
-                    metadata_json=metadata_json,
-                ))
+                    tables.append(Table(
+                        name=full_name,
+                        description=None,
+                        columns=columns,
+                        pks=[],
+                        fks=fks if fks else [],
+                        is_active=True,
+                        metadata_json=metadata_json,
+                    ))
+
         return tables
 
     def get_schema(self, table_name: str) -> Table:
         """
-        Get schema for a single dataset by name or ID.
+        Get schema for a single table by name.
 
         Accepts:
-          - dataset ID (exact match)
-          - "workspace/dataset" name path
-          - dataset display name (first match)
+          - "Dataset/Table" name path (exact match)
+          - Internal table name only (first match)
+          - Dataset ID (returns first table in that dataset)
         """
         all_tables = self.get_schemas()
 
-        # Try exact name match
+        # Try exact name match (Dataset/Table)
         for tbl in all_tables:
             if tbl.name == table_name:
                 return tbl
 
-        # Try by dataset ID
+        # Try by internal table name only (first match)
+        for tbl in all_tables:
+            metadata = tbl.metadata_json or {}
+            pbi = metadata.get("powerbi") or {}
+            if pbi.get("tableName") == table_name:
+                return tbl
+
+        # Try by dataset ID (returns first table in that dataset)
         for tbl in all_tables:
             metadata = tbl.metadata_json or {}
             pbi = metadata.get("powerbi") or {}
             if pbi.get("datasetId") == table_name:
                 return tbl
 
-        # Try by dataset name only (first match)
-        for tbl in all_tables:
-            metadata = tbl.metadata_json or {}
-            pbi = metadata.get("powerbi") or {}
-            if pbi.get("datasetName") == table_name:
-                return tbl
-
-        raise RuntimeError(f"Dataset not found for '{table_name}'")
+        raise RuntimeError(f"Table not found for '{table_name}'")
 
     def execute_query(
         self,
@@ -467,15 +575,15 @@ class PowerBIClient(DataSourceClient):
 
         Args:
             query: DAX query string (must start with EVALUATE)
-            table_name: Table name (e.g., "BOW/deals2") - will look up dataset_id/workspace_id
+            table_name: Table name (e.g., "SalesModel/Customers") - will look up dataset_id/workspace_id
             dataset_id: Power BI dataset ID (alternative to table_name)
             workspace_id: Power BI workspace ID
             max_rows: Maximum rows to return
 
         Example:
-            df = client.execute_query("EVALUATE Sales", "BOW/deals2")
+            df = client.execute_query("EVALUATE Customers", "SalesModel/Customers")
             # or with explicit IDs:
-            df = client.execute_query("EVALUATE Sales", dataset_id="abc", workspace_id="xyz")
+            df = client.execute_query("EVALUATE Customers", dataset_id="abc", workspace_id="xyz")
         """
         if not query:
             raise ValueError("DAX query is required")
@@ -563,31 +671,32 @@ class PowerBIClient(DataSourceClient):
 
 Execute DAX queries against Power BI semantic models.
 
-### CRITICAL: Schema Name vs DAX Table Name
+### Schema Structure
 
-There are TWO different names you need to understand:
+Each Power BI table is exposed as a separate schema table named `Dataset/Table`:
+- `SalesModel/Customers` - Customers table in SalesModel dataset
+- `SalesModel/Orders` - Orders table in SalesModel dataset
 
-1. **Schema name** (e.g., "BOW/leads") - Used ONLY as the second argument to `execute_query()`
-2. **DAX table name** (e.g., "Mock_Salesforce_Leads 2") - Used INSIDE the DAX query itself
+Tables in the same dataset share the same `metadata.powerbi.datasetId` and can be joined via relationships (see `fks` field).
 
-The schema name identifies which Power BI dataset to query.
-The DAX table name is the actual table name inside that dataset.
+### Table Name vs DAX Table Name
 
-**Find the DAX table name**: Look at each column's `metadata.table` field - that's the internal table name to use in DAX.
+- **Schema table name** (e.g., `SalesModel/Customers`) - Pass as second argument to `execute_query()`
+- **DAX table name** - The part after `/` (e.g., `Customers`) - Use inside DAX queries
+
+The DAX table name is also available in `metadata.powerbi.tableName`.
 
 ### How to Execute Queries
 
-**Signature**: `execute_query(dax_query, schema_name)` - BOTH arguments are REQUIRED!
+**Signature**: `execute_query(dax_query, table_name)` - BOTH arguments are REQUIRED!
 
 ```python
-# CORRECT: Schema name as 2nd arg, DAX table name in query
+# Schema table name as 2nd arg, DAX table name in query
 df = db_clients['powerbi'].execute_query(
-    "EVALUATE 'Mock_Salesforce_Leads 2'",  # DAX uses internal table name
-    "BOW/leads"                             # Schema name (REQUIRED)
+    "EVALUATE Customers",           # DAX uses the table name (after /)
+    "SalesModel/Customers"          # Schema table name (REQUIRED)
 )
 ```
-
-**IMPORTANT**: You MUST always pass the schema name (e.g., "BOW/leads") as the second argument. Without it, the query will fail.
 
 ### DAX Query Pattern
 
@@ -598,37 +707,38 @@ EVALUATE <table_expression>
 ### Examples
 
 ```dax
--- Get all rows (use internal table name, quote if has spaces)
-EVALUATE 'Mock_Salesforce_Leads 2'
+-- Get all rows (quote table name if it has spaces)
+EVALUATE Customers
+EVALUATE 'Order Details'
 
 -- Aggregate with grouping
 EVALUATE
 SUMMARIZECOLUMNS(
-    'My Table'[Category],
-    "Total", SUM('My Table'[Amount])
+    Orders[Category],
+    "Total", SUM(Orders[Amount])
 )
 
 -- Filter data
 EVALUATE
 FILTER(
-    'My Table',
-    'My Table'[Status] = "Active"
+    Customers,
+    Customers[Status] = "Active"
 )
 
 -- Top N results
 EVALUATE
 TOPN(10,
-    SUMMARIZECOLUMNS('My Table'[Name], "Total", SUM('My Table'[Value])),
+    SUMMARIZECOLUMNS(Customers[Name], "Total", SUM(Orders[Value])),
     [Total], DESC
 )
 ```
 
 ### Key DAX Syntax Rules
-- Table names with spaces MUST use single quotes: 'My Table'[Column]
+- Table names with spaces MUST use single quotes: 'Order Details'[Column]
 - Column references: TableName[ColumnName] or 'Table Name'[ColumnName]
 - Measure references: [MeasureName] (no table prefix)
 - String literals use double quotes: "value"
-- NEVER use the schema name (like "BOW/leads") in DAX - use the internal table name from metadata.table
+- Relationships between tables are in `fks` - use RELATED() to traverse them
 - INFO.TABLES() and INFO.COLUMNS() do NOT work via REST API - use the schema metadata instead
 """
 

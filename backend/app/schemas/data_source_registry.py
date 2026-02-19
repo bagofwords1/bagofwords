@@ -431,8 +431,8 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     ),
     "qvd": DataSourceRegistryEntry(
         type="qvd",
-        title="QlikView Data",
-        description="Query QlikView Data (.qvd) files.",
+        title="Qlik Data",
+        description="Query Qlik Data (.qvd) files.",
         config_schema=QVDConfig,
         credentials_auth=AuthOptions(
             default="none",

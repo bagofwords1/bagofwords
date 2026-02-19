@@ -298,6 +298,7 @@
                 </button>
               </div>
               <div v-if="expandedTables[table.name] && table.columns" class="mt-2 ml-7">
+                <!-- Columns -->
                 <div class="border border-gray-100 rounded">
                   <div class="grid grid-cols-2 text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">
                     <div>Name</div>
@@ -308,6 +309,33 @@
                       <div class="text-gray-700">{{ col.name }}</div>
                       <div class="text-gray-500">{{ col.dtype || col.type }}</div>
                     </div>
+                  </div>
+                </div>
+
+                <!-- Relationships -->
+                <div v-if="table.fks?.length" class="mt-2 border border-gray-100 rounded">
+                  <div class="text-xs font-medium text-gray-500 bg-gray-50 px-2 py-1 rounded-t">Relationships</div>
+                  <div class="divide-y divide-gray-100">
+                    <div v-for="(fk, idx) in table.fks" :key="idx" class="text-xs px-2 py-1 text-gray-600">
+                      <span class="text-gray-700">{{ fk.column?.name }}</span>
+                      <span class="text-gray-400 mx-1">→</span>
+                      <span class="text-blue-600">{{ fk.references_name }}</span>
+                      <span class="text-gray-400">.</span>
+                      <span class="text-gray-700">{{ fk.references_column?.name }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Power BI Metadata -->
+                <div v-if="table.metadata_json?.powerbi" class="mt-2 text-xs text-gray-500 space-y-0.5">
+                  <div v-if="table.metadata_json.powerbi.datasetName">
+                    <span class="text-gray-400">Dataset:</span> {{ table.metadata_json.powerbi.datasetName }}
+                  </div>
+                  <div v-if="table.metadata_json.powerbi.workspaceName">
+                    <span class="text-gray-400">Workspace:</span> {{ table.metadata_json.powerbi.workspaceName }}
+                  </div>
+                  <div v-if="table.metadata_json.powerbi.reports?.length">
+                    <span class="text-gray-400">Reports:</span> {{ table.metadata_json.powerbi.reports.map((r: any) => r.name).join(', ') }}
                   </div>
                 </div>
               </div>
@@ -371,18 +399,33 @@ import Spinner from '@/components/Spinner.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 
 type Column = { name: string; dtype?: string; type?: string }
+type ForeignKey = {
+  column?: { name: string; dtype?: string };
+  references_name: string;
+  references_column?: { name: string; dtype?: string };
+}
 type Table = {
   name: string;
   is_active: boolean;
   columns?: Column[];
   pks?: any[];
-  fks?: any[];
+  fks?: ForeignKey[];
   usage_count?: number;
   success_count?: number;
   failure_count?: number;
   pos_feedback_count?: number;
   neg_feedback_count?: number;
-  metadata_json?: { schema?: string };
+  metadata_json?: {
+    schema?: string;
+    powerbi?: {
+      datasetId?: string;
+      datasetName?: string;
+      workspaceId?: string;
+      workspaceName?: string;
+      tableName?: string;
+      reports?: { id: string; name: string; webUrl?: string }[];
+    };
+  };
   connection_id?: string;
   connection_name?: string;
   connection_type?: string;
