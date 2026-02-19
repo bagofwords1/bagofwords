@@ -23,6 +23,7 @@ from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
 from app.schemas.data_source_registry import resolve_client_class, list_available_data_sources
+from app.ee.audit.service import audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,20 @@ class ConnectionService:
         # Discover and save tables for system_only connections
         if auth_policy == "system_only":
             await self.refresh_schema(db=db, connection=connection)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="connection.created",
+                user_id=str(current_user.id),
+                resource_type="connection",
+                resource_id=str(connection.id),
+                details={"name": connection.name, "type": type, "auth_policy": auth_policy},
+            )
+        except Exception:
+            pass
 
         # Re-fetch with eager loading to avoid lazy load issues in async context
         return await self.get_connection(db, str(connection.id), organization)
@@ -230,6 +245,20 @@ class ConnectionService:
             if connection_changed and connection.auth_policy == "system_only":
                 await self.refresh_schema(db=db, connection=connection)
 
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="connection.updated",
+                    user_id=str(current_user.id),
+                    resource_type="connection",
+                    resource_id=str(connection_id),
+                    details={"name": connection.name},
+                )
+            except Exception:
+                pass
+
             # Re-fetch with eager loading to avoid lazy load issues in async context
             return await self.get_connection(db, connection_id, organization)
         except IntegrityError:
@@ -259,6 +288,9 @@ class ConnectionService:
         """
         connection = await self.get_connection(db, connection_id, organization)
 
+        # Capture details before deletion for audit
+        connection_name = connection.name
+
         # Log impact for audit
         domain_count = len(connection.data_sources) if connection.data_sources else 0
         deleted_domain_names = []
@@ -276,6 +308,20 @@ class ConnectionService:
 
         await db.delete(connection)
         await db.commit()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="connection.deleted",
+                user_id=str(current_user.id),
+                resource_type="connection",
+                resource_id=str(connection_id),
+                details={"name": connection_name, "impacted_domains": domain_count, "deleted_domains": deleted_domain_names},
+            )
+        except Exception:
+            pass
 
         return {
             "message": "Connection deleted successfully",
@@ -480,6 +526,21 @@ class ConnectionService:
             )
             final_tables = result.scalars().all()
             logger.info(f"refresh_schema: Final query returned {len(final_tables)} ConnectionTable records")
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(connection.organization_id),
+                    action="connection.schema_refreshed",
+                    user_id=str(current_user.id) if current_user else None,
+                    resource_type="connection",
+                    resource_id=str(connection.id),
+                    details={"table_count": len(final_tables), "created": created_count, "updated": updated_count, "deleted": deleted_count},
+                )
+            except Exception:
+                pass
+
             return final_tables
 
         except Exception as e:
