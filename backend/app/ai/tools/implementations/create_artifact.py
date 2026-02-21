@@ -6,11 +6,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, Type, List, Optional
 
+import aiofiles
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.ai.tools.base import Tool
+from app.models.file import File
+from app.models.report_file_association import report_file_association
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +163,53 @@ class CreateArtifactTool(Tool):
                     await db.commit()
         except Exception as e:
             logger.warning(f"Failed to generate thumbnail for artifact {artifact_id}: {e}")
+
+    async def _load_completion_images(
+        self,
+        db: Any,
+        head_completion_id: Optional[str],
+    ) -> List[ImageInput]:
+        """Load images attached to the head completion as ImageInput objects.
+
+        Args:
+            db: Database session
+            head_completion_id: The completion ID to load images for
+
+        Returns:
+            List of ImageInput objects ready for vision-capable LLM
+        """
+        if not head_completion_id:
+            return []
+
+        images: List[ImageInput] = []
+        try:
+            # Query files associated with this completion that are images
+            result = await db.execute(
+                select(File)
+                .join(report_file_association, report_file_association.c.file_id == File.id)
+                .where(report_file_association.c.completion_id == head_completion_id)
+                .where(File.content_type.startswith("image/"))
+            )
+            image_files = result.scalars().all()
+
+            for f in image_files:
+                if not f.path:
+                    continue
+                try:
+                    async with aiofiles.open(f.path, 'rb') as file:
+                        content = await file.read()
+                    images.append(ImageInput(
+                        data=base64.b64encode(content).decode('utf-8'),
+                        media_type=f.content_type or 'image/png',
+                        source_type='base64'
+                    ))
+                except Exception as e:
+                    logger.warning(f"Failed to load image file {f.id}: {e}")
+
+        except Exception as e:
+            logger.warning(f"Failed to query completion images: {e}")
+
+        return images
 
     def _build_validation_html(self, artifact_data: dict, code: str, mode: str = "page") -> str:
         """Build HTML for validation by reading sandbox file and injecting validation code.
@@ -360,6 +410,7 @@ class CreateArtifactTool(Tool):
         runtime_ctx: Dict[str, Any],
         prompt_context: Dict[str, Any],
         screenshot_base64: Optional[str] = None,
+        completion_images: Optional[List[ImageInput]] = None,
     ) -> str:
         """Attempt to fix code errors using the same prompt with error context.
 
@@ -370,8 +421,9 @@ class CreateArtifactTool(Tool):
             runtime_ctx: Runtime context for LLM access
             prompt_context: Context needed to rebuild the original prompt
                 (user_prompt, title, viz_profiles, instructions_context,
-                 report_title, allow_llm_see_data, messages_context)
+                 report_title, allow_llm_see_data, messages_context, image_count)
             screenshot_base64: Optional screenshot of the broken render for visual context
+            completion_images: Optional list of images from the head completion
 
         Returns:
             Fixed code string
@@ -388,6 +440,7 @@ class CreateArtifactTool(Tool):
             report_title=prompt_context["report_title"],
             allow_llm_see_data=prompt_context["allow_llm_see_data"],
             messages_context=prompt_context.get("messages_context", ""),
+            image_count=prompt_context.get("image_count", 0),
         )
 
         # Build screenshot context if available
@@ -416,16 +469,21 @@ Fix these errors while keeping the same design and functionality. Output the cor
         # Use the same model for fixes
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
 
-        # Build image input if screenshot is available and model supports vision
-        images: Optional[List[ImageInput]] = None
+        # Build image inputs: completion images + screenshot (if available)
+        images: List[ImageInput] = []
         model = runtime_ctx.get("model")
-        if screenshot_base64 and model and getattr(model, "supports_vision", False):
-            images = [ImageInput(data=screenshot_base64, media_type="image/png", source_type="base64")]
+        if model and getattr(model, "supports_vision", False):
+            # Add completion images first (user's reference images)
+            if completion_images:
+                images.extend(completion_images)
+            # Add screenshot of broken render last
+            if screenshot_base64:
+                images.append(ImageInput(data=screenshot_base64, media_type="image/png", source_type="base64"))
 
         try:
             response = await llm.inference(
                 fix_prompt,
-                images=images,
+                images=images if images else None,
                 usage_scope="create_artifact_fix",
                 usage_scope_ref_id=None,
             )
@@ -555,6 +613,17 @@ Fix these errors while keeping the same design and functionality. Output the cor
             messages_context = _messages_section_obj.render() if _messages_section_obj else ""
         except Exception:
             messages_context = ""
+
+        # Load images attached to the head completion for vision-capable models
+        head_completion = runtime_ctx.get("head_completion")
+        head_completion_id = str(head_completion.id) if head_completion else None
+        completion_images = await self._load_completion_images(db, head_completion_id)
+
+        # Validate model supports vision if images are present
+        model = runtime_ctx.get("model")
+        if completion_images and not getattr(model, "supports_vision", False):
+            logger.info(f"Model doesn't support vision, skipping {len(completion_images)} completion images")
+            completion_images = []
 
         # Note: Previous artifacts are now available via observation context (from create_artifact/read_artifact)
         # No need to fetch from DB - the planner can call read_artifact if needed
@@ -720,6 +789,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "report_title": getattr(report, 'title', None) if report else None,
             "allow_llm_see_data": allow_llm_see_data,
             "messages_context": messages_context,
+            "image_count": len(completion_images),
         }
 
         prompt = self._build_prompt(
@@ -731,6 +801,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
             report_title=prompt_context["report_title"],
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
+            image_count=len(completion_images),
         )
 
         # Stream from LLM
@@ -740,6 +811,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
 
         async for chunk in llm.inference_stream(
             prompt,
+            images=completion_images if completion_images else None,
             usage_scope="create_artifact",
             usage_scope_ref_id=str(report.id) if report else None,
         ):
@@ -878,6 +950,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
                         runtime_ctx=runtime_ctx,
                         prompt_context=prompt_context,
                         screenshot_base64=validation_result.screenshot_base64,
+                        completion_images=completion_images,
                     )
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
@@ -1036,9 +1109,15 @@ Fix these errors while keeping the same design and functionality. Output the cor
         report_title: str | None,
         allow_llm_see_data: bool,
         messages_context: str = "",
+        image_count: int = 0,
     ) -> str:
         """Build the prompt for generating slides using python-pptx code."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        # Build attached images context
+        images_context = ""
+        if image_count > 0:
+            images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
 
         return f"""You are an expert at creating professional presentations using python-pptx.
 Generate python-pptx code to create a polished slide deck.
@@ -1078,7 +1157,7 @@ TASK
 
 **Report Title:** {report_title or title or 'Presentation'}
 **User Request:** {user_prompt}
-
+{images_context}
 {f"**Organization Instructions:** {instructions_context}" if instructions_context else ""}
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1367,9 +1446,15 @@ Create a beautiful, varied presentation following these design principles. Each 
         report_title: str | None,
         allow_llm_see_data: bool,
         messages_context: str = "",
+        image_count: int = 0,
     ) -> str:
         """Build the prompt for generating page/dashboard (React + ECharts)."""
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        # Build attached images context
+        images_context = ""
+        if image_count > 0:
+            images_context = f"\n**Attached Images:** {image_count} image(s) provided for visual reference. Use these to understand the design intent, branding, color schemes, or layout preferences the user wants to incorporate."
 
         # Note: Previous artifact code is now available via observation context (from create_artifact/read_artifact)
         # The planner can call read_artifact if needed to load previous code into context
@@ -1456,7 +1541,7 @@ DESIGN REQUEST
 **Report Title:** {report_title or title or 'Dashboard'}
 **Artifact Mode:** page
 **User Request:** {user_prompt}
-
+{images_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
@@ -1560,6 +1645,7 @@ Now create the dashboard:"""
         report_title: str | None,
         allow_llm_see_data: bool,
         messages_context: str = "",
+        image_count: int = 0,
     ) -> str:
         """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
         if mode == "slides":
@@ -1571,6 +1657,7 @@ Now create the dashboard:"""
                 report_title=report_title,
                 allow_llm_see_data=allow_llm_see_data,
                 messages_context=messages_context,
+                image_count=image_count,
             )
         return self._build_page_prompt(
             user_prompt=user_prompt,
@@ -1580,6 +1667,7 @@ Now create the dashboard:"""
             report_title=report_title,
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
+            image_count=image_count,
         )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:

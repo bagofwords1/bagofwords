@@ -102,7 +102,8 @@ PLAN TYPE DECISION FRAMEWORK
 - If schemas are empty/insufficient, output your clarifying questions in assistant_message and call the clarify tool to pause for user response.
 - If the user's request is ambiguous, output your questions in assistant_message and call the clarify tool.
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
-- When working with files (excel, csv, etc), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
+- If the user attached a screenshot or an image -- describe it in reasoning - don't use inspect_data for images
+- When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
 
 ERROR HANDLING (robust; no blind retries)
 - If ANY tool error occurred, start reasoning_message with: 

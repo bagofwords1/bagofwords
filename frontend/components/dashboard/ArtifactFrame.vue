@@ -226,7 +226,8 @@ const { organization } = useOrganization();
 
 // Format relative time (e.g., "2 hours ago")
 function formatRelativeTime(dateString: string): string {
-  const date = new Date(dateString);
+  // Append 'Z' to treat as UTC since backend stores UTC without timezone info
+  const date = new Date(dateString.endsWith('Z') ? dateString : dateString + 'Z');
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSecs = Math.floor(diffMs / 1000);

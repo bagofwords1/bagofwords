@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.316 (February 21, 2026)
+- Added filters for low score agent executions in monitoring/diagnosis
+- Enhanced file upload and completion context handling, and special support for images
+- Pass images and screenshots to create_artifact tool
+
 ## Version 0.0.315 (February 19, 2026)
 - Improved organization logo upload
 - Power BI: one table per internal table, relationship support, cleaner SharePoint names

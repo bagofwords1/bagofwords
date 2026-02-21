@@ -8,6 +8,7 @@ from .tool_execution_schema import ToolExecutionSchema
 from .agent_execution_schema import PlanDecisionReducedSchema
 from .visualization_schema import VisualizationSchema
 from .completion_feedback_schema import CompletionFeedbackSchema
+from .file_schema import FileSchema
 
 
 class ToolExecutionUISchema(ToolExecutionSchema):
@@ -118,6 +119,9 @@ class CompletionV2Schema(BaseModel):
     created_widgets: List[WidgetSchema] = []
     created_steps: List[StepSchema] = []
     created_visualizations: List[VisualizationSchema] = []
+
+    # Files attached to this completion (images, etc.)
+    files: List[FileSchema] = []
 
     # Small summary for UI
     summary: Dict[str, Any] = {}

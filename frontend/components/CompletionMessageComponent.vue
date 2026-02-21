@@ -13,7 +13,7 @@
                 <!-- User messages -->
                 <div v-if="localCompletion.prompt?.content.length > 0" class="pt-1">
                     <div class="inline float-right" v-if="useCan('view_completion_plan')">
-                        <button @click="showPlan(localCompletion)" 
+                        <button @click="showPlan(localCompletion)"
                                 class="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded flex items-center">
                             <Icon name="heroicons-eye" class="mr-1" />
                         </button>
@@ -22,6 +22,19 @@
 
                         <MDC :value="localCompletion.prompt?.content" class="markdown-content" />
 
+                    </div>
+                    <!-- Attached images -->
+                    <div v-if="attachedImages.length > 0" class="mt-2 flex flex-wrap gap-2">
+                        <div v-for="file in attachedImages" :key="file.id"
+                             class="relative group rounded-lg overflow-hidden border border-gray-200">
+                            <AuthenticatedImage
+                                 :file-id="file.id"
+                                 :alt="file.filename"
+                                 img-class="max-h-48 w-auto object-contain rounded-lg" />
+                            <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity truncate">
+                                {{ file.filename }}
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <!-- System messages -->
@@ -286,6 +299,12 @@ const plan_analysis_complete = ref(null);
 const localCompletion = computed(() => ({
     ...props.completion,
 }));
+
+// Get images attached to this completion
+const attachedImages = computed(() => {
+    const files = localCompletion.value?.files || [];
+    return files.filter(f => (f.content_type || '').startsWith('image/'));
+});
 
 const reasoningCollapsed = ref(false);
 

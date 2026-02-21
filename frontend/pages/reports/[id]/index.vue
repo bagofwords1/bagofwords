@@ -45,6 +45,16 @@
 											<div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
 												<MDC :value="m.prompt.content" class="markdown-content" />
 											</div>
+											<!-- Attached images thumbnail -->
+											<div v-if="getAttachedImages(m).length > 0" class="mt-2 flex flex-wrap gap-1.5">
+												<div v-for="file in getAttachedImages(m)" :key="file.id" class="relative group">
+													<AuthenticatedImage
+														:file-id="file.id"
+														:alt="file.filename"
+														img-class="h-16 w-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
+														@click="openImagePreview(file)" />
+												</div>
+											</div>
 										</div>
 									</div>
 									<!-- User avatar on the right (hidden on mobile) -->
@@ -380,6 +390,9 @@
 		@stepCreated="onStepCreated"
 	/>
 
+	<!-- Image Preview Modal -->
+	<ImagePreviewModal ref="imagePreviewModalRef" />
+
 </template>
 
 <script setup lang="ts">
@@ -409,6 +422,7 @@ import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
+import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
 
@@ -469,6 +483,8 @@ interface ChatMessage {
 	error_message?: string
 	// Optional structured error
 	error?: any
+	// Files attached to this completion (images, etc.)
+	files?: { id: string; filename: string; content_type: string }[]
 	// Instruction suggestions generated during this completion
 	instruction_suggestions?: Array<{ text: string; category: string }>
 	// Loading state for feedback-triggered suggestions
@@ -880,6 +896,19 @@ function toggleToolDetails(toolId: string) {
 
 function isToolDetailsExpanded(toolId: string) {
 	return expandedToolDetails.value.has(toolId)
+}
+
+// Get attached images from a message's files
+function getAttachedImages(message: ChatMessage) {
+	const files = message.files || []
+	return files.filter((f: any) => (f.content_type || '').startsWith('image/'))
+}
+
+// Image preview modal
+const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(null)
+
+function openImagePreview(file: any) {
+	imagePreviewModalRef.value?.open(file)
 }
 
 function scrollToBottom() {
@@ -1521,7 +1550,8 @@ async function loadCompletions() {
 				created_at: c.created_at,
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
-				instruction_suggestions: c.instruction_suggestions
+				instruction_suggestions: c.instruction_suggestions,
+				files: c.files || []
 			}
 		})
 		// Update cursors
@@ -1592,7 +1622,8 @@ async function loadPreviousCompletions() {
                 created_at: c.created_at,
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
-                instruction_suggestions: c.instruction_suggestions
+                instruction_suggestions: c.instruction_suggestions,
+                files: c.files || []
             }
         })
         // Dedupe by id and prepend
@@ -1971,15 +2002,16 @@ function onStepCreated(step: any) {
 	// Optionally refresh the completion or update the UI
 }
 
-function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string }) {
+function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string; model_id?: string; files?: { id: string; filename: string; content_type: string }[] }) {
 	const text = data.text.trim()
 	if (!text) return
 
-	// Append user message
+	// Append user message with attached files (for immediate display)
 	const userMsg: ChatMessage = {
 		id: `user-${Date.now()}`,
 		role: 'user',
-		prompt: { content: text }
+		prompt: { content: text },
+		files: data.files || []
 	}
 	messages.value.push(userMsg)
 

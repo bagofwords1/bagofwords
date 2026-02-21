@@ -103,7 +103,10 @@ const isDragging = ref(false);
       const { data } = await useMyFetch(`/reports/${report_id}/files`, {
         method: 'GET',
       });
-      allFiles.value = data.value.map(file => ({ ...file, status: 'uploaded' }));
+      // Filter out files that have been used in a completion (completion_id is set)
+      // This allows newly uploaded images to show, but hides them after they're submitted
+      const unusedFiles = data.value.filter(file => !file.completion_id);
+      allFiles.value = unusedFiles.map(file => ({ ...file, status: 'uploaded' }));
     }
   }
 
@@ -119,6 +122,8 @@ const isDragging = ref(false);
       status: "processing"
     }));
     allFiles.value.push(...selectedFiles);
+    // Emit immediately so parent can show processing state
+    emit('update:uploadedFiles', [...allFiles.value]);
     selectedFiles.forEach(file => uploadFile(file));
   }
 
@@ -131,6 +136,8 @@ const isDragging = ref(false);
       status: "processing"
     }));
     allFiles.value.push(...droppedFiles);
+    // Emit immediately so parent can show processing state
+    emit('update:uploadedFiles', [...allFiles.value]);
     droppedFiles.forEach(file => uploadFile(file));
   }
   
@@ -171,8 +178,8 @@ const isDragging = ref(false);
         allFiles.value[successIdx] = { ...data.value, status: 'uploaded' };
       }
 
-      // Emit the updated list of uploaded files to the parent component
-      emit('update:uploadedFiles', allFiles.value.filter(f => f.status === 'uploaded'));
+      // Emit the updated list of files to the parent component
+      emit('update:uploadedFiles', [...allFiles.value]);
     } catch (error) {
       console.error('Error uploading file:', error);
       // Update file status to 'error'
@@ -180,6 +187,8 @@ const isDragging = ref(false);
       if (idx !== -1) {
         allFiles.value[idx] = { ...allFiles.value[idx], status: 'error' };
       }
+      // Emit updated list with error status
+      emit('update:uploadedFiles', [...allFiles.value]);
     }
   }
 
@@ -199,16 +208,55 @@ const isDragging = ref(false);
       }
     }
 
-    // Emit the updated list of uploaded files
-    emit('update:uploadedFiles', allFiles.value.filter(f => f.status === 'uploaded'));
+    // Emit the updated list of files
+    emit('update:uploadedFiles', [...allFiles.value]);
   }
 
   onMounted(async () => {
     await getReportFiles();
     // Emit existing files so parent knows about them
-    emit('update:uploadedFiles', allFiles.value.filter(f => f.status === 'uploaded'));
+    emit('update:uploadedFiles', [...allFiles.value]);
   });
-  
+
+  // Programmatically upload files (for drag & drop from parent)
+  function uploadFilesFromParent(files: FileList | File[]) {
+    const fileArray = Array.from(files).map(file => ({
+      id: generateUniqueId(),
+      file,
+      filename: file.name,
+      status: "processing" as const
+    }));
+    allFiles.value.push(...fileArray);
+    // Emit immediately so parent can show processing state
+    emit('update:uploadedFiles', [...allFiles.value]);
+    fileArray.forEach(file => uploadFile(file));
+  }
+
+  // Clear image files from local state (no API call - backend handles deletion)
+  function clearImages() {
+    allFiles.value = allFiles.value.filter(f => {
+      const contentType = f.content_type || f.type || ''
+      return !contentType.startsWith('image/')
+    })
+    emit('update:uploadedFiles', [...allFiles.value])
+  }
+
+  // Expose methods for parent component
+  defineExpose({
+    refresh: async () => {
+      await getReportFiles();
+      emit('update:uploadedFiles', [...allFiles.value]);
+    },
+    // Upload files programmatically (for drag & drop on prompt area)
+    uploadFiles: uploadFilesFromParent,
+    // Remove a file (for inline display remove button)
+    removeFile,
+    // Clear images from local state (called on submit, backend deletes them)
+    clearImages,
+    // Open the file modal
+    open: () => { isFilesOpen.value = true; }
+  });
+
   </script>
   
 <style scoped>

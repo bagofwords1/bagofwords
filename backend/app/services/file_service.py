@@ -1,6 +1,6 @@
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
-from app.schemas.file_schema import FileSchema, FileSchemaWithMetadata
+from app.schemas.file_schema import FileSchema, FileSchemaWithMetadata, FileSchemaWithCompletionId
 from app.models.file import File
 import uuid
 from app.models.report import Report
@@ -144,9 +144,24 @@ class FileService:
         report = result.scalar_one_or_none()
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
-            
-        files = report.files
-        return [FileSchema.from_orm(file) for file in files]
+
+        # Query files with completion_id from the association table
+        stmt = (
+            select(File, report_file_association.c.completion_id)
+            .join(report_file_association, File.id == report_file_association.c.file_id)
+            .where(report_file_association.c.report_id == report_id)
+        )
+        result = await db.execute(stmt)
+        rows = result.all()
+
+        # Build response with completion_id included
+        files_with_completion = []
+        for file, completion_id in rows:
+            file_dict = FileSchema.from_orm(file).dict()
+            file_dict['completion_id'] = str(completion_id) if completion_id else None
+            files_with_completion.append(FileSchemaWithCompletionId(**file_dict))
+
+        return files_with_completion
 
     # ==========================================================================
     # DEPRECATED: LLM-based schema extraction methods
