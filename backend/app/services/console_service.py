@@ -1688,19 +1688,32 @@ class ConsoleService:
             base_query = base_query.where(AgentExecution.id.in_(failed_te_subquery))
         elif issue_filter == 'low_confidence':
             # Filter to agent executions with low response_score (< 3 on 1-5 scale)
+            # Scores are on the parent user completion, not the system completion
+            # AgentExecution.completion_id -> system_completion -> parent_id -> user_completion (has scores)
+            from sqlalchemy.orm import aliased
+            SystemCompletion = aliased(Completion)
+            UserCompletion = aliased(Completion)
             base_query = base_query.join(
-                Completion, Completion.id == AgentExecution.completion_id
+                SystemCompletion, SystemCompletion.id == AgentExecution.completion_id
+            ).join(
+                UserCompletion, UserCompletion.id == SystemCompletion.parent_id
             ).where(
-                Completion.response_score.isnot(None),
-                Completion.response_score < 3
+                UserCompletion.response_score.isnot(None),
+                UserCompletion.response_score < 3
             )
         elif issue_filter == 'low_instruction_coverage':
             # Filter to agent executions with low instructions_effectiveness (< 3 on 1-5 scale)
+            # Scores are on the parent user completion, not the system completion
+            from sqlalchemy.orm import aliased
+            SystemCompletion = aliased(Completion)
+            UserCompletion = aliased(Completion)
             base_query = base_query.join(
-                Completion, Completion.id == AgentExecution.completion_id
+                SystemCompletion, SystemCompletion.id == AgentExecution.completion_id
+            ).join(
+                UserCompletion, UserCompletion.id == SystemCompletion.parent_id
             ).where(
-                Completion.instructions_effectiveness.isnot(None),
-                Completion.instructions_effectiveness < 3
+                UserCompletion.instructions_effectiveness.isnot(None),
+                UserCompletion.instructions_effectiveness < 3
             )
 
         # Recalculate total with filters
@@ -1935,15 +1948,21 @@ class ConsoleService:
         total_items = int(total_result.scalar() or 0)
 
         # Count low confidence (response_score < 3)
+        # Scores are on the parent user completion, not the system completion
+        # AgentExecution.completion_id -> system_completion -> parent_id -> user_completion (has scores)
+        from sqlalchemy.orm import aliased
+        SystemCompletion = aliased(Completion)
+        UserCompletion = aliased(Completion)
         low_confidence_query = (
             select(func.count(func.distinct(AgentExecution.id)))
-            .join(Completion, Completion.id == AgentExecution.completion_id)
+            .join(SystemCompletion, SystemCompletion.id == AgentExecution.completion_id)
+            .join(UserCompletion, UserCompletion.id == SystemCompletion.parent_id)
             .where(
                 AgentExecution.organization_id == organization.id,
                 AgentExecution.created_at >= start_date,
                 AgentExecution.created_at <= end_date,
-                Completion.response_score.isnot(None),
-                Completion.response_score < 3
+                UserCompletion.response_score.isnot(None),
+                UserCompletion.response_score < 3
             )
         )
         if ds_filter_subquery is not None:
@@ -1952,15 +1971,19 @@ class ConsoleService:
         low_confidence = int(low_confidence_result.scalar() or 0)
 
         # Count low instruction coverage (instructions_effectiveness < 3)
+        # Use fresh aliases for the second query
+        SystemCompletion2 = aliased(Completion)
+        UserCompletion2 = aliased(Completion)
         low_instruction_coverage_query = (
             select(func.count(func.distinct(AgentExecution.id)))
-            .join(Completion, Completion.id == AgentExecution.completion_id)
+            .join(SystemCompletion2, SystemCompletion2.id == AgentExecution.completion_id)
+            .join(UserCompletion2, UserCompletion2.id == SystemCompletion2.parent_id)
             .where(
                 AgentExecution.organization_id == organization.id,
                 AgentExecution.created_at >= start_date,
                 AgentExecution.created_at <= end_date,
-                Completion.instructions_effectiveness.isnot(None),
-                Completion.instructions_effectiveness < 3
+                UserCompletion2.instructions_effectiveness.isnot(None),
+                UserCompletion2.instructions_effectiveness < 3
             )
         )
         if ds_filter_subquery is not None:
