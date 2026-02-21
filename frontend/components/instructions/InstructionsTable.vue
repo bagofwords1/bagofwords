@@ -42,7 +42,7 @@
                                     Category
                                 </th>
                                 <th v-if="showDataSource" :class="[compact ? 'px-2 py-1.5 text-[10px] w-24' : 'px-3 py-2 text-xs w-28', 'text-left font-medium text-gray-500 uppercase tracking-wider']">
-                                    Data Source
+                                    Agents
                                 </th>
                                 <th v-if="showLoadMode" :class="[compact ? 'px-2 py-1.5 text-[10px] w-14' : 'px-3 py-2 text-xs w-16', 'text-center font-medium text-gray-500 uppercase tracking-wider']">
                                     Load

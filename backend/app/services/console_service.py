@@ -1686,6 +1686,22 @@ class ConsoleService:
                 )
             )
             base_query = base_query.where(AgentExecution.id.in_(failed_te_subquery))
+        elif issue_filter == 'low_confidence':
+            # Filter to agent executions with low response_score (< 3 on 1-5 scale)
+            base_query = base_query.join(
+                Completion, Completion.id == AgentExecution.completion_id
+            ).where(
+                Completion.response_score.isnot(None),
+                Completion.response_score < 3
+            )
+        elif issue_filter == 'low_instruction_coverage':
+            # Filter to agent executions with low instructions_effectiveness (< 3 on 1-5 scale)
+            base_query = base_query.join(
+                Completion, Completion.id == AgentExecution.completion_id
+            ).where(
+                Completion.instructions_effectiveness.isnot(None),
+                Completion.instructions_effectiveness < 3
+            )
 
         # Recalculate total with filters
         total_q = select(func.count()).select_from(base_query.subquery())
@@ -1918,9 +1934,45 @@ class ConsoleService:
         total_result = await db.execute(total_query)
         total_items = int(total_result.scalar() or 0)
 
+        # Count low confidence (response_score < 3)
+        low_confidence_query = (
+            select(func.count(func.distinct(AgentExecution.id)))
+            .join(Completion, Completion.id == AgentExecution.completion_id)
+            .where(
+                AgentExecution.organization_id == organization.id,
+                AgentExecution.created_at >= start_date,
+                AgentExecution.created_at <= end_date,
+                Completion.response_score.isnot(None),
+                Completion.response_score < 3
+            )
+        )
+        if ds_filter_subquery is not None:
+            low_confidence_query = low_confidence_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        low_confidence_result = await db.execute(low_confidence_query)
+        low_confidence = int(low_confidence_result.scalar() or 0)
+
+        # Count low instruction coverage (instructions_effectiveness < 3)
+        low_instruction_coverage_query = (
+            select(func.count(func.distinct(AgentExecution.id)))
+            .join(Completion, Completion.id == AgentExecution.completion_id)
+            .where(
+                AgentExecution.organization_id == organization.id,
+                AgentExecution.created_at >= start_date,
+                AgentExecution.created_at <= end_date,
+                Completion.instructions_effectiveness.isnot(None),
+                Completion.instructions_effectiveness < 3
+            )
+        )
+        if ds_filter_subquery is not None:
+            low_instruction_coverage_query = low_instruction_coverage_query.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        low_instruction_coverage_result = await db.execute(low_instruction_coverage_query)
+        low_instruction_coverage = int(low_instruction_coverage_result.scalar() or 0)
+
         return {
             'failed_queries': failed_queries,
             'negative_feedback': negative_feedback,
             'code_errors': failed_queries,  # Same as failed queries (for backward compatibility)
-            'total_items': total_items
+            'total_items': total_items,
+            'low_confidence': low_confidence,
+            'low_instruction_coverage': low_instruction_coverage
         }
