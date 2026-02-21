@@ -19,6 +19,7 @@ import os
 import hashlib
 from PIL import Image
 from io import BytesIO
+from app.ee.audit.service import audit_service
 
 
 class OrganizationSettingsService:
@@ -240,6 +241,20 @@ class OrganizationSettingsService:
                 await db.commit()
                 await db.refresh(settings)
 
+                # Audit log
+                try:
+                    await audit_service.log(
+                        db=db,
+                        organization_id=str(organization.id),
+                        action="settings.updated",
+                        user_id=str(current_user.id),
+                        resource_type="organization_settings",
+                        resource_id=str(settings.id),
+                        details={"changed_keys": list(update_data.get('config', {}).keys())},
+                    )
+                except Exception:
+                    pass
+
         return settings
 
     async def set_general_icon(
@@ -304,6 +319,20 @@ class OrganizationSettingsService:
         await db.commit()
         await db.refresh(settings)
 
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="settings.icon_uploaded",
+                user_id=str(current_user.id),
+                resource_type="organization_settings",
+                resource_id=str(settings.id),
+                details={"filename": filename},
+            )
+        except Exception:
+            pass
+
         return settings
 
     async def remove_general_icon(
@@ -334,6 +363,21 @@ class OrganizationSettingsService:
         db.add(settings)
         await db.commit()
         await db.refresh(settings)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="settings.icon_removed",
+                user_id=str(current_user.id),
+                resource_type="organization_settings",
+                resource_id=str(settings.id),
+                details={},
+            )
+        except Exception:
+            pass
+
         return settings
 
     async def create_default_settings(
@@ -403,5 +447,19 @@ class OrganizationSettingsService:
         db.add(settings)
         await db.commit()
         await db.refresh(settings)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="settings.ai_feature_toggled",
+                user_id=str(current_user.id),
+                resource_type="organization_settings",
+                resource_id=str(settings.id),
+                details={"feature_name": feature_name, "value": new_value},
+            )
+        except Exception:
+            pass
 
         return settings
