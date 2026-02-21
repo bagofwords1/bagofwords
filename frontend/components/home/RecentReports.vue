@@ -28,6 +28,7 @@
         :key="report.id"
         :report="report"
         :view-mode="viewMode"
+        :is-owner="report.user?.id === (currentUser as any)?.id"
       />
     </div>
   </div>

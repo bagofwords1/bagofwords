@@ -263,6 +263,16 @@ function openArtifact() {
     emit('openArtifact', { loading: true })
   }
 }
+
+async function copyArtifactId() {
+  if (!createdArtifact.value) return
+  try {
+    await navigator.clipboard.writeText(createdArtifact.value)
+    toast.add({ title: 'Copied', description: 'Artifact ID copied to clipboard', color: 'green' })
+  } catch {
+    toast.add({ title: 'Failed to copy', color: 'red' })
+  }
+}
 </script>
 
 <style scoped>
