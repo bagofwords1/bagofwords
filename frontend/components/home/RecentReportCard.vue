@@ -25,6 +25,17 @@
         />
       </div>
 
+      <!-- Edit button - top right -->
+      <div
+        v-if="isOwner"
+        class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+        @click.prevent="navigateTo(`/reports/${report.id}`)"
+      >
+        <div class="p-1.5 bg-white/90 rounded-full hover:bg-white shadow-sm">
+          <Icon name="heroicons:pencil-square" class="w-4 h-4 text-gray-600" />
+        </div>
+      </div>
+
       <!-- Mode badge - bottom left -->
       <div class="absolute bottom-2 left-2">
         <span
@@ -67,6 +78,7 @@ interface Report {
 const props = defineProps<{
   report: Report
   viewMode: 'org' | 'my'
+  isOwner?: boolean
 }>()
 
 const config = useRuntimeConfig()

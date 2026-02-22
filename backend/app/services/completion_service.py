@@ -42,7 +42,8 @@ from app.services.data_source_service import DataSourceService
 from app.websocket_manager import websocket_manager
 from app.settings.database import create_async_session_factory
 
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, func, delete
+from sqlalchemy.orm import selectinload
 
 from fastapi import BackgroundTasks, HTTPException
 from app.core.telemetry import telemetry
@@ -420,6 +421,9 @@ class CompletionService:
             except Exception as e:
                 await db.rollback()
                 raise HTTPException(status_code=500, detail=f"Failed to save user completion: {str(e)}")
+
+            # Mark image files with this completion_id (so they show attached to this message)
+            await self._mark_images_with_completion(db, report.id, str(head_completion.id))
 
             # Store mentions associated with the user head completion (best-effort)
             try:
@@ -949,6 +953,23 @@ class CompletionService:
             for fb in user_feedbacks:
                 completion_id_to_user_feedback[fb.completion_id] = CompletionFeedbackSchema.from_orm(fb)
 
+        # 6c) Batch-load files attached to these completions (via report_file_association)
+        from app.models.file import File
+        from app.models.report_file_association import report_file_association
+        from app.schemas.file_schema import FileSchema
+
+        completion_id_to_files: dict[str, list[FileSchema]] = {cid: [] for cid in completion_ids}
+        if completion_ids:
+            files_stmt = (
+                select(File, report_file_association.c.completion_id)
+                .join(report_file_association, File.id == report_file_association.c.file_id)
+                .where(report_file_association.c.completion_id.in_(completion_ids))
+            )
+            files_res = await db.execute(files_stmt)
+            for file, comp_id in files_res.all():
+                if comp_id:
+                    completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
+
         # 7) Assemble completion objects
         v2_completions: list[CompletionV2Schema] = []
         for c in all_completions:
@@ -980,6 +1001,9 @@ class CompletionService:
             # Get user feedback from pre-loaded map
             user_feedback = completion_id_to_user_feedback.get(c.id)
 
+            # Get files attached to this completion
+            c_files = completion_id_to_files.get(c.id, [])
+
             v2 = CompletionV2Schema(
                 id=c.id,
                 role=c.role,
@@ -993,6 +1017,7 @@ class CompletionService:
                 completion_blocks=c_blocks,
                 created_widgets=[],
                 created_steps=[],
+                files=c_files,
                 summary=summary,
                 sigkill=c.sigkill,
                 created_at=c.created_at,
@@ -1231,6 +1256,23 @@ class CompletionService:
                     "build_approved_at": build_approved_at,
                 })
 
+        # Batch-load files attached to these completions (via report_file_association)
+        from app.models.file import File
+        from app.models.report_file_association import report_file_association
+        from app.schemas.file_schema import FileSchema
+
+        completion_id_to_files: dict[str, list[FileSchema]] = {cid: [] for cid in ids}
+        if ids:
+            files_stmt = (
+                select(File, report_file_association.c.completion_id)
+                .join(report_file_association, File.id == report_file_association.c.file_id)
+                .where(report_file_association.c.completion_id.in_(ids))
+            )
+            files_res = await db.execute(files_stmt)
+            for file, comp_id in files_res.all():
+                if comp_id:
+                    completion_id_to_files[str(comp_id)].append(FileSchema.from_orm(file))
+
         # Assemble v2 objects
         v2_list: list[CompletionV2Schema] = []
         for c in all_completions:
@@ -1254,6 +1296,9 @@ class CompletionService:
             if exec_obj and c.role == 'system' and c.status in ['success', 'completed']:
                 suggestions_list = ae_id_to_suggestions.get(str(exec_obj.id))
 
+            # Get files attached to this completion
+            c_files = completion_id_to_files.get(c.id, [])
+
             v2 = CompletionV2Schema(
                 id=c.id,
                 role=c.role,
@@ -1268,6 +1313,7 @@ class CompletionService:
                 completion_blocks=c_blocks,
                 created_widgets=[],
                 created_steps=[],
+                files=c_files,
                 summary={"total_blocks": len(c_blocks)},
                 sigkill=c.sigkill,
                 created_at=c.created_at,
@@ -1297,7 +1343,51 @@ class CompletionService:
         await db.commit()
         await db.refresh(error_completion)
         return error_completion
-    
+
+    async def _mark_images_with_completion(self, db: AsyncSession, report_id: str, completion_id: str):
+        """Mark image files with completion_id to track which completion used them.
+
+        This allows:
+        - Frontend to filter out images already used (completion_id is not null)
+        - Chat UI to display images attached to specific completions
+        """
+        from app.models.file import File
+        from app.models.report_file_association import report_file_association
+
+        try:
+            # Get report with files eagerly loaded
+            report_result = await db.execute(
+                select(Report)
+                .where(Report.id == report_id)
+                .options(selectinload(Report.files))
+            )
+            report = report_result.scalar_one_or_none()
+            if not report or not report.files:
+                return
+
+            # Find image files that haven't been marked yet (completion_id is null)
+            image_files = [f for f in report.files if (f.content_type or '').startswith('image/')]
+            if not image_files:
+                return
+
+            image_file_ids = [str(f.id) for f in image_files]
+
+            # Update associations to set completion_id for unmarked images
+            await db.execute(
+                report_file_association.update()
+                .where(
+                    report_file_association.c.report_id == report_id,
+                    report_file_association.c.file_id.in_(image_file_ids),
+                    report_file_association.c.completion_id == None
+                )
+                .values(completion_id=completion_id)
+            )
+            await db.commit()
+
+            logging.info(f"Marked {len(image_file_ids)} image files with completion {completion_id}")
+        except Exception as e:
+            logging.error(f"Failed to mark report images for {report_id}: {e}")
+            # Don't raise - marking failure shouldn't break the completion flow
 
     async def get_completion_plans(self, db: AsyncSession, current_user: User, organization: Organization, completion_id: str):
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
@@ -1456,6 +1546,9 @@ class CompletionService:
                     detail=f"Failed to save completions: {str(e)}"
                 )
 
+            # Mark image files with this completion_id (so they show attached to this message)
+            await self._mark_images_with_completion(db, report.id, str(completion.id))
+
             # Store mentions associated with the user completion (best-effort, non-blocking)
             try:
                 await self.mention_service.create_completion_mentions(db, completion)
@@ -1531,7 +1624,7 @@ class CompletionService:
                             clients=clients,
                             build_id=resolved_build_id,
                         )
-                        
+
                         # Emit telemetry: stream started
                         try:
                             await telemetry.capture(

@@ -32,6 +32,8 @@ Use when:
 	•	You need to confirm column names, formats, data types, or sample values.
 	•	You want to check a small amount of data to decide the correct next step.
 	•	A previous create_data attempt failed and you need to diagnose the issue.
+Don't use on images
+
             """,
             category="research",
             version="1.0.0",

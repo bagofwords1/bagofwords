@@ -15,13 +15,18 @@
                             <DataSourceIcon :type="internalSelectedDataSources[0].type" class="h-4" />
                         </template>
                         <template v-else>
-                            <!-- Non-compact: show all icons with spacing -->
-                            <DataSourceIcon 
-                                v-for="(ds, index) in internalSelectedDataSources" 
-                                :key="ds.id" 
-                                :type="ds.type" 
-                                :class="`h-4 ${index > 0 ? 'ml-0.5' : ''}`"
-                            />
+                            <!-- Non-compact: show stacked icons -->
+                            <div class="flex -space-x-1">
+                                <DataSourceIcon
+                                    v-for="ds in internalSelectedDataSources.slice(0, 3)"
+                                    :key="ds.id"
+                                    :type="ds.type"
+                                    class="h-4 ring-1 ring-white rounded flex-shrink-0"
+                                />
+                            </div>
+                            <span v-if="internalSelectedDataSources.length > 3" class="ml-1 text-[10px] text-gray-400">
+                                +{{ internalSelectedDataSources.length - 3 }}
+                            </span>
                         </template>
                     </span>
                     <span v-else class="flex items-center">
@@ -45,6 +50,8 @@
                             :key="ds.id"
                             class="px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer flex items-center justify-between"
                             @click="() => { toggleDataSource(ds); }"
+                            @mouseenter="onDataSourceHover(ds.id, $event)"
+                            @mouseleave="onDataSourceHoverLeave()"
                         >
                             <div class="flex items-center">
                                 <DataSourceIcon :type="ds.type" class="h-4" />
@@ -56,12 +63,23 @@
                 </div>
             </template>
         </UPopover>
+
+        <!-- Agent flyout component -->
+        <AgentFlyout
+            :agent-id="hoveredDataSourceId"
+            :visible="flyout.visible"
+            :position="flyout"
+            @mouseenter="onFlyoutEnter"
+            @mouseleave="onFlyoutLeave"
+        />
     </div>
-    
+
 </template>
 
 <script lang="ts" setup>
 import Spinner from '@/components/Spinner.vue'
+import AgentFlyout from '~/components/AgentFlyout.vue'
+
 type DataSource = { id: string; name: string; type?: string }
 const internalSelectedDataSources = ref<DataSource[]>([])
 const dataSources = ref<DataSource[]>([])
@@ -70,6 +88,73 @@ const isOpen = ref(false)
 const containerRef = ref<HTMLElement | null>(null)
 const isCompact = ref(false)
 const isCompactFinal = computed(() => isCompact.value)
+
+// Hover flyout state
+const hoveredDataSourceId = ref<string | null>(null)
+const flyout = reactive({ visible: false, bottom: 0, left: 0 })
+let flyoutHideTimer: ReturnType<typeof setTimeout> | null = null
+
+const showFlyoutAtEvent = (evt: MouseEvent) => {
+    const el = evt.currentTarget as HTMLElement | null
+    if (!el) return
+
+    // Find the dropdown panel to align with it
+    const panel = el.closest('.rounded-xl') as HTMLElement | null
+    const panelRect = panel?.getBoundingClientRect()
+    const rect = el.getBoundingClientRect()
+
+    const flyoutWidth = 400
+    const gap = 8
+
+    // Position to the right of the dropdown panel
+    let left = (panelRect?.right ?? rect.right) + gap
+
+    // If not enough space on right, position to the left
+    if (left + flyoutWidth > window.innerWidth - 12) {
+        left = (panelRect?.left ?? rect.left) - flyoutWidth - gap
+    }
+
+    // Clamp left to viewport
+    left = Math.max(12, Math.min(left, window.innerWidth - flyoutWidth - 12))
+
+    // Align bottom of flyout with bottom of dropdown panel (use CSS bottom)
+    const panelBottom = panelRect?.bottom ?? rect.bottom
+    const bottom = window.innerHeight - panelBottom
+
+    flyout.left = left
+    flyout.bottom = Math.max(12, bottom) // Clamp to viewport
+    flyout.visible = true
+}
+
+const onDataSourceHover = (dataSourceId: string, evt: MouseEvent) => {
+    if (flyoutHideTimer) {
+        clearTimeout(flyoutHideTimer)
+        flyoutHideTimer = null
+    }
+    if (typeof window !== 'undefined') showFlyoutAtEvent(evt)
+    hoveredDataSourceId.value = dataSourceId
+}
+
+const onDataSourceHoverLeave = () => {
+    // Give the user time to move cursor from list → flyout
+    if (flyoutHideTimer) clearTimeout(flyoutHideTimer)
+    flyoutHideTimer = setTimeout(() => {
+        flyout.visible = false
+        hoveredDataSourceId.value = null
+    }, 120)
+}
+
+const onFlyoutEnter = () => {
+    if (flyoutHideTimer) {
+        clearTimeout(flyoutHideTimer)
+        flyoutHideTimer = null
+    }
+    flyout.visible = true
+}
+
+const onFlyoutLeave = () => {
+    onDataSourceHoverLeave()
+}
 
 const props = defineProps({
     selectedDataSources: {

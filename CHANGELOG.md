@@ -1,13 +1,13 @@
 # Release Notes
 
+## Version 0.0.316 (February 21, 2026)
+- Added filters for low score agent executions in monitoring/diagnosis
+- Enhanced file upload and completion context handling, and special support for images
+- Pass images and screenshots to create_artifact tool
+
 ## Version 0.0.315 (February 19, 2026)
-- Improved organization logo upload experience
-- **Power BI Integration Enhancements**
-  - Each internal table now exposed as separate schema table (`Dataset/Table` naming, like Snowflake's `schema.table`)
-  - Relationship discovery via Admin Scanner API (requires admin permissions)
-  - SharePoint-connected table names cleaned up for display
-  - Table selector UI now shows relationships and Power BI metadata (dataset, workspace, reports)
-s
+- Improved organization logo upload
+- Power BI: one table per internal table, relationship support, cleaner SharePoint names
 ## Version 0.0.314 (February 18, 2026)
 - Added Microsoft Fabric data source integration (Warehouse and Lakehouse SQL endpoints)
 - Azure AD Service Principal authentication support for Fabric

@@ -18,11 +18,31 @@
             value-attribute="value"
             option-attribute="label"
             size="xs"
-            class="min-w-[200px]"
+            class="min-w-[280px]"
             placeholder="Select artifact..."
+            :ui="{ option: { base: 'py-2' } }"
           >
             <template #label>
               <span class="truncate text-xs">{{ selectedArtifactLabel }}</span>
+            </template>
+            <template #option="{ option }">
+              <div class="flex flex-col gap-0.5 w-full">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-medium text-gray-900 truncate">{{ option.artifact.title || 'Untitled' }}</span>
+                  <span class="text-[10px] text-gray-400 ml-2">v{{ option.artifact.version }}</span>
+                </div>
+                <div class="flex items-center justify-between text-[10px] text-gray-400">
+                  <span>{{ formatRelativeTime(option.artifact.created_at) }}</span>
+                  <button
+                    @click.stop="copyArtifactId(option.artifact.id)"
+                    class="hover:text-gray-600 flex items-center gap-0.5 font-mono"
+                    title="Click to copy ID"
+                  >
+                    <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
+                    {{ option.artifact.id.slice(0, 8) }}
+                  </button>
+                </div>
+              </div>
             </template>
           </USelectMenu>
           <span v-else class="text-xs text-gray-400 italic">No artifacts yet</span>
@@ -203,6 +223,34 @@ const toast = useToast();
 const config = useRuntimeConfig();
 const { token } = useAuth();
 const { organization } = useOrganization();
+
+// Format relative time (e.g., "2 hours ago")
+function formatRelativeTime(dateString: string): string {
+  // Append 'Z' to treat as UTC since backend stores UTC without timezone info
+  const date = new Date(dateString.endsWith('Z') ? dateString : dateString + 'Z');
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 60) return 'just now';
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return date.toLocaleDateString();
+}
+
+// Copy artifact ID to clipboard
+async function copyArtifactId(id: string) {
+  try {
+    await navigator.clipboard.writeText(id);
+    toast.add({ title: 'Copied', description: 'Artifact ID copied to clipboard', color: 'green' });
+  } catch {
+    toast.add({ title: 'Failed to copy', color: 'red' });
+  }
+}
 
 interface ArtifactItem {
   id: string;

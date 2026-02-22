@@ -132,6 +132,15 @@
                 <span v-if="status === 'running'">Generating...</span>
                 <span v-else>{{ artifactMode === 'slides' ? 'Presentation' : 'Dashboard' }}</span>
               </div>
+              <button
+                v-if="createdArtifact"
+                @click.stop="copyArtifactId"
+                class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 font-mono mt-0.5"
+                title="Click to copy ID"
+              >
+                <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
+                {{ createdArtifact.slice(0, 8) }}
+              </button>
             </div>
             <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-600 flex-shrink-0" />
           </div>
@@ -172,6 +181,7 @@ interface Props {
 
 const props = defineProps<Props>()
 const emit = defineEmits(['openArtifact', 'toggleSplitScreen'])
+const toast = useToast()
 
 const isCollapsed = ref(false)
 
@@ -251,6 +261,16 @@ function openArtifact() {
   } else if (status.value === 'running') {
     // Still generating, no artifact yet - open pane with loading state
     emit('openArtifact', { loading: true })
+  }
+}
+
+async function copyArtifactId() {
+  if (!createdArtifact.value) return
+  try {
+    await navigator.clipboard.writeText(createdArtifact.value)
+    toast.add({ title: 'Copied', description: 'Artifact ID copied to clipboard', color: 'green' })
+  } catch {
+    toast.add({ title: 'Failed to copy', color: 'red' })
   }
 }
 </script>

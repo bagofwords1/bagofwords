@@ -47,13 +47,23 @@
                 </div>
             </div>
 
-            <!-- Right: Close (absolute) -->
-            <button
-                @click="showTopBar = false"
-                class="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-            >
-                <Icon name="heroicons:x-mark" class="w-4 h-4" />
-            </button>
+            <!-- Right: Edit Report + Close (absolute) -->
+            <div class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                <a
+                    v-if="isOwner"
+                    :href="`/reports/${report_id}`"
+                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                    <Icon name="heroicons:pencil-square" class="w-3.5 h-3.5" />
+                    <span>Edit Report</span>
+                </a>
+                <button
+                    @click="showTopBar = false"
+                    class="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
+                >
+                    <Icon name="heroicons:x-mark" class="w-4 h-4" />
+                </button>
+            </div>
         </div>
 
         <!-- Made with Bag of words badge -->
@@ -134,6 +144,7 @@ import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 
 const route = useRoute();
 const report_id = route.params.id;
+const { data: currentUser } = useAuth();
 
 const report = ref<any>({
     title: '',
@@ -148,6 +159,12 @@ const hasArtifacts = ref(false);
 const hasLegacyLayout = ref(false);
 const reportLoaded = ref(false);
 const dataReady = ref(false);
+
+// Check if current user is the report owner
+const isOwner = computed(() => {
+    const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
+    return userId && report.value?.user?.id === userId;
+});
 
 // Top bar state
 const showTopBar = ref(true);

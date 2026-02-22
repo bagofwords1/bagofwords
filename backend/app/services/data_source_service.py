@@ -48,6 +48,7 @@ from sqlalchemy.orm import selectinload
 from app.services.instruction_service import InstructionService
 from app.schemas.instruction_schema import InstructionCreate
 from app.core.telemetry import telemetry
+from app.ee.audit.service import audit_service
 
 class DataSourceService:
 
@@ -338,7 +339,21 @@ class DataSourceService:
             )
         except Exception:
             pass
-        
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="data_source.created",
+                user_id=str(current_user.id),
+                resource_type="data_source",
+                resource_id=str(new_data_source.id),
+                details={"name": new_data_source.name, "type": ds_type, "is_public": bool(is_public), "auth_policy": auth_policy},
+            )
+        except Exception:
+            pass
+
         # Always add the creator as a member (regardless of public/private status)
         await self._create_memberships(db, new_data_source, [current_user.id])
         
@@ -957,6 +972,9 @@ class DataSourceService:
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
 
+        # Capture details before deletion for audit
+        data_source_name = data_source.name
+
         # 1) Delete per-user overlay columns and tables (they hard-FK the data source)
         #    Delete columns via subquery of overlay table ids, then overlay tables.
         overlay_ids_subq = select(UserOverlayTable.id).where(UserOverlayTable.data_source_id == data_source_id)
@@ -1011,8 +1029,23 @@ class DataSourceService:
         # 7) Finally delete the data source
         await db.delete(data_source)
         await db.commit()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="data_source.deleted",
+                user_id=str(current_user.id),
+                resource_type="data_source",
+                resource_id=str(data_source_id),
+                details={"name": data_source_name},
+            )
+        except Exception:
+            pass
+
         return {"message": "Data source deleted successfully"}
-    
+
     async def delete_data_source_tables(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         result = await db.execute(select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source_id))
         tables = result.scalars().all()
@@ -1482,7 +1515,21 @@ class DataSourceService:
             )
             result = await db.execute(stmt)
             final_data_source = result.scalar_one()
-            
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="data_source.updated",
+                    user_id=str(current_user.id),
+                    resource_type="data_source",
+                    resource_id=str(final_data_source.id),
+                    details={"name": final_data_source.name},
+                )
+            except Exception:
+                pass
+
             # Return schema with connection info
             return await self.get_data_source(db, str(final_data_source.id), organization, current_user)
         except IntegrityError as e:

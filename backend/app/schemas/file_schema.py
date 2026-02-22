@@ -20,6 +20,11 @@ class FileSchema(FileBase):
         from_attributes = True
 
 
+class FileSchemaWithCompletionId(FileSchema):
+    """File schema that includes completion_id from the report_file_association."""
+    completion_id: str | None = None
+
+
 class FileSchemaWithMetadata(FileSchema):
     schemas: list[SheetSchema]
     tags: list[FileTagSchema]

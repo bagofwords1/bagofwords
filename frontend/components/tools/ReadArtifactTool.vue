@@ -60,6 +60,15 @@
             <div class="text-[10px] text-gray-400">
               {{ codeStats }}
             </div>
+            <button
+              v-if="artifactId"
+              @click.stop="copyArtifactId"
+              class="flex items-center gap-0.5 text-[10px] text-gray-400 hover:text-gray-600 font-mono mt-0.5"
+              title="Click to copy ID"
+            >
+              <Icon name="heroicons:clipboard-document" class="w-3 h-3" />
+              {{ artifactId.slice(0, 8) }}
+            </button>
           </div>
         </div>
 
@@ -131,6 +140,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const toast = useToast()
+
 const isCollapsed = ref(true) // Collapsed by default like DescribeTablesTool
 const isCodeExpanded = ref(false) // Code also collapsed by default
 
@@ -157,6 +168,12 @@ const artifactVersion = computed(() =>
   artifactPreview.value?.version ||
   props.toolExecution.result_json?.version ||
   null
+)
+
+const artifactId = computed(() =>
+  props.toolExecution.result_json?.artifact_id ||
+  props.toolExecution.arguments_json?.artifact_id ||
+  ''
 )
 
 const artifactCode = computed(() =>
@@ -204,6 +221,16 @@ function toggleCollapsed() {
 
 function toggleCode() {
   isCodeExpanded.value = !isCodeExpanded.value
+}
+
+async function copyArtifactId() {
+  if (!artifactId.value) return
+  try {
+    await navigator.clipboard.writeText(artifactId.value)
+    toast.add({ title: 'Copied', description: 'Artifact ID copied to clipboard', color: 'green' })
+  } catch {
+    toast.add({ title: 'Failed to copy', color: 'red' })
+  }
 }
 </script>
 

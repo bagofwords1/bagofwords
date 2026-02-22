@@ -26,6 +26,7 @@ from app.models.table_usage_event import TableUsageEvent
 from app.models.agent_execution import AgentExecution
 from app.models.context_snapshot import ContextSnapshot
 from app.core.telemetry import telemetry
+from app.ee.audit.service import audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -288,6 +289,21 @@ class CompletionFeedbackService:
                 )
             except Exception:
                 pass
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="completion_feedback.updated",
+                    user_id=str(user.id) if user else None,
+                    resource_type="completion_feedback",
+                    resource_id=str(existing_feedback.id),
+                    details={"direction": existing_feedback.direction, "has_message": bool(existing_feedback.message)},
+                )
+            except Exception:
+                pass
+
             # Emit table and instruction feedback events reflecting the updated direction
             try:
                 await self._emit_table_feedback(db, organization, completion, existing_feedback, user)
@@ -325,6 +341,20 @@ class CompletionFeedbackService:
                     },
                     user_id=user.id if user else None,
                     org_id=organization.id,
+                )
+            except Exception:
+                pass
+
+            # Audit log
+            try:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="completion_feedback.created",
+                    user_id=str(user.id) if user else None,
+                    resource_type="completion_feedback",
+                    resource_id=str(feedback.id),
+                    details={"direction": feedback.direction, "has_message": bool(feedback.message)},
                 )
             except Exception:
                 pass
@@ -415,11 +445,29 @@ class CompletionFeedbackService:
         
         if not feedback:
             raise HTTPException(status_code=404, detail="Feedback not found")
-        
+
+        # Capture details before deletion for audit
+        feedback_id = str(feedback.id)
+
         await db.delete(feedback)
         await db.commit()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="completion_feedback.deleted",
+                user_id=str(user.id) if user else None,
+                resource_type="completion_feedback",
+                resource_id=feedback_id,
+                details={"completion_id": completion_id},
+            )
+        except Exception:
+            pass
+
         return True
-    
+
     async def get_completion_feedbacks(
         self, 
         db: AsyncSession, 

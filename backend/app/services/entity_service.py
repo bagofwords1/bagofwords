@@ -16,6 +16,7 @@ from app.schemas.entity_schema import EntityCreate, EntityUpdate
 from datetime import datetime
 from app.schemas.entity_schema import EntityRunPayload
 from app.core.telemetry import telemetry
+from app.ee.audit.service import audit_service
 
 
 class EntityService:
@@ -154,7 +155,21 @@ class EntityService:
             )
         except Exception:
             pass
-        
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="entity.created",
+                user_id=str(current_user.id),
+                resource_type="entity",
+                resource_id=str(entity.id),
+                details={"type": entity.type, "title": entity.title, "status": entity.status},
+            )
+        except Exception:
+            pass
+
         # Bidirectional relationship is automatically maintained by SQLAlchemy
         # through entity.source_step_id - no need to manually set step.created_entity_id
         
@@ -206,6 +221,21 @@ class EntityService:
             )
         except Exception:
             pass
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="entity.created",
+                user_id=str(current_user.id),
+                resource_type="entity",
+                resource_id=str(entity.id),
+                details={"type": entity.type, "title": entity.title, "status": entity.status},
+            )
+        except Exception:
+            pass
+
         return entity
 
     async def list_entities(
@@ -371,6 +401,21 @@ class EntityService:
         await db.flush()
         await db.commit()
         await db.refresh(entity)
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="entity.updated",
+                user_id=str(current_user.id),
+                resource_type="entity",
+                resource_id=str(entity.id),
+                details={"title": entity.title, "status": entity.status, "update_type": update_type},
+            )
+        except Exception:
+            pass
+
         return entity
 
     async def delete_entity(
@@ -378,13 +423,33 @@ class EntityService:
         db: AsyncSession,
         entity_id: str,
         organization: Organization,
+        current_user: User = None,
     ) -> bool:
         result = await db.execute(select(Entity).where(Entity.id == entity_id, Entity.organization_id == str(organization.id)))
         entity = result.scalar_one_or_none()
         if not entity:
             return False
+
+        # Capture details before deletion for audit
+        entity_title = entity.title
+
         await db.delete(entity)
         await db.commit()
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="entity.deleted",
+                user_id=str(current_user.id) if current_user else None,
+                resource_type="entity",
+                resource_id=str(entity_id),
+                details={"title": entity_title},
+            )
+        except Exception:
+            pass
+
         return True
 
     async def run_entity_with_update(

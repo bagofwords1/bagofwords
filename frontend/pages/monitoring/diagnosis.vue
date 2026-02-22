@@ -309,7 +309,9 @@ const selectedFilter = ref({ label: 'All Agent Runs', value: 'all' })
 const filterOptions = ref([
     { label: 'All Agent Runs', value: 'all', count: 0 },
     { label: 'Negative Feedback', value: 'negative_feedback', count: 0 },
-    { label: 'Failed Queries', value: 'failed_queries', count: 0 }
+    { label: 'Failed Queries', value: 'failed_queries', count: 0 },
+    { label: 'Low Confidence', value: 'low_confidence', count: 0 },
+    { label: 'Low Instruction Coverage', value: 'low_instruction_coverage', count: 0 }
 ])
 
 // Add these to the state section
@@ -508,12 +510,14 @@ const fetchOverallMetrics = async () => {
         
         if (dashboardResponse.data.value) {
             dashboardMetrics.value = dashboardResponse.data.value
-            
+
             // Update filter counts
             filterOptions.value = [
                 { label: 'All Agent Runs', value: 'all', count: dashboardResponse.data.value.total_items },
                 { label: 'Negative Feedback', value: 'negative_feedback', count: dashboardResponse.data.value.negative_feedback },
-                { label: 'Failed Queries', value: 'failed_queries', count: dashboardResponse.data.value.failed_queries }
+                { label: 'Failed Queries', value: 'failed_queries', count: dashboardResponse.data.value.failed_queries },
+                { label: 'Low Confidence', value: 'low_confidence', count: dashboardResponse.data.value.low_confidence || 0 },
+                { label: 'Low Instruction Coverage', value: 'low_instruction_coverage', count: dashboardResponse.data.value.low_instruction_coverage || 0 }
             ]
         }
         

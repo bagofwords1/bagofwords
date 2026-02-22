@@ -12,7 +12,26 @@
         </div>
 
         <!-- Minimalist prompt container -->
-        <div class="border border-gray-200 rounded-xl bg-white focus-within:border-gray-300 transition-colors">
+        <div
+            class="border rounded-xl bg-white focus-within:border-gray-300 transition-colors relative"
+            :class="isDraggingFiles ? 'border-blue-400 border-2 bg-blue-50/30' : 'border-gray-200'"
+            @dragenter="handleDragEnter"
+            @dragleave="handleDragLeave"
+            @dragover="handleDragOver"
+            @drop="handleDrop"
+            @paste="handlePaste"
+        >
+            <!-- Drop overlay -->
+            <div
+                v-if="isDraggingFiles"
+                class="absolute inset-0 bg-blue-50/80 rounded-xl flex items-center justify-center z-10 pointer-events-none"
+            >
+                <div class="flex flex-col items-center text-blue-600">
+                    <Icon name="heroicons-cloud-arrow-up" class="w-8 h-8 mb-2" />
+                    <span class="text-sm font-medium">Drop files to upload</span>
+                </div>
+            </div>
+
             <!-- Input -->
             <div class="p-3">
                 <div
@@ -31,6 +50,73 @@
                     :rows="2"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
+            </div>
+
+            <!-- Inline file chips -->
+            <div v-if="uploadedFiles.length > 0" class="px-3 pb-2 flex flex-wrap gap-2">
+                <!-- Image files - show thumbnail preview -->
+                <div
+                    v-for="file in uploadedFiles.filter(f => isImageFile(f))"
+                    :key="file.id"
+                    class="relative group"
+                >
+                    <div
+                        class="w-12 h-12 rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
+                        :class="{ 'cursor-pointer hover:opacity-80': file.status === 'uploaded' }"
+                        @click="file.status === 'uploaded' && openImagePreview(file)"
+                    >
+                        <!-- Show local preview while uploading, authenticated image when uploaded -->
+                        <img
+                            v-if="file.status === 'processing' && file.file"
+                            :src="getLocalImageUrl(file)"
+                            class="w-full h-full object-cover opacity-50"
+                        />
+                        <AuthenticatedImage
+                            v-else-if="file.status === 'uploaded' && file.id"
+                            :file-id="file.id"
+                            :alt="file.filename"
+                            img-class="w-full h-full object-cover"
+                        />
+                        <div v-else class="w-full h-full flex items-center justify-center">
+                            <Icon name="heroicons-photo" class="w-5 h-5 text-gray-400" />
+                        </div>
+                        <!-- Processing overlay -->
+                        <div v-if="file.status === 'processing'" class="absolute inset-0 flex items-center justify-center bg-white/60">
+                            <Spinner class="w-4 h-4 text-blue-500" />
+                        </div>
+                        <!-- Error overlay -->
+                        <div v-if="file.status === 'error'" class="absolute inset-0 flex items-center justify-center bg-red-50/80">
+                            <Icon name="heroicons-exclamation-circle" class="w-5 h-5 text-red-500" />
+                        </div>
+                    </div>
+                    <!-- Remove button -->
+                    <button
+                        @click="removeInlineFile(file)"
+                        class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gray-700 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-900"
+                        :disabled="file.status === 'processing'"
+                    >
+                        <Icon name="heroicons-x-mark" class="w-3 h-3" />
+                    </button>
+                </div>
+
+                <!-- Non-image files - show chip style -->
+                <div
+                    v-for="file in uploadedFiles.filter(f => !isImageFile(f))"
+                    :key="file.id"
+                    class="inline-flex items-center gap-1.5 px-2 py-1 bg-gray-100 rounded-lg text-xs text-gray-700 group"
+                >
+                    <Spinner v-if="file.status === 'processing'" class="w-3 h-3 text-blue-500 flex-shrink-0" />
+                    <Icon v-else-if="file.status === 'error'" name="heroicons-exclamation-circle" class="w-3.5 h-3.5 text-red-500 flex-shrink-0" />
+                    <Icon v-else name="heroicons-document" class="w-3.5 h-3.5 text-gray-500 flex-shrink-0" />
+                    <span class="truncate max-w-[150px]">{{ file.filename }}</span>
+                    <button
+                        @click="removeInlineFile(file)"
+                        class="ml-0.5 p-0.5 rounded hover:bg-gray-200 text-gray-400 hover:text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                        :disabled="file.status === 'processing'"
+                    >
+                        <Icon name="heroicons-x-mark" class="w-3 h-3" />
+                    </button>
+                </div>
             </div>
 
             <!-- Bottom controls -->
@@ -94,7 +180,7 @@
                     </div>
 
                     <!-- File attach (open files modal) -->
-                    <FileUploadComponent :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
+                    <FileUploadComponent ref="fileUploadRef" :report_id="report_id" @update:uploadedFiles="onFilesUploaded" />
 
                     <!-- Model selector -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
@@ -145,6 +231,7 @@
 
         <!-- Modals -->
         <InstructionsListModalComponent ref="instructionsListModalRef" />
+        <ImagePreviewModal ref="imagePreviewModalRef" />
     </div>
 </template>
 
@@ -158,6 +245,7 @@ import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 import FileUploadComponent from '@/components/FileUploadComponent.vue'
 import MentionInput from '@/components/prompt/MentionInput.vue'
 import Spinner from '@/components/Spinner.vue'
+import ImagePreviewModal from '@/components/ImagePreviewModal.vue'
 import { useCan } from '@/composables/usePermissions'
 import { useOrgSettings } from '@/composables/useOrgSettings'
 
@@ -191,6 +279,8 @@ const uploadedFiles = ref<any[]>([])
 const isCompactPrompt = ref(false)
 const inlineMentions = ref<any[]>([])
 const hasBootstrappedFromInitial = ref(selectedDataSources.value.length > 0)
+const isDraggingFiles = ref(false)
+let dragCounter = 0 // Track enter/leave for nested elements
 
 // Watch for changes in initialSelectedDataSources (from domain selector)
 // On landing page (no report_id): always sync with domain selector
@@ -444,14 +534,24 @@ function onInput() {
     emit('update:modelValue', text.value)
 }
 
+// Only count successfully uploaded files for submit eligibility
+const successfullyUploadedFiles = computed(() => {
+    return uploadedFiles.value.filter(f => f.status === 'uploaded')
+})
+
+const hasFilesUploading = computed(() => {
+    return uploadedFiles.value.some(f => f.status === 'processing')
+})
+
 const hasDataSourceOrFile = computed(() => {
-    return selectedDataSources.value.length > 0 || uploadedFiles.value.length > 0
+    return selectedDataSources.value.length > 0 || successfullyUploadedFiles.value.length > 0
 })
 
 const canSubmit = computed(() => {
     return text.value.trim().length > 0
         && !props.latestInProgressCompletion
         && !isHydratingDataSources.value
+        && !hasFilesUploading.value  // Don't allow submit while files are uploading
         && !!selectedModel.value
         && hasDataSourceOrFile.value
 })
@@ -465,6 +565,9 @@ const submitTooltip = computed(() => {
     }
     if (!hasDataSourceOrFile.value) {
         return 'Connect data or upload a file'
+    }
+    if (hasFilesUploading.value) {
+        return 'Waiting for files to upload...'
     }
     if (!text.value.trim()) {
         return 'Enter a message'
@@ -482,6 +585,11 @@ function submit() {
         files: inlineMentions.value.filter(m => m.type === 'file'),
         entities: inlineMentions.value.filter(m => m.type === 'entity')
     }
+    // Get image files that have been successfully uploaded (for immediate display in chat)
+    const imageFiles = successfullyUploadedFiles.value
+        .filter(f => isImageFile(f))
+        .map(f => ({ id: f.id, filename: f.filename, content_type: f.content_type }))
+
     const payload = {
         text: text.value,
         mentions: [
@@ -491,12 +599,16 @@ function submit() {
             { name: 'ENTITIES', items: mentionsByType.entities }
         ],
         mode: mode.value,                 // 'chat' | 'deep'
-        model_id: selectedModel.value     // backend model id from selector
+        model_id: selectedModel.value,    // backend model id from selector
+        files: imageFiles                 // image files for immediate display in chat
     }
     if (props.report_id) {
         // In-report behavior: emit to parent stream
         emit('submitCompletion', payload)
         text.value = ''
+        // Clear images from prompt area - they're now part of the message
+        // Backend will delete them after completion
+        fileUploadRef.value?.clearImages?.()
     } else {
         // Landing page behavior: create a new report
         createReport()
@@ -507,11 +619,96 @@ function onFilesUploaded(files: any[]) {
     uploadedFiles.value = files || []
 }
 
+// Helper to check if a file is an image
+function isImageFile(file: any): boolean {
+    const contentType = file.content_type || file.type || ''
+    return contentType.startsWith('image/')
+}
+
+// Remove a file from the inline display
+function removeInlineFile(file: any) {
+    fileUploadRef.value?.removeFile?.(file)
+}
+
+// Get local blob URL for image preview while uploading
+const localImageUrls = new Map<string, string>()
+function getLocalImageUrl(file: any): string {
+    if (!file.file) return ''
+    const key = file.id || file.filename
+    if (localImageUrls.has(key)) {
+        return localImageUrls.get(key)!
+    }
+    const url = URL.createObjectURL(file.file)
+    localImageUrls.set(key, url)
+    return url
+}
+
+// Drag & drop handlers for file upload
+function handleDragEnter(e: DragEvent) {
+    e.preventDefault()
+    dragCounter++
+    if (e.dataTransfer?.types.includes('Files')) {
+        isDraggingFiles.value = true
+    }
+}
+
+function handleDragLeave(e: DragEvent) {
+    e.preventDefault()
+    dragCounter--
+    if (dragCounter === 0) {
+        isDraggingFiles.value = false
+    }
+}
+
+function handleDragOver(e: DragEvent) {
+    e.preventDefault()
+}
+
+function handleDrop(e: DragEvent) {
+    e.preventDefault()
+    dragCounter = 0
+    isDraggingFiles.value = false
+
+    const files = e.dataTransfer?.files
+    if (files && files.length > 0) {
+        fileUploadRef.value?.uploadFiles?.(files)
+    }
+}
+
+// Paste handler for images (Cmd+V / Ctrl+V)
+function handlePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items
+    if (!items) return
+
+    const imageFiles: File[] = []
+    for (const item of items) {
+        if (item.type.startsWith('image/')) {
+            const file = item.getAsFile()
+            if (file) imageFiles.push(file)
+        }
+    }
+
+    if (imageFiles.length > 0) {
+        e.preventDefault()  // Don't paste as text
+        fileUploadRef.value?.uploadFiles?.(imageFiles)
+    }
+    // If no images, let normal text paste happen
+}
+
+const fileUploadRef = ref<any | null>(null)
 const instructionsListModalRef = ref<any | null>(null)
+const imagePreviewModalRef = ref<InstanceType<typeof ImagePreviewModal> | null>(null)
+
 function openInstructions() {
     // Pass selected data source IDs to filter instructions (shows selected + global)
     const dataSourceIds = selectedDataSources.value.map((ds: any) => ds.id)
     instructionsListModalRef.value?.openModal?.(dataSourceIds)
+}
+
+function openImagePreview(file: any) {
+    if (file.id) {
+        imagePreviewModalRef.value?.open(file)
+    }
 }
 
 // Handle prompt prefill event from other components (e.g., ArtifactFrame)
@@ -589,7 +786,9 @@ watch(selectedModel, async (newModel, oldModel) => {
 })
 
 defineExpose({
-    refreshContextEstimate: () => refreshContextEstimate(true)
+    refreshContextEstimate: () => refreshContextEstimate(true),
+    // Refresh files list after completion (when backend deletes images)
+    refreshFiles: () => fileUploadRef.value?.refresh?.()
 })
 
 // Keep local text in sync with parent-provided content (landing page)
@@ -615,7 +814,7 @@ async function createReport() {
             method: 'POST',
             body: JSON.stringify({
                 title: 'untitled report',
-                files: uploadedFiles.value?.map((file: any) => file.id) || [],
+                files: successfullyUploadedFiles.value?.map((file: any) => file.id) || [],
                 new_message: text.value,
                 data_sources: selectedDataSources.value?.map((ds: any) => ds.id) || []
             })
