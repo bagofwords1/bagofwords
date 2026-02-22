@@ -101,12 +101,78 @@ class PowerBIClient(DataSourceClient):
         self._http = requests.Session()
 
     def test_connection(self) -> Dict:
-        self.connect()
-        workspaces = self.list_workspaces()
+        import logging
 
+        # Phase 1: Authenticate
+        try:
+            self.connect()
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Authentication failed: {e}",
+            }
+
+        # Phase 2: List workspaces
+        try:
+            workspaces = self.list_workspaces()
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Failed to list workspaces: {e}",
+            }
+
+        if not workspaces:
+            return {
+                "success": False,
+                "message": "Connected but no workspaces found. Ensure the service principal has access to at least one workspace.",
+            }
+
+        # Phase 3: List datasets
+        datasets_by_ws = {}
         dataset_count = 0
-        for ws in workspaces:
-            dataset_count += len(self.list_datasets(ws["id"]))
+        try:
+            for ws in workspaces:
+                ds_list = self.list_datasets(ws["id"])
+                if ds_list:
+                    datasets_by_ws[ws["id"]] = ds_list
+                dataset_count += len(ds_list)
+        except Exception as e:
+            return {
+                "success": False,
+                "message": f"Connected but failed to list datasets: {e}",
+                "connectivity": True,
+            }
+
+        if dataset_count == 0:
+            return {
+                "success": False,
+                "message": f"Connected to {len(workspaces)} workspace(s) but no datasets found. Ensure the service principal is a Member/Contributor of your workspaces.",
+                "connectivity": True,
+            }
+
+        # Phase 4: Try DAX query on the first dataset to verify query access
+        first_ws_id = next(iter(datasets_by_ws))
+        first_ds = datasets_by_ws[first_ws_id][0]
+        first_ds_id = first_ds["id"]
+        first_ds_name = first_ds.get("name") or first_ds_id
+        try:
+            headers = self._build_headers()
+            url = f"{self.BASE_URL}/groups/{first_ws_id}/datasets/{first_ds_id}/executeQueries"
+            body = {
+                "queries": [{"query": "EVALUATE ROW(\"test\", 1)"}],
+                "serializerSettings": {"includeNulls": True},
+            }
+            resp = self._http.post(url, json=body, headers=headers, timeout=30)
+            if resp.status_code == 401:
+                return {
+                    "success": False,
+                    "message": f"Connected but cannot query datasets (HTTP 401). Ensure the service principal is added as a Member or Contributor in your Power BI workspaces.",
+                    "connectivity": True,
+                }
+            elif resp.status_code >= 300:
+                logging.warning(f"Power BI DAX test query failed on dataset '{first_ds_name}': HTTP {resp.status_code} {resp.text}")
+        except Exception as e:
+            logging.warning(f"Power BI DAX test query failed on dataset '{first_ds_name}': {e}")
 
         return {
             "success": True,
@@ -290,7 +356,7 @@ class PowerBIClient(DataSourceClient):
             return list(tables_dict.values()), []
 
         except Exception as e:
-            logging.debug(f"COLUMNSTATISTICS failed for dataset {dataset_id}: {e}")
+            logging.warning(f"COLUMNSTATISTICS failed for dataset {dataset_id}: {e}")
             return [], []
 
     def _get_tables_via_admin_scan(self, workspace_id: str, dataset_id: str) -> tuple:
