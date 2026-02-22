@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.317 (February 22, 2026)
+## Version 0.0.318 (February 22, 2026)
 - Added Sybase SQL Anywhere data source connector (enterprise license required)
 - Uses FreeTDS ODBC driver for TDS protocol connectivity on port 2638
 
