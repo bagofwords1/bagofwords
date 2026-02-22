@@ -109,30 +109,38 @@
                 </div>
 
                 <!-- Scope (read-only) -->
-                <div class="flex flex-wrap items-center gap-4 text-xs">
-                    <!-- Data Sources -->
-                    <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">Sources:</span>
-                        <span v-if="isAllDataSourcesSelected" class="text-gray-700">All sources</span>
-                        <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex items-center gap-1">
-                            <div class="flex -space-x-1">
-                                <DataSourceIcon 
-                                    v-for="ds in getSelectedDataSourceObjects.slice(0, 3)" 
-                                    :key="ds.id" 
-                                    :type="ds.type" 
-                                    class="h-4 border border-white rounded" 
-                                />
+                <div class="space-y-2 text-xs">
+                    <!-- Data Agents -->
+                    <div class="flex items-start gap-1.5">
+                        <span class="text-gray-400 shrink-0">Agents:</span>
+                        <span v-if="isAllDataSourcesSelected" class="text-gray-700">All agents</span>
+                        <div v-else-if="getSelectedDataSourceObjects.length > 0" class="flex flex-wrap gap-1.5">
+                            <div
+                                v-for="ds in getSelectedDataSourceObjects"
+                                :key="ds.id"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700"
+                            >
+                                <DataSourceIcon :type="ds.type" class="h-3" />
+                                {{ ds.name }}
                             </div>
-                            <span class="text-gray-700">{{ getSelectedDataSourceObjects.length }} source{{ getSelectedDataSourceObjects.length > 1 ? 's' : '' }}</span>
                         </div>
                         <span v-else class="text-gray-400">None</span>
                     </div>
 
                     <!-- References -->
-                    <div class="flex items-center gap-1.5">
-                        <span class="text-gray-400">References:</span>
+                    <div class="flex items-start gap-1.5">
+                        <span class="text-gray-400 shrink-0">References:</span>
                         <span v-if="selectedReferences.length === 0" class="text-gray-400">None</span>
-                        <span v-else class="text-gray-700">{{ selectedReferences.length }} reference{{ selectedReferences.length > 1 ? 's' : '' }}</span>
+                        <div v-else class="flex flex-wrap gap-1.5">
+                            <div
+                                v-for="ref in selectedReferences"
+                                :key="ref.id"
+                                class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-50 border border-gray-200 rounded text-[11px] text-gray-700"
+                            >
+                                <Icon :name="getRefIconHeroicons(ref.type)" class="w-3 h-3 shrink-0" :class="ref.type === 'instruction' ? 'text-indigo-500' : 'text-gray-500'" />
+                                {{ ref.name || ref.text_preview?.slice(0, 30) + '...' }}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
