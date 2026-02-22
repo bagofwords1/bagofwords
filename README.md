@@ -142,6 +142,7 @@ Below is a list of all data sources supported by Bag of words, as defined in the
 | PostHog                  | Service             |
 | PowerBI                  | Service             |
 | QlikView                 | Service             |
+| Sybase SQL Anywhere      | Database/Warehouse  |
 
 > **Note:** Some data sources (like NetSuite) may be marked as inactive or beta in the registry. "Service" refers to APIs or SaaS platforms, while "Database/Warehouse" refers to systems that store and query structured data.
 

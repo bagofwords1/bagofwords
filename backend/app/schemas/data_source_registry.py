@@ -48,6 +48,8 @@ from app.schemas.data_sources.configs import (
     # Microsoft Fabric
     MSFabricConfig,
     MSFabricCredentials,
+    # Sybase SQL Anywhere
+    SybaseConfig,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -463,6 +465,17 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.ms_fabric_client.MsFabricClient",
+    ),
+    "sybase": DataSourceRegistryEntry(
+        type="sybase",
+        title="Sybase SQL Anywhere",
+        description="SAP/Sybase SQL Anywhere relational database, connected via FreeTDS over TDS protocol.",
+        config_schema=SybaseConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system", "user"])
+        }),
+        client_path=None,
+        requires_license="enterprise",
     ),
 }
 

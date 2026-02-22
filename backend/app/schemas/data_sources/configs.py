@@ -222,6 +222,10 @@ class MssqlConfig(SQLConfig):
     port: int = Field(1433, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
 
 
+class SybaseConfig(SQLConfig):
+    port: int = Field(2638, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
+
+
 # Presto
 class PrestoCredentials(BaseModel):
     user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
@@ -674,4 +678,6 @@ __all__ = [
     # Microsoft Fabric
     "MSFabricCredentials",
     "MSFabricConfig",
+    # Sybase SQL Anywhere
+    "SybaseConfig",
 ]
