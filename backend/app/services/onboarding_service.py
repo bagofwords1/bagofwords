@@ -14,6 +14,7 @@ from app.models.organization_settings import OrganizationSettings
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
 from app.models.instruction import Instruction
+from app.models.connection import Connection
 from app.schemas.onboarding_schema import (
     OnboardingConfig,
     OnboardingResponse,
@@ -81,10 +82,12 @@ class OnboardingService:
         # LLM configured: any enabled default model available
         llm_exists = bool(await organization.get_default_llm_model(db))
 
-        # Data source created: any data source for this org
+        # Data source created: any data source or connection for this org
         ds_count_stmt = select(func.count(DataSource.id)).where(DataSource.organization_id == organization.id)
         ds_count = (await db.execute(ds_count_stmt)).scalar_one() or 0
-        data_source_created = ds_count > 0
+        conn_count_stmt = select(func.count(Connection.id)).where(Connection.organization_id == organization.id)
+        conn_count = (await db.execute(conn_count_stmt)).scalar_one() or 0
+        data_source_created = ds_count > 0 or conn_count > 0
 
         # Schema selected: any datasource tables linked to this org
         tables_count_stmt = (

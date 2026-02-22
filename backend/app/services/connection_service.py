@@ -380,12 +380,18 @@ class ConnectionService:
         connection_id: str,
         organization: Organization,
         current_user: User = None,
+        config_overrides: dict = None,
+        credential_overrides: dict = None,
     ) -> dict:
-        """Test an existing connection."""
+        """Test an existing connection, optionally with override config/credentials."""
         connection = await self.get_connection(db, connection_id, organization)
 
         try:
-            client = await self.construct_client(db, connection, current_user)
+            client = await self.construct_client(
+                db, connection, current_user,
+                config_overrides=config_overrides,
+                credential_overrides=credential_overrides,
+            )
             connection_status = client.test_connection()
 
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
@@ -552,6 +558,8 @@ class ConnectionService:
         db: AsyncSession,
         connection: Connection,
         current_user: User = None,
+        config_overrides: dict = None,
+        credential_overrides: dict = None,
     ):
         """Construct a database client for this connection."""
         logger.info(f"construct_client: Building client for connection {connection.id} (type={connection.type})")
@@ -559,9 +567,19 @@ class ConnectionService:
         logger.info(f"construct_client: Resolved ClientClass={ClientClass.__name__}")
 
         config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+        # Merge config overrides (non-empty values win)
+        if config_overrides:
+            for k, v in config_overrides.items():
+                if v is not None and v != "":
+                    config[k] = v
         logger.info(f"construct_client: Config keys={list(config.keys()) if config else []}")
 
         creds = await self.resolve_credentials(db, connection, current_user)
+        # Merge credential overrides (non-empty values win, blank keeps saved)
+        if credential_overrides:
+            for k, v in credential_overrides.items():
+                if v is not None and v != "":
+                    creds[k] = v
         logger.info(f"construct_client: Credentials resolved, keys={list(creds.keys()) if creds else []}")
 
         params = {**(config or {}), **(creds or {})}

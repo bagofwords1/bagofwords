@@ -32,9 +32,9 @@
           <span class="text-xs text-gray-700">{{ tableCount }}</span>
         </div>
 
-        <!-- Domains -->
+        <!-- Data Agents -->
         <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500">Domains</span>
+          <span class="text-xs text-gray-500">Data Agents</span>
           <span class="text-xs text-gray-700">{{ domainCount }}</span>
         </div>
 

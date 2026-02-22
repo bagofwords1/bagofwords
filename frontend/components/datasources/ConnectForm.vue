@@ -31,25 +31,50 @@
         <div v-if="true" class="p-3 rounded border">
           <div class="flex items-center justify-between mb-2">
             <div class="text-sm font-medium text-gray-700">System Credentials</div>
-            <span v-if="isConnectionEdit && props.initialValues?.has_credentials" class="text-xs text-green-600">
-              ✓ Credentials set
-            </span>
+            <div class="flex items-center gap-2">
+              <span v-if="credentialsLocked" class="text-xs text-green-600">✓ Credentials set</span>
+              <button
+                v-if="credentialsLocked"
+                type="button"
+                @click="unlockCredentials"
+                class="text-xs text-blue-600 hover:text-blue-700 font-medium"
+              >
+                Change
+              </button>
+              <button
+                v-if="hasExistingCredentials && !credentialsLocked"
+                type="button"
+                @click="lockCredentials"
+                class="text-xs text-gray-500 hover:text-gray-700"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-          <p v-if="isConnectionEdit && props.initialValues?.has_credentials" class="text-xs text-gray-500 mb-2">
-            Leave blank to keep existing credentials, or enter new values to update.
-          </p>
 
           <div v-if="authOptions.length" class="w-48 mb-2">
             <USelectMenu v-if="authOptions.length > 1" v-model="selectedAuth" :options="authOptions" option-attribute="label" value-attribute="value" @change="handleAuthChange" />
           </div>
 
-          <div v-if="showSystemCredentialFields" v-for="field in credentialFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
-            <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
-            <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
-            <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.credentials[field.field_name]" size="xs" color="blue" />
-            <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" rows="3" />
-            <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+          <!-- Locked state: show masked fields -->
+          <div v-if="credentialsLocked && showSystemCredentialFields">
+            <div v-for="field in credentialFields" :key="field.field_name" class="mb-2">
+              <label class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
+              <input type="text" disabled value="••••••••" class="block w-full px-3 py-1.5 border border-gray-200 rounded-md bg-gray-50 text-sm text-gray-400 cursor-not-allowed" />
+            </div>
           </div>
+
+          <!-- Unlocked state: editable fields -->
+          <template v-if="!credentialsLocked">
+            <div v-if="showSystemCredentialFields" v-for="field in credentialFields" :key="field.field_name" class="mb-2" @change="clearTestResult()">
+              <label :for="field.field_name" class="block text-xs text-gray-700 mb-1">{{ field.title || field.field_name }}</label>
+              <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+              <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.credentials[field.field_name]" size="xs" color="blue" />
+              <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" rows="3" />
+              <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 rounded-md focus:outline-none focus:border-blue-500 text-sm" :placeholder="field.title || field.field_name" />
+            </div>
+          </template>
+
           <div v-if="showRequireUserAuth && (isCreateMode || isCreateConnectionOnly || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
             <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
             <span class="text-xs text-gray-700">Require user authentication</span>
@@ -146,6 +171,24 @@ const isCreateMode = computed(() => props.mode === 'create')
 const isCreateConnectionOnly = computed(() => props.mode === 'create_connection_only')
 const isConnectionEdit = computed(() => isEditMode.value && !!props.connectionId)
 
+// Credentials lock state: locked by default in edit mode when credentials already exist
+const hasExistingCredentials = computed(() => isConnectionEdit.value && props.initialValues?.has_credentials)
+const credentialsLocked = ref(false)
+
+function unlockCredentials() {
+  credentialsLocked.value = false
+  clearTestResult()
+}
+
+function lockCredentials() {
+  credentialsLocked.value = true
+  // Reset credential fields to empty so stale values aren't sent
+  for (const key of Object.keys(formData.credentials)) {
+    formData.credentials[key] = ''
+  }
+  clearTestResult()
+}
+
 const typeOptions = computed(() => available_ds.value || [])
 
 const showRequireUserAuth = computed(() => (props.showRequireUserAuthToggle !== false) && isLicensed.value)
@@ -231,6 +274,10 @@ async function fetchFields() {
         formData.config = { ...formData.config, ...restConfig }
         formData.credentials = { ...formData.credentials, ...(iv.credentials || {}) }
         connectionTestPassed.value = true
+        // Lock credentials if they already exist on the server
+        if (iv.has_credentials) {
+          credentialsLocked.value = true
+        }
       } catch {}
     }
   } catch (e) {
@@ -313,15 +360,17 @@ async function onSubmit() {
     
     // Handle connection editing (uses /connections endpoint)
     if (isConnectionEdit.value && props.connectionId) {
-      // Only include credentials if user provided new values
-      const hasNewCredentials = Object.values(formData.credentials).some(v => v && String(v).trim())
       const connectionPayload: any = {
         name: name.value || selectedType.value,
         config: { ...formData.config, auth_type: selectedAuth.value || undefined },
         auth_policy: auth_policy.value
       }
-      if (hasNewCredentials) {
-        connectionPayload.credentials = formData.credentials
+      // Only include credentials if user explicitly unlocked and edited them
+      if (!credentialsLocked.value) {
+        const hasNewCredentials = Object.values(formData.credentials).some(v => v && String(v).trim())
+        if (hasNewCredentials) {
+          connectionPayload.credentials = formData.credentials
+        }
       }
       
       const res = await useMyFetch(`/connections/${props.connectionId}`, { method: 'PUT', body: JSON.stringify(connectionPayload), headers: { 'Content-Type': 'application/json' } })
@@ -390,9 +439,22 @@ async function testConnection() {
   try {
     let res: any
     
-    // When editing a connection, use the connection test endpoint which uses stored credentials
+    // When editing a connection, send current form values so the backend merges
+    // new credentials with saved ones (blank fields keep existing values)
     if (isConnectionEdit.value && props.connectionId) {
-      res = await useMyFetch(`/connections/${props.connectionId}/test`, { method: 'POST' })
+      const overrides: any = {}
+      if (formData.config && Object.keys(formData.config).length > 0) {
+        overrides.config = { ...formData.config, auth_type: selectedAuth.value || undefined }
+      }
+      // Only send credential overrides if user explicitly unlocked them
+      if (!credentialsLocked.value && showSystemCredentialFields.value && formData.credentials && Object.keys(formData.credentials).length > 0) {
+        overrides.credentials = formData.credentials
+      }
+      res = await useMyFetch(`/connections/${props.connectionId}/test`, {
+        method: 'POST',
+        body: JSON.stringify(overrides),
+        headers: { 'Content-Type': 'application/json' }
+      })
     } else {
       // For new connections or data sources, test with form values
       const payload = {

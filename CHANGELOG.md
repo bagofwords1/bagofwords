@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.319 (February 22, 2026)
+- Fixed edit connection "Test Connection" to validate new credentials instead of using saved ones
+- Credentials in edit mode are now locked by default with a "Change" button to explicitly unlock
+- Renamed "Domains" to "Data Agents" in connection detail modal
+
 ## Version 0.0.318 (February 22, 2026)
 - Added Sybase SQL Anywhere data source connector (enterprise license required)
 - Uses FreeTDS ODBC driver for TDS protocol connectivity on port 2638

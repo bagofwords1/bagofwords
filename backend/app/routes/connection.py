@@ -22,6 +22,7 @@ from app.schemas.connection_schema import (
     ConnectionSchema,
     ConnectionDetailSchema,
     ConnectionTableSchema,
+    ConnectionTestOverride,
     ConnectionTestResult,
 )
 
@@ -201,16 +202,19 @@ async def delete_connection(
 @requires_permission('update_data_source')  # Admin-only
 async def test_connection(
     connection_id: str,
+    overrides: ConnectionTestOverride = None,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Test a connection."""
+    """Test a connection, optionally with override credentials/config."""
     result = await connection_service.test_connection(
         db=db,
         connection_id=connection_id,
         organization=organization,
         current_user=current_user,
+        config_overrides=overrides.config if overrides else None,
+        credential_overrides=overrides.credentials if overrides else None,
     )
     
     return ConnectionTestResult(

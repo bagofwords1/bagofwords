@@ -8,8 +8,8 @@
             </div>
 
             <div v-else>
-                <!-- Data Agents Section - only show if there are data agents -->
-                <div v-if="allDomains.length > 0" class="mb-6">
+                <!-- Data Agents Section - show if there are data agents or connections -->
+                <div v-if="allDomains.length > 0 || connections.length > 0" class="mb-6">
                     <div>
                         <h1 class="text-lg font-semibold">
                             <GoBackChevron v-if="isExcel" />
@@ -51,7 +51,7 @@
                     </div>
 
                     <!-- Sample databases -->
-                    <div v-if="uninstalledDemos.length > 0" class="mb-4">
+                    <div v-if="uninstalledDemos.length > 0 && allDomains.length === 0" class="mb-4">
                         <div class="text-xs text-gray-400 mb-2">Try a sample database:</div>
                         <div class="flex flex-wrap gap-2">
                             <button

@@ -1,4 +1,3 @@
-cat > /app/backend/app/data_sources/clients/sybase_client.py << 'EOF'
 from app.data_sources.clients.base import DataSourceClient
 
 import pyodbc
@@ -142,4 +141,3 @@ class SybaseClient(DataSourceClient):
         description += system_prompt
 
         return description
-EOF

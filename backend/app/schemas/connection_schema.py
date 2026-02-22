@@ -76,6 +76,12 @@ class ConnectionTableSchema(BaseModel):
         from_attributes = True
 
 
+class ConnectionTestOverride(BaseModel):
+    """Optional overrides when testing a connection with new (unsaved) values."""
+    config: Optional[dict] = None
+    credentials: Optional[dict] = None
+
+
 class ConnectionTestResult(BaseModel):
     """Schema for connection test results."""
     success: bool
