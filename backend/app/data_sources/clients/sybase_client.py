@@ -1,3 +1,4 @@
+cat > /app/backend/app/data_sources/clients/sybase_client.py << 'EOF'
 from app.data_sources.clients.base import DataSourceClient
 
 import pyodbc
@@ -51,14 +52,17 @@ class SybaseClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get tables from the database using information_schema."""
+        """Get tables from the database using SYS views."""
         try:
             with self.connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT table_name, column_name, data_type
-                    FROM information_schema.columns
-                    ORDER BY table_name, ordinal_position
+                    SELECT t.table_name, c.column_name, d.domain_name AS data_type
+                    FROM SYS.SYSTABCOL c
+                    JOIN SYS.SYSTAB t ON c.table_id = t.table_id
+                    JOIN SYS.SYSDOMAIN d ON c.domain_id = d.domain_id
+                    WHERE t.creator NOT IN (0, 3)
+                    ORDER BY t.table_name, c.column_id
                 """)
                 rows = cursor.fetchall()
 
@@ -108,4 +112,34 @@ class SybaseClient(DataSourceClient):
 
     @property
     def description(self):
-        return f"Sybase SQL Anywhere client for database '{self.database}' at {self.host}:{self.port}"
+        system_prompt = """
+        This is a Sybase SQL Anywhere database (Watcom SQL dialect).
+        You can call the execute_query method to run SQL queries.
+
+        ```python
+        df = client.execute_query("SELECT TOP 10 * FROM employees ORDER BY name")
+        ```
+        or:
+        ```python
+        df = client.execute_query("SELECT department, COUNT(*) AS cnt FROM employees GROUP BY department")
+        ```
+
+        IMPORTANT - Sybase SQL Anywhere dialect differences:
+
+        Pagination: use TOP n or LIMIT n. "TOP 5 START AT 11" skips 10 rows (1-based). FETCH FIRST is NOT supported.
+        Current date/time: NOW(), GETDATE(), TODAY(), CURRENT DATE / CURRENT TIMESTAMP (space, not underscore).
+        Date arithmetic: DATEADD(day, 7, date), DATEDIFF(day, d1, d2), DATEPART(year, date) or YEAR(date).
+        Date formatting: DATEFORMAT(date, 'YYYY-MM-DD HH:NN:SS') — minutes are NN, not MI.
+        String aggregation: LIST(col, ', ') — not STRING_AGG or GROUP_CONCAT.
+        Concatenation: || treats NULL as '' (does not propagate NULL). STRING(a, b, c) also works.
+        NULL handling: ISNULL(a, b) or COALESCE(a, b) both work.
+        Find in string: LOCATE(haystack, needle) or CHARINDEX(needle, haystack).
+        Boolean: BIT type with 0/1, not TRUE/FALSE.
+
+        DO NOT use: EXTRACT(), INTERVAL, TO_CHAR(), STRING_AGG(), ILIKE, GENERATE_SERIES(), FETCH FIRST.
+        """
+        description = f"Sybase SQL Anywhere database at {self.host}:{self.port}/{self.database}\n\n"
+        description += system_prompt
+
+        return description
+EOF
