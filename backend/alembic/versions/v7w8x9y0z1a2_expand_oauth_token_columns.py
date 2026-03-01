@@ -37,6 +37,20 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    result = conn.execute(
+        sa.text(
+            "SELECT COUNT(*) FROM oauth_accounts "
+            "WHERE LENGTH(access_token) > 1024 OR LENGTH(refresh_token) > 1024"
+        )
+    )
+    count = result.scalar()
+    if count:
+        raise RuntimeError(
+            f"Cannot downgrade: {count} row(s) in oauth_accounts have tokens "
+            "exceeding 1024 characters. Truncate or remove them before downgrading."
+        )
+
     with op.batch_alter_table('oauth_accounts', schema=None) as batch_op:
         batch_op.alter_column(
             'refresh_token',
