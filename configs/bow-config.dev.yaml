@@ -5,8 +5,14 @@ deployment:
 base_url: http://localhost:3000
 
 database:
-  # url: sqlite:///db/app.db
-  url: ${BOW_DATABASE_URL}
+  host: bow-pg1-instance-1.cry2og862pqb.us-east-1.rds.amazonaws.com
+  port: 5432
+  name: postgres
+  username: bow_user
+  auth:
+    provider: aws_iam
+    region: us-east-1
+    ssl_mode: require
   
 features:
   allow_uninvited_signups: false
