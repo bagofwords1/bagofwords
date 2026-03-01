@@ -1,38 +1,31 @@
 # Bag of Words Helm Chart
 
-This Helm chart deploys the **Bag of Words** service on Kubernetes.
+This Helm chart deploys the **Bag of Words** service on Kubernetes with a bundled PostgreSQL instance or an external managed database (e.g. AWS Aurora with IAM authentication).
 
-## Install with Kubernetes
----
-You can install Bag of words on a Kubernetes cluster. The following deployment will deploy the Bagofwords container alongside a postgres instance.
+See [k8s/README.md](../README.md) for full installation examples including Aurora IAM auth, existing secrets, IRSA, and more.
 
-### 1. Add the Helm Repository
+## Quick Start
 
 ```bash
 helm repo add bow https://helm.bagofwords.com
 helm repo update
-```
 
-### 2. Install or Upgrade the Chart
-
-Here are a few examples of how to install or upgrade the Bag of words Helm chart:
-
-
-```bash
+# Deploy with bundled PostgreSQL
 helm upgrade -i --create-namespace \
  -nbowapp-1 bowapp bow/bagofwords \
  --set postgresql.auth.username=<PG-USER> \
  --set postgresql.auth.password=<PG-PASS> \
  --set postgresql.auth.database=<PG-DB>
-```
 
-```bash
-# deploy without TLS with custom hostname
+# Deploy with AWS Aurora + IAM auth
 helm upgrade -i --create-namespace \
  -nbowapp-1 bowapp bow/bagofwords \
-  --set host=<HOST> \
- --set postgresql.auth.username=<PG-USER> \
- --set postgresql.auth.password=<PG-PASS> \
- --set postgresql.auth.database=<PG-DB> \
- --set ingress.tls=false
+ --set database.auth.provider=aws_iam \
+ --set database.auth.region=us-east-1 \
+ --set database.auth.sslMode=require \
+ --set database.host=<AURORA-CLUSTER-ENDPOINT> \
+ --set database.port=5432 \
+ --set database.username=<DB-USER> \
+ --set database.name=<DB-NAME> \
+ --set serviceAccount.annotations.'eks\.amazonaws\.com/role-arn'=arn:aws:iam::<ACCOUNT>:role/<ROLE-NAME>
 ```

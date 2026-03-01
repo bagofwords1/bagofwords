@@ -1,0 +1,369 @@
+---
+title: 'Deployment Options'
+icon: 'server'
+description: 'Install Bag of Words on your own server using Docker or Kubernetes'
+---
+
+## Install with Docker
+---
+
+You can install Bag of Words with a single docker command. By default, it will use SQLite as the database.
+You can also configure it to use PostgreSQL by passing `BOW_DATABASE_URL` environment variable.
+
+```bash
+docker run --pull always -d -p 3000:3000 bagofwords/bagofwords
+```
+
+<Info>
+To use PostgreSQL, you need to set the `BOW_DATABASE_URL` environment variable.
+For example: `BOW_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/bagofwords`
+</Info>
+
+### Update
+
+- Re-run the same `docker run --pull always ...` command to fetch and start the latest image.
+- Optionally, pull explicitly and restart:
+  ```bash
+  docker pull bagofwords/bagofwords:latest
+  # stop/remove your existing container if needed, then start again
+  # docker stop <container_name> && docker rm <container_name>
+  docker run --pull always -d -p 3000:3000 bagofwords/bagofwords
+  ```
+
+## Install with Docker Compose
+---
+
+Run Bag of Words with Docker Compose and Caddy (built-in TLS on port 443). We recommend using the canonical files from the repo to avoid drift:
+
+- `docker-compose.yaml`: https://github.com/bagofwords1/bagofwords/blob/main/docker-compose.yaml
+- `Caddyfile`: https://github.com/bagofwords1/bagofwords/blob/main/Caddyfile
+
+### Steps
+
+1. Make sure Docker and Docker Compose are installed.
+2. Clone the repo:
+   ```bash
+   git clone https://github.com/bagofwords1/bagofwords
+   cd bagofwords
+   ```
+3. Create a `.env` file (for domain and credentials). Example:
+   ```env
+   # Domain used by Caddy for HTTPS (must resolve to your server's public IP)
+   DOMAIN=yourdomain.com
+
+   # PostgreSQL (use stronger values for production)
+   POSTGRES_USER=bow
+   POSTGRES_PASSWORD=your_secure_pw
+   POSTGRES_DB=bagofwords
+
+   # Optional but recommended: encryption key (Fernet, 44 chars incl. '=')
+   # Generate with OpenSSL: openssl rand -base64 32 | tr '+/' '-_'
+   BOW_ENCRYPTION_KEY=
+   ```
+
+   Generate `BOW_ENCRYPTION_KEY` with OpenSSL:
+   ```bash
+   openssl rand -base64 32 | tr '+/' '-_'
+   ```
+4. Start services:
+   ```bash
+   docker compose up -d
+   ```
+5. Point your domain to the server's public IP:
+   - Create an A record for `yourdomain.com` → your instance public IP.
+   - Caddy will automatically obtain/renew the TLS certificate and serve on port 443.
+6. Open `https://yourdomain.com`
+
+<Info>
+Caddy is included by default as a reverse proxy on port 443. If you prefer to run without Caddy, remove the `caddy` service from `docker-compose.yaml` and expose the app directly on port 3000. For local, no-SSL testing, you can also use `docker-compose.dev.yaml`.
+</Info>
+
+### Update
+
+```bash
+# pull latest images and recreate containers
+docker compose pull
+docker compose up -d
+```
+
+## Other configurations
+---
+
+You can also configure additional settings in the bow-config.yaml file.
+
+```yaml
+# bow-config.yaml
+
+# Deployment Configuration
+base_url: http://0.0.0.0:3000
+
+database:
+  url: ${BOW_DATABASE_URL}
+
+# Feature Flags
+features:
+  allow_uninvited_signups: false
+  allow_multiple_organizations: false
+  verify_emails: false
+
+google_oauth:
+  enabled: false
+  client_id: ${BOW_GOOGLE_CLIENT_ID}
+  client_secret: ${BOW_GOOGLE_CLIENT_SECRET}
+
+smtp_settings:
+  host: "smtp.resend.com"
+  port: 587
+  username: "resend"
+  password: ${BOW_SMTP_PASSWORD}
+
+encryption_key: ${BOW_ENCRYPTION_KEY}
+
+intercom:
+  enabled: true
+```
+
+To use the custom config file, you can run the following command:
+
+```bash
+docker run --pull always -d -p 3000:3000 -v $(pwd)/bow-config.yaml:/app/bow-config.yaml bagofwords/bagofwords
+```
+
+## Install with Kubernetes
+---
+
+You can install Bag of Words on a Kubernetes cluster. The Helm chart can deploy the app with a bundled PostgreSQL instance **or** connect to an external managed database such as AWS Aurora with IAM authentication.
+
+### 1. Add the Helm Repository
+
+```bash
+helm repo add bow https://helm.bagofwords.com/
+helm repo update
+```
+
+### 2. Install or Upgrade the Chart
+
+Here are a few examples of how to install or upgrade the Bag of Words Helm chart:
+
+**Deploy with a bundled PostgreSQL instance:**
+
+```bash
+helm upgrade -i --create-namespace \
+ -nbowapp-1 bowapp bow/bagofwords \
+ --set postgresql.auth.username=<PG-USER> \
+ --set postgresql.auth.password=<PG-PASS> \
+ --set postgresql.auth.database=<PG-DB>
+```
+
+**Deploy without TLS with a custom hostname:**
+
+```bash
+helm upgrade -i --create-namespace \
+ -nbowapp-1 bowapp bow/bagofwords \
+  --set host=<HOST> \
+ --set postgresql.auth.username=<PG-USER> \
+ --set postgresql.auth.password=<PG-PASS> \
+ --set postgresql.auth.database=<PG-DB> \
+ --set ingress.tls=false
+```
+
+**Deploy with TLS, cert-manager, and Google OAuth:**
+
+```bash
+helm upgrade -i --create-namespace \
+ -nbowapp-1 bowapp bow/bagofwords \
+ --set host=<HOST> \
+ --set postgresql.auth.username=<PG-USER> \
+ --set postgresql.auth.password=<PG-PASS> \
+ --set postgresql.auth.database=<PG-DB> \
+ --set config.googleOauthEnabled=true \
+ --set config.googleClientId=<CLIENT_ID> \
+ --set config.googleClientSecret=<CLIENT_SECRET>
+```
+
+### Deploy with AWS Aurora and IAM Authentication
+
+When using a managed database like AWS Aurora PostgreSQL, the chart skips the bundled PostgreSQL subchart and connects directly to your Aurora cluster. Passwords are never stored — short-lived IAM tokens are generated at runtime for every new database connection.
+
+**Prerequisites:**
+
+- An Aurora PostgreSQL cluster with **IAM database authentication** enabled
+- A database user created with: `GRANT rds_iam TO <username>`
+- An IAM role/policy with `rds-db:connect` permission
+- In EKS: an **IRSA** (IAM Roles for Service Accounts) annotation on the pod's service account so the app can assume the IAM role
+
+```bash
+helm upgrade -i --create-namespace \
+ -nbowapp-1 bowapp bow/bagofwords \
+ --set host=<HOST> \
+ --set database.auth.provider=aws_iam \
+ --set database.auth.region=us-east-1 \
+ --set database.auth.sslMode=require \
+ --set database.host=<AURORA-CLUSTER-ENDPOINT> \
+ --set database.port=5432 \
+ --set database.username=<DB-USER> \
+ --set database.name=<DB-NAME> \
+ --set serviceAccount.annotations.'eks\.amazonaws\.com/role-arn'=arn:aws:iam::<ACCOUNT>:role/<ROLE-NAME>
+```
+
+Or use a values file:
+
+```yaml
+# aurora-values.yaml
+host: bow.example.com
+
+database:
+  auth:
+    provider: aws_iam
+    region: us-east-1
+    sslMode: require
+  host: my-cluster.cluster-xxx.us-east-1.rds.amazonaws.com
+  port: 5432
+  username: bow_user
+  name: postgres
+
+serviceAccount:
+  name: bowapp
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/bow-rds-role
+
+config:
+  encryptionKey: "<your-encryption-key>"
+  baseUrl: "https://bow.example.com"
+```
+
+```bash
+helm upgrade -i --create-namespace \
+ -nbowapp-1 bowapp bow/bagofwords \
+ -f aurora-values.yaml
+```
+
+<Info>
+When `database.auth.provider` is set to `aws_iam`, the bundled PostgreSQL subchart is automatically skipped. The app uses `boto3` to call `generate_db_auth_token()` before each new connection, so tokens rotate automatically and no static database password is needed.
+</Info>
+
+### Update
+
+```bash
+# Restart the Bag of Words deployment(s) to pick up the latest image
+# Adjust namespace (-n) and selector if you used different names
+kubectl rollout restart deployment -n bowapp-1 -l app.kubernetes.io/instance=bowapp
+kubectl rollout status deployment -n bowapp-1 -l app.kubernetes.io/instance=bowapp
+```
+
+## AWS Aurora Configuration
+---
+
+Bag of Words supports connecting to **AWS Aurora PostgreSQL** using IAM database authentication. This eliminates static database passwords entirely — the application generates short-lived tokens (valid for 15 minutes) at connection time using AWS IAM.
+
+### How it works
+
+1. The app's service account assumes an IAM role (via IRSA in EKS, or instance profile on EC2)
+2. On every new database connection, the app calls `generate_db_auth_token()` to get a temporary password
+3. The token is used as the PostgreSQL password — established connections are not affected when it expires
+4. SSL is required (`require` or `verify-full`)
+
+### AWS Setup
+
+**1. Enable IAM authentication on the Aurora cluster:**
+
+```bash
+aws rds modify-db-cluster \
+  --db-cluster-identifier <cluster-id> \
+  --enable-iam-database-authentication \
+  --apply-immediately
+```
+
+**2. Create the database user with IAM grants:**
+
+```sql
+CREATE USER bow_user;
+GRANT rds_iam TO bow_user;
+GRANT ALL PRIVILEGES ON DATABASE postgres TO bow_user;
+```
+
+**3. Create an IAM policy allowing `rds-db:connect`:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "rds-db:connect",
+      "Resource": "arn:aws:rds-db:<REGION>:<ACCOUNT>:dbuser:<DB-RESOURCE-ID>/<DB-USER>"
+    }
+  ]
+}
+```
+
+**4. For EKS — create an IRSA-enabled service account:**
+
+```bash
+eksctl create iamserviceaccount \
+  --name bowapp \
+  --namespace bowapp-1 \
+  --cluster <CLUSTER-NAME> \
+  --attach-policy-arn arn:aws:iam::<ACCOUNT>:policy/bow-rds-connect \
+  --approve
+```
+
+Then set the IRSA annotation in the Helm chart:
+
+```bash
+--set serviceAccount.annotations.'eks\.amazonaws\.com/role-arn'=arn:aws:iam::<ACCOUNT>:role/<ROLE-NAME>
+```
+
+### bow-config.yaml for Aurora (non-Kubernetes)
+
+If you are running Bag of Words on EC2 or ECS (not Kubernetes), you can configure Aurora IAM auth directly in `bow-config.yaml`:
+
+```yaml
+database:
+  host: "my-cluster.cluster-xxx.us-east-1.rds.amazonaws.com"
+  port: 5432
+  name: "postgres"
+  username: "bow_user"
+  auth:
+    provider: "aws_iam"
+    region: "us-east-1"
+    ssl_mode: "require"
+```
+
+The EC2 instance or ECS task must have an IAM role with the `rds-db:connect` policy attached.
+
+## Google OAuth
+
+To enable Google OAuth authentication, configure the following parameters in your bow config (or in env/k8s configmap):
+
+```yaml
+google_oauth:
+  enabled: true
+  client_id: ${BOW_GOOGLE_CLIENT_ID}
+  client_secret: ${BOW_GOOGLE_CLIENT_SECRET}
+```
+
+You should also set the following in your Google OAuth configurations:
+1. Callback URL: `https://yourbaseurl.com/api/auth/google/callback`
+2. Scopes: `/auth/userinfo.email`, `/auth/userinfo.profile`, `openid`
+3. Enable People API
+
+## OpenID Connect (OIDC)
+
+```yaml
+oidc_providers:
+- name: okta
+  enabled: true
+  issuer: https://***********.okta.com/oauth2/default
+  client_id: ${OKTA_CLIENT_ID}
+  client_secret: ${OKTA_CLIENT_SECRET}
+  scopes: ["openid", "profile", "email"]
+  pkce: true
+  client_auth_method: basic
+  discovery: true
+  uid_claim: sub
+```
+
+### For Okta
+1. Set a new OIDC application: web
+2. Set callback URL `https://your-base-bow-url.com/api/auth/okta/callback`
