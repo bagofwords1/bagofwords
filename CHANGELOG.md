@@ -1,6 +1,8 @@
 # Release Notes
 
-## Version 0.0.322 (March 1, 2026)
+### Version 0.0.322 (March 1, 2026)
+- Support long oauth string columns for Entra
+- Allow AWS Aurora PG with IAM as backend DB
 
 ## Version 0.0.320 (February 24, 2026)
 - Improve table lookup

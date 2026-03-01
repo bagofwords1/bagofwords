@@ -1,8 +1,8 @@
 """
 Pluggable database authentication providers.
 
-Supports dynamic credential generation for managed databases (AWS Aurora,
-Azure Database for PostgreSQL, GCP Cloud SQL) instead of static passwords.
+Supports password-based authentication and dynamic credential generation
+for AWS RDS/Aurora via IAM instead of static passwords.
 
 Usage:
     provider = get_auth_provider(database_config)
@@ -80,58 +80,12 @@ class AwsIamAuthProvider:
 
 
 # ---------------------------------------------------------------------------
-# Future providers — implement when needed, the pattern is ready.
-# ---------------------------------------------------------------------------
-#
-# class AzureEntraAuthProvider:
-#     """Azure AD / Entra ID authentication for Azure Database for PostgreSQL.
-#
-#     Uses DefaultAzureCredential to obtain a token scoped to:
-#       https://ossrdbms-aad.database.windows.net/.default
-#
-#     Requires:
-#       - azure-identity package
-#       - Workload Identity annotation on the K8s service account
-#     """
-#
-#     def get_password(self, host: str, port: int, username: str) -> str:
-#         from azure.identity import DefaultAzureCredential
-#         credential = DefaultAzureCredential()
-#         token = credential.get_token(
-#             "https://ossrdbms-aad.database.windows.net/.default"
-#         )
-#         return token.token
-#
-#
-# class GcpCloudSqlAuthProvider:
-#     """GCP Cloud SQL IAM authentication.
-#
-#     Uses google.auth.default() + IAM generateAccessToken.
-#
-#     Requires:
-#       - google-auth package
-#       - Workload Identity binding on the K8s service account
-#     """
-#
-#     def get_password(self, host: str, port: int, username: str) -> str:
-#         import google.auth
-#         import google.auth.transport.requests
-#         credentials, _ = google.auth.default(
-#             scopes=["https://www.googleapis.com/auth/cloud-platform"]
-#         )
-#         credentials.refresh(google.auth.transport.requests.Request())
-#         return credentials.token
-
-
-# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 _PROVIDERS = {
     "password": lambda cfg: StaticPasswordProvider(cfg.get("password", "")),
-    "aws_iam": lambda cfg: AwsIamAuthProvider(region=cfg.get("region", "us-east-1")),
-    # "azure_entra": lambda cfg: AzureEntraAuthProvider(),
-    # "gcp_iam": lambda cfg: GcpCloudSqlAuthProvider(),
+    "aws_iam": lambda cfg: AwsIamAuthProvider(region=(cfg.get("region") or "").strip() or "us-east-1"),
 }
 
 
