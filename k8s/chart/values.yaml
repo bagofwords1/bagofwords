@@ -13,6 +13,19 @@ postgresql:
     persistence:
       size: 20Gi
     nodeSelector: {}
+
+# Managed database with IAM auth (alternative to the bundled postgresql subchart).
+# When database.auth.provider is not "password", the postgresql subchart values
+# above are ignored and the app connects to the external managed database instead.
+database:
+  auth:
+    provider: password   # password | aws_iam
+    region: ""           # AWS only — e.g. "us-east-1"
+    sslMode: ""          # e.g. "verify-full" (required for IAM auth)
+  host: ""               # e.g. my-cluster.cluster-xxx.us-east-1.rds.amazonaws.com
+  port: 5432
+  username: ""           # DB user — must have GRANT rds_iam (AWS) or equivalent
+  name: ""               # Database name
 ingress:
   enabled: true
   className: nginx

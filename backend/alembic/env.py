@@ -1,7 +1,7 @@
 from logging.config import fileConfig
 
 import sqlalchemy
-from sqlalchemy import engine_from_config
+from sqlalchemy import engine_from_config, event
 from sqlalchemy import pool
 from sqlalchemy import create_engine
 from sqlalchemy.engine.url import make_url
@@ -10,6 +10,7 @@ from alembic import context
 from alembic.operations import ops
 
 from app.settings.config import settings
+from app.settings.db_auth import get_auth_provider
 
 from app.models.base import BaseSchema
 from app.models.report import Report
@@ -86,7 +87,9 @@ def get_db_url():
     if settings.TESTING:
         return settings.TEST_DATABASE_URL
     else:
-        url = make_url(settings.bow_config.database.url)
+        db = settings.bow_config.database
+        raw_url = db.get_url()
+        url = make_url(raw_url)
         if url.drivername.startswith('postgres'):
             return url.set(drivername="postgresql")
         elif url.drivername.startswith('sqlite'):
@@ -126,11 +129,47 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
+def _attach_migration_iam_hook(engine):
+    """Attach IAM auth hook to the migration engine if configured."""
+    if settings.TESTING:
+        return
+    db_config = settings.bow_config.database
+    if not db_config.uses_iam_auth:
+        return
+    provider = get_auth_provider(db_config)
+    host = db_config.host
+    port = db_config.port
+    username = db_config.username
+
+    @event.listens_for(engine, "do_connect")
+    def inject_token(dialect, conn_rec, cargs, cparams):
+        cparams["password"] = provider.get_password(host, port, username)
+
+
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     url = get_db_url()
-    connectable = create_engine(url, poolclass=pool.NullPool)
-    
+    db_config = settings.bow_config.database
+
+    connect_args = {}
+    if not settings.TESTING and db_config.uses_iam_auth and db_config.auth.ssl_mode:
+        import ssl as _ssl
+        ssl_ctx = _ssl.create_default_context()
+        if db_config.auth.ssl_mode == "verify-full":
+            ssl_ctx.check_hostname = True
+            ssl_ctx.verify_mode = _ssl.CERT_REQUIRED
+            import os
+            rds_ca = "/app/certs/rds-combined-ca-bundle.pem"
+            if os.path.exists(rds_ca):
+                ssl_ctx.load_verify_locations(rds_ca)
+        elif db_config.auth.ssl_mode == "require":
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = _ssl.CERT_NONE
+        connect_args["sslmode"] = db_config.auth.ssl_mode
+
+    connectable = create_engine(url, poolclass=pool.NullPool, connect_args=connect_args)
+    _attach_migration_iam_hook(connectable)
+
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
