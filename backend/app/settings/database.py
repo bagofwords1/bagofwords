@@ -35,23 +35,17 @@ def _get_database_url() -> str:
 
 
 def _get_ssl_connect_args(db_config) -> dict:
-    """Build SSL connect_args when ssl_mode is configured."""
+    """Build SSL connect_args for psycopg2 when ssl_mode is configured."""
     ssl_mode = db_config.auth.ssl_mode
     if not ssl_mode:
         return {}
-    import ssl
-    ssl_ctx = ssl.create_default_context()
+    # psycopg2 uses sslmode (string), not ssl (context object)
+    connect_args = {"sslmode": ssl_mode}
     if ssl_mode == "verify-full":
-        ssl_ctx.check_hostname = True
-        ssl_ctx.verify_mode = ssl.CERT_REQUIRED
-        # Use the RDS CA bundle if it exists, otherwise system CAs
         rds_ca = "/app/certs/rds-combined-ca-bundle.pem"
         if os.path.exists(rds_ca):
-            ssl_ctx.load_verify_locations(rds_ca)
-    elif ssl_mode == "require":
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-    return {"ssl": ssl_ctx}
+            connect_args["sslrootcert"] = rds_ca
+    return connect_args
 
 
 def _attach_iam_auth_hook(engine, db_config):
