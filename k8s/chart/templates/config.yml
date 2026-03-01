@@ -4,9 +4,24 @@ metadata:
   name: bowapp
   namespace: {{.Release.Namespace}}
 data:
+  {{- if ne (default "password" .Values.database.auth.provider) "password" }}
+  # Managed database with IAM auth — password is generated at runtime
+  BOW_DATABASE_AUTH_PROVIDER: {{ .Values.database.auth.provider | quote }}
+  BOW_DATABASE_HOST: {{ .Values.database.host | quote }}
+  BOW_DATABASE_PORT: {{ .Values.database.port | quote }}
+  BOW_DATABASE_USER: {{ .Values.database.username | quote }}
+  BOW_DATABASE_NAME: {{ .Values.database.name | quote }}
+  {{- if .Values.database.auth.region }}
+  BOW_DATABASE_AUTH_REGION: {{ .Values.database.auth.region | quote }}
+  {{- end }}
+  {{- if .Values.database.auth.sslMode }}
+  BOW_DATABASE_SSL_MODE: {{ .Values.database.auth.sslMode | quote }}
+  {{- end }}
+  {{- else }}
   # Database URL - only set if not using existing secret
   {{- if (empty .Values.postgresql.auth.existingSecret) }}
   BOW_DATABASE_URL: postgresql://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@{{.Release.Name}}-postgresql:5432/{{.Values.postgresql.auth.database}}
+  {{- end }}
   {{- end }}
   
   # Application configuration - always include these
