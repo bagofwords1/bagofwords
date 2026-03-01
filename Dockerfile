@@ -124,6 +124,11 @@ COPY --from=frontend-builder --chown=app:app /app/frontend/public/libs /app/fron
 # Copy runtime configs and scripts
 COPY --chown=app:app ./backend/requirements_versioned.txt /app/backend/
 
+# Download RDS/Aurora CA certificate bundle for IAM auth SSL verification
+RUN mkdir -p /app/certs && \
+    curl -sSL -o /app/certs/rds-combined-ca-bundle.pem \
+      https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+
 # Create directories that the application needs to write to
 RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding /app/backend/logs && \
     chown -R app:app /app
