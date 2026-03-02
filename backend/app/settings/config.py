@@ -64,7 +64,7 @@ class Settings(BaseSettings):
                     new_key = generate_fernet_key()
                     os.environ["BOW_ENCRYPTION_KEY"] = new_key  # Save for future use
                     return new_key
-                return config  # Keep placeholder for other env vars
+                return None  # Env var not set — return None instead of raw placeholder
             return config
 
         with open(yaml_path, "r") as yaml_file:
