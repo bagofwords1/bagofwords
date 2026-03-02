@@ -42,6 +42,18 @@ async def remove_file_from_report(file_id: str, report_id: str, current_user: Us
 async def get_files(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     return await file_service.get_files(db, organization)
 
+@router.post("/files/{file_id}/create_data_source")
+@requires_permission('create_data_source')
+async def create_data_source_from_file(
+    file_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Create a DuckDB data source from an uploaded CSV or Excel file."""
+    return await file_service.create_data_source_from_file(db, file_id, current_user, organization)
+
+
 @router.get("/files/{file_id}/content")
 @requires_permission('view_files')
 async def get_file_content(file_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):

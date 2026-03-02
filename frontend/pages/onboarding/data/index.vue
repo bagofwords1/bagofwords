@@ -40,6 +40,21 @@
                 </button>
               </div>
 
+              <!-- CSV/Excel upload -->
+              <div class="mt-6">
+                <div class="text-xs text-gray-400 mb-2">Or upload a file:</div>
+                <input type="file" ref="fileInput" @change="handleFileUpload" class="hidden" accept=".csv,.xlsx,.xls" />
+                <button
+                  @click="($refs.fileInput as HTMLInputElement).click()"
+                  :disabled="uploadingFile"
+                  class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Spinner v-if="uploadingFile" class="h-3" />
+                  <Icon v-else name="heroicons-arrow-up-tray" class="h-4 w-4" />
+                  Upload CSV or Excel
+                </button>
+              </div>
+
               <!-- Sample databases -->
               <div v-if="uninstalledDemos.length > 0" class="mt-6">
                 <div class="text-xs text-gray-400 mb-2">Or try a sample database:</div>
@@ -100,6 +115,7 @@ import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const { updateOnboarding } = useOnboarding()
 const router = useRouter()
+const toast = useToast()
 async function skipForNow() { await updateOnboarding({ dismissed: true }); router.push('/') }
 
 const { isLicensed } = useEnterprise()
@@ -108,6 +124,7 @@ const available_ds = ref<any[]>([])
 const demo_ds = ref<any[]>([])
 const selectedDataSource = ref<any | null>(null)
 const installingDemo = ref<string | null>(null)
+const uploadingFile = ref(false)
 
 const uninstalledDemos = computed(() => (demo_ds.value || []).filter((demo: any) => !demo.installed))
 
@@ -162,6 +179,45 @@ function onCreateSuccess(ds: any) {
   const dsId = ds?.id
   updateOnboarding({ current_step: 'schema_selected' as any })
   navigateTo(dsId ? `/onboarding/data/${dsId}/schema` : '/onboarding/data/schema')
+}
+
+async function handleFileUpload(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  uploadingFile.value = true
+  try {
+    // 1. Upload the file
+    const formData = new FormData()
+    formData.append('file', file)
+    const { data: uploadData, error: uploadError } = await useMyFetch('/files', {
+      method: 'POST',
+      body: formData,
+    })
+    if (uploadError.value || !uploadData.value) {
+      toast.add({ title: 'Upload failed', description: 'Could not upload file', color: 'red' })
+      return
+    }
+
+    // 2. Create data source from the uploaded file
+    const fileId = (uploadData.value as any).id
+    const { data: dsData, error: dsError } = await useMyFetch(`/files/${fileId}/create_data_source`, {
+      method: 'POST',
+    })
+    if (dsError.value || !dsData.value) {
+      toast.add({ title: 'Error', description: 'Could not create data source from file', color: 'red' })
+      return
+    }
+
+    // 3. Navigate to schema selection (same as demo install and connector creation)
+    const dsId = (dsData.value as any).data_source_id
+    updateOnboarding({ current_step: 'schema_selected' as any })
+    navigateTo(dsId ? `/onboarding/data/${dsId}/schema` : '/onboarding/data/schema')
+  } finally {
+    uploadingFile.value = false
+    input.value = '' // reset so same file can be re-selected
+  }
 }
 
 </script>

@@ -53,9 +53,19 @@
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">{{ file.created_at }}</td>
-                            <td class="px-6 py-4 whitespace-nowrap">
+                            <td class="px-6 py-4 whitespace-nowrap flex items-center gap-2">
+                                <button
+                                    v-if="isQueryable(file) && useCan('create_data_source')"
+                                    @click="createDataSource(file)"
+                                    :disabled="loadingFileIds.has(file.id)"
+                                    class="inline-flex items-center gap-1 text-xs font-medium text-white bg-primary-500 hover:bg-primary-600 disabled:opacity-50 rounded-md px-2.5 py-1.5 transition-colors"
+                                >
+                                    <Spinner v-if="loadingFileIds.has(file.id)" class="w-3 h-3" />
+                                    <Icon v-else name="heroicons-magnifying-glass-circle" class="w-4 h-4" />
+                                    Query this data
+                                </button>
                                 <button @click="downloadFile(file)" class="text-primary-500 hover:text-primary-700">
-                                    <Icon name="heroicons-arrow-down-tray" class="w-5 h-5 text-gray-500 mr-2" />
+                                    <Icon name="heroicons-arrow-down-tray" class="w-5 h-5 text-gray-500" />
                                 </button>
                             </td>
                         </tr>
@@ -68,10 +78,24 @@
 </template>
 
 <script setup lang="ts">
+import Spinner from '~/components/Spinner.vue';
+import { useExcel } from '~/composables/useExcel'
+import { useCan } from '~/composables/usePermissions'
 
+const { isExcel } = useExcel()
 const files = ref([]);
+const router = useRouter();
+const toast = useToast();
+const loadingFileIds = ref<Set<string>>(new Set())
 
 definePageMeta({ auth: true })
+
+const QUERYABLE_EXTENSIONS = ['.csv', '.xlsx', '.xls'];
+
+function isQueryable(file: any): boolean {
+  const name = (file.filename || '').toLowerCase();
+  return QUERYABLE_EXTENSIONS.some(ext => name.endsWith(ext));
+}
 
 const getFiles = async () => {
   const response = await useMyFetch('/api/files', {
@@ -81,6 +105,27 @@ const getFiles = async () => {
     },
   })
   files.value = response.data.value
+}
+
+const createDataSource = async (file: any) => {
+  loadingFileIds.value = new Set([...loadingFileIds.value, file.id])
+  try {
+    const { data, error } = await useMyFetch(`/api/files/${file.id}/create_data_source`, {
+      method: 'POST',
+    });
+    if (error.value || !data.value) {
+      toast.add({ title: 'Error', description: error.value?.data?.detail || 'Failed to create data source', color: 'red' });
+      return;
+    }
+    toast.add({ title: 'Data source created', description: `"${data.value.data_source_name}" is ready to query`, color: 'green' });
+    router.push('/');
+  } catch (e: any) {
+    toast.add({ title: 'Error', description: e.message || 'Failed to create data source', color: 'red' });
+  } finally {
+    const s = new Set(loadingFileIds.value)
+    s.delete(file.id)
+    loadingFileIds.value = s
+  }
 }
 
 const downloadFile = async (file: any) => {

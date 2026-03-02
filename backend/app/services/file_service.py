@@ -3,6 +3,9 @@ from sqlalchemy.orm import Session
 from app.schemas.file_schema import FileSchema, FileSchemaWithMetadata, FileSchemaWithCompletionId
 from app.models.file import File
 import uuid
+import os
+import json
+from pathlib import Path
 from app.models.report import Report
 from app.models.user import User
 from app.models.organization import Organization
@@ -13,7 +16,7 @@ from app.models.file import report_file_association
 from app.models.file_tag import FileTag
 from sqlalchemy.ext.asyncio import AsyncSession
 import aiofiles
-from sqlalchemy import select, exists
+from sqlalchemy import select, exists, func
 from app.core.telemetry import telemetry
 from app.services.file_preview import generate_file_preview
 import logging
@@ -162,6 +165,180 @@ class FileService:
             files_with_completion.append(FileSchemaWithCompletionId(**file_dict))
 
         return files_with_completion
+
+    # ==========================================================================
+    # CSV/Excel → DuckDB Data Source
+    # ==========================================================================
+
+    QUERYABLE_CONTENT_TYPES = {
+        "text/csv",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+
+    EXCEL_CONTENT_TYPES = {
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+
+    async def create_data_source_from_file(
+        self,
+        db: AsyncSession,
+        file_id: str,
+        current_user: User,
+        organization: Organization,
+    ):
+        """Create a DuckDB data source from an uploaded CSV or Excel file.
+
+        For CSV files, DuckDB reads the file directly via read_csv_auto().
+        For Excel files, each sheet is first converted to a separate CSV,
+        then all CSVs are registered as DuckDB views.
+        """
+        from app.models.connection import Connection
+        from app.models.data_source import DataSource
+        from app.services.connection_service import ConnectionService
+        from app.services.data_source_service import DataSourceService
+
+        # 1. Look up file and verify ownership
+        stmt = select(File).filter(File.id == file_id, File.organization_id == organization.id)
+        result = await db.execute(stmt)
+        file = result.scalar_one_or_none()
+        if not file:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        # 2. Validate file type
+        content_type = (file.content_type or "").lower()
+        # Also accept by extension for cases where MIME type is generic
+        ext = Path(file.filename).suffix.lower()
+        is_csv = content_type == "text/csv" or ext == ".csv"
+        is_excel = content_type in self.EXCEL_CONTENT_TYPES or ext in (".xlsx", ".xls")
+
+        if not is_csv and not is_excel:
+            raise HTTPException(
+                status_code=400,
+                detail="Only CSV and Excel files can be converted to a data source."
+            )
+
+        # 3. Resolve absolute file paths for DuckDB
+        file_abs_path = os.path.abspath(file.path)
+
+        upload_root = os.path.abspath("uploads/files")
+        if not file_abs_path.startswith(upload_root + os.sep):
+            raise HTTPException(status_code=400, detail="Invalid file path")
+
+        if is_excel:
+            # Convert each Excel sheet to a CSV, collect the paths
+            # Run in executor to avoid blocking the async event loop
+            import asyncio
+            csv_paths = await asyncio.get_event_loop().run_in_executor(
+                None, self._convert_excel_to_csvs, file_abs_path, file.filename
+            )
+            uris = "\n".join(csv_paths)
+        else:
+            uris = file_abs_path
+
+        # 4. Derive a data source name from filename (deduplicate if needed)
+        base_name = Path(file.filename).stem
+        # Check for duplicate names in the org
+        count_result = await db.execute(
+            select(func.count(DataSource.id)).filter(
+                DataSource.organization_id == organization.id,
+                DataSource.name == base_name,
+            )
+        )
+        if count_result.scalar():
+            base_name = f"{base_name}_{uuid.uuid4().hex[:6]}"
+
+        # 5. Create Connection (same pattern as data_source_service.create_data_source Mode 1)
+        count_result = await db.execute(
+            select(func.count(Connection.id)).filter(
+                Connection.organization_id == organization.id,
+                Connection.type == "duckdb",
+            )
+        )
+        existing_count = count_result.scalar() or 0
+        connection_name = f"duckdb-{existing_count + 1}"
+
+        new_connection = Connection(
+            name=connection_name,
+            type="duckdb",
+            config={"uris": uris},
+            organization_id=str(organization.id),
+            is_active=True,
+            auth_policy="system_only",
+        )
+        # No credentials needed for local file
+        new_connection.encrypt_credentials({"auth_type": "none"})
+
+        db.add(new_connection)
+        await db.flush()
+
+        # 6. Create DataSource
+        new_data_source = DataSource(
+            name=base_name,
+            organization_id=organization.id,
+            is_public=True,
+            use_llm_sync=False,
+            owner_user_id=current_user.id,
+        )
+        new_data_source.connections.append(new_connection)
+        db.add(new_data_source)
+        await db.commit()
+        await db.refresh(new_data_source)
+
+        # 7. Refresh schema (populates ConnectionTable) and sync to DataSourceTable
+        connection_service = ConnectionService()
+        await connection_service.refresh_schema(db=db, connection=new_connection, current_user=current_user)
+
+        data_source_service = DataSourceService()
+        await data_source_service.sync_domain_tables_from_connection(
+            db, new_data_source, new_connection, max_auto_select=20
+        )
+        await db.commit()
+
+        # 8. Add creator as member
+        from app.models.data_source_membership import DataSourceMembership, PRINCIPAL_TYPE_USER
+        membership = DataSourceMembership(
+            data_source_id=new_data_source.id,
+            principal_type=PRINCIPAL_TYPE_USER,
+            principal_id=current_user.id,
+        )
+        db.add(membership)
+        await db.commit()
+
+        logger.info(f"Created DuckDB data source '{base_name}' from file '{file.filename}'")
+
+        return {
+            "data_source_id": str(new_data_source.id),
+            "data_source_name": new_data_source.name,
+            "connection_id": str(new_connection.id),
+        }
+
+    def _convert_excel_to_csvs(self, excel_path: str, original_filename: str) -> list[str]:
+        """Convert each sheet of an Excel file to a separate CSV file.
+
+        Returns a list of absolute paths to the created CSV files.
+        """
+        import pandas as pd
+
+        output_dir = os.path.dirname(excel_path)
+        stem = Path(original_filename).stem
+        file_uuid = uuid.uuid4().hex[:8]
+
+        xlsx = pd.ExcelFile(excel_path)
+        csv_paths = []
+
+        for sheet_name in xlsx.sheet_names:
+            df = xlsx.parse(sheet_name)
+            # Sanitize sheet name for filename
+            safe_sheet = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in sheet_name)
+            csv_filename = f"{file_uuid}_{stem}_{safe_sheet}.csv"
+            csv_path = os.path.join(output_dir, csv_filename)
+            df.to_csv(csv_path, index=False)
+            csv_paths.append(os.path.abspath(csv_path))
+            logger.info(f"Converted Excel sheet '{sheet_name}' → {csv_path}")
+
+        return csv_paths
 
     # ==========================================================================
     # DEPRECATED: LLM-based schema extraction methods

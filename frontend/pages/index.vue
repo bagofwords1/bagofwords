@@ -53,6 +53,20 @@
               @update:modelValue="handlePromptUpdate"
           />
       </div>
+      <!-- Quick CSV upload -->
+      <div class="mt-3 flex justify-center">
+        <input type="file" ref="csvFileInput" @change="handleCsvUpload" class="hidden" accept=".csv,.xlsx,.xls" />
+        <button
+          @click="($refs.csvFileInput as HTMLInputElement).click()"
+          :disabled="uploadingCsv"
+          class="inline-flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+        >
+          <Spinner v-if="uploadingCsv" class="w-3 h-3" />
+          <Icon v-else name="heroicons-arrow-up-tray" class="w-3.5 h-3.5" />
+          Upload a CSV or Excel file to query
+        </button>
+      </div>
+
       <div class="w-full mx-auto mt-0 space-x-3 space-y-3" v-if="selectedDataSources">
         <DataSourceQuestionsHome
             :data_sources="selectedDataSources"
@@ -218,6 +232,46 @@ const menuItems = ref([
 ])
 
 const { isExcel } = useExcel()
+const uploadingCsv = ref(false)
+const toast = useToast()
+
+async function handleCsvUpload(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+
+  uploadingCsv.value = true
+  try {
+    // 1. Upload
+    const formData = new FormData()
+    formData.append('file', file)
+    const { data: uploadData, error: uploadError } = await useMyFetch('/files', {
+      method: 'POST',
+      body: formData,
+    })
+    if (uploadError.value || !uploadData.value) {
+      toast.add({ title: 'Upload failed', description: 'Could not upload file', color: 'red' })
+      return
+    }
+
+    // 2. Create data source
+    const fileId = (uploadData.value as any).id
+    const { data: dsData, error: dsError } = await useMyFetch(`/files/${fileId}/create_data_source`, {
+      method: 'POST',
+    })
+    if (dsError.value || !dsData.value) {
+      toast.add({ title: 'Error', description: 'Could not create data source from file', color: 'red' })
+      return
+    }
+
+    toast.add({ title: 'Ready to query', description: `"${(dsData.value as any).data_source_name}" has been added`, color: 'green' })
+    // Reload page to pick up the new data source
+    router.go(0)
+  } finally {
+    uploadingCsv.value = false
+    input.value = ''
+  }
+}
 
 const textareaContent = ref('')
 
