@@ -31,7 +31,7 @@ data:
   BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
   BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
   BOW_GOOGLE_AUTH_ENABLED: {{.Values.config.googleOauthEnabled | quote}}
-  {{- if .Values.config.smtp.host }}
+  {{- if or .Values.config.smtp.host .Values.config.smtp.enabled }}
   BOW_SMTP_HOST: {{.Values.config.smtp.host | quote}}
   BOW_SMTP_PORT: {{.Values.config.smtp.port | quote}}
   BOW_SMTP_USERNAME: {{.Values.config.smtp.username | quote}}
@@ -71,7 +71,7 @@ data:
 
     encryption_key: ${BOW_ENCRYPTION_KEY}
     
-{{- if .Values.config.smtp.host }}
+{{- if or .Values.config.smtp.host .Values.config.smtp.enabled }}
     smtp_settings:
       host: ${BOW_SMTP_HOST}
       port: ${BOW_SMTP_PORT}

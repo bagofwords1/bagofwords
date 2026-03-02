@@ -71,6 +71,7 @@ config:
   # For security, prefer using secretRef to store the license key
   licenseKey: ""
   smtp:
+    enabled: false
     host: ""
     port: 587
     username: ""
