@@ -31,6 +31,7 @@ data:
   BOW_GOOGLE_CLIENT_ID: {{.Values.config.googleClientId | quote}}
   BOW_GOOGLE_CLIENT_SECRET: {{.Values.config.googleClientSecret | quote}}
   BOW_GOOGLE_AUTH_ENABLED: {{.Values.config.googleOauthEnabled | quote}}
+  {{- if or .Values.config.smtp.host .Values.config.smtp.enabled }}
   BOW_SMTP_HOST: {{.Values.config.smtp.host | quote}}
   BOW_SMTP_PORT: {{.Values.config.smtp.port | quote}}
   BOW_SMTP_USERNAME: {{.Values.config.smtp.username | quote}}
@@ -41,6 +42,7 @@ data:
   BOW_SMTP_USE_SSL: {{.Values.config.smtp.use_ssl | quote}}
   BOW_SMTP_USE_CREDENTIALS: {{.Values.config.smtp.use_credentials | quote}}
   BOW_SMTP_VALIDATE_CERTS: {{.Values.config.smtp.validate_certs | quote}}
+  {{- end }}
   BOW_INTERCOM_ENABLED: {{.Values.config.intercomEnabled | quote}}
   BOW_ALLOW_UNINVITED_SIGNUPS: {{.Values.config.allowUninvitedSignups | quote}}
   BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{.Values.config.allowMultipleOrganizations | quote}}
@@ -69,6 +71,7 @@ data:
 
     encryption_key: ${BOW_ENCRYPTION_KEY}
     
+{{- if or .Values.config.smtp.host .Values.config.smtp.enabled }}
     smtp_settings:
       host: ${BOW_SMTP_HOST}
       port: ${BOW_SMTP_PORT}
@@ -80,6 +83,7 @@ data:
       use_ssl: ${BOW_SMTP_USE_SSL}
       use_credentials: ${BOW_SMTP_USE_CREDENTIALS}
       validate_certs: ${BOW_SMTP_VALIDATE_CERTS}
+{{- end }}
 
     intercom:
       enabled: ${BOW_INTERCOM_ENABLED}

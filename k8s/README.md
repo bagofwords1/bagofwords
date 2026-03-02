@@ -85,6 +85,16 @@ helm upgrade -i --create-namespace \
  --set serviceAccount.annotations.'eks\.amazonaws\.com/role-arn'=arn:aws:iam::123456789012:role/bow-rds-role
 ```
 
+**SSL certificate verification:** The image ships with the public AWS RDS CA bundle. By default, `sslMode=require` encrypts the connection without certificate verification. To enable full certificate verification, set `sslMode=verify-full` — the built-in CA bundle will be used automatically.
+
+To use a **custom CA certificate** (e.g. a private or corporate CA), create a K8s Secret containing the cert and reference it:
+```bash
+--set database.auth.sslMode=verify-full \
+--set database.auth.sslRootCert.secretName=my-rds-ca-cert \
+--set database.auth.sslRootCert.key=ca-bundle.pem
+```
+This mounts the Secret into the pod, overriding the built-in bundle.
+
 ### Deploy with Aurora using values.yaml
 
 For Aurora deployments, you can also set all values in a file:

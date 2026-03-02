@@ -1,5 +1,9 @@
 # Release Notes
 
+# Version 0.0.324 (March 2, 2026)
+- Default SMTP config
+- Improve k8s helm to support custom certs when using Aurora DB as backend
+
 ### Version 0.0.322 (March 1, 2026)
 - Support long oauth string columns for Entra
 - Allow AWS Aurora PG with IAM as backend DB
