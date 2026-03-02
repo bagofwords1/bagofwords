@@ -57,8 +57,21 @@ spec:
           - name: bow-config
             mountPath: /app/bow-config.yaml
             subPath: bowConfig
+          {{- if .Values.database.auth.sslRootCert.secretName }}
+          - name: db-ca-cert
+            mountPath: /app/certs
+            readOnly: true
+          {{- end }}
       volumes:
         - name: bow-config
           configMap:
             name: bowapp
+        {{- if .Values.database.auth.sslRootCert.secretName }}
+        - name: db-ca-cert
+          secret:
+            secretName: {{ .Values.database.auth.sslRootCert.secretName }}
+            items:
+              - key: {{ .Values.database.auth.sslRootCert.key }}
+                path: rds-combined-ca-bundle.pem
+        {{- end }}
 

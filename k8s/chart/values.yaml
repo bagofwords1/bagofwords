@@ -22,6 +22,9 @@ database:
     provider: password   # password | aws_iam
     region: ""           # AWS only — e.g. "us-east-1"
     sslMode: ""          # e.g. "verify-full" (required for IAM auth)
+    sslRootCert:
+      secretName: ""     # K8s Secret with a custom CA cert (optional — image ships with public AWS RDS bundle)
+      key: ""            # Key inside the Secret (e.g. "ca-bundle.pem")
   host: ""               # e.g. my-cluster.cluster-xxx.us-east-1.rds.amazonaws.com
   port: 5432
   username: ""           # DB user — must have GRANT rds_iam (AWS) or equivalent
