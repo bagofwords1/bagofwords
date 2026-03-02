@@ -72,7 +72,7 @@ config:
   licenseKey: ""
   smtp:
     host: ""
-    port: ""
+    port: 587
     username: ""
     password: ""
     from_name: ""

@@ -56,7 +56,7 @@ class Settings(BaseSettings):
                 # Extract env var name from ${VAR_NAME}
                 env_var_name = config[2:-1]
                 env_value = os.environ.get(env_var_name)
-                if env_value:
+                if env_value is not None:
                     return env_value
                 # If env var is not set and this is encryption key, generate one
                 if env_var_name == "BOW_ENCRYPTION_KEY":
