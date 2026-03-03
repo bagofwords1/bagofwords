@@ -30,6 +30,24 @@
           </div>
         </div>
 
+        <!-- Create Database card -->
+        <div class="mb-4">
+          <button
+            @click="handleCreateDatabase"
+            :disabled="creatingDatabase"
+            class="w-full flex items-center gap-3 p-3 rounded-lg border border-dashed border-primary-300 bg-primary-50/50 hover:bg-primary-50 hover:border-primary-400 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <div class="flex items-center justify-center w-8 h-8 rounded-lg bg-primary-100 text-primary-600">
+              <Spinner v-if="creatingDatabase" class="w-4 h-4" />
+              <UIcon v-else name="heroicons-folder-plus" class="w-4 h-4" />
+            </div>
+            <div>
+              <div class="text-sm font-medium text-gray-900">Create Database</div>
+              <div class="text-xs text-gray-500">Upload CSV & Excel files</div>
+            </div>
+          </button>
+        </div>
+
         <!-- Search input -->
         <div class="mb-4">
           <UInput
@@ -148,6 +166,7 @@ const demos = ref<any[]>([])
 const loadingDataSources = ref(true)
 const selectedDataSource = ref<any>(null)
 const installingDemo = ref<string | null>(null)
+const creatingDatabase = ref(false)
 
 // Computed
 const uninstalledDemos = computed(() => (demos.value || []).filter((demo: any) => !demo.installed))
@@ -203,6 +222,29 @@ async function handleInstallDemo(demoId: string) {
     }
   } finally {
     installingDemo.value = null
+  }
+}
+
+async function handleCreateDatabase() {
+  if (creatingDatabase.value) return
+  creatingDatabase.value = true
+  try {
+    const { data, error } = await useMyFetch('/connections/create_file_database', { method: 'POST' })
+    if (error.value) {
+      toast.add({ title: 'Error', description: 'Could not create database', color: 'red' })
+      return
+    }
+    const connection = data.value as any
+    toast.add({
+      title: 'Database created',
+      description: `${connection?.name || 'Database'} is ready for file uploads.`,
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    emit('created', connection)
+    isOpen.value = false
+  } finally {
+    creatingDatabase.value = false
   }
 }
 

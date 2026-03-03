@@ -45,10 +45,24 @@
         </div>
       </div>
 
+      <!-- Upload Files for file-upload connections -->
+      <div v-if="isFileUploadConnection" class="pt-4 border-t border-gray-100">
+        <input type="file" ref="fileUploadInput" @change="handleFileUpload" class="hidden" accept=".csv,.xlsx,.xls" />
+        <button
+          @click="($refs.fileUploadInput as HTMLInputElement).click()"
+          :disabled="uploadingFile"
+          class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-primary-700 bg-primary-50 border border-primary-200 rounded-lg hover:bg-primary-100 transition-colors disabled:opacity-50"
+        >
+          <Spinner v-if="uploadingFile" class="w-3.5 h-3.5" />
+          <UIcon v-else name="heroicons-arrow-up-tray" class="w-3.5 h-3.5" />
+          {{ uploadingFile ? 'Uploading...' : 'Upload Files' }}
+        </button>
+      </div>
+
       <!-- Actions -->
       <div class="flex items-center gap-2 pt-4 border-t border-gray-100">
-        <button 
-          @click="testConnection" 
+        <button
+          @click="testConnection"
           :disabled="testing"
           class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
         >
@@ -57,7 +71,7 @@
           {{ testing ? 'Testing...' : 'Refresh' }}
         </button>
         <!-- Full Edit button (admin with update_data_source permission) -->
-        <button 
+        <button
           v-if="canUpdateDataSource"
           @click="openEdit"
           class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
@@ -65,9 +79,9 @@
           <UIcon name="heroicons-pencil" class="w-3.5 h-3.5" />
           Edit
         </button>
-        
+
         <!-- Connect button (user auth required, no admin permission) -->
-        <button 
+        <button
           v-else-if="requiresUserAuth"
           @click="openCredentialsModal"
           class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50"
@@ -205,10 +219,19 @@ const connectionDetails = ref<any>(null)
 const showCredentialsModal = ref(false)
 const confirmingDelete = ref(false)
 const deleting = ref(false)
+const uploadingFile = ref(false)
+
+const toast = useToast()
 
 // Permission and auth checks
 const canUpdateDataSource = computed(() => useCan('update_data_source'))
 const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
+const isFileUploadConnection = computed(() => {
+  const conn = props.connection
+  if (!conn || conn.type !== 'duckdb') return false
+  const config = typeof conn.config === 'string' ? JSON.parse(conn.config) : conn.config
+  return config?.is_file_upload === true
+})
 
 const isConnected = computed(() => {
   // Check multiple possible status fields
@@ -252,6 +275,50 @@ const editFormValues = computed(() => {
     credentials: {}
   }
 })
+
+async function handleFileUpload(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || !props.connection?.id) return
+
+  uploadingFile.value = true
+  try {
+    // 1. Upload file
+    const formData = new FormData()
+    formData.append('file', file)
+    const { data: uploadData, error: uploadError } = await useMyFetch('/files', {
+      method: 'POST',
+      body: formData,
+    })
+    if (uploadError.value || !uploadData.value) {
+      toast.add({ title: 'Upload failed', description: 'Could not upload file', color: 'red' })
+      return
+    }
+
+    // 2. Add to this connection
+    const fileId = (uploadData.value as any).id
+    const { data: dsData, error: dsError } = await useMyFetch(
+      `/files/${fileId}/create_data_source?connection_id=${props.connection.id}`,
+      { method: 'POST' }
+    )
+    if (dsError.value || !dsData.value) {
+      toast.add({ title: 'Error', description: 'Could not add file to connection', color: 'red' })
+      return
+    }
+
+    const result = dsData.value as any
+    toast.add({
+      title: 'Table added',
+      description: `"${result.table_name}" has been added to ${props.connection.name}.`,
+      icon: 'i-heroicons-check-circle',
+      color: 'green'
+    })
+    emit('updated')
+  } finally {
+    uploadingFile.value = false
+    input.value = ''
+  }
+}
 
 async function testConnection() {
   if (!props.connection?.id || testing.value) return

@@ -41,6 +41,7 @@ class ConnectionSchema(BaseModel):
     table_count: int = 0
     domain_count: int = 0
     domain_names: List[str] = []  # Names of linked domains (for delete confirmation)
+    config: Optional[dict] = None  # Non-sensitive config (e.g. is_file_upload flag)
 
     class Config:
         from_attributes = True

@@ -85,10 +85,8 @@ class Connection(BaseSchema):
                 client_params.update(decrypted_credentials)
             
             # Remove non-client params
-            if "auth_type" in client_params:
-                del client_params["auth_type"]
-            if "demo_id" in client_params:
-                del client_params["demo_id"]
+            for meta_key in ("auth_type", "demo_id", "is_file_upload"):
+                client_params.pop(meta_key, None)
             
             import logging
             logger = logging.getLogger(__name__)

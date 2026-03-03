@@ -137,16 +137,26 @@
 
                     <!-- Connection chips (when connections exist) -->
                     <div v-if="connections.length > 0" class="flex flex-wrap items-center gap-2">
-                        <button
-                            v-for="conn in connections"
-                            :key="conn.id"
-                            @click="openConnectionDetail(conn)"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all"
-                        >
-                            <DataSourceIcon class="h-3.5" :type="conn.type" />
-                            <span>{{ conn.name }}</span>
-                            <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-green-500' : 'bg-red-500']"></span>
-                        </button>
+                        <div v-for="conn in connections" :key="conn.id" class="inline-flex items-center">
+                            <button
+                                @click="openConnectionDetail(conn)"
+                                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-all"
+                                :class="{ 'rounded-r-none border-r-0': isFileUploadConn(conn) }"
+                            >
+                                <DataSourceIcon class="h-3.5" :type="conn.type" />
+                                <span>{{ conn.name }}</span>
+                                <span :class="['w-1.5 h-1.5 rounded-full', isConnectionHealthy(conn) ? 'bg-green-500' : 'bg-red-500']"></span>
+                            </button>
+                            <button
+                                v-if="isFileUploadConn(conn)"
+                                @click="triggerUploadForConnection(conn)"
+                                :disabled="uploadingToConnectionId === conn.id"
+                                class="inline-flex items-center gap-1 px-2 py-1.5 text-xs rounded-full rounded-l-none border border-gray-200 bg-primary-50 text-primary-600 hover:bg-primary-100 hover:border-primary-300 transition-all disabled:opacity-50"
+                            >
+                                <Spinner v-if="uploadingToConnectionId === conn.id" class="w-3 h-3" />
+                                <UIcon v-else name="heroicons-arrow-up-tray" class="w-3 h-3" />
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Empty state when no connections - show data source grid -->
@@ -159,6 +169,9 @@
                         />
                     </div>
                 </div>
+
+                <!-- Hidden file input for connection uploads -->
+                <input type="file" ref="connFileInput" @change="handleConnFileUpload" class="hidden" accept=".csv,.xlsx,.xls" />
             </div>
 
             <!-- Connection Detail Modal -->
@@ -209,6 +222,8 @@ const showCredsModal = ref(false)
 const selectedDs = ref<any>(null)
 const showAddConnectionModal = ref(false)
 const selectedDataSourceType = ref<string | undefined>(undefined)
+const uploadingToConnectionId = ref<string | null>(null)
+const uploadTargetConnectionId = ref<string | null>(null)
 
 // Filter state
 const searchQuery = ref('')
@@ -296,6 +311,65 @@ function isConnectionHealthy(conn: any): boolean {
     
     // Default: assume healthy if we have the connection in the list
     return true
+}
+
+function isFileUploadConn(conn: any): boolean {
+    if (conn.type !== 'duckdb') return false
+    const config = typeof conn.config === 'string' ? JSON.parse(conn.config) : conn.config
+    return config?.is_file_upload === true
+}
+
+const connFileInput = ref<HTMLInputElement | null>(null)
+
+function triggerUploadForConnection(conn: any) {
+    uploadTargetConnectionId.value = conn.id
+    if (connFileInput.value) connFileInput.value.click()
+}
+
+async function handleConnFileUpload(e: Event) {
+    const input = e.target as HTMLInputElement
+    const file = input.files?.[0]
+    const connId = uploadTargetConnectionId.value
+    if (!file || !connId) return
+
+    uploadingToConnectionId.value = connId
+    try {
+        // 1. Upload file
+        const formData = new FormData()
+        formData.append('file', file)
+        const { data: uploadData, error: uploadError } = await useMyFetch('/files', {
+            method: 'POST',
+            body: formData,
+        })
+        if (uploadError.value || !uploadData.value) {
+            toast.add({ title: 'Upload failed', description: 'Could not upload file', color: 'red' })
+            return
+        }
+
+        // 2. Add to connection
+        const fileId = (uploadData.value as any).id
+        const { data: dsData, error: dsError } = await useMyFetch(
+            `/files/${fileId}/create_data_source?connection_id=${connId}`,
+            { method: 'POST' }
+        )
+        if (dsError.value || !dsData.value) {
+            toast.add({ title: 'Error', description: 'Could not add file to connection', color: 'red' })
+            return
+        }
+
+        const result = dsData.value as any
+        toast.add({
+            title: 'Table added',
+            description: `"${result.table_name}" has been added.`,
+            icon: 'i-heroicons-check-circle',
+            color: 'green'
+        })
+        await refreshData()
+    } finally {
+        uploadingToConnectionId.value = null
+        uploadTargetConnectionId.value = null
+        input.value = ''
+    }
 }
 
 function openConnectionDetail(conn: any) {

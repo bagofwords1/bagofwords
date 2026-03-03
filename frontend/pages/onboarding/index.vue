@@ -17,7 +17,7 @@
                       Getting started is quick: just connect your model and your data source, and you’ll be ready to ask your first question.
                     </p>
                   <p class="text-sm text-gray-600">
-                    👉 Let’s set things up!
+                    Let’s set things up.
                   </p>
                 </div>
               </div>
