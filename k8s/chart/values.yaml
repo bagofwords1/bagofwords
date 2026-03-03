@@ -36,7 +36,7 @@ ingress:
   clusterIssuerName: prod-cluster-issuer
 serviceAccount:
   name: bowapp
-  imagePullSecret: bowapp-pull-secret
+  imagePullSecret: ""
   annotations: {}
 config:
   secretRef: ""

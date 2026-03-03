@@ -4,5 +4,7 @@ metadata:
   name: {{ .Values.serviceAccount.name }}
   namespace: {{ .Release.Namespace }}
   annotations: {{.Values.serviceAccount.annotations | toJson}}
+{{- if not (empty .Values.serviceAccount.imagePullSecret) }}
 imagePullSecrets:
   - name: {{.Values.serviceAccount.imagePullSecret}}
+{{- end }}
