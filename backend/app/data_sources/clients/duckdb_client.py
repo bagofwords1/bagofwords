@@ -89,6 +89,9 @@ class DuckDBClient(DataSourceClient):
     def _safe_view_name(self, base: str, used: set[str]) -> str:
         import re
         name = re.sub(r"[^a-zA-Z0-9_]+", "_", base).strip("_") or "t"
+        # SQL identifiers cannot start with a digit
+        if name[0].isdigit():
+            name = f"_{name}"
         original = name
         i = 1
         while name in used:
