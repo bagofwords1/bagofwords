@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.325 (March 3, 2026)
+- Fix Alembic migration SSL error when using Aurora PostgreSQL with IAM authentication
+
 # Version 0.0.324 (March 2, 2026)
 - Default SMTP config
 - Improve k8s helm to support custom certs when using Aurora DB as backend
