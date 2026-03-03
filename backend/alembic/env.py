@@ -153,19 +153,12 @@ def run_migrations_online() -> None:
 
     connect_args = {}
     if not settings.TESTING and db_config.uses_iam_auth and db_config.auth.ssl_mode:
-        import ssl as _ssl
-        ssl_ctx = _ssl.create_default_context()
+        import os
+        connect_args["sslmode"] = db_config.auth.ssl_mode
         if db_config.auth.ssl_mode == "verify-full":
-            ssl_ctx.check_hostname = True
-            ssl_ctx.verify_mode = _ssl.CERT_REQUIRED
-            import os
             rds_ca = "/app/certs/rds-combined-ca-bundle.pem"
             if os.path.exists(rds_ca):
-                ssl_ctx.load_verify_locations(rds_ca)
-        elif db_config.auth.ssl_mode == "require":
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = _ssl.CERT_NONE
-        connect_args["sslmode"] = db_config.auth.ssl_mode
+                connect_args["sslrootcert"] = rds_ca
 
     connectable = create_engine(url, poolclass=pool.NullPool, connect_args=connect_args)
     _attach_migration_iam_hook(connectable)
