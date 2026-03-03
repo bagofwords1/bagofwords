@@ -50,6 +50,9 @@ from app.schemas.data_sources.configs import (
     MSFabricCredentials,
     # Sybase SQL Anywhere
     SybaseConfig,
+    # Timbr
+    TimbrConfig,
+    TimbrTokenCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -476,6 +479,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system", "user"])
         }),
         client_path=None,
+        requires_license="enterprise",
+    ),
+    "timbr": DataSourceRegistryEntry(
+        type="timbr",
+        title="Timbr AI",
+        description="Ontology-based semantic layer. Query concepts, properties, relationships, and measures via SQL.",
+        config_schema=TimbrConfig,
+        credentials_auth=AuthOptions(
+            default="api_key",
+            by_auth={
+                "api_key": AuthVariant(
+                    title="API Key",
+                    schema=TimbrTokenCredentials,
+                    scopes=["system", "user"],
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.timbr_client.TimbrClient",
         requires_license="enterprise",
     ),
 }
