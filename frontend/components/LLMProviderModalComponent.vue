@@ -461,9 +461,8 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     }
     if (providerType === 'bedrock') {
         // Only show region; auth_mode and api_key are rendered as custom UI
-        return all.filter(f => f.key === 'region');
+        return filtered.filter(f => f.key === 'region');
     }
-    return all;
     return filtered;
 });
 
