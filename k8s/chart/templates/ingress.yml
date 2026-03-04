@@ -4,9 +4,7 @@ kind: Ingress
 metadata:
   name: bowapp
   namespace: {{.Release.Namespace}}
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-    cert-manager.io/cluster-issuer: {{.Values.ingress.clusterIssuerName}}
+  annotations: {{.Values.ingress.annotations | toJson}}
 spec:
   ingressClassName: {{.Values.ingress.className}}
   rules:

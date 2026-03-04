@@ -33,7 +33,11 @@ ingress:
   enabled: true
   className: nginx
   tls: true
-  clusterIssuerName: prod-cluster-issuer
+  # Example custom annotations:
+  # annotations:
+  #   nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+  #   nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  annotations: {}
 serviceAccount:
   name: bowapp
   imagePullSecret: ""
