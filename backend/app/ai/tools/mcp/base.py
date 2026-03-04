@@ -2,7 +2,7 @@
 
 import datetime
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TypedDict
+from typing import Dict, Any, List, Optional, TypedDict
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +34,23 @@ class MCPTool(ABC):
     
     name: str
     description: str
-    
+
+    @property
+    def meta(self) -> Optional[Dict[str, Any]]:
+        """Optional _meta field for the tool schema (e.g. UI resource hints).
+
+        Override in subclasses to attach metadata like MCP Apps resourceUri.
+        """
+        return None
+
+    @property
+    def visibility(self) -> List[str]:
+        """Tool visibility scopes. Default is visible to both model and app.
+
+        Override with ["app"] for app-only tools hidden from the LLM.
+        """
+        return ["model", "app"]
+
     @property
     @abstractmethod
     def input_schema(self) -> Dict[str, Any]:
@@ -63,12 +79,26 @@ class MCPTool(ABC):
         pass
     
     def to_schema(self) -> Dict[str, Any]:
-        """Convert tool to MCP schema format."""
-        return {
+        """Convert tool to MCP schema format.
+
+        Merges ``visibility`` into ``_meta.ui`` so MCP Apps hosts (Claude Desktop,
+        Cursor, etc.) know which tools are callable by the app iframe.
+        Per the ext-apps spec, ``_meta.ui.visibility`` controls this:
+        - ``["model", "app"]`` — default, callable by both LLM and app
+        - ``["app"]`` — app-only, hidden from the LLM
+        """
+        schema: Dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
         }
+        # Build _meta: start from subclass meta, then ensure ui.visibility is set
+        meta = dict(self.meta) if self.meta else {}
+        ui = dict(meta.get("ui", {})) if meta.get("ui") else {}
+        ui["visibility"] = self.visibility
+        meta["ui"] = ui
+        schema["_meta"] = meta
+        return schema
     
     # ==================== Tracking Helpers ====================
     

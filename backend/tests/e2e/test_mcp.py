@@ -288,7 +288,7 @@ def test_mcp_tools_list(
     assert "tools" in data["result"]
 
     tools = data["result"]["tools"]
-    assert len(tools) == 8
+    assert len(tools) == 10
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -299,6 +299,9 @@ def test_mcp_tools_list(
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
+    # App-only tools (hidden from LLM, used by MCP App UIs)
+    assert "get_visualization" in tool_names
+    assert "get_artifact_data" in tool_names
 
     # Verify each tool has required fields
     for tool in tools:
@@ -306,6 +309,12 @@ def test_mcp_tools_list(
         assert "description" in tool
         assert "inputSchema" in tool
         assert isinstance(tool["inputSchema"], dict)
+
+    # Verify app-only tools have correct visibility metadata
+    app_only_tools = [t for t in tools if t["name"] in ("get_visualization", "get_artifact_data")]
+    for tool in app_only_tools:
+        assert "_meta" in tool
+        assert tool["_meta"]["ui"]["visibility"] == ["app"]
 
 
 @pytest.mark.e2e
@@ -406,7 +415,7 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 8
+    assert len(tools) == 10
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -417,6 +426,9 @@ def test_mcp_rest_tools_endpoint(
     assert "list_instructions" in tool_names
     assert "create_instruction" in tool_names
     assert "delete_instruction" in tool_names
+    # App-only tools
+    assert "get_visualization" in tool_names
+    assert "get_artifact_data" in tool_names
 
 
 # ============================================================================

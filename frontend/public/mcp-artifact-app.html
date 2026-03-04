@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOW Artifact</title>
+
+  <!-- Vendored libs (downloaded by scripts/download-vendor-libs.sh) -->
+  <!-- Tailwind CSS -->
+  <script src="/libs/tailwindcss-3.4.16.js"></script>
+
+  <!-- React 18 -->
+  <script crossorigin src="/libs/react-18.production.min.js"></script>
+  <script crossorigin src="/libs/react-dom-18.production.min.js"></script>
+
+  <!-- Babel Standalone for JSX transpilation -->
+  <script src="/libs/babel-standalone.min.js"></script>
+
+  <!-- ECharts -->
+  <script src="/libs/echarts-5.min.js"></script>
+
+  <style>
+    html, body, #root {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    #global-loader {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #fff; color: #9ca3af; z-index: 9999;
+      transition: opacity 0.2s ease-out;
+    }
+    #global-loader.hidden { opacity: 0; pointer-events: none; }
+    .artifact-error {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: #ef4444; padding: 1rem; text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Global loading overlay -->
+  <div id="global-loader">
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z" opacity=".5"/>
+      <path fill="currentColor" d="M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z">
+        <animateTransform attributeName="transform" dur="1s" from="0 12 12" repeatCount="indefinite" to="360 12 12" type="rotate"/>
+      </path>
+    </svg>
+  </div>
+
+  <div id="root"></div>
+
+  <script>
+    // ===========================================
+    // BOW Artifact MCP App Runtime
+    // JSON-RPC 2.0 over postMessage (MCP Apps spec)
+    // ===========================================
+    (function() {
+      'use strict';
+
+      // ================================================================
+      // MCP Apps JSON-RPC 2.0 over postMessage transport
+      // ================================================================
+
+      var nextId = 1;
+      var pendingRequests = {};
+      var notificationHandlers = {};
+
+      window.addEventListener('message', function(event) {
+        var msg = event.data;
+        if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return;
+
+        // Response to a request we sent
+        if (msg.id != null && pendingRequests[msg.id]) {
+          var pending = pendingRequests[msg.id];
+          delete pendingRequests[msg.id];
+          if (msg.error) {
+            pending.reject(new Error(msg.error.message || 'Unknown error'));
+          } else {
+            pending.resolve(msg.result);
+          }
+          return;
+        }
+
+        // Notification from host
+        if (msg.method && notificationHandlers[msg.method]) {
+          notificationHandlers[msg.method](msg.params);
+        }
+      });
+
+      function sendRequest(method, params) {
+        var id = nextId++;
+        window.parent.postMessage({ jsonrpc: '2.0', id: id, method: method, params: params || {} }, '*');
+        return new Promise(function(resolve, reject) {
+          pendingRequests[id] = { resolve: resolve, reject: reject };
+        });
+      }
+
+      function sendNotification(method, params) {
+        window.parent.postMessage({ jsonrpc: '2.0', method: method, params: params || {} }, '*');
+      }
+
+      function onNotification(method, handler) {
+        notificationHandlers[method] = handler;
+      }
+
+      // ================================================================
+      // Globals for LLM-generated artifact code
+      // ================================================================
+
+      window.ARTIFACT_DATA = null;
+
+      window.useArtifactData = function() {
+        var ref = React.useState(window.ARTIFACT_DATA);
+        var data = ref[0];
+        var setData = ref[1];
+
+        React.useEffect(function() {
+          var handler = function(e) { setData(e.detail); };
+          window.addEventListener('artifactdata', handler);
+          if (window.ARTIFACT_DATA && !data) setData(window.ARTIFACT_DATA);
+          return function() { window.removeEventListener('artifactdata', handler); };
+        }, []);
+
+        return data;
+      };
+
+      window.LoadingSpinner = function(props) {
+        var size = (props && props.size) || 24;
+        return React.createElement('svg', {
+          xmlns: 'http://www.w3.org/2000/svg', width: size, height: size,
+          viewBox: '0 0 24 24', className: (props && props.className) || ''
+        }, [
+          React.createElement('path', {
+            key: 'track', fill: 'currentColor', opacity: '.5',
+            d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z'
+          }),
+          React.createElement('path', {
+            key: 'spinner', fill: 'currentColor',
+            d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z'
+          }, React.createElement('animateTransform', {
+            attributeName: 'transform', dur: '1s',
+            from: '0 12 12', repeatCount: 'indefinite', to: '360 12 12', type: 'rotate'
+          }))
+        ]);
+      };
+
+      window.resizeAllCharts = function() {
+        if (typeof echarts !== 'undefined') {
+          var charts = document.querySelectorAll('[_echarts_instance_]');
+          charts.forEach(function(el) {
+            var chart = echarts.getInstanceByDom(el);
+            if (chart) chart.resize();
+          });
+        }
+      };
+      window.addEventListener('resize', window.resizeAllCharts);
+
+      // ================================================================
+      // Helpers
+      // ================================================================
+
+      function hideLoader() {
+        var loader = document.getElementById('global-loader');
+        if (loader) loader.classList.add('hidden');
+      }
+
+      function setArtifactData(payload) {
+        window.ARTIFACT_DATA = payload;
+        hideLoader();
+        window.dispatchEvent(new CustomEvent('artifactdata', { detail: payload }));
+      }
+
+      function injectArtifactCode(code, mode) {
+        if (mode === 'slides') {
+          var root = document.getElementById('root');
+          if (root) root.innerHTML = code;
+          return;
+        }
+
+        // Strip <script type="text/babel"> wrapper if present (DB stores wrapped code)
+        var stripped = code.replace(/^\s*<script[^>]*>\s*/i, '').replace(/\s*<\/script>\s*$/i, '');
+
+        if (!window.Babel || !window.Babel.transformScriptTags) {
+          showError('Babel transpiler not available. Cannot render artifact.');
+          return;
+        }
+
+        var script = document.createElement('script');
+        script.type = 'text/babel';
+        script.textContent = stripped;
+        document.body.appendChild(script);
+
+        try {
+          window.Babel.transformScriptTags();
+        } catch (e) {
+          console.error('[Artifact] Babel transform error:', e);
+          showError('Babel transform error: ' + String(e));
+        }
+
+        setTimeout(window.resizeAllCharts, 100);
+        setTimeout(window.resizeAllCharts, 500);
+      }
+
+      function showError(msg) {
+        hideLoader();
+        document.getElementById('root').innerHTML =
+          '<div class="artifact-error"><div>' + msg + '</div></div>';
+      }
+
+      function notifySize() {
+        var w = document.documentElement.scrollWidth || document.body.scrollWidth;
+        var h = document.documentElement.scrollHeight || document.body.scrollHeight;
+        sendNotification('ui/notifications/size-changed', { width: w, height: h });
+      }
+
+      // Parse tool call result — server wraps in content[].text JSON
+      function parseToolResult(result) {
+        try {
+          if (result && result.content && Array.isArray(result.content)) {
+            for (var i = 0; i < result.content.length; i++) {
+              if (result.content[i].type === 'text') {
+                return JSON.parse(result.content[i].text);
+              }
+            }
+          }
+        } catch (e) {}
+        return result;
+      }
+
+      // Extract artifact_id from tool result
+      function getArtifactId(result) {
+        if (!result) return null;
+        try {
+          var content = result.content;
+          if (Array.isArray(content)) {
+            for (var i = 0; i < content.length; i++) {
+              if (content[i].type === 'text' && content[i].text) {
+                var parsed = JSON.parse(content[i].text);
+                return parsed.artifact_id || null;
+              }
+            }
+          }
+          return result.artifact_id || null;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      // ================================================================
+      // Lifecycle: init → receive tool-result → fetch data → render
+      // ================================================================
+
+      var toolResult = null;
+
+      async function boot() {
+        try {
+          // 1. Send ui/initialize
+          var initResult = await sendRequest('ui/initialize', {
+            capabilities: {},
+            clientInfo: { name: 'bow-artifact', version: '1.0.0' },
+            protocolVersion: '2026-01-26'
+          });
+
+          // 2. Send ui/notifications/initialized
+          sendNotification('ui/notifications/initialized', {});
+
+          // 3. Listen for tool-result from host
+          onNotification('ui/notifications/tool-result', function(params) {
+            toolResult = params;
+            loadArtifact();
+          });
+
+          // 4. Listen for tool-input (spec-compliant, not strictly needed)
+          onNotification('ui/notifications/tool-input', function(params) {
+            // Tool arguments available here if needed
+          });
+
+        } catch (e) {
+          showError('Initialization failed: ' + String(e));
+        }
+      }
+
+      async function loadArtifact() {
+        var artifactId = getArtifactId(toolResult);
+        if (!artifactId) {
+          showError('No artifact ID found in tool result.');
+          return;
+        }
+
+        try {
+          var result = await sendRequest('tools/call', {
+            name: 'get_artifact_data',
+            arguments: { artifact_id: artifactId }
+          });
+          var data = parseToolResult(result);
+
+          if (!data || data.error) {
+            showError((data && data.error) || 'Failed to load artifact');
+            return;
+          }
+
+          // Set visualization data (same shape as ARTIFACT_DATA)
+          setArtifactData({
+            report: data.report,
+            visualizations: data.visualizations
+          });
+
+          // Inject the LLM-generated artifact code
+          if (data.code) {
+            injectArtifactCode(data.code, data.mode || 'page');
+          } else {
+            showError('No artifact code available.');
+          }
+
+          setTimeout(notifySize, 200);
+        } catch (e) {
+          showError('Error loading artifact: ' + String(e));
+        }
+      }
+
+      // Error handler for uncaught errors
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        console.error('[Artifact Error]', msg, error);
+        var root = document.getElementById('root');
+        if (root) {
+          root.innerHTML = '<div class="artifact-error"><div><strong>Error:</strong><br>' +
+            (msg || 'Unknown error') + '</div></div>';
+        }
+        return false;
+      };
+
+      // Start the MCP Apps lifecycle
+      boot();
+
+    })();
+  </script>
+
+</body>
+</html>
