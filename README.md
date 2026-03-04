@@ -59,9 +59,25 @@ OpenAI, Anthropic, Gemini, Ollama — connected to Snowflake, BigQuery, Postgres
 </td>
 <td width="50%">
 
+### Upload Your Own Data
+
+Upload CSV, Excel, or PDF files to instantly create queryable DuckDB data sources — no database setup required. Perfect for ad-hoc analysis and quick data exploration.
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
 ### MCP Support
 
 Use MetricChat from Cursor, Claude Desktop, and other AI clients via the Model Context Protocol — while reliably tracking every request and data operation.
+
+</td>
+<td width="50%">
+
+### Slack & Teams
+
+Deploy a bot into Slack or Microsoft Teams so your team can ask data questions where they already work — with full authentication and access controls.
 
 </td>
 </tr>
@@ -118,10 +134,10 @@ Helm chart included. See [`k8s/README.md`](./k8s/README.md) for setup instructio
 
 | Provider | Models | Notes |
 |:---|:---|:---|
-| **OpenAI** | GPT-4o, o1, o3, etc. | Any OpenAI-compatible endpoint (vLLM, LM Studio, etc.) |
-| **Azure OpenAI** | GPT-4o, o1, o3, etc. | Azure resource/endpoint support with deployment names |
-| **Anthropic** | Claude Opus, Sonnet, Haiku | Direct API key |
-| **Google Gemini** | Gemini Pro, Flash | Google Cloud API key |
+| **OpenAI** | GPT-5.1, GPT-5, GPT-4.1, etc. | Any OpenAI-compatible endpoint (vLLM, LM Studio, etc.) |
+| **Azure OpenAI** | GPT-5.1, GPT-5, GPT-4.1, etc. | Azure resource/endpoint support with deployment names |
+| **Anthropic** | Claude 4.5 Opus, Claude 4.5 Sonnet, etc. | Direct API key |
+| **Google Gemini** | Gemini 2.5 Pro, Gemini 2.5 Flash | Google Cloud API key |
 | **Ollama / Self-hosted** | Any model | Point to any OpenAI-compatible base URL |
 
 ### Data Sources
@@ -136,6 +152,10 @@ PostgreSQL &middot; Snowflake &middot; BigQuery &middot; Databricks SQL &middot;
 **Services & Platforms**
 
 Salesforce &middot; NetSuite &middot; Tableau &middot; PowerBI &middot; QlikView &middot; AWS Cost Explorer &middot; PostHog
+
+**File Uploads**
+
+CSV &middot; Excel &middot; PDF → instant DuckDB data sources
 
 </details>
 
@@ -181,6 +201,12 @@ cd backend && python main.py       # http://localhost:8000
 # Frontend
 cd frontend && yarn dev            # http://localhost:3000
 ```
+
+---
+
+## Documentation
+
+Full documentation at [metricchat.com/docs](https://www.metricchat.com/docs). Quick references for [getting started](./docs/quickstart.md) and [deployment](./docs/install.md) are also in this repo.
 
 ---
 
