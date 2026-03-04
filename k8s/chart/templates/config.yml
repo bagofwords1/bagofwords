@@ -20,7 +20,11 @@ data:
   {{- else }}
   # Database URL - only set if not using existing secret
   {{- if (empty .Values.postgresql.auth.existingSecret) }}
+  {{- if (empty .Values.database.host)}}
   BOW_DATABASE_URL: postgresql://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@{{.Release.Name}}-postgresql:5432/{{.Values.postgresql.auth.database}}
+  {{- else }}
+  BOW_DATABASE_URL: postgresql://{{.Values.postgresql.auth.username}}:{{.Values.postgresql.auth.password}}@{{.Values.database.host}}:5432/{{.Values.postgresql.auth.database}}
+  {{- end }}
   {{- end }}
   {{- end }}
   
