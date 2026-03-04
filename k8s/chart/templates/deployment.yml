@@ -20,47 +20,53 @@ spec:
       {{- end }}
       serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
-      - name: bowapp
-        image: {{.Values.image}}
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 3000
-        resources:
-          {{- toYaml .Values.resources | nindent 12 }}
-        envFrom:
-          - configMapRef:
-              name: bowapp
+        - name: bowapp
+          image: "{{.Values.image.registry}}/{{.Values.image.repository}}:{{.Values.image.tag}}"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          resources:
+            requests:
+              cpu: 2
+              memory: {{.Values.resources.requests.memory}}
+            limits:
+            {{- if not (empty .Values.resources.limits.memory) }}
+              memory: {{.Values.resources.limits.memory}}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: bowapp
           {{- if not (empty .Values.config.secretRef) }}
-          - secretRef:
-              name: {{ .Values.config.secretRef }}
+            - secretRef:
+                name: {{ .Values.config.secretRef }}
           {{- end }}
-        startupProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 30
-          periodSeconds: 10
-          failureThreshold: 30
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 5
-          periodSeconds: 10
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 3000
-          initialDelaySeconds: 15
-          periodSeconds: 20
-        volumeMounts:
-          - name: bow-config
-            mountPath: /app/bow-config.yaml
-            subPath: bowConfig
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          volumeMounts:
+            - name: bow-config
+              mountPath: /app/bow-config.yaml
+              subPath: bowConfig
           {{- if .Values.database.auth.sslRootCert.secretName }}
-          - name: db-ca-cert
-            mountPath: /app/certs
-            readOnly: true
+            - name: db-ca-cert
+              mountPath: /app/certs
+              readOnly: true
           {{- end }}
       volumes:
         - name: bow-config
