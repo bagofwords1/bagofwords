@@ -544,6 +544,29 @@ class LLMService:
             if "verify_ssl" in credentials:
                 existing_additional_config = { **existing_additional_config, "verify_ssl": credentials.get("verify_ssl", True) }
 
+        # Bedrock: region (required), auth_mode
+        if provider.provider_type == "bedrock":
+            region = credentials.get("region")
+            if region:
+                existing_additional_config = { **existing_additional_config, "region": region }
+            # Only update auth_mode when explicitly present in the payload
+            if "auth_mode" in credentials:
+                raw_auth_mode = credentials.get("auth_mode")
+                # Normalize to lowercase string if provided as a string
+                if isinstance(raw_auth_mode, str):
+                    auth_mode = raw_auth_mode.lower()
+                else:
+                    auth_mode = raw_auth_mode
+
+                allowed_auth_modes = {"iam", "api_key"}
+                if auth_mode not in allowed_auth_modes:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid auth_mode for Bedrock provider: {raw_auth_mode!r}. "
+                               f"Allowed values are: {', '.join(sorted(allowed_auth_modes))}."
+                    )
+
+                existing_additional_config = { **existing_additional_config, "auth_mode": auth_mode }
         provider.additional_config = existing_additional_config if existing_additional_config else None
 
         # Only (re-)encrypt credentials when a new key/secret is provided

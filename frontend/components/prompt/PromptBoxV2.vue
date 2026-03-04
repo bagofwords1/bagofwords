@@ -184,10 +184,10 @@
 
                     <!-- Model selector -->
                     <UPopover :key="'model-' + (props.popoverOffset || 0)" :popper="popperLegacy">
-                        <UTooltip :text="isCompactPrompt ? selectedModelLabel : ''" :popper="{ strategy: 'fixed', placement: 'bottom-start' }">
-                            <button class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center">
-                                <Icon name="heroicons-cpu-chip" class="w-4 h-4" />
-                                <span v-if="!isCompactPrompt" class="ml-1">{{ selectedModelLabel }}</span>
+                        <UTooltip :text="selectedModelLabel" :popper="{ strategy: 'fixed', placement: 'top' }">
+                            <button class="text-gray-500 hover:text-gray-900 hover:bg-gray-50 rounded-md px-2 py-1 text-xs flex items-center max-w-[180px]">
+                                <Icon name="heroicons-cpu-chip" class="w-4 h-4 flex-shrink-0" />
+                                <span v-if="!isCompactPrompt" class="ml-1 truncate">{{ selectedModelLabel }}</span>
                             </button>
                         </UTooltip>
                         <template #panel="{ close }">
@@ -197,7 +197,7 @@
                                         <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :icon="true" class="w-4 h-4" />
                                     </div>
                                     <div class="flex flex-col flex-1 text-left min-w-0">
-                                        <span class="font-medium truncate">{{ m.name }}</span>
+                                        <span class="font-medium truncate" :title="m.name">{{ m.name }}</span>
                                         <span class="text-gray-500 text-[10px] truncate">{{ m.provider?.name }}</span>
                                     </div>
                                     <Icon v-if="selectedModel === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ml-2 flex-shrink-0" />

@@ -46,6 +46,7 @@ class LLMProviderCreate(LLMProviderBase):
             'google': GoogleCredentials,
             'azure': AzureCredentials,
             'custom': CustomCredentials,
+            'bedrock': BedrockCredentials,
         }
         
         schema = credential_schemas.get(values['provider_type'])
@@ -104,6 +105,16 @@ class CustomCredentials(BaseModel):
     verify_ssl: Optional[bool] = True  # Optional - set to False to disable SSL certificate verification
 
 class CustomConfig(BaseModel):
+    max_tokens: Optional[int] = 4096
+    temperature: Optional[float] = 0.7
+
+class BedrockCredentials(BaseModel):
+    """Credentials for AWS Bedrock. Supports API key auth or IAM auth (from environment)."""
+    region: str = Field(..., description="AWS region (e.g. us-east-1, eu-west-1)")
+    auth_mode: str = Field("iam", description="Authentication mode: 'api_key' or 'iam'")
+    api_key: Optional[str] = Field(None, description="Bedrock API key (only for api_key auth mode)")
+
+class BedrockConfig(BaseModel):
     max_tokens: Optional[int] = 4096
     temperature: Optional[float] = 0.7
 

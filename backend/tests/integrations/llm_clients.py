@@ -28,6 +28,7 @@ LLM_PROVIDERS = [
     "anthropic",
     "google",
     "azure",
+    "bedrock",
 ]
 
 # Test prompt for all providers
@@ -39,6 +40,7 @@ VISION_PROVIDERS = [
     "anthropic",
     "google",
     "azure",
+    "bedrock",
 ]
 
 # Test prompt for vision tests
@@ -129,7 +131,15 @@ def get_llm_client(provider: str, **kwargs):
             endpoint_url=kwargs["endpoint_url"],
             api_version=kwargs.get("api_version"),
         )
-    
+
+    elif provider == "bedrock":
+        from app.ai.llm.clients.bedrock_client import BedrockClient
+        return BedrockClient(
+            region=kwargs["region"],
+            auth_mode=kwargs.get("auth_mode", "iam"),
+            api_key=kwargs.get("api_key"),
+        )
+
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")
 
