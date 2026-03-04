@@ -26,6 +26,7 @@ backend/logs
 
 # Misc
 .DS_Store
+plans/
 
 # Local env files
 .env
