@@ -1,7 +1,6 @@
-from typing import AsyncGenerator, Optional
+from typing import Optional
 
 from app.ai.llm.clients.openai_client import OpenAi
-from app.ai.llm.types import LLMResponse, ImageInput
 
 
 class BedrockClient(OpenAi):
