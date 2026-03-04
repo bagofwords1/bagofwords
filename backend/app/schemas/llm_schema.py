@@ -101,6 +101,7 @@ class CustomCredentials(BaseModel):
     """Credentials for OpenAI-compatible APIs (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)"""
     base_url: str  # Required - the OpenAI-compatible endpoint
     api_key: Optional[str] = None  # Optional - some local servers don't require auth
+    verify_ssl: Optional[bool] = True  # Optional - set to False to disable SSL certificate verification
 
 class CustomConfig(BaseModel):
     max_tokens: Optional[int] = 4096
