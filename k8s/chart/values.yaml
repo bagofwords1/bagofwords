@@ -1,8 +1,8 @@
-image: bagofwords/bagofwords:latest
+image:
+  tag: latest
+  registry: docker.io
+  repository: bagofwords/bagofwords
 host: app.bagofwords.com
-registry:
-  name: bow-app-registry
-  url: docker.io
 postgresql:
   auth:
     username: ""
@@ -90,4 +90,6 @@ resources:
     cpu: 2
     memory: 900Mi
   limits:
-    memory: 1100Mi
+    # by default there is no memory limit
+    # to set the memory limit, set --set resources.limits.memory=1Gi|2Gi|4Gi, etc...
+    memory: ""
