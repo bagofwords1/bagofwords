@@ -14,6 +14,7 @@ from .instructions import (
     CreateInstructionMCPTool,
     DeleteInstructionMCPTool,
 )
+from .app_tools import GetVisualizationMCPTool, GetArtifactDataMCPTool
 
 MCP_TOOLS = {
     "create_report": CreateReportTool,
@@ -25,6 +26,9 @@ MCP_TOOLS = {
     "list_instructions": ListInstructionsMCPTool,
     "create_instruction": CreateInstructionMCPTool,
     "delete_instruction": DeleteInstructionMCPTool,
+    # App-only tools (hidden from LLM, used by MCP App UIs)
+    "get_visualization": GetVisualizationMCPTool,
+    "get_artifact_data": GetArtifactDataMCPTool,
 }
 
 
@@ -33,6 +37,17 @@ def get_mcp_tool(name: str):
     return MCP_TOOLS.get(name)
 
 
-def list_mcp_tools():
-    """List all available MCP tools with their schemas."""
-    return [tool().to_schema() for tool in MCP_TOOLS.values()]
+def list_mcp_tools(include_app_only: bool = True):
+    """List available MCP tools with their schemas.
+
+    Args:
+        include_app_only: If True, includes all tools. If False, excludes
+            tools with visibility=["app"] (for tools/list sent to the LLM).
+    """
+    tools = []
+    for tool_cls in MCP_TOOLS.values():
+        tool = tool_cls()
+        if not include_app_only and "model" not in tool.visibility:
+            continue
+        tools.append(tool.to_schema())
+    return tools

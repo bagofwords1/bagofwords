@@ -2,7 +2,7 @@
 
 import datetime
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, TypedDict
+from typing import Dict, Any, List, Optional, TypedDict
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,7 +34,23 @@ class MCPTool(ABC):
     
     name: str
     description: str
-    
+
+    @property
+    def meta(self) -> Optional[Dict[str, Any]]:
+        """Optional _meta field for the tool schema (e.g. UI resource hints).
+
+        Override in subclasses to attach metadata like MCP Apps resourceUri.
+        """
+        return None
+
+    @property
+    def visibility(self) -> List[str]:
+        """Tool visibility scopes. Default is visible to both model and app.
+
+        Override with ["app"] for app-only tools hidden from the LLM.
+        """
+        return ["model", "app"]
+
     @property
     @abstractmethod
     def input_schema(self) -> Dict[str, Any]:
@@ -64,11 +80,14 @@ class MCPTool(ABC):
     
     def to_schema(self) -> Dict[str, Any]:
         """Convert tool to MCP schema format."""
-        return {
+        schema: Dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
         }
+        if self.meta:
+            schema["_meta"] = self.meta
+        return schema
     
     # ==================== Tracking Helpers ====================
     

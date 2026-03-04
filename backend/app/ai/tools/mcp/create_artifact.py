@@ -1,7 +1,7 @@
 """MCP Tool: create_artifact - Generate dashboards/slides from visualizations."""
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +40,10 @@ class CreateArtifactMCPTool(MCPTool):
         "Supports 'page' mode for interactive dashboards or 'slides' mode for presentations. "
         "Call create_data first to generate visualizations, then use this to compose them."
     )
+
+    @property
+    def meta(self) -> Optional[Dict[str, Any]]:
+        return {"ui": {"resourceUri": "ui://bagofwords/artifact"}}
 
     @property
     def input_schema(self) -> Dict[str, Any]:

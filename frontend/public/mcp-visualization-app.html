@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOW Visualization</title>
+
+  <!-- ECharts for chart rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #1f2937;
+      background: #fff;
+    }
+
+    /* Loading state */
+    .loader {
+      display: flex; align-items: center; justify-content: center;
+      height: 200px; color: #9ca3af;
+    }
+    .loader svg { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Tabs */
+    .tabs { display: flex; border-bottom: 1px solid #f3f4f6; margin-bottom: 8px; }
+    .tab {
+      padding: 6px 12px; font-size: 12px; font-weight: 500;
+      border-bottom: 2px solid transparent; cursor: pointer;
+      color: #9ca3af; background: none; border-top: none; border-left: none; border-right: none;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: #6b7280; }
+    .tab.active { color: #2563eb; border-bottom-color: #3b82f6; }
+
+    /* Chart container */
+    .chart-container { width: 100%; height: 340px; }
+
+    /* Table */
+    .table-wrap { max-height: 400px; overflow: auto; border: 1px solid #f3f4f6; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead { position: sticky; top: 0; background: #f9fafb; z-index: 1; }
+    th { text-align: left; padding: 6px 10px; font-weight: 500; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+    td { padding: 5px 10px; border-bottom: 1px solid #f3f4f6; white-space: nowrap; max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
+    tr:hover td { background: #f9fafb; }
+
+    /* Code */
+    .code-wrap {
+      max-height: 300px; overflow: auto; background: #f9fafb;
+      border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px;
+    }
+    pre { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; font-family: 'SF Mono', Monaco, Consolas, monospace; }
+
+    /* Error */
+    .error { padding: 16px; color: #ef4444; text-align: center; }
+
+    /* Title */
+    .viz-title { font-size: 13px; font-weight: 600; padding: 10px 12px 4px; color: #374151; }
+    .row-count { font-size: 11px; color: #9ca3af; padding: 0 12px 8px; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <div class="loader" id="loader">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z" opacity=".5"/>
+      <path fill="currentColor" d="M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z"/>
+    </svg>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ======= MCP App SDK shim =======
+  // The MCP host will call window.__MCP_APP_INIT__ with the connection context.
+  // If running inside an MCP Apps-compatible host, it provides:
+  //   - toolResult: the result of the tool call that spawned this app
+  //   - callTool(name, args): call an MCP tool on the server
+
+  var vizData = null;
+  var activeTab = 'chart';
+
+  // Try to get visualization_id from the tool result
+  function getVisualizationId(toolResult) {
+    if (!toolResult) return null;
+    // Tool result is in content[0].text as JSON
+    try {
+      var content = toolResult.content;
+      if (Array.isArray(content)) {
+        for (var i = 0; i < content.length; i++) {
+          if (content[i].type === 'text' && content[i].text) {
+            var parsed = JSON.parse(content[i].text);
+            return parsed.visualization_id || null;
+          }
+        }
+      }
+      // Direct object
+      return toolResult.visualization_id || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // ======= Rendering =======
+  function render() {
+    var app = document.getElementById('app');
+    if (!vizData) return;
+
+    var hasChart = isChartType(vizData.view);
+    var hasData = vizData.data && Array.isArray(vizData.data.rows);
+    var hasCode = !!vizData.code;
+
+    var tabs = [];
+    if (hasChart) tabs.push('chart');
+    if (hasData) tabs.push('table');
+    if (hasCode) tabs.push('code');
+
+    if (tabs.length > 0 && tabs.indexOf(activeTab) === -1) {
+      activeTab = tabs[0];
+    }
+
+    var html = '';
+
+    // Title
+    html += '<div class="viz-title">' + escapeHtml(vizData.title || 'Visualization') + '</div>';
+    if (hasData) {
+      html += '<div class="row-count">' + (vizData.data.rows.length) + ' rows</div>';
+    }
+
+    // Tabs (only if multiple content types)
+    if (tabs.length > 1) {
+      html += '<div class="tabs">';
+      for (var i = 0; i < tabs.length; i++) {
+        var label = tabs[i] === 'chart' ? 'Chart' : tabs[i] === 'table' ? 'Data' : 'Code';
+        html += '<button class="tab' + (activeTab === tabs[i] ? ' active' : '') + '" data-tab="' + tabs[i] + '">' + label + '</button>';
+      }
+      html += '</div>';
+    }
+
+    // Content
+    if (activeTab === 'chart' && hasChart) {
+      html += '<div class="chart-container" id="echart"></div>';
+    } else if (activeTab === 'table' && hasData) {
+      html += renderTable(vizData.data);
+    } else if (activeTab === 'code' && hasCode) {
+      html += '<div class="code-wrap"><pre>' + escapeHtml(vizData.code) + '</pre></div>';
+    }
+
+    app.innerHTML = html;
+
+    // Attach tab click handlers
+    var tabButtons = app.querySelectorAll('.tab');
+    for (var j = 0; j < tabButtons.length; j++) {
+      tabButtons[j].addEventListener('click', function(e) {
+        activeTab = e.target.getAttribute('data-tab');
+        render();
+      });
+    }
+
+    // Render EChart if on chart tab
+    if (activeTab === 'chart' && hasChart) {
+      renderEChart();
+    }
+
+    notifySize();
+  }
+
+  function isChartType(view) {
+    if (!view) return false;
+    var type = (view.view && view.view.type) || view.type || '';
+    var chartTypes = ['bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'scatter_plot', 'heatmap', 'candlestick', 'treemap', 'radar_chart'];
+    return chartTypes.indexOf(type) !== -1;
+  }
+
+  function getViewType(view) {
+    if (!view) return 'table';
+    return (view.view && view.view.type) || view.type || 'table';
+  }
+
+  function renderTable(data) {
+    var rows = data.rows || [];
+    var columns = data.columns || [];
+    if (rows.length === 0) return '<div class="error">No data available</div>';
+
+    var cols = columns.length > 0
+      ? columns.map(function(c) { return c.field || c.colId || c.headerName || ''; })
+      : Object.keys(rows[0] || {});
+
+    var html = '<div class="table-wrap"><table><thead><tr>';
+    for (var i = 0; i < cols.length; i++) {
+      html += '<th>' + escapeHtml(cols[i]) + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    var limit = Math.min(rows.length, 200);
+    for (var r = 0; r < limit; r++) {
+      html += '<tr>';
+      for (var c = 0; c < cols.length; c++) {
+        var val = rows[r][cols[c]];
+        html += '<td>' + escapeHtml(val == null ? '' : String(val)) + '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    if (rows.length > 200) {
+      html += '<div class="row-count" style="padding-top:4px">Showing 200 of ' + rows.length + ' rows</div>';
+    }
+    return html;
+  }
+
+  function renderEChart() {
+    var el = document.getElementById('echart');
+    if (!el || !vizData) return;
+
+    var chart = echarts.init(el);
+    var options = buildChartOptions(vizData);
+    if (options) {
+      chart.setOption(options);
+    }
+    window.addEventListener('resize', function() { chart.resize(); });
+  }
+
+  function buildChartOptions(viz) {
+    var type = getViewType(viz.view);
+    var rows = (viz.data && viz.data.rows) || [];
+    var columns = (viz.data && viz.data.columns) || [];
+    if (rows.length === 0) return null;
+
+    var cols = columns.length > 0
+      ? columns.map(function(c) { return c.field || c.colId || c.headerName || ''; })
+      : Object.keys(rows[0] || {});
+
+    if (cols.length < 2) return null;
+
+    var xCol = cols[0];
+    var yCol = cols[1];
+    var xData = rows.map(function(r) { return r[xCol]; });
+    var yData = rows.map(function(r) { return Number(r[yCol]) || 0; });
+
+    var colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+    if (type === 'pie_chart') {
+      return {
+        tooltip: { trigger: 'item' },
+        series: [{
+          type: 'pie',
+          radius: ['40%', '70%'],
+          data: rows.slice(0, 20).map(function(r, i) {
+            return { name: String(r[xCol] || ''), value: Number(r[yCol]) || 0 };
+          }),
+          itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+          label: { fontSize: 11 },
+        }],
+      };
+    }
+
+    var seriesType = type === 'bar_chart' ? 'bar' : type === 'area_chart' ? 'line' : type === 'scatter_plot' ? 'scatter' : 'line';
+
+    return {
+      tooltip: { trigger: 'axis' },
+      grid: { left: 50, right: 20, top: 20, bottom: 40 },
+      xAxis: {
+        type: 'category',
+        data: xData,
+        axisLabel: { fontSize: 11, rotate: xData.length > 10 ? 30 : 0 },
+      },
+      yAxis: { type: 'value', axisLabel: { fontSize: 11 } },
+      series: [{
+        type: seriesType,
+        data: yData,
+        itemStyle: { color: colors[0] },
+        areaStyle: type === 'area_chart' ? {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: colors[0] + '40' },
+            { offset: 1, color: colors[0] + '05' },
+          ]),
+        } : undefined,
+        smooth: type === 'line_chart' || type === 'area_chart',
+      }],
+    };
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function notifySize() {
+    try {
+      var h = document.documentElement.scrollHeight || document.body.scrollHeight;
+      window.parent.postMessage({ type: 'ui/notifications/size-changed', height: h }, '*');
+    } catch (e) {}
+  }
+
+  // ======= MCP App Entry Point =======
+  // The host calls this to initialize the app with tool context
+  window.__MCP_APP_INIT__ = function(ctx) {
+    var vizId = getVisualizationId(ctx.toolResult);
+    if (!vizId) {
+      document.getElementById('app').innerHTML = '<div class="error">No visualization ID found in tool result.</div>';
+      return;
+    }
+
+    // Call the app-only tool to fetch full visualization data
+    ctx.callTool('get_visualization', { visualization_id: vizId })
+      .then(function(result) {
+        // Parse the tool result
+        var data = null;
+        try {
+          if (result && result.content) {
+            for (var i = 0; i < result.content.length; i++) {
+              if (result.content[i].type === 'text') {
+                data = JSON.parse(result.content[i].text);
+                break;
+              }
+            }
+          }
+        } catch (e) {
+          data = result;
+        }
+
+        if (!data || data.error) {
+          document.getElementById('app').innerHTML = '<div class="error">' + escapeHtml((data && data.error) || 'Failed to load visualization') + '</div>';
+          return;
+        }
+
+        vizData = data;
+        render();
+      })
+      .catch(function(err) {
+        document.getElementById('app').innerHTML = '<div class="error">Error: ' + escapeHtml(String(err)) + '</div>';
+      });
+  };
+
+  // ======= Fallback: postMessage protocol =======
+  // If the host sends data via postMessage instead (non-MCP Apps host)
+  window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'VISUALIZATION_DATA') {
+      vizData = event.data.payload;
+      render();
+    }
+  });
+
+  // Signal readiness
+  try {
+    window.parent.postMessage({ type: 'MCP_APP_READY' }, '*');
+  } catch (e) {}
+
+})();
+</script>
+
+</body>
+</html>

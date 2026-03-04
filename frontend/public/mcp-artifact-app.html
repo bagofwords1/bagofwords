@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOW Artifact</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+
+  <!-- React 18 -->
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel Standalone for JSX transpilation -->
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+
+  <!-- ECharts -->
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+
+  <style>
+    html, body, #root {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    #global-loader {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: #fff; color: #9ca3af; z-index: 9999;
+      transition: opacity 0.2s ease-out;
+    }
+    #global-loader.hidden { opacity: 0; pointer-events: none; }
+    .artifact-error {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; color: #ef4444; padding: 1rem; text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Global loading overlay -->
+  <div id="global-loader">
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z" opacity=".5"/>
+      <path fill="currentColor" d="M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z">
+        <animateTransform attributeName="transform" dur="1s" from="0 12 12" repeatCount="indefinite" to="360 12 12" type="rotate"/>
+      </path>
+    </svg>
+  </div>
+
+  <div id="root"></div>
+
+  <script>
+    // ===========================================
+    // BOW Artifact MCP App Runtime
+    // ===========================================
+    (function() {
+      'use strict';
+
+      window.ARTIFACT_DATA = null;
+
+      // Helper hook for React components (same API as artifact-sandbox.html)
+      window.useArtifactData = function() {
+        var ref = React.useState(window.ARTIFACT_DATA);
+        var data = ref[0];
+        var setData = ref[1];
+
+        React.useEffect(function() {
+          var handler = function(e) { setData(e.detail); };
+          window.addEventListener('artifactdata', handler);
+          if (window.ARTIFACT_DATA && !data) setData(window.ARTIFACT_DATA);
+          return function() { window.removeEventListener('artifactdata', handler); };
+        }, []);
+
+        return data;
+      };
+
+      // LoadingSpinner component (available globally for LLM-generated code)
+      window.LoadingSpinner = function(props) {
+        var size = (props && props.size) || 24;
+        return React.createElement('svg', {
+          xmlns: 'http://www.w3.org/2000/svg', width: size, height: size,
+          viewBox: '0 0 24 24', className: (props && props.className) || ''
+        }, [
+          React.createElement('path', {
+            key: 'track', fill: 'currentColor', opacity: '.5',
+            d: 'M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z'
+          }),
+          React.createElement('path', {
+            key: 'spinner', fill: 'currentColor',
+            d: 'M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z'
+          }, React.createElement('animateTransform', {
+            attributeName: 'transform', dur: '1s',
+            from: '0 12 12', repeatCount: 'indefinite', to: '360 12 12', type: 'rotate'
+          }))
+        ]);
+      };
+
+      // Fix ECharts 0-height issue
+      window.resizeAllCharts = function() {
+        if (typeof echarts !== 'undefined') {
+          var charts = document.querySelectorAll('[_echarts_instance_]');
+          charts.forEach(function(el) {
+            var chart = echarts.getInstanceByDom(el);
+            if (chart) chart.resize();
+          });
+        }
+      };
+      window.addEventListener('resize', window.resizeAllCharts);
+
+      function hideLoader() {
+        var loader = document.getElementById('global-loader');
+        if (loader) loader.classList.add('hidden');
+      }
+
+      function setArtifactData(payload) {
+        window.ARTIFACT_DATA = payload;
+        hideLoader();
+        window.dispatchEvent(new CustomEvent('artifactdata', { detail: payload }));
+      }
+
+      function injectArtifactCode(code, mode) {
+        // For slides mode, inject directly as HTML
+        if (mode === 'slides') {
+          var root = document.getElementById('root');
+          if (root) root.innerHTML = code;
+          return;
+        }
+
+        // For page/dashboard mode, inject as Babel-transpiled script
+        var script = document.createElement('script');
+        script.type = 'text/babel';
+        script.textContent = code;
+        document.body.appendChild(script);
+
+        // Trigger Babel transformation
+        if (window.Babel && window.Babel.transformScriptTags) {
+          try {
+            window.Babel.transformScriptTags();
+          } catch (e) {
+            console.error('[Artifact] Babel transform error:', e);
+          }
+        }
+
+        // Resize charts after render
+        setTimeout(window.resizeAllCharts, 100);
+        setTimeout(window.resizeAllCharts, 500);
+      }
+
+      function notifySize() {
+        try {
+          var h = document.documentElement.scrollHeight || document.body.scrollHeight;
+          window.parent.postMessage({ type: 'ui/notifications/size-changed', height: h }, '*');
+        } catch (e) {}
+      }
+
+      // Error handler
+      window.onerror = function(msg, url, lineNo, columnNo, error) {
+        console.error('[Artifact Error]', msg, error);
+        var root = document.getElementById('root');
+        if (root) {
+          root.innerHTML = '<div class="artifact-error"><div><strong>Error:</strong><br>' +
+            (msg || 'Unknown error') + '</div></div>';
+        }
+        return false;
+      };
+
+      // ======= MCP App Entry Point =======
+      window.__MCP_APP_INIT__ = function(ctx) {
+        // Extract artifact_id from the tool result
+        var artifactId = null;
+        try {
+          var content = ctx.toolResult && ctx.toolResult.content;
+          if (Array.isArray(content)) {
+            for (var i = 0; i < content.length; i++) {
+              if (content[i].type === 'text' && content[i].text) {
+                var parsed = JSON.parse(content[i].text);
+                artifactId = parsed.artifact_id || null;
+                break;
+              }
+            }
+          }
+          if (!artifactId && ctx.toolResult) {
+            artifactId = ctx.toolResult.artifact_id || null;
+          }
+        } catch (e) {}
+
+        if (!artifactId) {
+          hideLoader();
+          document.getElementById('root').innerHTML =
+            '<div class="artifact-error">No artifact ID found in tool result.</div>';
+          return;
+        }
+
+        // Call the app-only tool to fetch artifact data
+        ctx.callTool('get_artifact_data', { artifact_id: artifactId })
+          .then(function(result) {
+            var data = null;
+            try {
+              if (result && result.content) {
+                for (var i = 0; i < result.content.length; i++) {
+                  if (result.content[i].type === 'text') {
+                    data = JSON.parse(result.content[i].text);
+                    break;
+                  }
+                }
+              }
+            } catch (e) {
+              data = result;
+            }
+
+            if (!data || data.error) {
+              hideLoader();
+              document.getElementById('root').innerHTML =
+                '<div class="artifact-error">' + ((data && data.error) || 'Failed to load artifact') + '</div>';
+              return;
+            }
+
+            // Set visualization data (same shape as ARTIFACT_DATA)
+            setArtifactData({
+              report: data.report,
+              visualizations: data.visualizations
+            });
+
+            // Inject the LLM-generated artifact code
+            if (data.code) {
+              injectArtifactCode(data.code, data.mode || 'page');
+            } else {
+              hideLoader();
+              document.getElementById('root').innerHTML =
+                '<div class="artifact-error">No artifact code available.</div>';
+            }
+
+            setTimeout(notifySize, 200);
+          })
+          .catch(function(err) {
+            hideLoader();
+            document.getElementById('root').innerHTML =
+              '<div class="artifact-error">Error: ' + String(err) + '</div>';
+          });
+      };
+
+      // ======= Fallback: postMessage protocol =======
+      window.addEventListener('message', function(event) {
+        if (event.data && event.data.type === 'ARTIFACT_DATA') {
+          setArtifactData(event.data.payload);
+        }
+      });
+
+      // Signal readiness
+      try {
+        window.parent.postMessage({ type: 'MCP_APP_READY' }, '*');
+      } catch (e) {}
+
+    })();
+  </script>
+
+  <!-- LLM_GENERATED_CODE will be injected dynamically -->
+</body>
+</html>

@@ -1,7 +1,7 @@
 """MCP Tool: create_data - Generate data visualizations with Query/Step/Visualization persistence."""
 
 import asyncio
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,10 @@ class CreateDataMCPTool(MCPTool):
         "Call create_report first if no report_id is available."
     )
     
+    @property
+    def meta(self) -> Optional[Dict[str, Any]]:
+        return {"ui": {"resourceUri": "ui://bagofwords/visualization"}}
+
     @property
     def input_schema(self) -> Dict[str, Any]:
         return MCPCreateDataInput.model_json_schema()
