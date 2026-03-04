@@ -29,10 +29,37 @@
 
               <!-- Existing provider form -->
               <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
-                <div>
+                <div v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock'">
                   <label class="text-sm font-medium text-gray-700 mb-2">API Key</label>
                   <input v-model="selectedProvider.credentials.api_key" type="text" placeholder="Keep blank to use stored key" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                 </div>
+
+                <!-- Bedrock: existing provider edit -->
+                <template v-if="selectedProvider?.provider_type === 'bedrock' || selectedProvider?.type === 'bedrock'">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 mb-2">Region <span class="text-red-500">*</span></label>
+                    <input v-model="selectedProvider.credentials.region" type="text" placeholder="e.g. us-east-1" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                  </div>
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
+                    <div class="flex gap-2 mt-2">
+                      <button type="button" @click="selectedProvider.credentials.auth_mode = 'iam'; selectedProvider.credentials.api_key = null; clearTestResult()"
+                        class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                        :class="(!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                        IAM (from environment)
+                      </button>
+                      <button type="button" @click="selectedProvider.credentials.auth_mode = 'api_key'; clearTestResult()"
+                        class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                        :class="selectedProvider.credentials.auth_mode === 'api_key' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                        API Key
+                      </button>
+                    </div>
+                  </div>
+                  <div v-if="selectedProvider.credentials.auth_mode === 'api_key'">
+                    <label class="text-sm font-medium text-gray-700 mb-2">API Key <span class="text-red-500">*</span></label>
+                    <input v-model="selectedProvider.credentials.api_key" type="text" placeholder="Keep blank to use stored key" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                  </div>
+                </template>
 
                 <div v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
                   <label class="text-sm font-medium text-gray-700 mb-2">Endpoint URL</label>
@@ -97,6 +124,28 @@
                     <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
                     <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required" :placeholder="field.description || ''" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
+                  <!-- Bedrock: auth mode toggle for new provider -->
+                  <template v-if="providerForm.provider_type === 'bedrock'">
+                    <div class="mt-3">
+                      <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
+                      <div class="flex gap-2 mt-2">
+                        <button type="button" @click="providerForm.credentials.auth_mode = 'iam'; providerForm.credentials.api_key = undefined; clearTestResult()"
+                          class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                          :class="(!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                          IAM (from environment)
+                        </button>
+                        <button type="button" @click="providerForm.credentials.auth_mode = 'api_key'; clearTestResult()"
+                          class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                          :class="providerForm.credentials.auth_mode === 'api_key' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                          API Key
+                        </button>
+                      </div>
+                    </div>
+                    <div v-if="providerForm.credentials.auth_mode === 'api_key'" class="mt-3">
+                      <label class="text-sm font-medium text-gray-700 mb-2">API Key <span class="text-red-500">*</span></label>
+                      <input v-model="providerForm.credentials.api_key" type="text" placeholder="Bedrock API key" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                    </div>
+                  </template>
                   <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                     <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">{{ showBaseUrlNew ? 'Use default base URL' : 'Set custom base URL' }}</button>
                     <div v-if="showBaseUrlNew" class="mt-2">
@@ -289,6 +338,7 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
   const providerType = providerForm.value.provider_type
   const all = fieldsForProvider(providerType)
   if (providerType === 'openai') return all.filter(f => f.key !== 'base_url')
+  if (providerType === 'bedrock') return all.filter(f => f.key === 'region')
   return all
 })
 
@@ -320,6 +370,13 @@ const filteredModels = computed<AvailableModel[]>(() => {
 const canTestConnection = computed(() => {
   if (selectedProvider.value && selectedProvider.value.type !== 'new_provider') {
     return !!selectedProvider.value.provider_type
+  }
+  // Bedrock with IAM auth doesn't require api_key
+  if (providerForm.value.provider_type === 'bedrock') {
+    const creds = providerForm.value.credentials
+    if (!creds?.region) return false
+    if (creds.auth_mode === 'api_key') return !!creds.api_key
+    return true
   }
   return !!providerForm.value.provider_type && !!providerForm.value.credentials && typeof providerForm.value.credentials.api_key !== 'undefined'
 })
@@ -365,6 +422,15 @@ watch(selectedProvider, (newValue) => {
         (newValue.credentials as any).endpoint_url = existingEndpoint
       }
       if (newValue.credentials.endpoint_url === undefined) (newValue.credentials as any).endpoint_url = null
+    }
+    // Hydrate Bedrock region and auth_mode
+    if ((newValue.provider_type === 'bedrock' || newValue.type === 'bedrock')) {
+      const cfg = (newValue as any)?.additional_config || {}
+      if (cfg.region) (newValue.credentials as any).region = cfg.region;
+      (newValue.credentials as any).auth_mode = cfg.auth_mode || 'iam'
+      if (cfg.auth_mode !== 'api_key') {
+        (newValue.credentials as any).api_key = null
+      }
     }
     providerForm.value = { name: '', provider_type: '', credentials: {} }
   }

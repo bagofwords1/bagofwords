@@ -542,6 +542,14 @@ class LLMService:
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             # For custom providers, base_url is required - don't clear it
 
+        # Bedrock: region (required), auth_mode
+        if provider.provider_type == "bedrock":
+            region = credentials.get("region")
+            if region:
+                existing_additional_config = { **existing_additional_config, "region": region }
+            auth_mode = credentials.get("auth_mode", "iam")
+            existing_additional_config = { **existing_additional_config, "auth_mode": auth_mode }
+
         provider.additional_config = existing_additional_config if existing_additional_config else None
 
         # Only (re-)encrypt credentials when a new key/secret is provided

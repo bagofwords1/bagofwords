@@ -6,6 +6,7 @@ from .clients.openai_client import OpenAi
 from .clients.google_client import Google
 from .clients.anthropic_client import Anthropic
 from .clients.azure_client import AzureClient
+from .clients.bedrock_client import BedrockClient
 from .types import LLMResponse, LLMUsage, ImageInput
 from app.ai.utils.token_counter import count_tokens
 from app.models.llm_model import LLMModel
@@ -25,7 +26,10 @@ class LLM:
         self.model = model
         self.model_id = model.model_id
         self.provider = model.provider.provider_type
-        self.api_key = self.model.provider.decrypt_credentials()[0]
+        try:
+            self.api_key = self.model.provider.decrypt_credentials()[0]
+        except Exception:
+            self.api_key = None
         self._usage_session_maker = usage_session_maker
         if self.provider == "openai":
             base_url = None
@@ -48,6 +52,17 @@ class LLM:
             # Use empty string for api_key if not provided (some local servers don't need auth)
             api_key = self.api_key or ""
             self.client = OpenAi(api_key=api_key, base_url=base_url)
+        elif self.provider == "bedrock":
+            additional_config = self.model.provider.additional_config or {}
+            region = additional_config.get("region")
+            if not region:
+                raise ValueError("Bedrock provider requires region in additional_config")
+            auth_mode = additional_config.get("auth_mode", "iam")
+            self.client = BedrockClient(
+                region=region,
+                auth_mode=auth_mode,
+                api_key=self.api_key if auth_mode == "api_key" else None,
+            )
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 

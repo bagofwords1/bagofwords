@@ -36,15 +36,15 @@
                         </span>
                     </div>
                     <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
-                        <div class="">
+                        <div class="" v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock'">
                             <label class="text-sm font-medium text-gray-700 mb-2">
                                 API Key
                             </label>
-                            <input 
-                                v-model="selectedProvider.credentials.api_key" 
-                                type="text" 
+                            <input
+                                v-model="selectedProvider.credentials.api_key"
+                                type="text"
                                 placeholder="Keep blank to use stored key"
-                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
+                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
                         </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
@@ -70,6 +70,44 @@
                             />
                             <p class="text-xs text-gray-500 mt-1">OpenAI-compatible endpoint (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)</p>
                         </div>
+                        <!-- Bedrock: existing provider edit -->
+                        <template v-if="selectedProvider?.provider_type === 'bedrock' || selectedProvider?.type === 'bedrock'">
+                            <div>
+                                <label class="text-sm font-medium text-gray-700 mb-2">Region <span class="text-red-500">*</span></label>
+                                <input
+                                    v-model="selectedProvider.credentials.region"
+                                    type="text"
+                                    placeholder="e.g. us-east-1"
+                                    class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+                                />
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
+                                <div class="flex gap-2 mt-2">
+                                    <button type="button"
+                                        @click="selectedProvider.credentials.auth_mode = 'iam'; selectedProvider.credentials.api_key = null"
+                                        class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                                        :class="(!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                                        IAM (from environment)
+                                    </button>
+                                    <button type="button"
+                                        @click="selectedProvider.credentials.auth_mode = 'api_key'"
+                                        class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                                        :class="selectedProvider.credentials.auth_mode === 'api_key' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                                        API Key
+                                    </button>
+                                </div>
+                            </div>
+                            <div v-if="selectedProvider.credentials.auth_mode === 'api_key'">
+                                <label class="text-sm font-medium text-gray-700 mb-2">API Key <span class="text-red-500">*</span></label>
+                                <input
+                                    v-model="selectedProvider.credentials.api_key"
+                                    type="text"
+                                    placeholder="Keep blank to use stored key"
+                                    class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+                                />
+                            </div>
+                        </template>
                         <div class="" v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
                             <div class="mt-1">
                                 <button type="button" @click="toggleBaseUrl" class="text-xs text-blue-600 hover:underline">
@@ -205,6 +243,32 @@
                                     :placeholder="getFieldPlaceholder(field)"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
+                            <!-- Bedrock: auth mode toggle for new provider -->
+                            <template v-if="providerForm.provider_type === 'bedrock'">
+                                <div class="mt-3">
+                                    <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
+                                    <div class="flex gap-2 mt-2">
+                                        <button type="button"
+                                            @click="providerForm.credentials.auth_mode = 'iam'; providerForm.credentials.api_key = undefined"
+                                            class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                                            :class="(!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                                            IAM (from environment)
+                                        </button>
+                                        <button type="button"
+                                            @click="providerForm.credentials.auth_mode = 'api_key'"
+                                            class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
+                                            :class="providerForm.credentials.auth_mode === 'api_key' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                                            API Key
+                                        </button>
+                                    </div>
+                                </div>
+                                <div v-if="providerForm.credentials.auth_mode === 'api_key'" class="mt-3">
+                                    <label class="text-sm font-medium text-gray-700 mb-2">API Key <span class="text-red-500">*</span></label>
+                                    <input v-model="providerForm.credentials.api_key" type="text"
+                                        placeholder="Bedrock API key"
+                                        class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                </div>
+                            </template>
                             <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                                 <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">
                                     {{ showBaseUrlNew ? 'Use default base URL' : 'Set custom base URL' }}
@@ -392,6 +456,13 @@ const canTestConnection = computed(() => {
         // Existing provider: must have provider_type and some credential (api_key may be blank to use stored)
         return !!selectedProvider.value.provider_type;
     }
+    // Bedrock with IAM auth doesn't require api_key
+    if (providerForm.value.provider_type === 'bedrock') {
+        const creds = providerForm.value.credentials;
+        if (!creds?.region) return false;
+        if (creds.auth_mode === 'api_key') return !!creds.api_key;
+        return true; // IAM mode: region is enough
+    }
     // New provider form: need type and at least api_key
     return !!providerForm.value.provider_type && !!providerForm.value.credentials && typeof providerForm.value.credentials.api_key !== 'undefined';
 });
@@ -409,6 +480,10 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     if (providerType === 'openai') {
         return all.filter(f => f.key !== 'base_url');
     }
+    if (providerType === 'bedrock') {
+        // Only show region; auth_mode and api_key are rendered as custom UI
+        return all.filter(f => f.key === 'region');
+    }
     return all;
 });
 
@@ -416,6 +491,9 @@ function getFieldPlaceholder(field: CredentialField): string {
     // Custom placeholders for specific fields
     if (providerForm.value.provider_type === 'custom' && field.key === 'base_url') {
         return 'http://localhost:11434/v1';
+    }
+    if (providerForm.value.provider_type === 'bedrock' && field.key === 'region') {
+        return 'e.g. us-east-1';
     }
     return field.description || '';
 }
@@ -522,6 +600,15 @@ watch(providerModalOpen, (newValue) => {
                     (selectedProvider.value.credentials as any).base_url = null;
                 }
             }
+            // Hydrate Bedrock region and auth_mode for edit
+            if ((selectedProvider.value.provider_type === 'bedrock' || selectedProvider.value.type === 'bedrock')) {
+                const cfg = selectedProvider.value.additional_config || {};
+                if (cfg.region) (selectedProvider.value.credentials as any).region = cfg.region;
+                (selectedProvider.value.credentials as any).auth_mode = cfg.auth_mode || 'iam';
+                if (cfg.auth_mode !== 'api_key') {
+                    (selectedProvider.value.credentials as any).api_key = null;
+                }
+            }
         }
     }
 });
@@ -569,6 +656,15 @@ watch(() => props.editProviderId, (newId) => {
                 }
                 if (selectedProvider.value.credentials.base_url === undefined) {
                     (selectedProvider.value.credentials as any).base_url = null;
+                }
+            }
+            // Hydrate Bedrock region and auth_mode for edit
+            if ((selectedProvider.value.provider_type === 'bedrock' || selectedProvider.value.type === 'bedrock')) {
+                const cfg = selectedProvider.value.additional_config || {};
+                if (cfg.region) (selectedProvider.value.credentials as any).region = cfg.region;
+                (selectedProvider.value.credentials as any).auth_mode = cfg.auth_mode || 'iam';
+                if (cfg.auth_mode !== 'api_key') {
+                    (selectedProvider.value.credentials as any).api_key = null;
                 }
             }
         }
@@ -748,6 +844,15 @@ watch(selectedProvider, (newValue) => {
             }
             if (newValue.credentials.base_url === undefined) {
                 (newValue.credentials as any).base_url = null;
+            }
+        }
+        // Hydrate Bedrock region and auth_mode
+        if ((newValue.provider_type === 'bedrock' || newValue.type === 'bedrock')) {
+            const cfg = (newValue as any)?.additional_config || {};
+            if (cfg.region) (newValue.credentials as any).region = cfg.region;
+            (newValue.credentials as any).auth_mode = cfg.auth_mode || 'iam';
+            if (cfg.auth_mode !== 'api_key') {
+                (newValue.credentials as any).api_key = null;
             }
         }
         providerForm.value = {

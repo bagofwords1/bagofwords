@@ -4,7 +4,7 @@ from app.models.base import BaseSchema
 import json
 from cryptography.fernet import Fernet
 from app.settings.config import settings
-from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials, CustomCredentials
+from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, BowCredentials, AzureCredentials, CustomCredentials, BedrockCredentials
 
 # LLM Provider Classes
 
@@ -43,6 +43,13 @@ LLM_PROVIDER_DETAILS = [
          "description": "Connect to any OpenAI-compatible API (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)",
          "config": "CustomConfig",
          "credentials": CustomCredentials.schema()
+     },
+     {
+         "type": "bedrock",
+         "name": "AWS Bedrock",
+         "description": "AWS Bedrock for accessing foundation models via OpenAI-compatible API. Supports API key and IAM authentication.",
+         "config": "BedrockConfig",
+         "credentials": BedrockCredentials.schema()
      }
 ]
 
