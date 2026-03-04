@@ -18,9 +18,13 @@ class BedrockClient(OpenAi):
             if not api_key:
                 raise ValueError("Bedrock api_key auth mode requires an api_key")
             token = api_key
-        else:
+        elif auth_mode == "iam":
             # IAM auth: generate a Bearer token from the AWS credential chain
             token = self._generate_iam_token(region)
+        else:
+            raise ValueError(
+                f"Unsupported auth_mode '{auth_mode}'. Supported values are 'api_key' and 'iam'."
+            )
 
         super().__init__(api_key=token, base_url=base_url)
         self._region = region
