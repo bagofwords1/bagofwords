@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BOW Visualization</title>
+
+  <!-- ECharts for chart rendering (vendored locally by scripts/download-vendor-libs.sh) -->
+  <script src="/libs/echarts-5.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #1f2937;
+      background: #fff;
+    }
+
+    /* Loading state */
+    .loader {
+      display: flex; align-items: center; justify-content: center;
+      height: 200px; color: #9ca3af;
+    }
+    .loader svg { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Tabs */
+    .tabs { display: flex; border-bottom: 1px solid #f3f4f6; margin-bottom: 8px; }
+    .tab {
+      padding: 6px 12px; font-size: 12px; font-weight: 500;
+      border-bottom: 2px solid transparent; cursor: pointer;
+      color: #9ca3af; background: none; border-top: none; border-left: none; border-right: none;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: #6b7280; }
+    .tab.active { color: #2563eb; border-bottom-color: #3b82f6; }
+
+    /* Chart container */
+    .chart-container { width: 100%; height: 340px; }
+
+    /* Table */
+    .table-wrap { max-height: 400px; overflow: auto; border: 1px solid #f3f4f6; border-radius: 6px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead { position: sticky; top: 0; background: #f9fafb; z-index: 1; }
+    th { text-align: left; padding: 6px 10px; font-weight: 500; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+    td { padding: 5px 10px; border-bottom: 1px solid #f3f4f6; white-space: nowrap; max-width: 250px; overflow: hidden; text-overflow: ellipsis; }
+    tr:hover td { background: #f9fafb; }
+
+    /* Code */
+    .code-wrap {
+      max-height: 300px; overflow: auto; background: #f9fafb;
+      border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px;
+    }
+    pre { font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; font-family: 'SF Mono', Monaco, Consolas, monospace; }
+
+    /* Error */
+    .error { padding: 16px; color: #ef4444; text-align: center; }
+
+    /* Title */
+    .viz-title { font-size: 13px; font-weight: 600; padding: 10px 12px 4px; color: #374151; }
+    .row-count { font-size: 11px; color: #9ca3af; padding: 0 12px 8px; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <div class="loader" id="loader">
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2A10 10 0 1 0 22 12A10 10 0 0 0 12 2Zm0 18a8 8 0 1 1 8-8A8 8 0 0 1 12 20Z" opacity=".5"/>
+      <path fill="currentColor" d="M20 12h2A10 10 0 0 0 12 2V4A8 8 0 0 1 20 12Z"/>
+    </svg>
+  </div>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // ================================================================
+  // MCP Apps JSON-RPC 2.0 over postMessage transport
+  // Spec: https://github.com/modelcontextprotocol/ext-apps
+  // ================================================================
+
+  var nextId = 1;
+  var pendingRequests = {};  // id -> { resolve, reject }
+  var notificationHandlers = {};  // method -> handler
+
+  // Listen for all messages from host
+  window.addEventListener('message', function(event) {
+    var msg = event.data;
+    if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return;
+
+    // Response to a request we sent
+    if (msg.id != null && pendingRequests[msg.id]) {
+      var pending = pendingRequests[msg.id];
+      delete pendingRequests[msg.id];
+      if (msg.error) {
+        pending.reject(new Error(msg.error.message || 'Unknown error'));
+      } else {
+        pending.resolve(msg.result);
+      }
+      return;
+    }
+
+    // Notification from host
+    if (msg.method && notificationHandlers[msg.method]) {
+      notificationHandlers[msg.method](msg.params);
+    }
+  });
+
+  function sendRequest(method, params) {
+    var id = nextId++;
+    window.parent.postMessage({ jsonrpc: '2.0', id: id, method: method, params: params || {} }, '*');
+    return new Promise(function(resolve, reject) {
+      pendingRequests[id] = { resolve: resolve, reject: reject };
+    });
+  }
+
+  function sendNotification(method, params) {
+    window.parent.postMessage({ jsonrpc: '2.0', method: method, params: params || {} }, '*');
+  }
+
+  function onNotification(method, handler) {
+    notificationHandlers[method] = handler;
+  }
+
+  // ================================================================
+  // App state
+  // ================================================================
+
+  var vizData = null;
+  var activeTab = 'chart';
+  var toolResult = null;
+
+  // Extract visualization_id from tool result content
+  function getVisualizationId(result) {
+    if (!result) return null;
+    try {
+      var content = result.content;
+      if (Array.isArray(content)) {
+        for (var i = 0; i < content.length; i++) {
+          if (content[i].type === 'text' && content[i].text) {
+            var parsed = JSON.parse(content[i].text);
+            return parsed.visualization_id || null;
+          }
+        }
+      }
+      return result.visualization_id || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Call an MCP server tool via the host proxy
+  function callTool(name, args) {
+    return sendRequest('tools/call', { name: name, arguments: args });
+  }
+
+  // Parse tool call result — server wraps in content[].text JSON
+  function parseToolResult(result) {
+    try {
+      if (result && result.content && Array.isArray(result.content)) {
+        for (var i = 0; i < result.content.length; i++) {
+          if (result.content[i].type === 'text') {
+            return JSON.parse(result.content[i].text);
+          }
+        }
+      }
+    } catch (e) {}
+    return result;
+  }
+
+  // ================================================================
+  // Lifecycle: init → receive tool-result → fetch data → render
+  // ================================================================
+
+  async function boot() {
+    try {
+      // 1. Send ui/initialize
+      var initResult = await sendRequest('ui/initialize', {
+        capabilities: {},
+        clientInfo: { name: 'bow-visualization', version: '1.0.0' },
+        protocolVersion: '2026-01-26'
+      });
+
+      // 2. Send ui/notifications/initialized
+      sendNotification('ui/notifications/initialized', {});
+
+      // 3. Listen for tool-result from host
+      onNotification('ui/notifications/tool-result', function(params) {
+        toolResult = params;
+        loadVisualization();
+      });
+
+      // 4. Also listen for tool-input (not strictly needed, but spec-compliant)
+      onNotification('ui/notifications/tool-input', function(params) {
+        // Tool arguments — we don't need these, we wait for tool-result
+      });
+
+    } catch (e) {
+      showError('Initialization failed: ' + String(e));
+    }
+  }
+
+  async function loadVisualization() {
+    var vizId = getVisualizationId(toolResult);
+    if (!vizId) {
+      showError('No visualization ID found in tool result.');
+      return;
+    }
+
+    try {
+      var result = await callTool('get_visualization', { visualization_id: vizId });
+      var data = parseToolResult(result);
+
+      if (!data || data.error) {
+        showError((data && data.error) || 'Failed to load visualization');
+        return;
+      }
+
+      vizData = data;
+      render();
+    } catch (e) {
+      showError('Error loading visualization: ' + String(e));
+    }
+  }
+
+  function showError(msg) {
+    document.getElementById('app').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>';
+  }
+
+  // ================================================================
+  // Rendering
+  // ================================================================
+
+  function render() {
+    var app = document.getElementById('app');
+    if (!vizData) return;
+
+    var hasChart = isChartType(vizData.view);
+    var hasData = vizData.data && Array.isArray(vizData.data.rows);
+    var hasCode = !!vizData.code;
+
+    var tabs = [];
+    if (hasChart) tabs.push('chart');
+    if (hasData) tabs.push('table');
+    if (hasCode) tabs.push('code');
+
+    if (tabs.length > 0 && tabs.indexOf(activeTab) === -1) {
+      activeTab = tabs[0];
+    }
+
+    var html = '';
+
+    // Title
+    html += '<div class="viz-title">' + escapeHtml(vizData.title || 'Visualization') + '</div>';
+    if (hasData) {
+      html += '<div class="row-count">' + (vizData.data.rows.length) + ' rows</div>';
+    }
+
+    // Tabs (only if multiple content types)
+    if (tabs.length > 1) {
+      html += '<div class="tabs">';
+      for (var i = 0; i < tabs.length; i++) {
+        var label = tabs[i] === 'chart' ? 'Chart' : tabs[i] === 'table' ? 'Data' : 'Code';
+        html += '<button class="tab' + (activeTab === tabs[i] ? ' active' : '') + '" data-tab="' + tabs[i] + '">' + label + '</button>';
+      }
+      html += '</div>';
+    }
+
+    // Content
+    if (activeTab === 'chart' && hasChart) {
+      html += '<div class="chart-container" id="echart"></div>';
+    } else if (activeTab === 'table' && hasData) {
+      html += renderTable(vizData.data);
+    } else if (activeTab === 'code' && hasCode) {
+      html += '<div class="code-wrap"><pre>' + escapeHtml(vizData.code) + '</pre></div>';
+    }
+
+    app.innerHTML = html;
+
+    // Attach tab click handlers
+    var tabButtons = app.querySelectorAll('.tab');
+    for (var j = 0; j < tabButtons.length; j++) {
+      tabButtons[j].addEventListener('click', function(e) {
+        activeTab = e.target.getAttribute('data-tab');
+        render();
+      });
+    }
+
+    // Render EChart if on chart tab
+    if (activeTab === 'chart' && hasChart) {
+      renderEChart();
+    }
+
+    notifySize();
+  }
+
+  function isChartType(view) {
+    if (!view) return false;
+    var type = (view.view && view.view.type) || view.type || '';
+    var chartTypes = ['bar_chart', 'line_chart', 'area_chart', 'pie_chart', 'scatter_plot', 'heatmap', 'candlestick', 'treemap', 'radar_chart'];
+    return chartTypes.indexOf(type) !== -1;
+  }
+
+  function getViewType(view) {
+    if (!view) return 'table';
+    return (view.view && view.view.type) || view.type || 'table';
+  }
+
+  function renderTable(data) {
+    var rows = data.rows || [];
+    var columns = data.columns || [];
+    if (rows.length === 0) return '<div class="error">No data available</div>';
+
+    var cols = columns.length > 0
+      ? columns.map(function(c) { return c.field || c.colId || c.headerName || ''; })
+      : Object.keys(rows[0] || {});
+
+    var html = '<div class="table-wrap"><table><thead><tr>';
+    for (var i = 0; i < cols.length; i++) {
+      html += '<th>' + escapeHtml(cols[i]) + '</th>';
+    }
+    html += '</tr></thead><tbody>';
+
+    var limit = Math.min(rows.length, 200);
+    for (var r = 0; r < limit; r++) {
+      html += '<tr>';
+      for (var c = 0; c < cols.length; c++) {
+        var val = rows[r][cols[c]];
+        html += '<td>' + escapeHtml(val == null ? '' : String(val)) + '</td>';
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    if (rows.length > 200) {
+      html += '<div class="row-count" style="padding-top:4px">Showing 200 of ' + rows.length + ' rows</div>';
+    }
+    return html;
+  }
+
+  function renderEChart() {
+    var el = document.getElementById('echart');
+    if (!el || !vizData) return;
+
+    if (typeof echarts === 'undefined') {
+      el.innerHTML = '<div class="error">Chart library not available. Showing data table instead.</div>';
+      activeTab = 'table';
+      render();
+      return;
+    }
+
+    var chart = echarts.init(el);
+    var options = buildChartOptions(vizData);
+    if (options) {
+      chart.setOption(options);
+    }
+    window.addEventListener('resize', function() { chart.resize(); });
+  }
+
+  function buildChartOptions(viz) {
+    var type = getViewType(viz.view);
+    var rows = (viz.data && viz.data.rows) || [];
+    var columns = (viz.data && viz.data.columns) || [];
+    if (rows.length === 0) return null;
+
+    var cols = columns.length > 0
+      ? columns.map(function(c) { return c.field || c.colId || c.headerName || ''; })
+      : Object.keys(rows[0] || {});
+
+    if (cols.length < 2) return null;
+
+    var xCol = cols[0];
+    var yCol = cols[1];
+    var xData = rows.map(function(r) { return r[xCol]; });
+    var yData = rows.map(function(r) { return Number(r[yCol]) || 0; });
+
+    var colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
+
+    if (type === 'pie_chart') {
+      return {
+        tooltip: { trigger: 'item' },
+        series: [{
+          type: 'pie',
+          radius: ['40%', '70%'],
+          data: rows.slice(0, 20).map(function(r) {
+            return { name: String(r[xCol] || ''), value: Number(r[yCol]) || 0 };
+          }),
+          itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+          label: { fontSize: 11 },
+        }],
+      };
+    }
+
+    var seriesType = type === 'bar_chart' ? 'bar' : type === 'area_chart' ? 'line' : type === 'scatter_plot' ? 'scatter' : 'line';
+
+    return {
+      tooltip: { trigger: 'axis' },
+      grid: { left: 50, right: 20, top: 20, bottom: 40 },
+      xAxis: {
+        type: 'category',
+        data: xData,
+        axisLabel: { fontSize: 11, rotate: xData.length > 10 ? 30 : 0 },
+      },
+      yAxis: { type: 'value', axisLabel: { fontSize: 11 } },
+      series: [{
+        type: seriesType,
+        data: yData,
+        itemStyle: { color: colors[0] },
+        areaStyle: type === 'area_chart' ? {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: colors[0] + '40' },
+            { offset: 1, color: colors[0] + '05' },
+          ]),
+        } : undefined,
+        smooth: type === 'line_chart' || type === 'area_chart',
+      }],
+    };
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function notifySize() {
+    var w = document.documentElement.scrollWidth || document.body.scrollWidth;
+    var h = document.documentElement.scrollHeight || document.body.scrollHeight;
+    sendNotification('ui/notifications/size-changed', { width: w, height: h });
+  }
+
+  // Start the MCP Apps lifecycle
+  boot();
+
+})();
+</script>
+
+</body>
+</html>

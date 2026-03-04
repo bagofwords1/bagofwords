@@ -11,6 +11,8 @@ Organization is derived from the API key or OAuth token.
 
 import json
 import logging
+import os
+import re
 from typing import Any, Optional, Union, Tuple
 
 from fastapi import APIRouter, Depends, Request, HTTPException
@@ -137,6 +139,81 @@ def jsonrpc_error(id: Any, code: int, message: str) -> dict:
     return {"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}}
 
 
+MCP_CAPABILITIES = {
+    "tools": {},
+    "resources": {},
+}
+
+# UI resource definitions for MCP Apps
+MCP_UI_RESOURCES = [
+    {
+        "uri": "ui://bagofwords/visualization",
+        "name": "Visualization Viewer",
+        "mimeType": "text/html;profile=mcp-app",
+    },
+    {
+        "uri": "ui://bagofwords/artifact",
+        "name": "Artifact Viewer",
+        "mimeType": "text/html;profile=mcp-app",
+    },
+]
+
+# Cache for loaded HTML bundles
+_html_bundle_cache: dict[str, str] = {}
+
+
+def _load_html_bundle(name: str) -> str:
+    """Load an MCP App HTML bundle from the frontend/public directory.
+
+    MCP app HTML is delivered as a string and rendered in a sandboxed iframe
+    (srcdoc / blob:), so external script URLs won't resolve.  This function
+    inlines any ``<script src="/libs/...">`` references by reading the vendored
+    JS file and replacing the tag with an inline ``<script>`` block.
+    """
+    if name in _html_bundle_cache:
+        return _html_bundle_cache[name]
+
+    # Try multiple paths: built output first, then source
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", ".output", "public", f"{name}.html"),
+        os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", "public", f"{name}.html"),
+    ]
+
+    content: str | None = None
+    html_dir: str | None = None
+    for path in candidates:
+        resolved = os.path.normpath(path)
+        if os.path.isfile(resolved):
+            with open(resolved, "r", encoding="utf-8") as f:
+                content = f.read()
+            html_dir = os.path.dirname(resolved)
+            break
+
+    if content is None:
+        return f"<html><body>MCP App bundle '{name}' not found.</body></html>"
+
+    # Inline /libs/ script references so the bundle is fully self-contained
+    def _inline_script(match: re.Match) -> str:
+        attrs = match.group(1)
+        src_match = re.search(r'src="(/libs/[^"]+)"', attrs)
+        if not src_match:
+            return match.group(0)
+        rel_path = src_match.group(1).lstrip("/")
+        # Resolve relative to the HTML file's parent (frontend/public/)
+        lib_path = os.path.normpath(os.path.join(html_dir, rel_path))
+        if not os.path.isfile(lib_path):
+            logger.warning("MCP bundle '%s': vendored lib not found at %s", name, lib_path)
+            return match.group(0)  # keep original tag as fallback
+        with open(lib_path, "r", encoding="utf-8") as lf:
+            js_content = lf.read()
+        return f"<script>{js_content}</script>"
+
+    content = re.sub(r"<script\b([^>]*\bsrc=\"/libs/[^\"]+\"[^>]*)>\s*</script>", _inline_script, content)
+
+    _html_bundle_cache[name] = content
+    return content
+
+
 @router.get("/mcp")
 async def mcp_get_endpoint(
     auth: Tuple[User, Organization] = Depends(mcp_auth),
@@ -152,9 +229,7 @@ async def mcp_get_endpoint(
                 "name": "bagofwords",
                 "version": "1.0.0",
             },
-            "capabilities": {
-                "tools": {},
-            },
+            "capabilities": MCP_CAPABILITIES,
         }
     })
 
@@ -196,20 +271,22 @@ async def mcp_endpoint(
                 "name": "bagofwords",
                 "version": "1.0.0",
             },
-            "capabilities": {
-                "tools": {},
-            },
+            "capabilities": MCP_CAPABILITIES,
         }))
 
     elif request.method == "tools/list":
-        tools = list_mcp_tools()
+        # Include all tools (model + app-only) so MCP Apps can call app-only tools
+        tools = list_mcp_tools(include_app_only=True)
         mcp_tools = []
         for tool in tools:
-            mcp_tools.append({
+            entry: dict[str, Any] = {
                 "name": tool["name"],
                 "description": tool["description"],
                 "inputSchema": tool["input_schema"],
-            })
+            }
+            if "_meta" in tool:
+                entry["_meta"] = tool["_meta"]
+            mcp_tools.append(entry)
         return _mcp_response(jsonrpc_response(request.id, {"tools": mcp_tools}))
 
     elif request.method == "tools/call":
@@ -237,6 +314,36 @@ async def mcp_endpoint(
                 "content": [{"type": "text", "text": str(e)}],
                 "isError": True,
             }))
+
+    elif request.method == "resources/list":
+        return _mcp_response(jsonrpc_response(request.id, {
+            "resources": MCP_UI_RESOURCES,
+        }))
+
+    elif request.method == "resources/read":
+        params = request.params or {}
+        uri = params.get("uri", "")
+
+        # Map UI resource URIs to HTML bundle filenames
+        bundle_map = {
+            "ui://bagofwords/visualization": "mcp-visualization-app",
+            "ui://bagofwords/artifact": "mcp-artifact-app",
+        }
+
+        bundle_name = bundle_map.get(uri)
+        if not bundle_name:
+            return _mcp_response(jsonrpc_error(
+                request.id, -32602, f"Unknown resource URI: {uri}"
+            ))
+
+        html_content = _load_html_bundle(bundle_name)
+        return _mcp_response(jsonrpc_response(request.id, {
+            "contents": [{
+                "uri": uri,
+                "mimeType": "text/html;profile=mcp-app",
+                "text": html_content,
+            }],
+        }))
 
     else:
         return _mcp_response(jsonrpc_error(request.id, -32601, f"Method not found: {request.method}"))

@@ -6,6 +6,7 @@ from .clients.openai_client import OpenAi
 from .clients.google_client import Google
 from .clients.anthropic_client import Anthropic
 from .clients.azure_client import AzureClient
+from .clients.bedrock_client import BedrockClient
 from .types import LLMResponse, LLMUsage, ImageInput
 from app.ai.utils.token_counter import count_tokens
 from app.models.llm_model import LLMModel
@@ -25,7 +26,29 @@ class LLM:
         self.model = model
         self.model_id = model.model_id
         self.provider = model.provider.provider_type
-        self.api_key = self.model.provider.decrypt_credentials()[0]
+        try:
+            self.api_key = self.model.provider.decrypt_credentials()[0]
+        except Exception as exc:
+            # For most providers, failing to decrypt credentials is a hard error.
+            # The only exception is Bedrock when using non-API-key auth (e.g., IAM),
+            # where an API key is not required.
+            additional_config = getattr(self.model.provider, "additional_config", None) or {}
+            auth_mode = additional_config.get("auth_mode", "iam") if isinstance(additional_config, dict) else "iam"
+            if self.provider == "bedrock" and auth_mode != "api_key":
+                logger.warning(
+                    "Failed to decrypt credentials for Bedrock provider in '%s' auth mode; "
+                    "continuing without api_key. Error: %s",
+                    auth_mode,
+                    exc,
+                )
+                self.api_key = None
+            else:
+                logger.error(
+                    "Failed to decrypt credentials for provider '%s': %s",
+                    self.provider,
+                    exc,
+                )
+                raise
         self._usage_session_maker = usage_session_maker
         if self.provider == "openai":
             base_url = None
@@ -45,9 +68,23 @@ class LLM:
             base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
             if not base_url:
                 raise ValueError("Custom provider requires base_url in additional_config")
+            verify_ssl = self.model.provider.additional_config.get("verify_ssl", True) if self.model.provider.additional_config else True
             # Use empty string for api_key if not provided (some local servers don't need auth)
             api_key = self.api_key or ""
             self.client = OpenAi(api_key=api_key, base_url=base_url)
+        elif self.provider == "bedrock":
+            additional_config = self.model.provider.additional_config or {}
+            region = additional_config.get("region")
+            if not region:
+                raise ValueError("Bedrock provider requires region in additional_config")
+            auth_mode = additional_config.get("auth_mode", "iam")
+            if auth_mode == "api_key" and not self.api_key:
+                raise ValueError("Bedrock provider with auth_mode 'api_key' requires provider credentials")
+            self.client = BedrockClient(
+                region=region,
+                auth_mode=auth_mode,
+                api_key=self.api_key if auth_mode == "api_key" else None,
+            )
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 

@@ -616,6 +616,37 @@ class QVDConfig(BaseModel):
     )
 
 
+# Timbr Semantic Layer
+class TimbrTokenCredentials(BaseModel):
+    api_key: str = Field(
+        ...,
+        title="API Key",
+        description="Timbr API key for authentication",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class TimbrConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Timbr server URL (e.g., https://mytimbr.example.com)",
+        json_schema_extra={"ui:type": "string"},
+    )
+    ontology: str = Field(
+        ...,
+        title="Ontology",
+        description="Name of the Timbr knowledge graph / ontology to connect to",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify SSL certificate when connecting",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -680,4 +711,7 @@ __all__ = [
     "MSFabricConfig",
     # Sybase SQL Anywhere
     "SybaseConfig",
+    # Timbr
+    "TimbrTokenCredentials",
+    "TimbrConfig",
 ]

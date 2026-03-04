@@ -1,7 +1,7 @@
 """MCP Tool: create_artifact - Generate dashboards/slides from visualizations."""
 
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +40,10 @@ class CreateArtifactMCPTool(MCPTool):
         "Supports 'page' mode for interactive dashboards or 'slides' mode for presentations. "
         "Call create_data first to generate visualizations, then use this to compose them."
     )
+
+    @property
+    def meta(self) -> Optional[Dict[str, Any]]:
+        return {"ui": {"resourceUri": "ui://bagofwords/artifact"}}
 
     @property
     def input_schema(self) -> Dict[str, Any]:
@@ -150,7 +154,7 @@ class CreateArtifactMCPTool(MCPTool):
         # LLM inference (non-streaming for MCP)
         llm = LLM(rich_ctx.model, usage_session_maker=async_session_maker)
         try:
-            response = await llm.inference(
+            response = llm.inference(
                 prompt,
                 usage_scope="mcp_create_artifact",
                 usage_scope_ref_id=str(report.id),
@@ -321,7 +325,6 @@ class CreateArtifactMCPTool(MCPTool):
             report_title=report_title,
             allow_llm_see_data=allow_llm_see_data,
             messages_context="",
-            previous_artifacts=None,
         )
 
         # Add selection guidance at the beginning of the design request section
