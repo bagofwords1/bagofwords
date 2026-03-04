@@ -14,6 +14,7 @@ asttokens==2.4.1
 asyncpg==0.29.0
 attrs==24.2.0
 autoevals==0.0.109
+aws-bedrock-token-generator==1.1.0
 awswrangler==3.11.0
 azure-kusto-data==4.6.2
 azure-identity==1.19.0
