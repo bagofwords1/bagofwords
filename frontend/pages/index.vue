@@ -232,8 +232,22 @@ const menuItems = ref([
 ])
 
 const { isExcel } = useExcel()
+const { initDomain, selectDomains } = useDomain()
 const uploadingCsv = ref(false)
 const toast = useToast()
+
+async function findFileUploadConnection(): Promise<string | null> {
+  try {
+    const { data } = await useMyFetch('/connections', { method: 'GET' })
+    const connections = (data.value as any[]) || []
+    const fileUploadConn = connections.find(
+      (c: any) => c.type === 'duckdb' && c.config?.is_file_upload === true
+    )
+    return fileUploadConn?.id || null
+  } catch {
+    return null
+  }
+}
 
 async function handleCsvUpload(e: Event) {
   const input = e.target as HTMLInputElement
@@ -242,6 +256,9 @@ async function handleCsvUpload(e: Event) {
 
   uploadingCsv.value = true
   try {
+    // Check if there's an existing file-upload connection
+    const existingConnId = await findFileUploadConnection()
+
     // 1. Upload
     const formData = new FormData()
     formData.append('file', file)
@@ -254,9 +271,12 @@ async function handleCsvUpload(e: Event) {
       return
     }
 
-    // 2. Create data source
+    // 2. Create data source (use existing connection if available)
     const fileId = (uploadData.value as any).id
-    const { data: dsData, error: dsError } = await useMyFetch(`/files/${fileId}/create_data_source`, {
+    const url = existingConnId
+      ? `/files/${fileId}/create_data_source?connection_id=${existingConnId}`
+      : `/files/${fileId}/create_data_source`
+    const { data: dsData, error: dsError } = await useMyFetch(url, {
       method: 'POST',
     })
     if (dsError.value || !dsData.value) {
@@ -264,9 +284,12 @@ async function handleCsvUpload(e: Event) {
       return
     }
 
-    toast.add({ title: 'Ready to query', description: `"${(dsData.value as any).data_source_name}" has been added`, color: 'green' })
-    // Reload page to pick up the new data source
-    router.go(0)
+    const result = dsData.value as any
+    const displayName = result.data_source_name || result.table_name || file.name
+    toast.add({ title: 'Ready to query', description: `"${displayName}" has been added`, color: 'green' })
+
+    // Refresh domains without full page reload
+    await initDomain()
   } finally {
     uploadingCsv.value = false
     input.value = ''

@@ -5,7 +5,7 @@
       <aside v-if="!props.hideSidebar" class="p-8 md:p-10 border-b md:border-b-0 md:border-r border-gray-100 md:col-span-1">
         <div>
             <img src="/assets/logo-icon.svg" alt="Logo" class="w-10 h-10 mb-5" />
-          <h1 class="text-lg font-semibold text-gray-900">Welcome to MetricChat! 🎉</h1>
+          <h1 class="text-lg font-semibold text-gray-900">Welcome to MetricChat</h1>
           <p class="text-sm text-gray-500 mt-1">Chat with your data, run deep analysis and create dashboards in seconds</p>
         </div>
 
@@ -100,7 +100,7 @@ onMounted(async () => {
 
 // Complete step metadata, used for titles/descriptions irrespective of sidebar order
 const stepMeta = new Map([
-  ['onboarding', { title: 'Welcome to MetricChat! 🎉', description: 'Chat with your data, run deep analysis and create dashboards in seconds' }],
+  ['onboarding', { title: 'Welcome to MetricChat', description: 'Chat with your data, run deep analysis and create dashboards in seconds' }],
   ['llm_configured', { title: 'Configure LLM', description: 'Connect to any LLM provider, and bring your own API key' }],
   ['data_source_created', { title: 'Connect data', description: 'Select one of the available connectors and set up your data source' }],
   // Shown on the right panel while selecting tables

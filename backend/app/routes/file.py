@@ -46,11 +46,20 @@ async def get_files(current_user: User = Depends(current_user), db: AsyncSession
 @requires_permission('create_data_source')
 async def create_data_source_from_file(
     file_id: str,
+    connection_id: Optional[str] = None,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Create a DuckDB data source from an uploaded CSV or Excel file."""
+    """Create a DuckDB data source from an uploaded CSV or Excel file.
+
+    If connection_id is provided, adds the file to an existing connection
+    instead of creating a new one.
+    """
+    if connection_id:
+        return await file_service.add_file_to_connection(
+            db, file_id, connection_id, current_user, organization
+        )
     return await file_service.create_data_source_from_file(db, file_id, current_user, organization)
 
 

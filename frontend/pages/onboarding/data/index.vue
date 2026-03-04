@@ -5,7 +5,27 @@
         <template #data>
           <div>
             <div v-if="!selectedDataSource">
-              <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              <!-- Create Database card -->
+              <div class="mt-3 mb-4">
+                <input type="file" ref="fileInput" @change="handleFileUpload" class="hidden" accept=".csv,.xlsx,.xls" />
+                <button
+                  @click="handleCreateDatabase"
+                  :disabled="uploadingFile"
+                  class="w-full flex items-center gap-3 p-4 rounded-lg border border-dashed border-primary-300 bg-primary-50/50 hover:bg-primary-50 hover:border-primary-400 transition-all text-left disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div class="flex items-center justify-center w-10 h-10 rounded-lg bg-primary-100 text-primary-600">
+                    <Spinner v-if="uploadingFile" class="w-5 h-5" />
+                    <Icon v-else name="heroicons-folder-plus" class="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div class="text-sm font-medium text-gray-900">Create Database</div>
+                    <div class="text-xs text-gray-500">Upload CSV & Excel files to get started</div>
+                  </div>
+                </button>
+              </div>
+
+              <div class="text-xs text-gray-400 mb-2">Or connect an existing database:</div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 <button
                   v-for="ds in available_ds"
                   :key="ds.type"
@@ -37,21 +57,6 @@
                       </span>
                     </div>
                   </div>
-                </button>
-              </div>
-
-              <!-- CSV/Excel upload -->
-              <div class="mt-6">
-                <div class="text-xs text-gray-400 mb-2">Or upload a file:</div>
-                <input type="file" ref="fileInput" @change="handleFileUpload" class="hidden" accept=".csv,.xlsx,.xls" />
-                <button
-                  @click="($refs.fileInput as HTMLInputElement).click()"
-                  :disabled="uploadingFile"
-                  class="inline-flex items-center gap-2 px-3 py-1.5 text-xs text-gray-600 rounded-full border border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Spinner v-if="uploadingFile" class="h-3" />
-                  <Icon v-else name="heroicons-arrow-up-tray" class="h-4 w-4" />
-                  Upload CSV or Excel
                 </button>
               </div>
 
@@ -181,6 +186,15 @@ function onCreateSuccess(ds: any) {
   navigateTo(dsId ? `/onboarding/data/${dsId}/schema` : '/onboarding/data/schema')
 }
 
+const fileInput = ref<HTMLInputElement | null>(null)
+
+function handleCreateDatabase() {
+  // Just trigger file upload — the original create_data_source_from_file
+  // flow creates both connection + data source and returns data_source_id,
+  // which we need for onboarding navigation to schema selection.
+  if (fileInput.value) fileInput.value.click()
+}
+
 async function handleFileUpload(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
@@ -200,7 +214,8 @@ async function handleFileUpload(e: Event) {
       return
     }
 
-    // 2. Create data source from the uploaded file
+    // 2. Create data source from the uploaded file (no connection_id —
+    //    onboarding needs data_source_id for schema selection navigation)
     const fileId = (uploadData.value as any).id
     const { data: dsData, error: dsError } = await useMyFetch(`/files/${fileId}/create_data_source`, {
       method: 'POST',

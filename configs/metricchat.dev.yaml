@@ -5,8 +5,7 @@ deployment:
 base_url: http://localhost:3000
 
 database:
-  # url: sqlite:///db/app.db
-  url: ${MC_DATABASE_URL}
+  url: sqlite:///db/metricchat.db
   
 features:
   allow_uninvited_signups: false

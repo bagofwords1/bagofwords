@@ -230,7 +230,7 @@ class FileService:
             # Convert each Excel sheet to a CSV, collect the paths
             # Run in executor to avoid blocking the async event loop
             import asyncio
-            csv_paths = await asyncio.get_event_loop().run_in_executor(
+            csv_paths = await asyncio.get_running_loop().run_in_executor(
                 None, self._convert_excel_to_csvs, file_abs_path, file.filename
             )
             uris = "\n".join(csv_paths)
@@ -314,6 +314,105 @@ class FileService:
             "connection_id": str(new_connection.id),
         }
 
+    async def add_file_to_connection(
+        self,
+        db: AsyncSession,
+        file_id: str,
+        connection_id: str,
+        current_user: User,
+        organization: Organization,
+    ):
+        """Add a CSV/Excel file to an existing DuckDB connection.
+
+        Appends file URIs to the connection config, refreshes schema,
+        and syncs tables to any linked data sources.
+        """
+        from app.models.connection import Connection
+        from app.services.connection_service import ConnectionService
+        from app.services.data_source_service import DataSourceService
+        from sqlalchemy.orm import selectinload
+        from app.models.data_source import DataSource
+
+        # 1. Look up file
+        stmt = select(File).filter(File.id == file_id, File.organization_id == organization.id)
+        result = await db.execute(stmt)
+        file = result.scalar_one_or_none()
+        if not file:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        # 2. Validate file type
+        ext = Path(file.filename).suffix.lower()
+        content_type = (file.content_type or "").lower()
+        is_csv = content_type == "text/csv" or ext == ".csv"
+        is_excel = content_type in self.EXCEL_CONTENT_TYPES or ext in (".xlsx", ".xls")
+        if not is_csv and not is_excel:
+            raise HTTPException(status_code=400, detail="Only CSV and Excel files can be added.")
+
+        # 3. Look up connection
+        conn_result = await db.execute(
+            select(Connection)
+            .options(
+                selectinload(Connection.connection_tables),
+                selectinload(Connection.data_sources),
+            )
+            .filter(
+                Connection.id == connection_id,
+                Connection.organization_id == organization.id,
+            )
+        )
+        connection = conn_result.scalar_one_or_none()
+        if not connection:
+            raise HTTPException(status_code=404, detail="Connection not found")
+
+        # 4. Resolve file paths
+        file_abs_path = os.path.abspath(file.path)
+        upload_root = os.path.abspath("uploads/files")
+        if not file_abs_path.startswith(upload_root + os.sep):
+            raise HTTPException(status_code=400, detail="Invalid file path")
+
+        if is_excel:
+            import asyncio
+            csv_paths = await asyncio.get_running_loop().run_in_executor(
+                None, self._convert_excel_to_csvs, file_abs_path, file.filename
+            )
+            new_uris = csv_paths
+        else:
+            new_uris = [file_abs_path]
+
+        # 5. Append URIs to connection config
+        config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+        existing_uris = config.get("uris", "")
+        uri_list = [u.strip() for u in existing_uris.split("\n") if u.strip()]
+        uri_list.extend(new_uris)
+        config["uris"] = "\n".join(uri_list)
+        connection.config = json.dumps(config)
+
+        await db.commit()
+
+        # 6. Refresh schema to discover new tables
+        connection_service = ConnectionService()
+        await connection_service.refresh_schema(db=db, connection=connection, current_user=current_user)
+
+        # 7. Sync tables to any linked data sources
+        data_source_service = DataSourceService()
+        for ds in (connection.data_sources or []):
+            await data_source_service.sync_domain_tables_from_connection(
+                db, ds, connection, max_auto_select=20
+            )
+        await db.commit()
+
+        # Count tables added
+        tables_added = len(new_uris)
+        table_name = Path(file.filename).stem
+
+        logger.info(f"Added {tables_added} file(s) to connection '{connection.name}' from '{file.filename}'")
+
+        return {
+            "connection_id": str(connection.id),
+            "table_name": table_name,
+            "tables_added": tables_added,
+        }
+
     def _convert_excel_to_csvs(self, excel_path: str, original_filename: str) -> list[str]:
         """Convert each sheet of an Excel file to a separate CSV file.
 
@@ -325,18 +424,18 @@ class FileService:
         stem = Path(original_filename).stem
         file_uuid = uuid.uuid4().hex[:8]
 
-        xlsx = pd.ExcelFile(excel_path)
         csv_paths = []
 
-        for sheet_name in xlsx.sheet_names:
-            df = xlsx.parse(sheet_name)
-            # Sanitize sheet name for filename
-            safe_sheet = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in sheet_name)
-            csv_filename = f"{file_uuid}_{stem}_{safe_sheet}.csv"
-            csv_path = os.path.join(output_dir, csv_filename)
-            df.to_csv(csv_path, index=False)
-            csv_paths.append(os.path.abspath(csv_path))
-            logger.info(f"Converted Excel sheet '{sheet_name}' → {csv_path}")
+        with pd.ExcelFile(excel_path) as xlsx:
+            for sheet_name in xlsx.sheet_names:
+                df = xlsx.parse(sheet_name)
+                # Sanitize sheet name for filename
+                safe_sheet = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in sheet_name)
+                csv_filename = f"{file_uuid}_{stem}_{safe_sheet}.csv"
+                csv_path = os.path.join(output_dir, csv_filename)
+                df.to_csv(csv_path, index=False)
+                csv_paths.append(os.path.abspath(csv_path))
+                logger.info(f"Converted Excel sheet '{sheet_name}' → {csv_path}")
 
         return csv_paths
 

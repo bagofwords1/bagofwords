@@ -34,6 +34,63 @@ class ConnectionService:
     def __init__(self):
         pass
 
+    async def create_file_database(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> Connection:
+        """Create a DuckDB connection for file uploads.
+
+        Creates a connection with is_file_upload=true and empty URIs,
+        ready for CSV/Excel files to be added later.
+        """
+        # Find a unique name
+        from sqlalchemy import func as sql_func
+        base_name = "My Database"
+        count_result = await db.execute(
+            select(sql_func.count(Connection.id)).filter(
+                Connection.organization_id == organization.id,
+                Connection.name.like("My Database%"),
+            )
+        )
+        existing_count = count_result.scalar() or 0
+        connection_name = base_name if existing_count == 0 else f"{base_name} {existing_count + 1}"
+
+        connection = Connection(
+            name=connection_name,
+            type="duckdb",
+            config=json.dumps({"uris": "", "is_file_upload": True}),
+            auth_policy="system_only",
+            organization_id=organization.id,
+            is_active=True,
+        )
+        connection.encrypt_credentials({"auth_type": "none"})
+
+        db.add(connection)
+        try:
+            await db.commit()
+            await db.refresh(connection)
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="Could not create database.")
+
+        # Audit log
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="connection.created",
+                user_id=str(current_user.id),
+                resource_type="connection",
+                resource_id=str(connection.id),
+                details={"name": connection.name, "type": "duckdb", "is_file_upload": True},
+            )
+        except Exception:
+            pass
+
+        return await self.get_connection(db, str(connection.id), organization)
+
     async def create_connection(
         self,
         db: AsyncSession,
@@ -585,7 +642,7 @@ class ConnectionService:
         params = {**(config or {}), **(creds or {})}
 
         # Strip meta keys
-        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes", "is_file_upload"}
         params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
 
         # Narrow to constructor signature
@@ -658,7 +715,7 @@ class ConnectionService:
                 client_params.update(credentials)
 
             # Strip meta keys
-            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+            meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes", "is_file_upload"}
             client_params = {k: v for k, v in client_params.items() if k not in meta_keys}
 
             return ClientClass(**client_params)

@@ -63,6 +63,15 @@ async def list_connections(
                 )
                 table_count = fallback_result.scalar() or 0
 
+        # Parse config for inclusion in response
+        import json as json_mod
+        conn_config = conn.config
+        if isinstance(conn_config, str):
+            try:
+                conn_config = json_mod.loads(conn_config)
+            except Exception:
+                conn_config = {}
+
         result.append(ConnectionSchema(
             id=str(conn.id),
             name=conn.name,
@@ -74,8 +83,45 @@ async def list_connections(
             table_count=table_count,
             domain_count=len(conn.data_sources) if conn.data_sources else 0,
             domain_names=[ds.name for ds in conn.data_sources] if conn.data_sources else [],
+            config=conn_config,
         ))
     return result
+
+
+@router.post("/create_file_database", response_model=ConnectionSchema)
+@requires_permission('create_data_source')
+async def create_file_database(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Create a DuckDB connection for file uploads."""
+    connection = await connection_service.create_file_database(
+        db=db,
+        organization=organization,
+        current_user=current_user,
+    )
+
+    import json as json_mod
+    conn_config = connection.config
+    if isinstance(conn_config, str):
+        try:
+            conn_config = json_mod.loads(conn_config)
+        except Exception:
+            conn_config = {}
+
+    return ConnectionSchema(
+        id=str(connection.id),
+        name=connection.name,
+        type=connection.type,
+        is_active=connection.is_active,
+        auth_policy=connection.auth_policy,
+        last_synced_at=connection.last_synced_at.isoformat() if connection.last_synced_at else None,
+        organization_id=str(connection.organization_id),
+        table_count=0,
+        domain_count=0,
+        config=conn_config,
+    )
 
 
 @router.post("", response_model=ConnectionSchema)
