@@ -76,21 +76,67 @@
 (function() {
   'use strict';
 
-  // ======= MCP App SDK shim =======
-  // The MCP host will call window.__MCP_APP_INIT__ with the connection context.
-  // If running inside an MCP Apps-compatible host, it provides:
-  //   - toolResult: the result of the tool call that spawned this app
-  //   - callTool(name, args): call an MCP tool on the server
+  // ================================================================
+  // MCP Apps JSON-RPC 2.0 over postMessage transport
+  // Spec: https://github.com/modelcontextprotocol/ext-apps
+  // ================================================================
+
+  var nextId = 1;
+  var pendingRequests = {};  // id -> { resolve, reject }
+  var notificationHandlers = {};  // method -> handler
+
+  // Listen for all messages from host
+  window.addEventListener('message', function(event) {
+    var msg = event.data;
+    if (!msg || typeof msg !== 'object' || msg.jsonrpc !== '2.0') return;
+
+    // Response to a request we sent
+    if (msg.id != null && pendingRequests[msg.id]) {
+      var pending = pendingRequests[msg.id];
+      delete pendingRequests[msg.id];
+      if (msg.error) {
+        pending.reject(new Error(msg.error.message || 'Unknown error'));
+      } else {
+        pending.resolve(msg.result);
+      }
+      return;
+    }
+
+    // Notification from host
+    if (msg.method && notificationHandlers[msg.method]) {
+      notificationHandlers[msg.method](msg.params);
+    }
+  });
+
+  function sendRequest(method, params) {
+    var id = nextId++;
+    window.parent.postMessage({ jsonrpc: '2.0', id: id, method: method, params: params || {} }, '*');
+    return new Promise(function(resolve, reject) {
+      pendingRequests[id] = { resolve: resolve, reject: reject };
+    });
+  }
+
+  function sendNotification(method, params) {
+    window.parent.postMessage({ jsonrpc: '2.0', method: method, params: params || {} }, '*');
+  }
+
+  function onNotification(method, handler) {
+    notificationHandlers[method] = handler;
+  }
+
+  // ================================================================
+  // App state
+  // ================================================================
 
   var vizData = null;
   var activeTab = 'chart';
+  var toolResult = null;
 
-  // Try to get visualization_id from the tool result
-  function getVisualizationId(toolResult) {
-    if (!toolResult) return null;
-    // Tool result is in content[0].text as JSON
+  // Extract visualization_id from tool result content
+  function getVisualizationId(result) {
+    if (!result) return null;
     try {
-      var content = toolResult.content;
+      var content = result.content;
       if (Array.isArray(content)) {
         for (var i = 0; i < content.length; i++) {
           if (content[i].type === 'text' && content[i].text) {
@@ -99,14 +145,94 @@
           }
         }
       }
-      // Direct object
-      return toolResult.visualization_id || null;
+      return result.visualization_id || null;
     } catch (e) {
       return null;
     }
   }
 
-  // ======= Rendering =======
+  // Call an MCP server tool via the host proxy
+  function callTool(name, args) {
+    return sendRequest('tools/call', { name: name, arguments: args });
+  }
+
+  // Parse tool call result — server wraps in content[].text JSON
+  function parseToolResult(result) {
+    try {
+      if (result && result.content && Array.isArray(result.content)) {
+        for (var i = 0; i < result.content.length; i++) {
+          if (result.content[i].type === 'text') {
+            return JSON.parse(result.content[i].text);
+          }
+        }
+      }
+    } catch (e) {}
+    return result;
+  }
+
+  // ================================================================
+  // Lifecycle: init → receive tool-result → fetch data → render
+  // ================================================================
+
+  async function boot() {
+    try {
+      // 1. Send ui/initialize
+      var initResult = await sendRequest('ui/initialize', {
+        capabilities: {},
+        clientInfo: { name: 'bow-visualization', version: '1.0.0' },
+        protocolVersion: '2026-01-26'
+      });
+
+      // 2. Send ui/notifications/initialized
+      sendNotification('ui/notifications/initialized', {});
+
+      // 3. Listen for tool-result from host
+      onNotification('ui/notifications/tool-result', function(params) {
+        toolResult = params;
+        loadVisualization();
+      });
+
+      // 4. Also listen for tool-input (not strictly needed, but spec-compliant)
+      onNotification('ui/notifications/tool-input', function(params) {
+        // Tool arguments — we don't need these, we wait for tool-result
+      });
+
+    } catch (e) {
+      showError('Initialization failed: ' + String(e));
+    }
+  }
+
+  async function loadVisualization() {
+    var vizId = getVisualizationId(toolResult);
+    if (!vizId) {
+      showError('No visualization ID found in tool result.');
+      return;
+    }
+
+    try {
+      var result = await callTool('get_visualization', { visualization_id: vizId });
+      var data = parseToolResult(result);
+
+      if (!data || data.error) {
+        showError((data && data.error) || 'Failed to load visualization');
+        return;
+      }
+
+      vizData = data;
+      render();
+    } catch (e) {
+      showError('Error loading visualization: ' + String(e));
+    }
+  }
+
+  function showError(msg) {
+    document.getElementById('app').innerHTML = '<div class="error">' + escapeHtml(msg) + '</div>';
+  }
+
+  // ================================================================
+  // Rendering
+  // ================================================================
+
   function render() {
     var app = document.getElementById('app');
     if (!vizData) return;
@@ -250,7 +376,7 @@
         series: [{
           type: 'pie',
           radius: ['40%', '70%'],
-          data: rows.slice(0, 20).map(function(r, i) {
+          data: rows.slice(0, 20).map(function(r) {
             return { name: String(r[xCol] || ''), value: Number(r[yCol]) || 0 };
           }),
           itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
@@ -292,65 +418,13 @@
   }
 
   function notifySize() {
-    try {
-      var h = document.documentElement.scrollHeight || document.body.scrollHeight;
-      window.parent.postMessage({ type: 'ui/notifications/size-changed', height: h }, '*');
-    } catch (e) {}
+    var w = document.documentElement.scrollWidth || document.body.scrollWidth;
+    var h = document.documentElement.scrollHeight || document.body.scrollHeight;
+    sendNotification('ui/notifications/size-changed', { width: w, height: h });
   }
 
-  // ======= MCP App Entry Point =======
-  // The host calls this to initialize the app with tool context
-  window.__MCP_APP_INIT__ = function(ctx) {
-    var vizId = getVisualizationId(ctx.toolResult);
-    if (!vizId) {
-      document.getElementById('app').innerHTML = '<div class="error">No visualization ID found in tool result.</div>';
-      return;
-    }
-
-    // Call the app-only tool to fetch full visualization data
-    ctx.callTool('get_visualization', { visualization_id: vizId })
-      .then(function(result) {
-        // Parse the tool result
-        var data = null;
-        try {
-          if (result && result.content) {
-            for (var i = 0; i < result.content.length; i++) {
-              if (result.content[i].type === 'text') {
-                data = JSON.parse(result.content[i].text);
-                break;
-              }
-            }
-          }
-        } catch (e) {
-          data = result;
-        }
-
-        if (!data || data.error) {
-          document.getElementById('app').innerHTML = '<div class="error">' + escapeHtml((data && data.error) || 'Failed to load visualization') + '</div>';
-          return;
-        }
-
-        vizData = data;
-        render();
-      })
-      .catch(function(err) {
-        document.getElementById('app').innerHTML = '<div class="error">Error: ' + escapeHtml(String(err)) + '</div>';
-      });
-  };
-
-  // ======= Fallback: postMessage protocol =======
-  // If the host sends data via postMessage instead (non-MCP Apps host)
-  window.addEventListener('message', function(event) {
-    if (event.data && event.data.type === 'VISUALIZATION_DATA') {
-      vizData = event.data.payload;
-      render();
-    }
-  });
-
-  // Signal readiness
-  try {
-    window.parent.postMessage({ type: 'MCP_APP_READY' }, '*');
-  } catch (e) {}
+  // Start the MCP Apps lifecycle
+  boot();
 
 })();
 </script>
