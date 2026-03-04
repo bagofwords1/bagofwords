@@ -79,14 +79,25 @@ class MCPTool(ABC):
         pass
     
     def to_schema(self) -> Dict[str, Any]:
-        """Convert tool to MCP schema format."""
+        """Convert tool to MCP schema format.
+
+        Merges ``visibility`` into ``_meta.ui`` so MCP Apps hosts (Claude Desktop,
+        Cursor, etc.) know which tools are callable by the app iframe.
+        Per the ext-apps spec, ``_meta.ui.visibility`` controls this:
+        - ``["model", "app"]`` — default, callable by both LLM and app
+        - ``["app"]`` — app-only, hidden from the LLM
+        """
         schema: Dict[str, Any] = {
             "name": self.name,
             "description": self.description,
             "input_schema": self.input_schema,
         }
-        if self.meta:
-            schema["_meta"] = self.meta
+        # Build _meta: start from subclass meta, then ensure ui.visibility is set
+        meta = dict(self.meta) if self.meta else {}
+        ui = dict(meta.get("ui", {})) if meta.get("ui") else {}
+        ui["visibility"] = self.visibility
+        meta["ui"] = ui
+        schema["_meta"] = meta
         return schema
     
     # ==================== Tracking Helpers ====================

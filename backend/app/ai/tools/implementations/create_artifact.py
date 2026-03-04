@@ -525,7 +525,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 images.append(ImageInput(data=screenshot_base64, media_type="image/png", source_type="base64"))
 
         try:
-            response = await llm.inference(
+            response = llm.inference(
                 fix_prompt,
                 images=images if images else None,
                 usage_scope="create_artifact_fix",

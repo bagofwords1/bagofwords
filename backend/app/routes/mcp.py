@@ -12,6 +12,7 @@ Organization is derived from the API key or OAuth token.
 import json
 import logging
 import os
+import re
 from typing import Any, Optional, Union, Tuple
 
 from fastapi import APIRouter, Depends, Request, HTTPException
@@ -162,7 +163,13 @@ _html_bundle_cache: dict[str, str] = {}
 
 
 def _load_html_bundle(name: str) -> str:
-    """Load an MCP App HTML bundle from the frontend/public directory."""
+    """Load an MCP App HTML bundle from the frontend/public directory.
+
+    MCP app HTML is delivered as a string and rendered in a sandboxed iframe
+    (srcdoc / blob:), so external script URLs won't resolve.  This function
+    inlines any ``<script src="/libs/...">`` references by reading the vendored
+    JS file and replacing the tag with an inline ``<script>`` block.
+    """
     if name in _html_bundle_cache:
         return _html_bundle_cache[name]
 
@@ -172,15 +179,39 @@ def _load_html_bundle(name: str) -> str:
         os.path.join(os.path.dirname(__file__), "..", "..", "..", "frontend", "public", f"{name}.html"),
     ]
 
+    content: str | None = None
+    html_dir: str | None = None
     for path in candidates:
         resolved = os.path.normpath(path)
         if os.path.isfile(resolved):
             with open(resolved, "r", encoding="utf-8") as f:
                 content = f.read()
-            _html_bundle_cache[name] = content
-            return content
+            html_dir = os.path.dirname(resolved)
+            break
 
-    return f"<html><body>MCP App bundle '{name}' not found.</body></html>"
+    if content is None:
+        return f"<html><body>MCP App bundle '{name}' not found.</body></html>"
+
+    # Inline /libs/ script references so the bundle is fully self-contained
+    def _inline_script(match: re.Match) -> str:
+        attrs = match.group(1)
+        src_match = re.search(r'src="(/libs/[^"]+)"', attrs)
+        if not src_match:
+            return match.group(0)
+        rel_path = src_match.group(1).lstrip("/")
+        # Resolve relative to the HTML file's parent (frontend/public/)
+        lib_path = os.path.normpath(os.path.join(html_dir, rel_path))
+        if not os.path.isfile(lib_path):
+            logger.warning("MCP bundle '%s': vendored lib not found at %s", name, lib_path)
+            return match.group(0)  # keep original tag as fallback
+        with open(lib_path, "r", encoding="utf-8") as lf:
+            js_content = lf.read()
+        return f"<script>{js_content}</script>"
+
+    content = re.sub(r"<script\b([^>]*\bsrc=\"/libs/[^\"]+\"[^>]*)>\s*</script>", _inline_script, content)
+
+    _html_bundle_cache[name] = content
+    return content
 
 
 @router.get("/mcp")

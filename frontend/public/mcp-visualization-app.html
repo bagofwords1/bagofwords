@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>BOW Visualization</title>
 
-  <!-- ECharts for chart rendering -->
-  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <!-- ECharts for chart rendering (vendored locally by scripts/download-vendor-libs.sh) -->
+  <script src="/libs/echarts-5.min.js"></script>
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -342,6 +342,13 @@
   function renderEChart() {
     var el = document.getElementById('echart');
     if (!el || !vizData) return;
+
+    if (typeof echarts === 'undefined') {
+      el.innerHTML = '<div class="error">Chart library not available. Showing data table instead.</div>';
+      activeTab = 'table';
+      render();
+      return;
+    }
 
     var chart = echarts.init(el);
     var options = buildChartOptions(vizData);
