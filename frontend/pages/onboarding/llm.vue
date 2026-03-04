@@ -43,21 +43,11 @@
                   <div>
                     <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
                     <div class="flex gap-2 mt-2">
-                      <button type="button" @click="selectedProvider.credentials.auth_mode = 'iam'; selectedProvider.credentials.api_key = null; clearTestResult()"
-                        class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
-                        :class="(!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                      <span class="px-3 py-1.5 text-sm rounded-lg border border-blue-500 bg-blue-50 text-blue-700">
                         IAM (from environment)
-                      </button>
-                      <button type="button" @click="selectedProvider.credentials.auth_mode = 'api_key'; clearTestResult()"
-                        class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
-                        :class="selectedProvider.credentials.auth_mode === 'api_key' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
-                        API Key
-                      </button>
+                      </span>
                     </div>
-                  </div>
-                  <div v-if="selectedProvider.credentials.auth_mode === 'api_key'">
-                    <label class="text-sm font-medium text-gray-700 mb-2">API Key <span class="text-red-500">*</span></label>
-                    <input v-model="selectedProvider.credentials.api_key" type="text" placeholder="Keep blank to use stored key" class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                    <p class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                   </div>
                 </template>
 
@@ -124,26 +114,16 @@
                     <label class="text-sm font-medium text-gray-700 mb-2 mt-2">{{ field.title }}</label>
                     <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required" :placeholder="field.description || ''" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
                   </div>
-                  <!-- Bedrock: auth mode toggle for new provider -->
+                  <!-- Bedrock: auth info for new provider -->
                   <template v-if="providerForm.provider_type === 'bedrock'">
                     <div class="mt-3">
                       <label class="text-sm font-medium text-gray-700 mb-2">Authentication</label>
                       <div class="flex gap-2 mt-2">
-                        <button type="button" @click="providerForm.credentials.auth_mode = 'iam'; providerForm.credentials.api_key = undefined; clearTestResult()"
-                          class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
-                          :class="(!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'iam') ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
+                        <span class="px-3 py-1.5 text-sm rounded-lg border border-blue-500 bg-blue-50 text-blue-700">
                           IAM (from environment)
-                        </button>
-                        <button type="button" @click="providerForm.credentials.auth_mode = 'api_key'; clearTestResult()"
-                          class="px-3 py-1.5 text-sm rounded-lg border transition-colors"
-                          :class="providerForm.credentials.auth_mode === 'api_key' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'">
-                          API Key
-                        </button>
+                        </span>
                       </div>
-                    </div>
-                    <div v-if="providerForm.credentials.auth_mode === 'api_key'" class="mt-3">
-                      <label class="text-sm font-medium text-gray-700 mb-2">API Key <span class="text-red-500">*</span></label>
-                      <input v-model="providerForm.credentials.api_key" type="text" placeholder="Bedrock API key" class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" @change="clearTestResult()" />
+                      <p class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                     </div>
                   </template>
                   <div v-if="providerForm.provider_type === 'openai'" class="mt-1">

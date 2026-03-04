@@ -45,6 +45,47 @@ def create_azure_provider_and_models(test_client):
 
 
 @pytest.fixture
+def create_bedrock_provider_and_models(test_client):
+    def _create_bedrock_provider_and_models(user_token=None, org_id=None):
+        region = os.getenv("AWS_BEDROCK_REGION", "us-east-1")
+
+        headers = {}
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+        if org_id:
+            headers["X-Organization-Id"] = str(org_id)
+
+        credentials = {
+            "region": region,
+            "auth_mode": "iam",
+        }
+
+        response = test_client.post(
+            "/api/llm/providers",
+            json={
+                "name": "bedrock provider",
+                "provider_type": "bedrock",
+                "credentials": credentials,
+                "models": [
+                    {
+                        "model_id": os.getenv(
+                            "AWS_BEDROCK_MODEL_ID",
+                            "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+                        ),
+                        "name": "Claude 3.5 Haiku (Bedrock)",
+                        "is_custom": True,
+                        "is_default": True,
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        return response.json()
+
+    return _create_bedrock_provider_and_models
+
+
+@pytest.fixture
 def create_llm_provider_and_models(test_client):
     def _create_llm_provider_and_models(user_token=None, org_id=None, base_url=None):
         openai_api_key = os.getenv("OPENAI_API_KEY_TEST", "")
