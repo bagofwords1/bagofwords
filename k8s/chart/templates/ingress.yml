@@ -18,10 +18,10 @@ spec:
                 name: bowapp
                 port:
                   number: 3000
-  {{- if .Values.ingress.tls }}
+  {{- if .Values.ingress.tls.enabled }}
   tls:
     - hosts:
         - {{.Values.host}}
-      secretName: bowapp-cert
+      secretName: {{ .Values.ingress.tls.secretName }}
   {{- end }}
 {{- end }}

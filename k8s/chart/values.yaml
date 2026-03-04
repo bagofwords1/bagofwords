@@ -32,7 +32,9 @@ database:
 ingress:
   enabled: true
   className: nginx
-  tls: true
+  tls:
+    enabled: false
+    secretName: bowapp-cert
   # Example custom annotations:
   # annotations:
   #   nginx.ingress.kubernetes.io/proxy-body-size: "100m"
