@@ -183,17 +183,24 @@
           return;
         }
 
+        // Strip <script type="text/babel"> wrapper if present (DB stores wrapped code)
+        var stripped = code.replace(/^\s*<script[^>]*>\s*/i, '').replace(/\s*<\/script>\s*$/i, '');
+
+        if (!window.Babel || !window.Babel.transformScriptTags) {
+          showError('Babel transpiler not available. Cannot render artifact.');
+          return;
+        }
+
         var script = document.createElement('script');
         script.type = 'text/babel';
-        script.textContent = code;
+        script.textContent = stripped;
         document.body.appendChild(script);
 
-        if (window.Babel && window.Babel.transformScriptTags) {
-          try {
-            window.Babel.transformScriptTags();
-          } catch (e) {
-            console.error('[Artifact] Babel transform error:', e);
-          }
+        try {
+          window.Babel.transformScriptTags();
+        } catch (e) {
+          console.error('[Artifact] Babel transform error:', e);
+          showError('Babel transform error: ' + String(e));
         }
 
         setTimeout(window.resizeAllCharts, 100);
