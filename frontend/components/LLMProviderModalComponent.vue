@@ -62,13 +62,17 @@
                             <label class="text-sm font-medium text-gray-700 mb-2">
                                 Base URL <span class="text-red-500">*</span>
                             </label>
-                            <input 
-                                v-model="selectedProvider.credentials.base_url" 
-                                type="text" 
+                            <input
+                                v-model="selectedProvider.credentials.base_url"
+                                type="text"
                                 placeholder="http://localhost:11434/v1"
-                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" 
+                                class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
                             <p class="text-xs text-gray-500 mt-1">OpenAI-compatible endpoint (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)</p>
+                            <div class="flex items-center gap-2 mt-3">
+                                <UCheckbox v-model="selectedProvider.credentials.verify_ssl" />
+                                <label class="text-sm text-gray-700">Verify SSL</label>
+                            </div>
                         </div>
                         <!-- Bedrock: existing provider edit -->
                         <template v-if="selectedProvider?.provider_type === 'bedrock' || selectedProvider?.type === 'bedrock'">
@@ -269,6 +273,10 @@
                                         class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                                 </div>
                             </template>
+                            <div v-if="providerForm.provider_type === 'custom'" class="flex items-center gap-2 mt-3">
+                                <UCheckbox v-model="providerForm.credentials.verify_ssl" />
+                                <label class="text-sm text-gray-700">Verify SSL</label>
+                            </div>
                             <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                                 <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">
                                     {{ showBaseUrlNew ? 'Use default base URL' : 'Set custom base URL' }}
@@ -477,14 +485,17 @@ function fieldsForProvider(providerType: string): CredentialField[] {
 const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     const providerType = providerForm.value.provider_type;
     const all = fieldsForProvider(providerType);
+    // Exclude fields that have dedicated UI controls
+    let filtered = all.filter(f => f.key !== 'verify_ssl');
     if (providerType === 'openai') {
-        return all.filter(f => f.key !== 'base_url');
+        filtered = filtered.filter(f => f.key !== 'base_url');
     }
     if (providerType === 'bedrock') {
         // Only show region; auth_mode and api_key are rendered as custom UI
         return all.filter(f => f.key === 'region');
     }
     return all;
+    return filtered;
 });
 
 function getFieldPlaceholder(field: CredentialField): string {
@@ -590,7 +601,7 @@ watch(providerModalOpen, (newValue) => {
                     (selectedProvider.value.credentials as any).endpoint_url = null;
                 }
             }
-            // Hydrate Custom base_url for edit
+            // Hydrate Custom base_url and verify_ssl for edit
             if ((selectedProvider.value.provider_type === 'custom' || selectedProvider.value.type === 'custom')) {
                 const existingBaseUrl = selectedProvider.value.additional_config?.base_url;
                 if (existingBaseUrl && (!selectedProvider.value.credentials.base_url || selectedProvider.value.credentials.base_url === '')) {
@@ -599,6 +610,8 @@ watch(providerModalOpen, (newValue) => {
                 if (selectedProvider.value.credentials.base_url === undefined) {
                     (selectedProvider.value.credentials as any).base_url = null;
                 }
+                const existingVerifySsl = selectedProvider.value.additional_config?.verify_ssl;
+                (selectedProvider.value.credentials as any).verify_ssl = existingVerifySsl !== undefined ? existingVerifySsl : true;
             }
             // Hydrate Bedrock region and auth_mode for edit
             if ((selectedProvider.value.provider_type === 'bedrock' || selectedProvider.value.type === 'bedrock')) {
@@ -648,7 +661,7 @@ watch(() => props.editProviderId, (newId) => {
                     (selectedProvider.value.credentials as any).endpoint_url = null;
                 }
             }
-            // Hydrate Custom base_url for edit
+            // Hydrate Custom base_url and verify_ssl for edit
             if ((selectedProvider.value.provider_type === 'custom' || selectedProvider.value.type === 'custom')) {
                 const existingBaseUrl = selectedProvider.value.additional_config?.base_url;
                 if (existingBaseUrl && (!selectedProvider.value.credentials.base_url || selectedProvider.value.credentials.base_url === '')) {
@@ -657,6 +670,8 @@ watch(() => props.editProviderId, (newId) => {
                 if (selectedProvider.value.credentials.base_url === undefined) {
                     (selectedProvider.value.credentials as any).base_url = null;
                 }
+                const existingVerifySsl = selectedProvider.value.additional_config?.verify_ssl;
+                (selectedProvider.value.credentials as any).verify_ssl = existingVerifySsl !== undefined ? existingVerifySsl : true;
             }
             // Hydrate Bedrock region and auth_mode for edit
             if ((selectedProvider.value.provider_type === 'bedrock' || selectedProvider.value.type === 'bedrock')) {
@@ -677,6 +692,10 @@ watch(() => providerForm.value.provider_type, (providerType: string) => {
         models.value
             .filter((m: AvailableModel) => m.provider_type === providerType)
             .forEach((m: AvailableModel) => { m.is_enabled = true; });
+        // Default verify_ssl to true for new custom providers
+        if (providerType === 'custom') {
+            providerForm.value.credentials.verify_ssl = true;
+        }
     }
     // Reset base URL toggle for new provider on provider type changes
     if (isNewProviderSelected.value) {
@@ -836,7 +855,7 @@ watch(selectedProvider, (newValue) => {
                 (newValue.credentials as any).endpoint_url = null;
             }
         }
-        // Ensure base_url field exists for Custom so users can view/update it
+        // Ensure base_url and verify_ssl fields exist for Custom so users can view/update them
         if ((newValue.provider_type === 'custom' || newValue.type === 'custom')) {
             const existingBaseUrl = (newValue as any)?.additional_config?.base_url;
             if (existingBaseUrl && (!newValue.credentials.base_url || newValue.credentials.base_url === '')) {
@@ -845,6 +864,8 @@ watch(selectedProvider, (newValue) => {
             if (newValue.credentials.base_url === undefined) {
                 (newValue.credentials as any).base_url = null;
             }
+            const existingVerifySsl = (newValue as any)?.additional_config?.verify_ssl;
+            (newValue.credentials as any).verify_ssl = existingVerifySsl !== undefined ? existingVerifySsl : true;
         }
         // Hydrate Bedrock region and auth_mode
         if ((newValue.provider_type === 'bedrock' || newValue.type === 'bedrock')) {

@@ -1,5 +1,6 @@
 from typing import AsyncGenerator, Any, Optional
 
+import httpx
 from openai import AsyncOpenAI, OpenAI
 
 from app.ai.llm.clients.base import LLMClient
@@ -7,10 +8,17 @@ from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
 
 
 class OpenAi(LLMClient):
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1"):
+    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", verify_ssl: bool = True):
         super().__init__()
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+        if not verify_ssl:
+            kwargs["http_client"] = httpx.Client(verify=False)
+        self.client = OpenAI(**kwargs)
+
+        async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+        if not verify_ssl:
+            async_kwargs["http_client"] = httpx.AsyncClient(verify=False)
+        self.async_client = AsyncOpenAI(**async_kwargs)
 
     @staticmethod
     def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list[dict[str, Any]]:
