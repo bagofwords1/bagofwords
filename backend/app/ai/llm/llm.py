@@ -28,8 +28,27 @@ class LLM:
         self.provider = model.provider.provider_type
         try:
             self.api_key = self.model.provider.decrypt_credentials()[0]
-        except Exception:
-            self.api_key = None
+        except Exception as exc:
+            # For most providers, failing to decrypt credentials is a hard error.
+            # The only exception is Bedrock when using non-API-key auth (e.g., IAM),
+            # where an API key is not required.
+            additional_config = getattr(self.model.provider, "additional_config", None) or {}
+            auth_mode = additional_config.get("auth_mode", "iam") if isinstance(additional_config, dict) else "iam"
+            if self.provider == "bedrock" and auth_mode != "api_key":
+                logger.warning(
+                    "Failed to decrypt credentials for Bedrock provider in '%s' auth mode; "
+                    "continuing without api_key. Error: %s",
+                    auth_mode,
+                    exc,
+                )
+                self.api_key = None
+            else:
+                logger.error(
+                    "Failed to decrypt credentials for provider '%s': %s",
+                    self.provider,
+                    exc,
+                )
+                raise
         self._usage_session_maker = usage_session_maker
         if self.provider == "openai":
             base_url = None
@@ -59,12 +78,13 @@ class LLM:
             if not region:
                 raise ValueError("Bedrock provider requires region in additional_config")
             auth_mode = additional_config.get("auth_mode", "iam")
+            if auth_mode == "api_key" and not self.api_key:
+                raise ValueError("Bedrock provider with auth_mode 'api_key' requires provider credentials")
             self.client = BedrockClient(
                 region=region,
                 auth_mode=auth_mode,
                 api_key=self.api_key if auth_mode == "api_key" else None,
             )
-            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 
