@@ -177,6 +177,15 @@
         ]);
       };
 
+      // Expose React hooks as globals so LLM-generated code can use bare useState() etc.
+      window.useState = React.useState;
+      window.useEffect = React.useEffect;
+      window.useRef = React.useRef;
+      window.useMemo = React.useMemo;
+      window.useCallback = React.useCallback;
+      window.useReducer = React.useReducer;
+      window.useContext = React.useContext;
+
       // Error handler for uncaught errors
       window.onerror = function(msg, url, lineNo, columnNo, error) {
         console.error('[Artifact Error]', msg, error);
