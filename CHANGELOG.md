@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.329 (March 5, 2026)
+- Pre-cache tiktoken encodings in Docker build for airgapped environments
+
 ## Version 0.0.328 (March 5, 2026)
 - fix: when gpt-5 is in model_id string, don't add temprature
 

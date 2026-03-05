@@ -30,6 +30,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools wheel && \
     python3 -m pip install --no-cache-dir --prefer-binary -r requirements_versioned.txt
 
+# Pre-cache tiktoken encodings for airgapped environments
+RUN TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache python3 -c \
+    "import tiktoken; tiktoken.get_encoding('cl100k_base'); tiktoken.get_encoding('o200k_base')"
+
 # Install Playwright browser (chromium only to save space)
 RUN playwright install chromium --with-deps
 
@@ -102,6 +106,10 @@ RUN groupadd -r app \
 COPY --from=backend-builder --chown=app:app /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY --from=backend-builder --chown=app:app /app/backend /app/backend
+
+# Copy pre-cached tiktoken encodings for airgapped environments
+COPY --from=backend-builder --chown=app:app /opt/tiktoken_cache /opt/tiktoken_cache
+ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken_cache
 
 # Copy Playwright browser binaries from builder
 COPY --from=backend-builder --chown=app:app /root/.cache/ms-playwright /home/app/.cache/ms-playwright
