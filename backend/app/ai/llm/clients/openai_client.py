@@ -1,16 +1,19 @@
 from typing import AsyncGenerator, Any, Optional
 
+import httpx
 from openai import AsyncOpenAI, OpenAI
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
 
+_LLM_TIMEOUT = httpx.Timeout(90.0, connect=10.0)
+
 
 class OpenAi(LLMClient):
     def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1"):
         super().__init__()
-        self.client = OpenAI(api_key=api_key, base_url=base_url)
-        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=_LLM_TIMEOUT)
+        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=_LLM_TIMEOUT)
 
     @staticmethod
     def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list[dict[str, Any]]:

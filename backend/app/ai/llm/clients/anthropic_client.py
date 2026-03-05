@@ -1,16 +1,19 @@
 from typing import AsyncGenerator, Any, Optional
 
+import httpx
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
 
+_LLM_TIMEOUT = httpx.Timeout(90.0, connect=10.0)
+
 
 class Anthropic(LLMClient):
     def __init__(self, api_key: str, base_url: str = None):
         super().__init__()
-        self.client = AnthropicAPI(api_key=api_key)
-        self.async_client = AsyncAnthropic(api_key=api_key)
+        self.client = AnthropicAPI(api_key=api_key, timeout=_LLM_TIMEOUT)
+        self.async_client = AsyncAnthropic(api_key=api_key, timeout=_LLM_TIMEOUT)
         self.max_tokens = 32768
         self.temperature = 0.3
 

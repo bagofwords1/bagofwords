@@ -320,10 +320,8 @@ class Coder:
         result = re.sub(r'(?m)^\s*```\s*$', '', result)
         # Defensive: remove a leading standalone language tag line (e.g., "python" or "json")
         result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
-        # Remove any code after return df
-        result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
         return result
-    
+
     async def generate_code(
         self,
         data_model,  # kept for signature compatibility; ignored
@@ -517,7 +515,6 @@ class Coder:
             result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
             result = re.sub(r'(?m)^\s*```\s*$', '', result)
             result = re.sub(r'^\s*(?:json|python)\s*\r?\n', '', result, flags=re.IGNORECASE)
-            result = re.sub(r'(?s)return\s+df.*$', 'return df', result)
             return result
 
         # Resolve instructions from context hub when available; otherwise fallback to legacy builder

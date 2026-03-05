@@ -11,7 +11,10 @@ from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
 class Google(LLMClient):
     def __init__(self, api_key: str | None = None):
         super().__init__()
-        self.client = genai.Client(api_key=api_key)
+        self.client = genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(timeout=90_000),
+        )
         self.temperature = 0.3
 
     @staticmethod

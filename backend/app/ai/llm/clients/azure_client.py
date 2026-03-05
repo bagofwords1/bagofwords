@@ -1,8 +1,11 @@
+import httpx
 from openai import AzureOpenAI, AsyncAzureOpenAI
 from typing import AsyncGenerator, Any, Optional
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.types import LLMResponse, LLMUsage, ImageInput
+
+_LLM_TIMEOUT = httpx.Timeout(90.0, connect=10.0)
 
 
 class AzureClient(LLMClient):
@@ -14,11 +17,13 @@ class AzureClient(LLMClient):
             api_key=api_key,
             azure_endpoint=endpoint_url,
             api_version=effective_api_version,
+            timeout=_LLM_TIMEOUT,
         )
         self.async_client = AsyncAzureOpenAI(
             api_key=api_key,
             azure_endpoint=endpoint_url,
             api_version=effective_api_version,
+            timeout=_LLM_TIMEOUT,
         )
 
     @staticmethod

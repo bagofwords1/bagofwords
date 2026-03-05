@@ -103,13 +103,13 @@ class DuckDBClient(DataSourceClient):
     def _strip_upload_prefix(self, filename: str) -> str:
         """Strip the UUID prefix added during file upload.
 
-        Upload filenames look like: a43448a2_f920_47be_b0cf_f44571e7ab06_original_name.csv
-        The UUID is 32 hex chars separated by underscores (8_4_4_4_12 = 36 chars with underscores),
-        followed by an underscore before the real filename.
+        Upload filenames look like: a43448a2-f920-47be-b0cf-f44571e7ab06_original_name.csv
+        The UUID uses hyphens internally (standard uuid4 format) with an underscore
+        before the real filename. Also handles underscore-separated UUIDs for compatibility.
         """
         import re
         # Match UUID4 pattern at the start: xxxxxxxx_xxxx_xxxx_xxxx_xxxxxxxxxxxx_
-        match = re.match(r'^[0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{12}_', filename, re.IGNORECASE)
+        match = re.match(r'^[0-9a-f]{8}[-_][0-9a-f]{4}[-_][0-9a-f]{4}[-_][0-9a-f]{4}[-_][0-9a-f]{12}_', filename, re.IGNORECASE)
         if match:
             return filename[match.end():]
         # Also handle 8-char hex prefix from Excel conversion: xxxxxxxx_
