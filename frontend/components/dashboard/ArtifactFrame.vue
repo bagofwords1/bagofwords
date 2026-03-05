@@ -1030,6 +1030,14 @@ const iframeSrcdoc = computed(() => {
     setTimeout(window.resizeAllCharts, 100);
     setTimeout(window.resizeAllCharts, 500);
     window.addEventListener('resize', window.resizeAllCharts);
+    // Expose React hooks as globals so LLM-generated code can use bare useState() etc.
+    window.useState = React.useState;
+    window.useEffect = React.useEffect;
+    window.useRef = React.useRef;
+    window.useMemo = React.useMemo;
+    window.useCallback = React.useCallback;
+    window.useReducer = React.useReducer;
+    window.useContext = React.useContext;
     console.log('[Artifact] Data loaded:', window.ARTIFACT_DATA?.visualizations?.length || 0, 'visualizations');
   ${SC}
 
