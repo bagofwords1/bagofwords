@@ -53,7 +53,7 @@ class OpenAi(LLMClient):
         We only pass `reasoning_effort` for models that support OpenAI's reasoning API
         to avoid API errors for non-reasoning models.
         """
-        temperature = 1 if model_id == "gpt-5" else 0.3
+        temperature = 1 if "gpt-5" in model_id else 0.3
 
         params: dict[str, Any] = {
             "messages": [

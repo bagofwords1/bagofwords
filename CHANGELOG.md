@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.328 (March 5, 2026)
+- fix: when gpt-5 is in model_id string, don't add temprature
+
 ## Version 0.0.327 (March 4, 2026)
 - Allow skip verify_ssl for custom LLM endpoints
 - Intrdouce native Bedrock integration, with IAM/API Key auth methods
