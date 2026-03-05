@@ -100,7 +100,7 @@ for i in {1..3}; do
 done
 
 # Start the backend service
-uvicorn main:app --host 0.0.0.0 --port 8000 --ws websockets --log-level warning --workers "$WORKERS" --loop uvloop --http httptools &
+uvicorn main:app --host 0.0.0.0 --port 8000 --ws websockets --log-level info --workers "$WORKERS" --loop uvloop --http httptools &
 
 # Wait 5s for the backend to start
 sleep 5

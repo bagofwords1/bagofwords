@@ -51,10 +51,17 @@ def setup_logging():
             '%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s'
         )
     
-    # Console handler
+    # Console handler (stdout for INFO and below)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
+    console_handler.addFilter(lambda record: record.levelno < logging.ERROR)
     root_logger.addHandler(console_handler)
+
+    # Stderr handler (for ERROR and above)
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setFormatter(formatter)
+    stderr_handler.setLevel(logging.ERROR)
+    root_logger.addHandler(stderr_handler)
     
     # File handler with rotation
     file_handler = RotatingFileHandler(
