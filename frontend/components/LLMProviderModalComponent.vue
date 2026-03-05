@@ -69,6 +69,14 @@
                                 class="mt-2 border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-primary-500" 
                             />
                             <p class="text-xs text-gray-500 mt-1">OpenAI-compatible endpoint (Ollama, Groq, Together AI, LM Studio, vLLM, etc.)</p>
+                            <div class="mt-2">
+                                <UCheckbox
+                                    v-model="selectedProvider.credentials.verify_ssl"
+                                    label="Verify SSL certificate"
+                                    :ui="{ label: 'text-xs text-gray-600' }"
+                                />
+                                <p class="text-xs text-gray-400 mt-0.5 ml-6">Disable for self-signed certificates</p>
+                            </div>
                         </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'openai' || selectedProvider?.type === 'openai'">
                             <div class="mt-1">
@@ -204,6 +212,14 @@
                                 <input v-model="providerForm.credentials[field.key]" type="text" :required="!!field.required"
                                     :placeholder="getFieldPlaceholder(field)"
                                     class="border border-gray-300 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-primary-500" />
+                            </div>
+                            <div v-if="providerForm.provider_type === 'custom'" class="mt-2">
+                                <UCheckbox
+                                    v-model="providerForm.credentials.verify_ssl"
+                                    label="Verify SSL certificate"
+                                    :ui="{ label: 'text-xs text-gray-600' }"
+                                />
+                                <p class="text-xs text-gray-400 mt-0.5 ml-6">Disable for self-signed certificates</p>
                             </div>
                             <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                                 <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-primary-600 hover:underline">
@@ -512,7 +528,7 @@ watch(providerModalOpen, (newValue) => {
                     (selectedProvider.value.credentials as any).endpoint_url = null;
                 }
             }
-            // Hydrate Custom base_url for edit
+            // Hydrate Custom base_url and verify_ssl for edit
             if ((selectedProvider.value.provider_type === 'custom' || selectedProvider.value.type === 'custom')) {
                 const existingBaseUrl = selectedProvider.value.additional_config?.base_url;
                 if (existingBaseUrl && (!selectedProvider.value.credentials.base_url || selectedProvider.value.credentials.base_url === '')) {
@@ -520,6 +536,9 @@ watch(providerModalOpen, (newValue) => {
                 }
                 if (selectedProvider.value.credentials.base_url === undefined) {
                     (selectedProvider.value.credentials as any).base_url = null;
+                }
+                if (selectedProvider.value.credentials.verify_ssl === undefined) {
+                    (selectedProvider.value.credentials as any).verify_ssl = selectedProvider.value.additional_config?.verify_ssl ?? true;
                 }
             }
         }
@@ -561,7 +580,7 @@ watch(() => props.editProviderId, (newId) => {
                     (selectedProvider.value.credentials as any).endpoint_url = null;
                 }
             }
-            // Hydrate Custom base_url for edit
+            // Hydrate Custom base_url and verify_ssl for edit
             if ((selectedProvider.value.provider_type === 'custom' || selectedProvider.value.type === 'custom')) {
                 const existingBaseUrl = selectedProvider.value.additional_config?.base_url;
                 if (existingBaseUrl && (!selectedProvider.value.credentials.base_url || selectedProvider.value.credentials.base_url === '')) {
@@ -569,6 +588,9 @@ watch(() => props.editProviderId, (newId) => {
                 }
                 if (selectedProvider.value.credentials.base_url === undefined) {
                     (selectedProvider.value.credentials as any).base_url = null;
+                }
+                if (selectedProvider.value.credentials.verify_ssl === undefined) {
+                    (selectedProvider.value.credentials as any).verify_ssl = selectedProvider.value.additional_config?.verify_ssl ?? true;
                 }
             }
         }

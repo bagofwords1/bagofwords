@@ -535,12 +535,14 @@ class LLMService:
                 # Explicitly clear base_url
                 existing_additional_config.pop("base_url", None)
 
-        # Custom (OpenAI-compatible): base_url (required)
+        # Custom (OpenAI-compatible): base_url (required), verify_ssl (optional)
         if provider.provider_type == "custom":
             base_url = credentials.get("base_url")
             if base_url:
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             # For custom providers, base_url is required - don't clear it
+            if "verify_ssl" in credentials:
+                existing_additional_config = { **existing_additional_config, "verify_ssl": credentials.get("verify_ssl", True) }
 
         provider.additional_config = existing_additional_config if existing_additional_config else None
 

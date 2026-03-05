@@ -10,10 +10,18 @@ _LLM_TIMEOUT = httpx.Timeout(90.0, connect=10.0)
 
 
 class OpenAi(LLMClient):
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1"):
+    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", verify_ssl: bool = True):
         super().__init__()
-        self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=_LLM_TIMEOUT)
-        self.async_client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=_LLM_TIMEOUT)
+        kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url, "timeout": _LLM_TIMEOUT}
+        if not verify_ssl:
+            kwargs["http_client"] = httpx.Client(verify=False)
+
+        self.client = OpenAI(**kwargs)
+
+        async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url, "timeout": _LLM_TIMEOUT}
+        if not verify_ssl:
+            async_kwargs["http_client"] = httpx.AsyncClient(verify=False)
+        self.async_client = AsyncOpenAI(**async_kwargs)
 
     @staticmethod
     def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list[dict[str, Any]]:
@@ -48,7 +56,7 @@ class OpenAi(LLMClient):
         We only pass `reasoning_effort` for models that support OpenAI's reasoning API
         to avoid API errors for non-reasoning models.
         """
-        temperature = 1 if model_id == "gpt-5" else 0.3
+        temperature = 1 if "gpt-5" in model_id else 0.3
 
         params: dict[str, Any] = {
             "messages": [
