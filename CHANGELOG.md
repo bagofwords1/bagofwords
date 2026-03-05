@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.326 (March 4, 2026)
+## Version 0.0.327 (March 4, 2026)
 - Allow skip verify_ssl for custom LLM endpoints
 - Intrdouce native Bedrock integration, with IAM/API Key auth methods
 - Support MCP-Apps! Now using the MCP in MCP-Apps compatible clients will render visualizations and dashboards
