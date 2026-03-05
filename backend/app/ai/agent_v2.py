@@ -719,11 +719,13 @@ class AgentV2:
                     entities_context = (view.warm.entities.render() if getattr(view.warm, "entities", None) else "")
 
                     # Load user-uploaded images for vision models (only on first loop iteration)
-                    user_images = await self._load_images_as_input() if loop_index == 0 else []
+                    # Skip image loading entirely if model doesn't support vision
+                    model_supports_vision = getattr(self.model, "supports_vision", False)
+                    user_images = (await self._load_images_as_input() if loop_index == 0 else []) if model_supports_vision else []
 
                     # Extract images from observation (tool screenshots, etc.)
                     observation_images: list[ImageInput] = []
-                    if observation and isinstance(observation, dict) and observation.get("images"):
+                    if model_supports_vision and observation and isinstance(observation, dict) and observation.get("images"):
                         for img in observation["images"]:
                             if isinstance(img, dict) and img.get("data"):
                                 observation_images.append(ImageInput(

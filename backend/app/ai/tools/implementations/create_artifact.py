@@ -1506,7 +1506,7 @@ Create a beautiful, varied presentation following these design principles. Each 
         return f"""You are a world-class frontend developer and data visualization expert. Create a STUNNING, publication-quality dashboard.
 
 ═══════════════════════════════════════════════════════════════════════════════
-AVAILABLE LIBRARIES (pre-loaded globally, do NOT import)
+AVAILABLE LIBRARIES (pre-loaded as globals — do NOT use require(), import, or module.exports)
 ═══════════════════════════════════════════════════════════════════════════════
 
 • **React 18** - `React`, `ReactDOM` available globally
@@ -1660,6 +1660,7 @@ REQUIREMENTS:
 6. Style: Minimalist, clean, professional - no branding badges or decorative headers -- BUT NOT BORING AND TEMPLATE LIKE!
 7. Charts must be beautiful with vibrant, harmonious colors, gradients, and smooth animations
 8. ALL displayed values must come from data.visualizations[N].rows - no placeholder data
+9. NEVER use `require()`, `import`, or `module.exports` - all libraries are pre-loaded as globals (React, ReactDOM, echarts). This runs in a browser sandbox with NO module system.
 
 Example loading state:
 ```jsx
@@ -1736,13 +1737,29 @@ Now create the dashboard:"""
         if start_idx != -1:
             end_idx = response.find(end_marker, start_idx)
             if end_idx != -1:
-                return response[start_idx:end_idx + len(end_marker)]
+                code = response[start_idx:end_idx + len(end_marker)]
+                return self._strip_require_statements(code)
 
         # If no script tags found, wrap the response
         code = response.strip()
         if not code.startswith("<script"):
             code = f'<script type="text/babel">\n{code}\n</script>'
 
+        return self._strip_require_statements(code)
+
+    def _strip_require_statements(self, code: str) -> str:
+        """Remove require() and import statements from generated code.
+
+        Some models generate CommonJS require() or ES module imports despite
+        instructions not to. All libraries are pre-loaded as globals in the sandbox.
+        """
+        import re
+        # Remove lines like: const X = require('...'); or var X = require("...");
+        code = re.sub(r'^\s*(const|let|var)\s+\w+\s*=\s*require\s*\([^)]*\)\s*;?\s*$', '', code, flags=re.MULTILINE)
+        # Remove lines like: import X from '...'; or import { X } from '...';
+        code = re.sub(r'^\s*import\s+.*?from\s+[\'"].*?[\'"];?\s*$', '', code, flags=re.MULTILINE)
+        # Remove standalone require() calls
+        code = re.sub(r'^\s*require\s*\([^)]*\)\s*;?\s*$', '', code, flags=re.MULTILINE)
         return code
 
     def _extract_slides_python(self, response: str) -> str:
