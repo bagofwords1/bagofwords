@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.329 (March 5, 2026)
+## Version 0.0.330 (March 5, 2026)
 - Pre-cache tiktoken encodings in Docker build for airgapped environments
 - Added more logging
 
