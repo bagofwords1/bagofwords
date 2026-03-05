@@ -71,7 +71,7 @@ class LLM:
             verify_ssl = self.model.provider.additional_config.get("verify_ssl", True) if self.model.provider.additional_config else True
             # Use empty string for api_key if not provided (some local servers don't need auth)
             api_key = self.api_key or ""
-            self.client = OpenAi(api_key=api_key, base_url=base_url)
+            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")
@@ -214,13 +214,15 @@ class LLM:
 
     async def test_connection(self, prompt: str = "Hello, how are you?"):
         try:
-            test_inference = self.inference(prompt, should_record=False)
-
-            if not isinstance(test_inference, str) or not test_inference.strip():
-                return {
-                    "success": False,
-                    "message": "No response from the model, regular inference request failed",
-                }
+            # Sync inference commented out — blocks the async event loop,
+            # which can exhaust the DB connection pool under load.
+            # test_inference = self.inference(prompt, should_record=False)
+            #
+            # if not isinstance(test_inference, str) or not test_inference.strip():
+            #     return {
+            #         "success": False,
+            #         "message": "No response from the model, regular inference request failed",
+            #     }
 
             test_stream = ""
             async for chunk in self.inference_stream(prompt, should_record=False):
