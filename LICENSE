@@ -1,3 +1,22 @@
+Copyright (c) 2026 Bag of Words
+
+This repository contains code under multiple licenses.
+
+Open Source License
+-------------------
+Unless otherwise noted, the contents of this repository are licensed under the
+GNU Affero General Public License v3.0 (AGPL-3.0). The full license text appears below.
+
+Enterprise Components
+---------------------
+Certain files and directories (including the `/ee` directory) are not licensed
+under AGPL. These components are licensed under the Bag of Words Enterprise License.
+
+If you have obtained a commercial license for the enterprise components, the
+terms of that commercial agreement apply to those components instead of AGPL.
+
+See `backend/app/ee/LICENSE` for the enterprise license terms.
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
