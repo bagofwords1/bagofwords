@@ -286,6 +286,7 @@ class MCPTool(ABC):
             tool_action=self.name,
             arguments_json={},
             status="success" if success else "error",
+            success=success,
             started_at=agent_execution.started_at,
             completed_at=now,
             result_summary=summary[:500] if summary else None,
