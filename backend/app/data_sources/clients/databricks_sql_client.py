@@ -86,8 +86,6 @@ class DatabricksSqlClient(DataSourceClient):
             cursor = conn.cursor()
 
             where_clauses = [f"c.table_catalog = '{self.catalog}'"]
-            if self.catalog.lower() != 'system':
-                where_clauses.append("c.table_schema NOT IN ('information_schema', 'default')")
             if self._schemas:
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"c.table_schema IN ({schema_list})")
@@ -143,8 +141,6 @@ class DatabricksSqlClient(DataSourceClient):
             cursor = conn.cursor()
 
             where_clauses = [f"table_catalog = '{self.catalog}'"]
-            if self.catalog.lower() != 'system':
-                where_clauses.append("table_schema NOT IN ('information_schema', 'default')")
             if self._schemas:
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"table_schema IN ({schema_list})")
