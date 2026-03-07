@@ -178,8 +178,8 @@
     try {
       // 1. Send ui/initialize
       var initResult = await sendRequest('ui/initialize', {
-        capabilities: {},
-        clientInfo: { name: 'bow-visualization', version: '1.0.0' },
+        appCapabilities: {},
+        appInfo: { name: 'bow-visualization', version: '1.0.0' },
         protocolVersion: '2026-01-26'
       });
 

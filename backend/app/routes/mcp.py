@@ -29,7 +29,7 @@ from app.settings.config import settings
 
 logger = logging.getLogger(__name__)
 
-MCP_PROTOCOL_VERSION = "2025-06-18"
+MCP_PROTOCOL_VERSION = "2026-01-26"
 
 
 def _resource_metadata_url(request: Request) -> str:

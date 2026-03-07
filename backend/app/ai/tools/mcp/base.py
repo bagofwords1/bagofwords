@@ -97,6 +97,10 @@ class MCPTool(ABC):
         ui = dict(meta.get("ui", {})) if meta.get("ui") else {}
         ui["visibility"] = self.visibility
         meta["ui"] = ui
+        # Add legacy flat key for backward compatibility with older hosts
+        # (Claude Desktop, etc.) — mirrors registerAppTool from ext-apps SDK.
+        if ui.get("resourceUri"):
+            meta["ui/resourceUri"] = ui["resourceUri"]
         schema["_meta"] = meta
         return schema
     
