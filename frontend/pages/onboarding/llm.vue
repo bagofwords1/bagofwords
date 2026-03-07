@@ -126,6 +126,10 @@
                       <p class="text-xs text-gray-500 mt-1.5">Uses the AWS credential chain (IRSA, env vars, instance role, etc.)</p>
                     </div>
                   </template>
+                  <div v-if="providerForm.provider_type === 'custom'" class="flex items-center gap-2 mt-3">
+                    <UCheckbox v-model="providerForm.credentials.verify_ssl" @change="clearTestResult()" />
+                    <label class="text-sm text-gray-700">Verify SSL</label>
+                  </div>
                   <div v-if="providerForm.provider_type === 'openai'" class="mt-1">
                     <button type="button" @click="toggleBaseUrlNewProvider" class="text-xs text-blue-600 hover:underline">{{ showBaseUrlNew ? 'Use default base URL' : 'Set custom base URL' }}</button>
                     <div v-if="showBaseUrlNew" class="mt-2">
@@ -317,9 +321,10 @@ function fieldsForProvider(providerType: string): CredentialField[] {
 const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
   const providerType = providerForm.value.provider_type
   const all = fieldsForProvider(providerType)
-  if (providerType === 'openai') return all.filter(f => f.key !== 'base_url')
-  if (providerType === 'bedrock') return all.filter(f => f.key === 'region')
-  return all
+  let filtered = all.filter(f => f.key !== 'verify_ssl')
+  if (providerType === 'openai') return filtered.filter(f => f.key !== 'base_url')
+  if (providerType === 'bedrock') return filtered.filter(f => f.key === 'region')
+  return filtered
 })
 
 function selectOption(option: any) {
@@ -366,6 +371,9 @@ watch(() => providerForm.value.provider_type, (providerType: string) => {
     models.value
       .filter((m: AvailableModel) => m.provider_type === providerType)
       .forEach((m: AvailableModel) => { m.is_enabled = true })
+    if (providerType === 'custom') {
+      providerForm.value.credentials.verify_ssl = true
+    }
   }
   if (isNewProviderSelected.value) {
     if (providerType === 'openai') {

@@ -4,6 +4,7 @@
 - Improved MCP-Apps stability and compatibility with Claude
 - Enhanced Databricks SQL connector reliability
 - Increased OAuth token storage limits
+- Added logging to LLM integrations
 
 ## Version 0.0.330 (March 5, 2026)
 - Pre-cache tiktoken encodings in Docker build for airgapped environments

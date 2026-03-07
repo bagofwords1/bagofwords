@@ -16,6 +16,9 @@ from app.dependencies import async_session_maker
 from datetime import datetime
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
+from app.settings.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 class LLMService:
     def __init__(self):
@@ -53,13 +56,14 @@ class LLMService:
         return LLM_MODEL_DETAILS
 
     async def create_provider(
-        self, 
-        db: AsyncSession, 
+        self,
+        db: AsyncSession,
         organization: Organization,
         current_user: User,
         provider_data
     ):
         """Create a new custom LLM provider"""
+        logger.info("Creating LLM provider: name=%s, type=%s, org_id=%s, user_id=%s", provider_data.name, provider_data.provider_type, organization.id, current_user.id)
 
         models = provider_data.models
         del provider_data.models
@@ -79,11 +83,13 @@ class LLMService:
             await db.refresh(provider)
         except IntegrityError:
             await db.rollback()
-            # Likely duplicate (organization_id, name) unique constraint
+            logger.warning("Duplicate LLM provider name: name=%s, org_id=%s", provider.name, organization.id)
             raise HTTPException(
                 status_code=409,
                 detail=f"A provider named '{provider.name}' already exists in this organization. Please choose a different name."
             )
+
+        logger.info("LLM provider created: id=%s, name=%s, type=%s, org_id=%s", provider.id, provider.name, provider.provider_type, organization.id)
 
         # Now create/update models for this provider (commits internally)
         await self._create_models(db, organization, provider, current_user, models)
@@ -120,14 +126,15 @@ class LLMService:
         return provider
 
     async def update_provider(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
-        provider_id: str, 
+        provider_id: str,
         provider_data
     ):
         """Update provider settings"""
+        logger.info("Updating LLM provider: provider_id=%s, org_id=%s, user_id=%s", provider_id, organization.id, current_user.id)
         provider = await db.execute(
             select(LLMProvider).filter(
                 LLMProvider.id == provider_id,
@@ -160,10 +167,13 @@ class LLMService:
             await db.refresh(provider)
         except IntegrityError:
             await db.rollback()
+            logger.warning("Duplicate LLM provider name on update: name=%s, org_id=%s", update_data.get('name', provider.name), organization.id)
             raise HTTPException(
                 status_code=409,
                 detail=f"A provider with the name '{update_data.get('name', provider.name)}' already exists in this organization."
             )
+
+        logger.info("LLM provider updated: id=%s, name=%s, type=%s, org_id=%s", provider.id, provider.name, provider.provider_type, organization.id)
 
         # Audit log
         try:
@@ -196,13 +206,14 @@ class LLMService:
         return model
 
     async def delete_provider(
-        self, 
+        self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
         provider_id: str
     ):
         """Delete a custom provider"""
+        logger.info("Deleting LLM provider: provider_id=%s, org_id=%s, user_id=%s", provider_id, organization.id, current_user.id)
         provider = await db.execute(
             select(LLMProvider).filter(
                 LLMProvider.id == provider_id,
@@ -229,6 +240,8 @@ class LLMService:
 
         db.add(provider)
         await db.commit()
+
+        logger.info("LLM provider deleted: id=%s, name=%s, type=%s, org_id=%s", provider.id, provider.name, provider.provider_type, organization.id)
 
         # Audit log
         try:
@@ -356,6 +369,8 @@ class LLMService:
         provider.is_enabled = enabled
         await db.commit()
 
+        logger.info("LLM provider toggled: id=%s, name=%s, enabled=%s, org_id=%s", provider.id, provider.name, enabled, organization.id)
+
         # Audit log
         try:
             await audit_service.log(
@@ -397,6 +412,8 @@ class LLMService:
 
         model.is_enabled = enabled
         await db.commit()
+
+        logger.info("LLM model toggled: id=%s, name=%s, model_id=%s, enabled=%s, org_id=%s", model.id, model.name, model.model_id, enabled, organization.id)
 
         # Audit log
         try:
@@ -542,7 +559,13 @@ class LLMService:
                 existing_additional_config = { **existing_additional_config, "base_url": base_url }
             # For custom providers, base_url is required - don't clear it
             if "verify_ssl" in credentials:
-                existing_additional_config = { **existing_additional_config, "verify_ssl": credentials.get("verify_ssl", True) }
+                raw_verify_ssl = credentials.get("verify_ssl", True)
+                # Coerce string values to boolean (frontend may send "true"/"false" strings)
+                if isinstance(raw_verify_ssl, str):
+                    verify_ssl = raw_verify_ssl.lower() not in ("false", "0", "no", "")
+                else:
+                    verify_ssl = bool(raw_verify_ssl)
+                existing_additional_config = { **existing_additional_config, "verify_ssl": verify_ssl }
 
         # Bedrock: region (required), auth_mode
         if provider.provider_type == "bedrock":
@@ -757,6 +780,8 @@ class LLMService:
         db.add(default_model)
         await db.commit()
 
+        logger.info("LLM default model set: id=%s, name=%s, model_id=%s, small=%s, org_id=%s", default_model.id, default_model.name, default_model.model_id, small, organization.id)
+
         # Audit log
         try:
             await audit_service.log(
@@ -926,6 +951,8 @@ class LLMService:
         current_user: User,
         provider: LLMProviderCreate
     ):
+        logger.info("Testing LLM connection: provider_type=%s, name=%s, org_id=%s, user_id=%s", provider.provider_type, provider.name, organization.id, current_user.id)
+
         # Build an in-memory provider based on the payload (no DB writes)
         provider_obj = LLMProvider(
             name=provider.name,
@@ -1000,6 +1027,12 @@ class LLMService:
             )
 
         # Run a lightweight connection test against the LLM client
+        logger.info("Testing LLM connection with model: model_id=%s, provider_type=%s", selected_model.model_id, provider.provider_type)
         llm = LLM(selected_model, usage_session_maker=async_session_maker)
-        return await llm.test_connection()
+        result = await llm.test_connection()
+        if result.get("success"):
+            logger.info("LLM connection test passed: provider_type=%s, model_id=%s, org_id=%s", provider.provider_type, selected_model.model_id, organization.id)
+        else:
+            logger.error("LLM connection test failed: provider_type=%s, model_id=%s, org_id=%s, message=%s", provider.provider_type, selected_model.model_id, organization.id, result.get("message"))
+        return result
 

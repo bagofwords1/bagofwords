@@ -17,6 +17,9 @@ from app.schemas.llm_schema import (
     LLMModelUpdate,
     LLMModelSchemaWithProvider
 )
+from app.settings.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(tags=["llm"])
 llm_service = LLMService()
@@ -47,7 +50,13 @@ async def test_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    return await llm_service.test_connection(db, organization, current_user, provider)
+    try:
+        return await llm_service.test_connection(db, organization, current_user, provider)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("LLM test_connection route error: %s", e, exc_info=True)
+        return {"success": False, "message": str(e)}
 
 @router.get("/llm/providers", response_model=List[LLMProviderSchema])
 @requires_permission('view_llm_settings')
