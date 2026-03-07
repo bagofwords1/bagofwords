@@ -73,8 +73,10 @@ async def mcp_auth(
 
     # 3. Try Bearer token from Authorization header
     auth_header = request.headers.get("Authorization", "")
+    token_was_provided = False
     if auth_header.startswith("Bearer "):
         token = auth_header[7:]
+        token_was_provided = bool(token)
 
         # 3a. OAuth access token
         if token.startswith("bow_oauth_"):
@@ -83,6 +85,7 @@ async def mcp_auth(
             result = await svc.validate_access_token(db, token)
             if result:
                 return result  # (user, organization)
+            logger.warning("OAuth token validation failed for token starting with: %s...", token[:16])
 
         # 3b. API key via Bearer
         if token.startswith("bow_") and not token.startswith("bow_oauth_"):
@@ -96,11 +99,17 @@ async def mcp_auth(
 
     # No valid auth — return 401 with OAuth metadata
     resource_url = _resource_metadata_url(request)
+    # Include error="invalid_token" when a token was provided but failed validation
+    # so the client knows to refresh rather than re-authorize from scratch (RFC 6750 §3.1)
+    if token_was_provided:
+        www_auth = f'Bearer resource_metadata="{resource_url}", error="invalid_token", error_description="The access token is invalid or expired"'
+    else:
+        www_auth = f'Bearer resource_metadata="{resource_url}"'
     raise HTTPException(
         status_code=401,
         detail="Not authenticated",
         headers={
-            "WWW-Authenticate": f'Bearer resource_metadata="{resource_url}"',
+            "WWW-Authenticate": www_auth,
         },
     )
 

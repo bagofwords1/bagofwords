@@ -5,11 +5,14 @@ and token validation for external MCP clients (e.g., Claude Web).
 """
 
 import json
+import logging
 import secrets
 import hashlib
 import base64
 from typing import Optional, Tuple
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -27,8 +30,8 @@ ACCESS_TOKEN_PREFIX = "bow_oauth_"
 REFRESH_TOKEN_PREFIX = "bow_rt_"
 
 # Token lifetimes
-ACCESS_TOKEN_LIFETIME = timedelta(hours=1)
-REFRESH_TOKEN_LIFETIME = timedelta(days=30)
+ACCESS_TOKEN_LIFETIME = timedelta(days=365)
+REFRESH_TOKEN_LIFETIME = timedelta(days=365)
 AUTHORIZATION_CODE_LIFETIME = timedelta(minutes=5)
 
 # Claude's known callback URLs
@@ -262,6 +265,7 @@ class OAuthServerService:
         # Validate client
         client = await self.validate_client(db, client_id, client_secret)
         if not client:
+            logger.warning("exchange_code failed: invalid client_id=%s or client_secret mismatch", client_id)
             return None
 
         # Look up the authorization code
@@ -273,20 +277,24 @@ class OAuthServerService:
         )
         auth_code = result.scalar_one_or_none()
         if not auth_code:
+            logger.warning("exchange_code failed: authorization code not found or already used (client_id=%s)", client_id)
             return None
 
         # Check expiration
         if auth_code.expires_at < datetime.utcnow():
+            logger.warning("exchange_code failed: authorization code expired at %s (client_id=%s)", auth_code.expires_at, client_id)
             auth_code.deleted_at = datetime.utcnow()
             await db.commit()
             return None
 
         # Verify PKCE
         if not _verify_pkce_s256(code_verifier, auth_code.code_challenge):
+            logger.warning("exchange_code failed: PKCE verification failed (client_id=%s)", client_id)
             return None
 
         # Verify redirect_uri matches
         if auth_code.redirect_uri != redirect_uri:
+            logger.warning("exchange_code failed: redirect_uri mismatch - expected=%s got=%s (client_id=%s)", auth_code.redirect_uri, redirect_uri, client_id)
             return None
 
         # Consume the code (one-time use)
@@ -328,6 +336,7 @@ class OAuthServerService:
         # Validate client
         client = await self.validate_client(db, client_id, client_secret)
         if not client:
+            logger.warning("refresh_access_token failed: invalid client_id=%s or client_secret mismatch", client_id)
             return None
 
         refresh_hash = _hash(refresh_token)
@@ -340,10 +349,12 @@ class OAuthServerService:
         )
         token_record = result.scalar_one_or_none()
         if not token_record:
+            logger.warning("refresh_access_token failed: refresh token not found or already rotated (client_id=%s)", client_id)
             return None
 
         # Check refresh token expiration
         if token_record.refresh_expires_at and token_record.refresh_expires_at < datetime.utcnow():
+            logger.warning("refresh_access_token failed: refresh token expired at %s (client_id=%s)", token_record.refresh_expires_at, client_id)
             return None
 
         # Invalidate old access token

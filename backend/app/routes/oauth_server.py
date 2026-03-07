@@ -189,11 +189,13 @@ async def token_endpoint(
 
     if grant_type == "authorization_code":
         if not code or not code_verifier or not redirect_uri:
+            logger.warning("Token request missing params: code=%s code_verifier=%s redirect_uri=%s", bool(code), bool(code_verifier), bool(redirect_uri))
             return JSONResponse(
                 {"error": "invalid_request", "error_description": "Missing code, code_verifier, or redirect_uri"},
                 status_code=400,
             )
 
+        logger.info("Token exchange attempt: client_id=%s redirect_uri=%s", client_id, redirect_uri)
         result = await service.exchange_code(
             db=db,
             code=code,
@@ -203,10 +205,12 @@ async def token_endpoint(
             redirect_uri=redirect_uri,
         )
         if not result:
+            logger.warning("Token exchange failed: client_id=%s redirect_uri=%s", client_id, redirect_uri)
             return JSONResponse(
                 {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"},
                 status_code=400,
             )
+        logger.info("Token exchange succeeded: client_id=%s", client_id)
         return JSONResponse(result)
 
     elif grant_type == "refresh_token":
@@ -216,6 +220,7 @@ async def token_endpoint(
                 status_code=400,
             )
 
+        logger.info("Refresh token attempt: client_id=%s", client_id)
         result = await service.refresh_access_token(
             db=db,
             refresh_token=refresh_token,
@@ -223,10 +228,12 @@ async def token_endpoint(
             client_secret=client_secret,
         )
         if not result:
+            logger.warning("Refresh token failed: client_id=%s", client_id)
             return JSONResponse(
                 {"error": "invalid_grant", "error_description": "Invalid or expired refresh token"},
                 status_code=400,
             )
+        logger.info("Refresh token succeeded: client_id=%s", client_id)
         return JSONResponse(result)
 
     else:

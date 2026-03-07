@@ -250,7 +250,7 @@ def test_full_oauth_flow(
     assert len(mcp_data["result"]["tools"]) > 0
 
     # Verify MCP-Protocol-Version header
-    assert mcp_response.headers.get("mcp-protocol-version") == "2025-06-18"
+    assert mcp_response.headers.get("mcp-protocol-version") == "2026-01-26"
 
 
 @pytest.mark.e2e
