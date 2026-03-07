@@ -5,6 +5,7 @@
 - Enhanced Databricks SQL connector reliability
 - Increased OAuth token storage limits
 - Added logging to LLM integrations
+- Fix connectivity issues via MCP servers
 
 ## Version 0.0.330 (March 5, 2026)
 - Pre-cache tiktoken encodings in Docker build for airgapped environments
