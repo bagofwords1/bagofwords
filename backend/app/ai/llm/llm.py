@@ -213,17 +213,8 @@ class LLM:
         )
 
     async def test_connection(self, prompt: str = "Hello, how are you?"):
+        logger.info("Testing LLM connection: provider=%s, model=%s", self.provider, self.model_id)
         try:
-            # Sync inference commented out — blocks the async event loop,
-            # which can exhaust the DB connection pool under load.
-            # test_inference = self.inference(prompt, should_record=False)
-            #
-            # if not isinstance(test_inference, str) or not test_inference.strip():
-            #     return {
-            #         "success": False,
-            #         "message": "No response from the model, regular inference request failed",
-            #     }
-
             test_stream = ""
             async for chunk in self.inference_stream(prompt, should_record=False):
                 if not chunk:
@@ -233,17 +224,20 @@ class LLM:
                     break
 
             if not test_stream:
+                logger.warning("LLM test connection returned empty response: provider=%s, model=%s", self.provider, self.model_id)
                 return {
                     "success": False,
                     "message": "No response from the model, streaming request failed",
                 }
 
         except Exception as e:
+            logger.error("LLM test connection failed: provider=%s, model=%s, error=%s", self.provider, self.model_id, e, exc_info=True)
             return {
                 "success": False,
                 "message": str(e),
             }
 
+        logger.info("LLM test connection successful: provider=%s, model=%s", self.provider, self.model_id)
         return {
             "success": True,
             "message": "Successfully connected to LLM",
