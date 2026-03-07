@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.331 (March 7, 2026)
+## Version 0.0.332 (March 7, 2026)
 - Improved MCP-Apps stability and compatibility with Claude
 - Enhanced Databricks SQL connector reliability
 - Increased OAuth token storage limits

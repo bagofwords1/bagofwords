@@ -211,7 +211,7 @@ def test_mcp_get_server_info(
     assert data["jsonrpc"] == "2.0"
     assert "result" in data
     result = data["result"]
-    assert result["protocolVersion"] == "2026-01-26"
+    assert result["protocolVersion"] == "2025-11-25"
     assert result["serverInfo"]["name"] == "bagofwords"
     assert result["serverInfo"]["version"] == "1.0.0"
     assert "capabilities" in result
@@ -250,7 +250,7 @@ def test_mcp_initialize(
     assert data["id"] == 42
     assert "result" in data
     result = data["result"]
-    assert result["protocolVersion"] == "2026-01-26"
+    assert result["protocolVersion"] == "2025-11-25"
     assert result["serverInfo"]["name"] == "bagofwords"
     assert "capabilities" in result
 

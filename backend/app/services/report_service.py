@@ -84,7 +84,7 @@ class ReportService:
             select(Report)
             .options(
                 selectinload(Report.user),  # Use selectinload for async loading
-                selectinload(Report.data_sources)  # Load data sources
+                selectinload(Report.data_sources).selectinload(DataSource.connections)  # Load data sources and their connections
             )
             .filter(Report.id == report_id)
         )
