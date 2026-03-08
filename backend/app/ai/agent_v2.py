@@ -657,7 +657,7 @@ class AgentV2:
 
             observation: Optional[dict] = None
             # Training mode needs more iterations for thorough exploration
-            step_limit = 20 if self.mode == "training" else 10
+            step_limit = 25 if self.mode == "training" else 20
 
             current_plan_decision = None
             invalid_retry_count = 0
