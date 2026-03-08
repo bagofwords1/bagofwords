@@ -15,7 +15,6 @@ from app.ai.prompt_formatters import build_codegen_context
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.report import Report
-from app.services.report_service import ReportService
 from app.project_manager import ProjectManager
 from app.schemas.mcp import MCPCreateDataInput, MCPCreateDataOutput
 from app.dependencies import async_session_maker
@@ -63,14 +62,13 @@ class CreateDataMCPTool(MCPTool):
         
         input_data = MCPCreateDataInput(**args)
         
-        report_service = ReportService()
         project_manager = ProjectManager()
-        
+
         # Get or create MCP platform first (for external_platform_id)
         platform = await self._get_or_create_mcp_platform(db, organization)
-        
-        # Load report (report_id is now required)
-        report = await report_service.get_report(db, input_data.report_id, user, organization)
+
+        # Load report as ORM model (preserves Connection.get_credentials())
+        report = await self._load_report(db, input_data.report_id)
         
         # Update report with external_platform_id if not set (direct DB update)
         if not report.external_platform:

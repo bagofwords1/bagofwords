@@ -220,6 +220,12 @@ class MariadbConfig(SQLConfig):
 
 class MssqlConfig(SQLConfig):
     port: int = Field(1433, ge=1, le=65535, title="Port", description="", json_schema_extra={"ui:type": "number"})
+    schema: Optional[str] = Field(
+        None,
+        title="Schema",
+        description="Optional schema or comma-separated list of schemas",
+        json_schema_extra={"ui:type": "string"}
+    )
 
 
 class SybaseConfig(SQLConfig):

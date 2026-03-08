@@ -12,6 +12,8 @@
 # =============================================================================
 
 {$DOMAIN:localhost} {
+    tls internal
+
     # Reverse proxy to the app
     reverse_proxy app:3000
 

@@ -12,7 +12,6 @@ from app.ai.context.builders.resource_context_builder import ResourceContextBuil
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.report import Report
-from app.services.report_service import ReportService
 from app.schemas.mcp import (
     GetContextInput,
     GetContextOutput,
@@ -50,13 +49,11 @@ class GetContextTool(MCPTool):
         
         input_data = GetContextInput(**args)
         
-        report_service = ReportService()
-        
         # Get or create MCP platform first (for external_platform_id)
         platform = await self._get_or_create_mcp_platform(db, organization)
-        
-        # Load report (report_id is now required)
-        report = await report_service.get_report(db, input_data.report_id, user, organization)
+
+        # Load report as ORM model (preserves Connection.get_credentials())
+        report = await self._load_report(db, input_data.report_id)
         data_sources = report.data_sources
         
         # Update report with external_platform_id if not set (direct DB update)

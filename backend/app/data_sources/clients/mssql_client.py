@@ -4,19 +4,28 @@ import pandas as pd
 import sqlalchemy
 from sqlalchemy import text
 from contextlib import contextmanager
-from typing import Generator, List
+from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 
 
 class MSSQLClient(DataSourceClient):
-    def __init__(self, host, port, database, user, password):
+    def __init__(self, host, port, database, user, password, schema: Optional[str] = None):
         self.host = host
         self.port = port
         self.database = database
         self.user = user
         self.password = password
+        self.schema = schema
+        self._schemas = []
+        if isinstance(self.schema, str) and self.schema.strip():
+            parts = [s.strip() for s in self.schema.split(",") if s.strip()]
+            seen = set()
+            for p in parts:
+                if p not in seen:
+                    seen.add(p)
+                    self._schemas.append(p)
 
     @cached_property
     def sql_server_uri(self):
@@ -63,8 +72,21 @@ class MSSQLClient(DataSourceClient):
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table descriptions via extended properties. May fail on some configurations."""
         with self.connect() as conn:
-            sql = """
+            params = {"database": self.database}
+            where_clauses = ["c.table_catalog = :database"]
+
+            if self._schemas:
+                in_keys = []
+                for idx, sch in enumerate(self._schemas):
+                    key = f"s{idx}"
+                    params[key] = sch
+                    in_keys.append(f":{key}")
+                where_clauses.append(f"c.table_schema IN ({', '.join(in_keys)})")
+
+            where_sql = " AND ".join(where_clauses)
+            sql = text(f"""
                 SELECT
+                    c.table_schema,
                     c.table_name,
                     c.column_name,
                     c.data_type,
@@ -82,24 +104,27 @@ class MSSQLClient(DataSourceClient):
                     ON ep_tbl.major_id = OBJECT_ID(c.table_schema + '.' + c.table_name)
                     AND ep_tbl.minor_id = 0
                     AND ep_tbl.name = 'MS_Description'
-                WHERE c.table_catalog = :database
-                ORDER BY c.table_name, c.ordinal_position
-            """
-            result = conn.execute(text(sql), {'database': self.database}).fetchall()
+                WHERE {where_sql}
+                ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            """)
+            result = conn.execute(sql, params).fetchall()
 
             tables = {}
             for row in result:
-                table_name, column_name, data_type, col_comment, tbl_comment = row
+                table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
+                key = (table_schema, table_name)
+                fqn = f"{table_schema}.{table_name}"
 
-                if table_name not in tables:
-                    tables[table_name] = Table(
-                        name=table_name,
+                if key not in tables:
+                    tables[key] = Table(
+                        name=fqn,
                         description=tbl_comment if tbl_comment else None,
                         columns=[],
                         pks=None,
-                        fks=None
+                        fks=None,
+                        metadata_json={"schema": table_schema}
                     )
-                tables[table_name].columns.append(TableColumn(
+                tables[key].columns.append(TableColumn(
                     name=column_name,
                     dtype=data_type,
                     description=col_comment if col_comment else None
@@ -110,23 +135,37 @@ class MSSQLClient(DataSourceClient):
         """Get tables without comments (original query - always works)."""
         try:
             with self.connect() as conn:
-                sql = """
-                    SELECT table_name, column_name, data_type
+                params = {"database": self.database}
+                where_clauses = ["table_catalog = :database"]
+
+                if self._schemas:
+                    in_keys = []
+                    for idx, sch in enumerate(self._schemas):
+                        key = f"s{idx}"
+                        params[key] = sch
+                        in_keys.append(f":{key}")
+                    where_clauses.append(f"table_schema IN ({', '.join(in_keys)})")
+
+                where_sql = " AND ".join(where_clauses)
+                sql = text(f"""
+                    SELECT table_schema, table_name, column_name, data_type
                     FROM information_schema.columns
-                    WHERE table_catalog = :database
-                    ORDER BY table_name, ordinal_position
-                """
-                result = conn.execute(
-                    text(sql), {'database': self.database}).fetchall()
+                    WHERE {where_sql}
+                    ORDER BY table_schema, table_name, ordinal_position
+                """)
+                result = conn.execute(sql, params).fetchall()
 
                 tables = {}
                 for row in result:
-                    table_name, column_name, data_type = row
+                    table_schema, table_name, column_name, data_type = row
+                    key = (table_schema, table_name)
+                    fqn = f"{table_schema}.{table_name}"
 
-                    if table_name not in tables:
-                        tables[table_name] = Table(
-                            name=table_name, columns=[], pks=None, fks=None)
-                    tables[table_name].columns.append(
+                    if key not in tables:
+                        tables[key] = Table(
+                            name=fqn, columns=[], pks=None, fks=None,
+                            metadata_json={"schema": table_schema})
+                    tables[key].columns.append(
                         TableColumn(name=column_name, dtype=data_type))
                 return list(tables.values())
         except Exception as e:
