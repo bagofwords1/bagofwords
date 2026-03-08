@@ -51,6 +51,7 @@ config:
   googleClientSecret: ""
   encryptionKey: ""
   intercomEnabled: false
+  telemetryEnabled: true
   baseUrl: ""
   authMode: "hybrid"
   allowUninvitedSignups: false
