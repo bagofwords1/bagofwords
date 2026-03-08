@@ -15,7 +15,6 @@ from app.models.organization import Organization
 from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.models.query import Query
-from app.services.report_service import ReportService
 from app.schemas.mcp import MCPCreateArtifactInput, MCPCreateArtifactOutput
 from app.dependencies import async_session_maker
 
@@ -68,11 +67,9 @@ class CreateArtifactMCPTool(MCPTool):
                 error_message=f"Invalid mode '{input_data.mode}'. Must be 'page' or 'slides'.",
             ).model_dump()
 
-        report_service = ReportService()
-
-        # Load report
+        # Load report as ORM model (preserves Connection.get_credentials())
         try:
-            report = await report_service.get_report(db, input_data.report_id, user, organization)
+            report = await self._load_report(db, input_data.report_id)
         except Exception as e:
             return MCPCreateArtifactOutput(
                 report_id=input_data.report_id,

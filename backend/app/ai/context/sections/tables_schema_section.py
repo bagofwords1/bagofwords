@@ -54,6 +54,12 @@ class TablesSchemaContext(ContextSection):
                 attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
                 if getattr(c, 'description', None):
                     attrs += f' description="{xml_escape(c.description)}"'
+                # Column role/kind from metadata (semantic views, PowerBI, Tableau)
+                col_meta = getattr(c, 'metadata', None)
+                if isinstance(col_meta, dict):
+                    role = col_meta.get("kind") or col_meta.get("role")
+                    if role:
+                        attrs += f' role="{xml_escape(str(role).lower())}"'
                 col_parts.append(f'<column {attrs}/>')
             cols = "\n".join(col_parts)
 
@@ -100,8 +106,16 @@ class TablesSchemaContext(ContextSection):
                     metadata_xml = xml_tag("metadata", "", attrs)
             except Exception:
                 metadata_xml = ""
-            inner = "\n".join(filter(None, [xml_tag("columns", cols), metadata_xml, metrics_xml]))
+            # Add query instructions for semantic views
+            is_semantic_view = isinstance(t.metadata_json, dict) and t.metadata_json.get("type") == "semantic_view"
+            note_xml = ""
+            if is_semantic_view:
+                note_xml = xml_tag("note", "Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1, dim2 METRICS metric1, metric2 WHERE condition). Use DIMENSIONS for role=dimension columns, METRICS for role=measure/metric columns.")
+            inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), metadata_xml, metrics_xml]))
             table_attrs = {"name": t.name}
+            # Mark semantic views
+            if is_semantic_view:
+                table_attrs["type"] = "semantic_view"
             if getattr(t, 'description', None):
                 table_attrs["description"] = t.description
             return xml_tag("table", inner, table_attrs)
@@ -229,6 +243,11 @@ class TablesSchemaContext(ContextSection):
                     col_attrs = f'name="{xml_escape(c.name)}" dtype="{xml_escape(c.dtype or "")}"'
                     if getattr(c, 'description', None):
                         col_attrs += f' description="{xml_escape(c.description)}"'
+                    col_meta = getattr(c, 'metadata', None)
+                    if isinstance(col_meta, dict):
+                        role = col_meta.get("kind") or col_meta.get("role")
+                        if role:
+                            col_attrs += f' role="{xml_escape(str(role).lower())}"'
                     col_parts.append(f'<column {col_attrs}/>')
                 cols = "\n".join(col_parts)
                 pks = "\n".join(
@@ -242,6 +261,9 @@ class TablesSchemaContext(ContextSection):
                     for fk in (t.fks or [])
                 )
                 attrs = {"name": t.name, "cols": str(len(t.columns or []))}
+                is_sv = isinstance(getattr(t, 'metadata_json', None), dict) and t.metadata_json.get("type") == "semantic_view"
+                if is_sv:
+                    attrs["type"] = "semantic_view"
                 if getattr(t, 'description', None):
                     attrs["description"] = t.description
                 try:
@@ -259,7 +281,10 @@ class TablesSchemaContext(ContextSection):
                         attrs["instructions"] = str(int(getattr(t, 'referenced_instructions_count')))
                 except Exception:
                     pass
-                inner = "\n".join(filter(None, [xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else ""]))
+                note_xml = ""
+                if is_sv:
+                    note_xml = xml_tag("note", "Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1, dim2 METRICS metric1, metric2 WHERE condition). Use DIMENSIONS for role=dimension columns, METRICS for role=measure/metric columns.")
+                inner = "\n".join(filter(None, [note_xml, xml_tag("columns", cols), xml_tag("pks", pks) if pks else "", xml_tag("fks", fks) if fks else ""]))
                 return xml_tag("table", inner, attrs)
 
             if has_multi_connection:

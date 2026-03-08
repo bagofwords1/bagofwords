@@ -127,12 +127,118 @@ class SnowflakeClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get tables with graceful fallback if enriched query fails."""
+        """Get tables with graceful fallback if enriched query fails, plus semantic views."""
         try:
-            return self._get_tables_enriched()
+            tables = self._get_tables_enriched()
         except Exception:
             # Fallback to basic query without comments
-            return self._get_tables_basic()
+            tables = self._get_tables_basic()
+
+        # Append semantic views (failures here should not affect regular tables)
+        try:
+            tables.extend(self._get_semantic_views())
+        except Exception:
+            pass
+
+        return tables
+
+    def _get_semantic_views(self) -> List[Table]:
+        """Discover Snowflake semantic views and their columns/measures/dimensions."""
+        tables = []
+        schemas = self._schemas if self._schemas else ([self._primary_schema] if self._primary_schema else [])
+
+        with self.connect() as conn:
+            # Collect all semantic view rows
+            sv_results = []
+            if not schemas:
+                # No schema filter — discover at database level
+                try:
+                    sv_results = conn.execute(
+                        text(f"SHOW SEMANTIC VIEWS IN DATABASE {self.database}")
+                    ).fetchall()
+                except Exception:
+                    return tables
+            else:
+                for schema in schemas:
+                    try:
+                        rows = conn.execute(
+                            text(f"SHOW SEMANTIC VIEWS IN SCHEMA {self.database}.{schema}")
+                        ).fetchall()
+                        sv_results.extend(rows)
+                    except Exception:
+                        continue
+
+            for sv_row in sv_results:
+                view_name = sv_row[1]  # name
+                sv_schema = sv_row[3]  # schema_name
+                fqn = f"{sv_schema}.{view_name}"
+
+                # DESC SEMANTIC VIEW returns property rows with columns:
+                #   (object_kind, object_name, parent_entity, property, property_value)
+                # object_kind: NULL, TABLE, DIMENSION, FACT, METRIC, DERIVED_METRIC, etc.
+                # We group by (object_kind, object_name) and collect properties.
+                columns = []
+                description = None
+                try:
+                    desc_results = conn.execute(
+                        text(f"DESC SEMANTIC VIEW {self.database}.{sv_schema}.{view_name}")
+                    ).fetchall()
+
+                    # Group properties by (object_kind, object_name)
+                    objects = {}  # (kind, name) -> {property: value, ...}
+                    for row in desc_results:
+                        obj_kind = row[0]       # TABLE, DIMENSION, FACT, METRIC, etc.
+                        obj_name = row[1]       # name of the object
+                        # row[2] = parent_entity
+                        prop_name = row[3] if len(row) > 3 else None
+                        prop_value = row[4] if len(row) > 4 else None
+
+                        # Semantic view-level comment (object_kind is NULL)
+                        if obj_kind is None and prop_name == "COMMENT" and prop_value:
+                            description = prop_value
+                            continue
+
+                        if obj_kind in ("DIMENSION", "FACT", "METRIC", "DERIVED_METRIC"):
+                            key = (obj_kind, obj_name)
+                            if key not in objects:
+                                objects[key] = {}
+                            if prop_name and prop_value is not None:
+                                objects[key][prop_name] = prop_value
+
+                    # Build TableColumn for each dimension/fact/metric
+                    for (obj_kind, obj_name), props in objects.items():
+                        kind = obj_kind.lower()  # dimension, fact, metric
+                        # Map kind to simpler labels
+                        if kind == "fact":
+                            kind = "measure"
+                        elif kind == "derived_metric":
+                            kind = "metric"
+
+                        col_metadata = {"kind": kind}
+                        if props.get("EXPRESSION"):
+                            col_metadata["expression"] = props["EXPRESSION"]
+                        if props.get("SYNONYMS"):
+                            col_metadata["synonyms"] = props["SYNONYMS"]
+
+                        columns.append(TableColumn(
+                            name=obj_name,
+                            dtype=props.get("DATA_TYPE"),
+                            description=props.get("COMMENT"),
+                            metadata=col_metadata,
+                        ))
+                except Exception:
+                    pass
+
+                tables.append(Table(
+                    name=fqn,
+                    description=description,
+                    columns=columns,
+                    pks=None,
+                    fks=None,
+                    metadata_json={"schema": sv_schema, "type": "semantic_view"},
+                ))
+
+        return tables
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table comments. May fail on older Snowflake versions."""
@@ -266,6 +372,16 @@ class SnowflakeClient(DataSourceClient):
 
     @property
     def description(self):
-        description = f"Snowflake database {
-            self.database} on account {self.account}"
-        return description
+        return (
+            f"Snowflake database {self.database} on account {self.account}.\n"
+            "This database may contain Snowflake Semantic Views. "
+            "Semantic views use the SEMANTIC_VIEW() function instead of regular SQL:\n"
+            "- Query with: SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS ... METRICS ...)\n"
+            "- DIMENSIONS: columns to group by (role=dimension)\n"
+            "- METRICS: aggregated values (role=measure/metric)\n"
+            "- Cannot combine FACTS and METRICS in the same query\n"
+            "- Use WHERE inside SEMANTIC_VIEW() for filtering\n"
+            "Examples:\n"
+            '  df = client.execute_query("SELECT * FROM SEMANTIC_VIEW(schema.view_name DIMENSIONS customer_name METRICS total_revenue)")\n'
+            '  df = client.execute_query("SELECT * FROM SEMANTIC_VIEW(schema.view_name DIMENSIONS region, order_date METRICS order_count, total_revenue WHERE region = \'US\')")'
+        )

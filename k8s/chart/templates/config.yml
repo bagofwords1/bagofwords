@@ -48,6 +48,7 @@ data:
   BOW_SMTP_VALIDATE_CERTS: {{.Values.config.smtp.validate_certs | quote}}
   {{- end }}
   BOW_INTERCOM_ENABLED: {{.Values.config.intercomEnabled | quote}}
+  BOW_TELEMETRY_ENABLED: {{.Values.config.telemetryEnabled | quote }}
   BOW_ALLOW_UNINVITED_SIGNUPS: {{.Values.config.allowUninvitedSignups | quote}}
   BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{.Values.config.allowMultipleOrganizations | quote}}
   BOW_VERIFY_EMAILS: {{.Values.config.verifyEmails | quote}}
@@ -91,6 +92,9 @@ data:
 
     intercom:
       enabled: ${BOW_INTERCOM_ENABLED}
+
+    telemetry:
+      enabled: ${BOW_TELEMETRY_ENABLED}
 
     license:
       key: ${BOW_LICENSE_KEY}

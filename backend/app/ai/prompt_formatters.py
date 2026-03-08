@@ -243,10 +243,27 @@ class TableFormatter:
 
     def format_table(self, table: Table) -> str:
         """Get table format."""
+        is_semantic_view = (
+            isinstance(table.metadata_json, dict)
+            and table.metadata_json.get("type") == "semantic_view"
+        )
         table_fmt = []
         table_name = table.name
         for col in table.columns or []:
-            table_fmt.append(f"    {col.name} {col.dtype or 'any'}")
+            col_line = f"    {col.name} {col.dtype or 'any'}"
+            if isinstance(col.metadata, dict):
+                # Snowflake semantic view: kind (dimension/measure/metric)
+                if col.metadata.get("kind"):
+                    col_line += f" [{col.metadata['kind']}]"
+                # PowerBI: role (measure/column)
+                elif col.metadata.get("role") == "measure":
+                    col_line += " [measure]"
+                # Tableau: role (MEASURE/DIMENSION)
+                elif col.metadata.get("role"):
+                    col_line += f" [{col.metadata['role'].lower()}]"
+            if col.description:
+                col_line += f" -- {col.description}"
+            table_fmt.append(col_line)
         if table.pks:
             table_fmt.append(
                 f"    primary key ({', '.join(pk.name for pk in table.pks)})"
@@ -287,9 +304,15 @@ class TableFormatter:
             table_fmt.extend(metrics_lines)
         if table_fmt:
             all_cols = ",\n".join(table_fmt)
-            create_tbl = f"CREATE TABLE {table_name} (\n{all_cols}\n)"
+            if is_semantic_view:
+                create_tbl = f"-- Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS ... METRICS ...)\nCREATE SEMANTIC VIEW {table_name} (\n{all_cols}\n)"
+            else:
+                create_tbl = f"CREATE TABLE {table_name} (\n{all_cols}\n)"
         else:
-            create_tbl = f"CREATE TABLE {table_name}"
+            if is_semantic_view:
+                create_tbl = f"-- Snowflake Semantic View\nCREATE SEMANTIC VIEW {table_name}"
+            else:
+                create_tbl = f"CREATE TABLE {table_name}"
         return create_tbl
 
     def format_tables(self, tables: list[Table]) -> str:
