@@ -127,12 +127,106 @@ class SnowflakeClient(DataSourceClient):
             raise
 
     def get_tables(self) -> List[Table]:
-        """Get tables with graceful fallback if enriched query fails."""
+        """Get tables with graceful fallback if enriched query fails, plus semantic views."""
         try:
-            return self._get_tables_enriched()
+            tables = self._get_tables_enriched()
         except Exception:
             # Fallback to basic query without comments
-            return self._get_tables_basic()
+            tables = self._get_tables_basic()
+
+        # Append semantic views (failures here should not affect regular tables)
+        try:
+            tables.extend(self._get_semantic_views())
+        except Exception:
+            pass
+
+        return tables
+
+    def _get_semantic_views(self) -> List[Table]:
+        """Discover Snowflake semantic views and their columns/measures/dimensions."""
+        tables = []
+        schemas = self._schemas if self._schemas else ([self._primary_schema] if self._primary_schema else [])
+
+        with self.connect() as conn:
+            # Collect all semantic view rows
+            sv_results = []
+            if not schemas:
+                # No schema filter — discover at database level
+                try:
+                    sv_results = conn.execute(
+                        text(f"SHOW SEMANTIC VIEWS IN DATABASE {self.database}")
+                    ).fetchall()
+                except Exception:
+                    return tables
+            else:
+                for schema in schemas:
+                    try:
+                        rows = conn.execute(
+                            text(f"SHOW SEMANTIC VIEWS IN SCHEMA {self.database}.{schema}")
+                        ).fetchall()
+                        sv_results.extend(rows)
+                    except Exception:
+                        continue
+
+            for sv_row in sv_results:
+                view_name = sv_row[1]  # name
+                sv_schema = sv_row[3]  # schema_name
+                fqn = f"{sv_schema}.{view_name}"
+
+                # Get column details via DESC
+                columns = []
+                description = None
+                try:
+                    desc_results = conn.execute(
+                        text(f"DESC SEMANTIC VIEW {self.database}.{sv_schema}.{view_name}")
+                    ).fetchall()
+
+                    for desc_row in desc_results:
+                        col_name = desc_row[0]
+                        col_dtype = desc_row[1] if len(desc_row) > 1 else None
+                        col_kind = desc_row[2] if len(desc_row) > 2 else None  # dimension/measure/time_dimension
+                        col_expr = desc_row[3] if len(desc_row) > 3 else None
+                        col_desc = desc_row[4] if len(desc_row) > 4 else None
+                        col_synonyms = desc_row[5] if len(desc_row) > 5 else None
+
+                        col_metadata = {}
+                        if col_kind:
+                            col_metadata["kind"] = col_kind
+                        if col_expr:
+                            col_metadata["expression"] = col_expr
+                        if col_synonyms:
+                            col_metadata["synonyms"] = col_synonyms
+
+                        columns.append(TableColumn(
+                            name=col_name,
+                            dtype=col_dtype,
+                            description=col_desc,
+                            metadata=col_metadata if col_metadata else None,
+                        ))
+                except Exception:
+                    pass
+
+                # Try to get the semantic view comment
+                try:
+                    comment_row = conn.execute(
+                        text(f"SELECT COMMENT FROM {self.database}.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :name"),
+                        {"schema": sv_schema, "name": view_name}
+                    ).fetchone()
+                    if comment_row:
+                        description = comment_row[0]
+                except Exception:
+                    pass
+
+                tables.append(Table(
+                    name=fqn,
+                    description=description,
+                    columns=columns,
+                    pks=None,
+                    fks=None,
+                    metadata_json={"schema": sv_schema, "type": "semantic_view"},
+                ))
+
+        return tables
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table comments. May fail on older Snowflake versions."""
@@ -266,6 +360,15 @@ class SnowflakeClient(DataSourceClient):
 
     @property
     def description(self):
-        description = f"Snowflake database {
-            self.database} on account {self.account}"
-        return description
+        return (
+            f"Snowflake database {self.database} on account {self.account}.\n"
+            "This database may contain Snowflake Semantic Views. "
+            "Semantic views have different query syntax than regular tables:\n"
+            "- Never use SELECT * — explicitly list columns.\n"
+            "- Columns marked as [measure] must be aggregated (SUM, COUNT, AVG, etc.).\n"
+            "- Columns marked as [dimension] can be selected directly.\n"
+            "- Always GROUP BY all selected dimension columns when using measures.\n"
+            "Examples:\n"
+            "  SELECT customer_name, SUM(total_revenue) FROM schema.semantic_view GROUP BY customer_name;\n"
+            "  SELECT region, order_date, COUNT(order_count) FROM schema.semantic_view GROUP BY region, order_date;"
+        )
