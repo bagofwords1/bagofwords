@@ -305,7 +305,7 @@ class TableFormatter:
         if table_fmt:
             all_cols = ",\n".join(table_fmt)
             if is_semantic_view:
-                create_tbl = f"-- Snowflake Semantic View (do NOT use SELECT *, measures must be aggregated, GROUP BY dimensions)\nCREATE SEMANTIC VIEW {table_name} (\n{all_cols}\n)"
+                create_tbl = f"-- Snowflake Semantic View: query with SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS ... METRICS ...)\nCREATE SEMANTIC VIEW {table_name} (\n{all_cols}\n)"
             else:
                 create_tbl = f"CREATE TABLE {table_name} (\n{all_cols}\n)"
         else:

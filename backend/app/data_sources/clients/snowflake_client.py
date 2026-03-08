@@ -375,12 +375,13 @@ class SnowflakeClient(DataSourceClient):
         return (
             f"Snowflake database {self.database} on account {self.account}.\n"
             "This database may contain Snowflake Semantic Views. "
-            "Semantic views have different query syntax than regular tables:\n"
-            "- Never use SELECT * — explicitly list columns.\n"
-            "- Columns marked as [measure] must be aggregated (SUM, COUNT, AVG, etc.).\n"
-            "- Columns marked as [dimension] can be selected directly.\n"
-            "- Always GROUP BY all selected dimension columns when using measures.\n"
+            "Semantic views use the SEMANTIC_VIEW() function instead of regular SQL:\n"
+            "- Query with: SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS ... METRICS ...)\n"
+            "- DIMENSIONS: columns to group by (role=dimension)\n"
+            "- METRICS: aggregated values (role=measure/metric)\n"
+            "- Cannot combine FACTS and METRICS in the same query\n"
+            "- Use WHERE inside SEMANTIC_VIEW() for filtering\n"
             "Examples:\n"
-            "  df = client.execute_query(\"SELECT customer_name, SUM(total_revenue) FROM schema.semantic_view GROUP BY customer_name\")\n"
-            "  df = client.execute_query(\"SELECT region, order_date, COUNT(order_count) FROM schema.semantic_view GROUP BY region, order_date\")"
+            '  df = client.execute_query("SELECT * FROM SEMANTIC_VIEW(schema.view_name DIMENSIONS customer_name METRICS total_revenue)")\n'
+            '  df = client.execute_query("SELECT * FROM SEMANTIC_VIEW(schema.view_name DIMENSIONS region, order_date METRICS order_count, total_revenue WHERE region = \'US\')")'
         )

@@ -24,7 +24,7 @@ Given this data source:
 And this schema
 {self.schema}
 
-Please describe the data source in a few sentences. Make it useful for a non-technical audience. 
+Please describe the data source in a few sentences. Make it useful for a non-technical audience.
 
 Guidelines:
 - High level overview of the data source
@@ -32,6 +32,7 @@ Guidelines:
 - How it can be used
 - Key tables, fields and relationships
 - Explicit and implicit relationships
+- If the schema contains semantic views (CREATE SEMANTIC VIEW), mention them and note which columns are measures vs dimensions. Explain that semantic views are queried with SEMANTIC_VIEW() function: SELECT * FROM SEMANTIC_VIEW(view_name DIMENSIONS dim1 METRICS metric1).
 - Ignore metadata tables and fields. or system tables and fields.
 - Use simple language, make it extremely to point, not fluff, and be very brief and concise.
 
