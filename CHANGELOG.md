@@ -1,5 +1,10 @@
 # Release Notes
 
+## Version 0.0.333 (March 8, 2026)
+- feat: add support for snowflake semantic views
+- fix: improve mssql integration to support schema
+- fix: mcp improvements
+
 ## Version 0.0.332 (March 7, 2026)
 - Improved MCP-Apps stability and compatibility with Claude
 - Enhanced Databricks SQL connector reliability

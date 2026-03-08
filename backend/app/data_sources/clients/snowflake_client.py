@@ -173,7 +173,10 @@ class SnowflakeClient(DataSourceClient):
                 sv_schema = sv_row[3]  # schema_name
                 fqn = f"{sv_schema}.{view_name}"
 
-                # Get column details via DESC
+                # DESC SEMANTIC VIEW returns property rows with columns:
+                #   (object_kind, object_name, parent_entity, property, property_value)
+                # object_kind: NULL, TABLE, DIMENSION, FACT, METRIC, DERIVED_METRIC, etc.
+                # We group by (object_kind, object_name) and collect properties.
                 columns = []
                 description = None
                 try:
@@ -181,39 +184,48 @@ class SnowflakeClient(DataSourceClient):
                         text(f"DESC SEMANTIC VIEW {self.database}.{sv_schema}.{view_name}")
                     ).fetchall()
 
-                    for desc_row in desc_results:
-                        col_name = desc_row[0]
-                        col_dtype = desc_row[1] if len(desc_row) > 1 else None
-                        col_kind = desc_row[2] if len(desc_row) > 2 else None  # dimension/measure/time_dimension
-                        col_expr = desc_row[3] if len(desc_row) > 3 else None
-                        col_desc = desc_row[4] if len(desc_row) > 4 else None
-                        col_synonyms = desc_row[5] if len(desc_row) > 5 else None
+                    # Group properties by (object_kind, object_name)
+                    objects = {}  # (kind, name) -> {property: value, ...}
+                    for row in desc_results:
+                        obj_kind = row[0]       # TABLE, DIMENSION, FACT, METRIC, etc.
+                        obj_name = row[1]       # name of the object
+                        # row[2] = parent_entity
+                        prop_name = row[3] if len(row) > 3 else None
+                        prop_value = row[4] if len(row) > 4 else None
 
-                        col_metadata = {}
-                        if col_kind:
-                            col_metadata["kind"] = col_kind
-                        if col_expr:
-                            col_metadata["expression"] = col_expr
-                        if col_synonyms:
-                            col_metadata["synonyms"] = col_synonyms
+                        # Semantic view-level comment (object_kind is NULL)
+                        if obj_kind is None and prop_name == "COMMENT" and prop_value:
+                            description = prop_value
+                            continue
+
+                        if obj_kind in ("DIMENSION", "FACT", "METRIC", "DERIVED_METRIC"):
+                            key = (obj_kind, obj_name)
+                            if key not in objects:
+                                objects[key] = {}
+                            if prop_name and prop_value is not None:
+                                objects[key][prop_name] = prop_value
+
+                    # Build TableColumn for each dimension/fact/metric
+                    for (obj_kind, obj_name), props in objects.items():
+                        kind = obj_kind.lower()  # dimension, fact, metric
+                        # Map kind to simpler labels
+                        if kind == "fact":
+                            kind = "measure"
+                        elif kind == "derived_metric":
+                            kind = "metric"
+
+                        col_metadata = {"kind": kind}
+                        if props.get("EXPRESSION"):
+                            col_metadata["expression"] = props["EXPRESSION"]
+                        if props.get("SYNONYMS"):
+                            col_metadata["synonyms"] = props["SYNONYMS"]
 
                         columns.append(TableColumn(
-                            name=col_name,
-                            dtype=col_dtype,
-                            description=col_desc,
-                            metadata=col_metadata if col_metadata else None,
+                            name=obj_name,
+                            dtype=props.get("DATA_TYPE"),
+                            description=props.get("COMMENT"),
+                            metadata=col_metadata,
                         ))
-                except Exception:
-                    pass
-
-                # Try to get the semantic view comment
-                try:
-                    comment_row = conn.execute(
-                        text(f"SELECT COMMENT FROM {self.database}.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = :schema AND TABLE_NAME = :name"),
-                        {"schema": sv_schema, "name": view_name}
-                    ).fetchone()
-                    if comment_row:
-                        description = comment_row[0]
                 except Exception:
                     pass
 
@@ -369,6 +381,6 @@ class SnowflakeClient(DataSourceClient):
             "- Columns marked as [dimension] can be selected directly.\n"
             "- Always GROUP BY all selected dimension columns when using measures.\n"
             "Examples:\n"
-            "  SELECT customer_name, SUM(total_revenue) FROM schema.semantic_view GROUP BY customer_name;\n"
-            "  SELECT region, order_date, COUNT(order_count) FROM schema.semantic_view GROUP BY region, order_date;"
+            "  df = client.execute_query(\"SELECT customer_name, SUM(total_revenue) FROM schema.semantic_view GROUP BY customer_name\")\n"
+            "  df = client.execute_query(\"SELECT region, order_date, COUNT(order_count) FROM schema.semantic_view GROUP BY region, order_date\")"
         )

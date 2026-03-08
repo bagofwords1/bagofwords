@@ -113,7 +113,7 @@ class SchemaContextBuilder:
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
-                    columns = [{"name": getattr(c, 'column_name', ''), "dtype": getattr(c, 'data_type', None)} for c in overlay_cols]
+                    columns = [{"name": getattr(c, 'column_name', ''), "dtype": getattr(c, 'data_type', None), "description": getattr(c, 'description', None), "metadata": getattr(c, 'metadata', None)} for c in overlay_cols]
                     base = canonical_by_name.get(name)
                     # Respect canonical table's is_active status (default False if not found)
                     canonical_is_active = bool(getattr(base, 'is_active', False)) if base is not None else False
@@ -157,7 +157,7 @@ class SchemaContextBuilder:
                     # Skip inactive tables when active_only is True
                     if active_only and not table_is_active:
                         continue
-                    columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown")} for col in (getattr(t, 'columns', []) or [])]
+                    columns = [{"name": col.get("name"), "dtype": col.get("dtype", "unknown"), "description": col.get("description"), "metadata": col.get("metadata")} for col in (getattr(t, 'columns', []) or [])]
 
                     # Extract connection info
                     conn_id = None
@@ -215,7 +215,7 @@ class SchemaContextBuilder:
             tables: List[PromptTable] = []
             for item in normalized:
                 columns = [
-                    PromptTableColumn(name=c.get("name"), dtype=c.get("dtype"))
+                    PromptTableColumn(name=c.get("name"), dtype=c.get("dtype"), description=c.get("description"), metadata=c.get("metadata"))
                     for c in (item.get("columns") or [])
                 ]
                 pks = [
