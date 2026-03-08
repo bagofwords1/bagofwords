@@ -27,6 +27,16 @@ class DatabricksSqlClient(DataSourceClient):
         self.catalog = catalog
         self.schema = schema
 
+        # Parse comma-separated catalogs if provided
+        self._catalogs: List[str] = []
+        if isinstance(self.catalog, str) and self.catalog.strip():
+            parts = [s.strip() for s in self.catalog.split(",") if s.strip()]
+            seen = set()
+            for p in parts:
+                if p not in seen:
+                    seen.add(p)
+                    self._catalogs.append(p)
+
         # Parse comma-separated schemas if provided
         self._schemas: List[str] = []
         if isinstance(self.schema, str) and self.schema.strip():
@@ -47,7 +57,7 @@ class DatabricksSqlClient(DataSourceClient):
                 server_hostname=self.server_hostname,
                 http_path=self.http_path,
                 access_token=self.access_token,
-                catalog=self.catalog,
+                catalog=self._catalogs[0] if self._catalogs else self.catalog,
             )
             yield conn
         except Exception as e:
@@ -85,15 +95,19 @@ class DatabricksSqlClient(DataSourceClient):
         with self.connect() as conn:
             cursor = conn.cursor()
 
-            where_clauses = [f"c.table_catalog = '{self.catalog}'"]
+            where_clauses = []
+            if self._catalogs:
+                catalog_list = ", ".join([f"'{c}'" for c in self._catalogs])
+                where_clauses.append(f"c.table_catalog IN ({catalog_list})")
             if self._schemas:
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"c.table_schema IN ({schema_list})")
 
-            where_sql = " WHERE " + " AND ".join(where_clauses)
+            where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
             sql = f"""
                 SELECT
+                    c.table_catalog,
                     c.table_schema,
                     c.table_name,
                     c.column_name,
@@ -106,7 +120,7 @@ class DatabricksSqlClient(DataSourceClient):
                     AND c.table_schema = t.table_schema
                     AND c.table_name = t.table_name
                 {where_sql}
-                ORDER BY c.table_schema, c.table_name, c.ordinal_position
+                ORDER BY c.table_catalog, c.table_schema, c.table_name, c.ordinal_position
             """
 
             cursor.execute(sql)
@@ -114,9 +128,9 @@ class DatabricksSqlClient(DataSourceClient):
             cursor.close()
 
             for row in results:
-                table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
-                key = (table_schema, table_name)
-                fqn = f"{table_schema}.{table_name}"
+                table_catalog, table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
+                key = (table_catalog, table_schema, table_name)
+                fqn = f"{table_catalog}.{table_schema}.{table_name}"
                 if key not in tables:
                     tables[key] = Table(
                         name=fqn,
@@ -124,7 +138,7 @@ class DatabricksSqlClient(DataSourceClient):
                         columns=[],
                         pks=[],
                         fks=[],
-                        metadata_json={"schema": table_schema, "catalog": self.catalog}
+                        metadata_json={"schema": table_schema, "catalog": table_catalog}
                     )
                 tables[key].columns.append(TableColumn(
                     name=column_name,
@@ -140,18 +154,21 @@ class DatabricksSqlClient(DataSourceClient):
         with self.connect() as conn:
             cursor = conn.cursor()
 
-            where_clauses = [f"table_catalog = '{self.catalog}'"]
+            where_clauses = []
+            if self._catalogs:
+                catalog_list = ", ".join([f"'{c}'" for c in self._catalogs])
+                where_clauses.append(f"table_catalog IN ({catalog_list})")
             if self._schemas:
                 schema_list = ", ".join([f"'{s}'" for s in self._schemas])
                 where_clauses.append(f"table_schema IN ({schema_list})")
 
-            where_sql = " WHERE " + " AND ".join(where_clauses)
+            where_sql = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
 
             sql = f"""
-                SELECT table_schema, table_name, column_name, data_type
+                SELECT table_catalog, table_schema, table_name, column_name, data_type
                 FROM system.information_schema.columns
                 {where_sql}
-                ORDER BY table_schema, table_name, ordinal_position
+                ORDER BY table_catalog, table_schema, table_name, ordinal_position
             """
 
             cursor.execute(sql)
@@ -159,16 +176,16 @@ class DatabricksSqlClient(DataSourceClient):
             cursor.close()
 
             for row in results:
-                table_schema, table_name, column_name, data_type = row
-                key = (table_schema, table_name)
-                fqn = f"{table_schema}.{table_name}"
+                table_catalog, table_schema, table_name, column_name, data_type = row
+                key = (table_catalog, table_schema, table_name)
+                fqn = f"{table_catalog}.{table_schema}.{table_name}"
                 if key not in tables:
                     tables[key] = Table(
                         name=fqn,
                         columns=[],
                         pks=[],
                         fks=[],
-                        metadata_json={"schema": table_schema, "catalog": self.catalog}
+                        metadata_json={"schema": table_schema, "catalog": table_catalog}
                     )
                 tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
 
@@ -208,10 +225,11 @@ class DatabricksSqlClient(DataSourceClient):
     @property
     def description(self) -> str:
         """System prompt describing this data source for LLM context."""
+        catalog_info = ", ".join(self._catalogs) if self._catalogs else "all catalogs"
         schema_info = ", ".join(self._schemas) if self._schemas else "all schemas"
         return f"""Databricks SQL Warehouse
 Server: {self.server_hostname}
-Catalog: {self.catalog}
+Catalogs: {catalog_info}
 Schemas: {schema_info}
 
 You can execute SQL queries using the execute_query method:
