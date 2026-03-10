@@ -441,10 +441,23 @@ class ConnectionService:
             # Normalize incoming tables
             def normalize_columns(cols):
                 return [
-                    {"name": (c.name if hasattr(c, "name") else c.get("name")), 
+                    {"name": (c.name if hasattr(c, "name") else c.get("name")),
                      "dtype": (c.dtype if hasattr(c, "dtype") else c.get("dtype"))}
                     for c in cols or []
                 ]
+
+            def normalize_fks(fks):
+                result = []
+                for fk in fks or []:
+                    if isinstance(fk, dict):
+                        result.append(fk)
+                    elif hasattr(fk, "model_dump"):
+                        result.append(fk.model_dump())
+                    elif hasattr(fk, "dict"):
+                        result.append(fk.dict())
+                    else:
+                        result.append(fk)
+                return result
 
             incoming = {}
             for t in fresh_tables:
@@ -455,7 +468,7 @@ class ConnectionService:
                     incoming[name] = {
                         "columns": normalize_columns(t.get("columns", [])),
                         "pks": normalize_columns(t.get("pks", [])),
-                        "fks": t.get("fks", []) or [],
+                        "fks": normalize_fks(t.get("fks", []) or []),
                         "metadata_json": t.get("metadata_json"),
                     }
                 else:
@@ -465,7 +478,7 @@ class ConnectionService:
                     incoming[name] = {
                         "columns": normalize_columns(getattr(t, "columns", [])),
                         "pks": normalize_columns(getattr(t, "pks", [])),
-                        "fks": getattr(t, "fks", []) or [],
+                        "fks": normalize_fks(getattr(t, "fks", []) or []),
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
 

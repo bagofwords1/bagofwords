@@ -1,6 +1,7 @@
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, TableFormatter
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Set
+import json
 import requests
 import pandas as pd
 import logging
@@ -10,18 +11,22 @@ logger = logging.getLogger(__name__)
 # Internal Timbr columns to exclude from schema display
 _EXCLUDED_COLUMNS = {"entity_id", "entity_type", "entity_label"}
 
-# Default schema prefix (supports relationships + measures)
-_DEFAULT_SCHEMA = "dtimbr"
+# Concept schemas ranked from richest to simplest
+_CONCEPT_SCHEMAS_RANKED = ["dtimbr", "etimbr", "timbr"]
 
 
 class TimbrClient(DataSourceClient):
     """
     Timbr semantic layer client.
 
-    Discovers ontology concepts via the Timbr REST API and executes SQL
-    queries against the Timbr query endpoint.  Concepts are exposed as
-    tables; properties as columns; measures and relationships are captured
-    in column metadata / foreign keys.
+    Discovers ontology concepts and views via the Timbr REST API and executes
+    SQL queries against the Timbr query endpoint.
+
+    Schema discovery is permission-aware:
+    - Probes ``timbr.sys_permissions`` to find accessible schemas.
+    - For concepts: picks the richest accessible schema (dtimbr > etimbr > timbr).
+    - For views: discovers from ``timbr.sys_views`` if vtimbr is accessible.
+    - Merges both into a single table list, each tagged with its schema prefix.
     """
 
     def __init__(
@@ -37,6 +42,8 @@ class TimbrClient(DataSourceClient):
         self.verify_ssl = verify_ssl
         self._base_url = f"{self.host}/timbr/api"
         self._session: Optional[requests.Session] = None
+        self._accessible_schemas: Optional[Set[str]] = None
+        self._concept_schema: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Session helpers
@@ -99,6 +106,46 @@ class TimbrClient(DataSourceClient):
             return []
 
     # ------------------------------------------------------------------
+    # Permission discovery
+    # ------------------------------------------------------------------
+
+    def _get_accessible_schemas(self) -> Set[str]:
+        """Query sys_permissions to find which schemas the user can query."""
+        if self._accessible_schemas is not None:
+            return self._accessible_schemas
+
+        schemas: Set[str] = set()
+        rows = self._query_internal(
+            "SELECT permission, resource FROM timbr.sys_permissions"
+        )
+        for row in rows:
+            perm = row.get("permission", "")
+            resource = row.get("resource", "")
+            if perm != "QUERY":
+                continue
+            # Resource format: `ontology`.`name`.`schema`.`schema_name`
+            if ".`schema`." in resource:
+                schema_name = resource.rsplit("`.`", 1)[-1].rstrip("`")
+                if schema_name:
+                    schemas.add(schema_name)
+
+        self._accessible_schemas = schemas
+        logger.info(f"Timbr accessible schemas: {schemas}")
+        return schemas
+
+    def _get_concept_schema(self) -> Optional[str]:
+        """Pick the richest accessible concept schema, or None."""
+        if self._concept_schema is not None:
+            return self._concept_schema
+        schemas = self._get_accessible_schemas()
+        for s in _CONCEPT_SCHEMAS_RANKED:
+            if s in schemas:
+                self._concept_schema = s
+                logger.info(f"Timbr concept schema selected: {s}")
+                return s
+        return None
+
+    # ------------------------------------------------------------------
     # DataSourceClient interface
     # ------------------------------------------------------------------
 
@@ -148,33 +195,49 @@ class TimbrClient(DataSourceClient):
 
     def get_tables(self) -> List[Table]:
         """
-        Discover all concepts and build Table objects.
+        Permission-aware discovery of concepts and views.
 
-        1. Query ``timbr.sys_concepts`` for concept names + descriptions.
-        2. For each concept run ``DESCRIBE concept `dtimbr`.`<name>``` to get
-           properties, measures, and relationships.
-        3. Parse DESCRIBE output into Table / TableColumn / ForeignKey objects.
+        1. Probe ``sys_permissions`` to find accessible schemas.
+        2. If a concept schema is accessible (dtimbr/etimbr/timbr), discover
+           concepts via ``sys_concepts`` + DESCRIBE.
+        3. If vtimbr is accessible, discover views via ``sys_views``.
+        4. Merge into a single list, each tagged with its schema prefix.
         """
-        concepts = self._get_concepts()
-        if not concepts:
-            return []
-
+        accessible = self._get_accessible_schemas()
         tables: List[Table] = []
-        for name, desc in concepts.items():
-            try:
-                table = self._describe_concept(name, desc)
-                if table is not None:
-                    tables.append(table)
-            except Exception as e:
-                logger.warning(f"Failed to describe concept '{name}': {e}")
-                tables.append(Table(
-                    name=name,
-                    description=desc,
-                    columns=[],
-                    pks=[],
-                    fks=[],
-                    metadata_json={"timbr": {"ontology": self.ontology}},
-                ))
+
+        # --- Concepts (dtimbr / etimbr / timbr) ---
+        concept_schema = self._get_concept_schema()
+        if concept_schema:
+            concepts = self._get_concepts()
+            for name, desc in concepts.items():
+                try:
+                    table = self._describe_concept(name, desc, concept_schema)
+                    if table is not None:
+                        tables.append(table)
+                except Exception as e:
+                    logger.warning(f"Failed to describe concept '{name}': {e}")
+                    tables.append(Table(
+                        name=f"{concept_schema}.{name}",
+                        description=desc,
+                        columns=[],
+                        pks=[],
+                        fks=[],
+                        metadata_json={"timbr": {
+                            "ontology": self.ontology,
+                            "schema": concept_schema,
+                            "type": "concept",
+                        }},
+                    ))
+
+        # --- Views (vtimbr) ---
+        if "vtimbr" in accessible:
+            views = self._discover_views()
+            tables.extend(views)
+
+        if not tables:
+            logger.warning("Timbr: no accessible concepts or views found")
+
         return tables
 
     def get_schema(self, table_name: str) -> Table:
@@ -182,28 +245,30 @@ class TimbrClient(DataSourceClient):
             if t.name == table_name:
                 return t
         raise RuntimeError(
-            f"Concept '{table_name}' not found in ontology '{self.ontology}'"
+            f"'{table_name}' not found in ontology '{self.ontology}'"
         )
+
+    # ------------------------------------------------------------------
+    # Concept discovery (timbr / etimbr / dtimbr)
+    # ------------------------------------------------------------------
 
     def _get_concepts(self) -> Dict[str, Optional[str]]:
         """Fetch concept names and descriptions from system tables."""
         concepts: Dict[str, Optional[str]] = {}
-
         rows = self._query_internal(
             "SELECT concept, description FROM timbr.sys_concepts"
         )
         for row in rows:
             name = row.get("concept", "")
-            if name:
+            if name and name != "thing":
                 concepts[name] = row.get("description") or None
-
         return concepts
 
     def _describe_concept(
-        self, concept_name: str, description: Optional[str]
+        self, concept_name: str, description: Optional[str], schema: str
     ) -> Table:
         """
-        Run ``DESCRIBE concept `dtimbr`.`<name>``` and parse the result.
+        Run ``DESCRIBE concept `<schema>`.`<name>``` and parse the result.
 
         The DESCRIBE output classifies each row as:
         - **Regular column**: no special prefix
@@ -211,17 +276,23 @@ class TimbrClient(DataSourceClient):
         - **Relationship**: name contains ``[`` bracket notation
         """
         rows = self._query_internal(
-            f"DESCRIBE concept `{_DEFAULT_SCHEMA}`.`{concept_name}`"
+            f"DESCRIBE concept `{schema}`.`{concept_name}`"
         )
+
+        qualified_name = f"{schema}.{concept_name}"
 
         if not rows:
             return Table(
-                name=concept_name,
+                name=qualified_name,
                 description=description,
                 columns=[],
                 pks=[],
                 fks=[],
-                metadata_json={"timbr": {"ontology": self.ontology}},
+                metadata_json={"timbr": {
+                    "ontology": self.ontology,
+                    "schema": schema,
+                    "type": "concept",
+                }},
             )
 
         columns: List[TableColumn] = []
@@ -253,15 +324,14 @@ class TimbrClient(DataSourceClient):
 
             # ---- Measure ----
             if col_name.startswith("measure."):
-                measure_display = col_name[len("measure."):]
                 measures.append(TableColumn(
-                    name=measure_display,
+                    name=col_name,
                     dtype=col_type,
                     description=col_comment,
-                    metadata={"role": "measure", "timbr_name": col_name},
+                    metadata={"role": "measure"},
                 ))
 
-            # ---- Relationship ----
+            # ---- Relationship (only present in dtimbr) ----
             elif "[" in col_name and "]" in col_name:
                 try:
                     bracket_start = col_name.index("[")
@@ -300,7 +370,7 @@ class TimbrClient(DataSourceClient):
         all_columns = columns + measures
 
         return Table(
-            name=concept_name,
+            name=qualified_name,
             description=description,
             columns=all_columns if all_columns else [],
             pks=[],
@@ -309,9 +379,112 @@ class TimbrClient(DataSourceClient):
             metadata_json={
                 "timbr": {
                     "ontology": self.ontology,
-                    "schema": _DEFAULT_SCHEMA,
+                    "schema": schema,
+                    "type": "concept",
                     "measure_count": len(measures),
                     "relationship_count": len(fks),
+                }
+            },
+        )
+
+    # ------------------------------------------------------------------
+    # View discovery (vtimbr)
+    # ------------------------------------------------------------------
+
+    def _discover_views(self) -> List[Table]:
+        """Discover views from sys_views and parse view_json for columns."""
+        rows = self._query_internal(
+            "SELECT view_name, description, view_json, view_properties "
+            "FROM timbr.sys_views"
+        )
+        tables: List[Table] = []
+        for row in rows:
+            name = row.get("view_name", "")
+            if not name:
+                continue
+            try:
+                table = self._parse_view(row)
+                tables.append(table)
+            except Exception as e:
+                logger.warning(f"Failed to parse view '{name}': {e}")
+                tables.append(Table(
+                    name=f"vtimbr.{name}",
+                    description=row.get("description"),
+                    columns=[],
+                    pks=[],
+                    fks=[],
+                    metadata_json={"timbr": {
+                        "ontology": self.ontology,
+                        "schema": "vtimbr",
+                        "type": "view",
+                    }},
+                ))
+        return tables
+
+    def _parse_view(self, row: dict) -> Table:
+        """Parse a sys_views row into a Table using view_json."""
+        name = row["view_name"]
+        description = row.get("description")
+        view_json_str = row.get("view_json", "")
+
+        columns: List[TableColumn] = []
+        measures: List[TableColumn] = []
+
+        if view_json_str:
+            try:
+                vj = json.loads(view_json_str) if isinstance(view_json_str, str) else view_json_str
+            except (json.JSONDecodeError, TypeError):
+                vj = {}
+
+            # Parse columns from view_json
+            for col in vj.get("columns", []):
+                alias = col.get("alias", "").strip("`")
+                dtype = col.get("type", "string")
+                if alias:
+                    columns.append(TableColumn(name=alias, dtype=dtype))
+
+            # Parse measures from view_json
+            for m in vj.get("measures", []):
+                alias = m.get("alias", "").strip("`")
+                dtype = m.get("type", "string")
+                if alias:
+                    measures.append(TableColumn(
+                        name=alias,
+                        dtype=dtype,
+                        metadata={"role": "measure"},
+                    ))
+        else:
+            # Fallback: parse view_properties string "col1 type1,col2 type2,..."
+            props_str = row.get("view_properties", "")
+            if props_str:
+                for prop in props_str.split(","):
+                    parts = prop.strip().rsplit(" ", 1)
+                    if len(parts) == 2:
+                        pname, ptype = parts
+                        if pname.startswith("measure."):
+                            measures.append(TableColumn(
+                                name=pname,
+                                dtype=ptype,
+                                metadata={"role": "measure"},
+                            ))
+                        else:
+                            columns.append(TableColumn(name=pname, dtype=ptype))
+
+        all_columns = columns + measures
+
+        return Table(
+            name=f"vtimbr.{name}",
+            description=description,
+            columns=all_columns,
+            pks=[],
+            fks=[],
+            is_active=True,
+            metadata_json={
+                "timbr": {
+                    "ontology": self.ontology,
+                    "schema": "vtimbr",
+                    "type": "view",
+                    "measure_count": len(measures),
                 }
             },
         )
@@ -324,11 +497,8 @@ class TimbrClient(DataSourceClient):
         """
         Execute a SQL query against the Timbr ontology.
 
-        Args:
-            query: SQL string (should use ``dtimbr`` schema prefix).
-
-        Returns:
-            pandas DataFrame with query results.
+        The query should use the correct schema prefix for each table
+        (e.g. ``dtimbr`` for concepts, ``vtimbr`` for views).
         """
         if not query or not query.strip():
             raise ValueError("SQL query is required")
@@ -360,93 +530,71 @@ class TimbrClient(DataSourceClient):
         return text
 
     def system_prompt(self) -> str:
-        return f"""
-## Timbr Semantic Layer Query Guide
+        accessible = self._get_accessible_schemas()
+        concept_schema = self._get_concept_schema()
+        has_views = "vtimbr" in accessible
+
+        sections = [f"""## Timbr Semantic Layer Query Guide
 
 Query the Timbr ontology-based semantic layer using SQL.
 Ontology: `{self.ontology}`
 
-### How to Execute Queries
+### Important Rules
+
+1. ALWAYS use backticks around schema and table names: `` `schema`.`TableName` ``
+2. Table names are case-sensitive
+3. ALWAYS include a LIMIT clause to avoid returning too many rows
+4. Standard SQL (GROUP BY, ORDER BY, HAVING, WHERE) works as expected
+5. Each table in the schema specifies which schema prefix to use — check the table metadata"""]
+
+        # --- Concept schema section ---
+        if concept_schema:
+            sections.append(f"""
+### Querying Concepts (schema: `{concept_schema}`)
+
+Concepts are ontology entities. Query them with the `{concept_schema}` schema prefix:
 
 ```python
-df = client.execute_query("SELECT * FROM `dtimbr`.`Customer` LIMIT 10")
-```
+df = timbr_client.execute_query("SELECT column1, column2 FROM `{concept_schema}`.`ConceptName` WHERE condition LIMIT 100")
+```""")
 
-### SQL Syntax
-
-All queries MUST use backtick-quoted schema and concept names:
-
-```sql
-SELECT column1, column2
-FROM `dtimbr`.`ConceptName`
-WHERE condition
-LIMIT 100
-```
-
-### Schema Prefixes
-
-- **`dtimbr`** (default, recommended) \u2013 supports properties, relationships, and measures
-- **`timbr`** \u2013 direct properties only, no relationship traversal
-
-Always use `dtimbr` unless you have a specific reason not to.
-
-### Querying Properties
-
-```sql
--- Simple query
-SELECT name, email, age
-FROM `dtimbr`.`Customer`
-WHERE age > 30
-LIMIT 100
-
--- Aggregation
-SELECT category, COUNT(*) AS cnt, SUM(amount) AS total
-FROM `dtimbr`.`Order`
-GROUP BY category
-ORDER BY total DESC
-```
-
-### Traversing Relationships
+            if concept_schema == "dtimbr":
+                sections.append("""
+### Traversing Relationships (dtimbr only)
 
 Relationships are listed as foreign keys in the schema. Use bracket syntax
 to access related concept properties without explicit JOINs:
 
-```sql
--- Single-hop: relationship_name[TargetConcept].property
-SELECT
-    name,
-    `has_orders[Order].order_date` AS order_date,
-    `has_orders[Order].amount` AS amount
-FROM `dtimbr`.`Customer`
+```python
+# Single-hop
+df = timbr_client.execute_query("SELECT name, `has_orders[Order].order_date` AS order_date FROM `dtimbr`.`Customer` LIMIT 100")
 
--- Multi-hop: chain brackets
-SELECT
-    name,
-    `has_orders[Order].includes_product[Product].product_name` AS product
-FROM `dtimbr`.`Customer`
-```
+# Multi-hop
+df = timbr_client.execute_query("SELECT name, `has_orders[Order].includes_product[Product].product_name` AS product FROM `dtimbr`.`Customer` LIMIT 100")
+```""")
 
+        # --- View schema section ---
+        if has_views:
+            sections.append(f"""
+### Querying Views (schema: `vtimbr`)
+
+Views are pre-built flat projections with columns and measures. Query them
+with the `vtimbr` schema prefix:
+
+```python
+df = timbr_client.execute_query("SELECT column1, column2 FROM `vtimbr`.`ViewName` WHERE condition LIMIT 100")
+```""")
+
+        # --- Measures section ---
+        if concept_schema or has_views:
+            sections.append("""
 ### Using Measures
 
 Measures are pre-defined aggregations (shown in schema with role=measure).
-Use the `AGGREGATE()` function or standard SQL aggregates:
+Reference them using their ``measure.`` prefixed name with standard SQL aggregates:
 
-```sql
-SELECT
-    `of_customer[Customer].customer_segment` AS segment,
-    AGGREGATE(`measure.total_revenue`) AS revenue
-FROM `dtimbr`.`Order`
-GROUP BY segment
-ORDER BY revenue DESC
-```
+```python
+df = timbr_client.execute_query("SELECT category, SUM(`measure.total_sales`) AS total_sales FROM `schema`.`TableName` GROUP BY category ORDER BY total_sales DESC LIMIT 100")
+```""")
 
-### Important Rules
-
-1. ALWAYS use backticks: `dtimbr`.`ConceptName`
-2. ALWAYS use the `dtimbr` schema prefix
-3. Concept names are case-sensitive
-4. ALWAYS include a LIMIT clause to avoid returning too many rows
-5. Standard SQL (GROUP BY, ORDER BY, HAVING, WHERE) works as expected
-6. Relationship traversal uses bracket syntax: `rel[Target].property`
-7. The method takes a single SQL string: `execute_query("YOUR SQL")`
-"""
+        return "\n".join(sections)
