@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.335 (March 9, 2026)
+- fix: improve timbr semantic layer integration
+- fix: llm usage chart to show both input and output
+
 ## Version 0.0.334 (March 8, 2026)
 - feat: add support for snowflake semantic views
 - fix: improve mssql integration to support schema
