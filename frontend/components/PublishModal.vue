@@ -41,6 +41,9 @@
                         View dashboard</a>
                 </div>
             </div>
+            <NotifyRecipientPicker v-if="smtpEnabled && isPublished" :report-id="report.id"
+                notification-type="share_dashboard" :share-url="reportUrl" />
+
             <div class="border-t border-gray-200 pt-4 mt-8">
                 <button @click="publishModalOpen = false"
                     class="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-xs hover:bg-gray-100">Close</button>
@@ -52,6 +55,7 @@
 <script lang="ts" setup>
 const publishModalOpen = ref(false);
 const toast = useToast();
+const { smtpEnabled } = useAppSettings();
 const props = defineProps<{
     report: any
 }>();

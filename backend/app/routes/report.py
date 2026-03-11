@@ -7,7 +7,9 @@ from app.ee.audit.service import audit_service
 from typing import List
 from app.services.report_service import ReportService
 from app.services.dashboard_layout_service import DashboardLayoutService
+from app.services.notification_service import notification_service
 from app.schemas.report_schema import ReportSchema, ReportCreate, ReportUpdate, ReportListResponse
+from app.schemas.notification_schema import NotifyRequest, NotifyResponse, NotificationType, NotificationChannel, ScheduleRequest
 from app.schemas.dashboard_layout_version_schema import (
     DashboardLayoutVersionSchema,
     DashboardLayoutVersionCreate,
@@ -20,6 +22,8 @@ from app.core.auth import current_user
 from app.models.organization import Organization
 from app.core.permissions_decorator import requires_permission
 from app.models.report import Report
+from app.settings.config import settings as app_settings
+from sqlalchemy import select
 
 router = APIRouter(tags=["reports"])
 report_service = ReportService()
@@ -143,6 +147,70 @@ async def toggle_conversation_share(report_id: str, current_user: User = Depends
     """Toggle conversation sharing for a report. Returns enabled status and share token."""
     return await report_service.toggle_conversation_share(db, report_id, current_user, organization)
 
+@router.post("/reports/{report_id}/notify", response_model=NotifyResponse)
+@requires_permission('publish_reports', model=Report, owner_only=True)
+async def notify_report(
+    report_id: str,
+    payload: NotifyRequest,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Send notifications (email, etc.) for shared dashboards, conversations, or scheduled reports."""
+    # Load report
+    result = await db.execute(select(Report).filter(Report.id == report_id))
+    report = result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    # Guard: schedule notifications only for published reports
+    if payload.type == NotificationType.SCHEDULE_REPORT and report.status != "published":
+        raise HTTPException(status_code=400, detail="Schedule notifications are only available for published reports")
+
+    # Guard: email channel requires SMTP
+    if NotificationChannel.EMAIL in payload.channels and not app_settings.email_client:
+        raise HTTPException(status_code=400, detail="Email notifications are not available (SMTP not configured)")
+
+    # Guard: share_url required for share types
+    if payload.type in (NotificationType.SHARE_DASHBOARD, NotificationType.SHARE_CONVERSATION) and not payload.share_url:
+        raise HTTPException(status_code=400, detail="share_url is required for share notifications")
+
+    # Build share_url for schedule type if not provided
+    share_url = payload.share_url or f"{app_settings.bow_config.base_url}/r/{report.id}"
+
+    response = await notification_service.dispatch(
+        notification_type=payload.type,
+        channels=payload.channels,
+        recipients=payload.recipients,
+        share_url=share_url,
+        report_title=report.title,
+        sender_name=current_user.name or current_user.email,
+        message=payload.message,
+    )
+
+    # Audit log
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=str(organization.id),
+            action="report.notification_sent",
+            user_id=str(current_user.id),
+            resource_type="report",
+            resource_id=str(report.id),
+            details={
+                "type": payload.type.value,
+                "channels": [c.value for c in payload.channels],
+                "recipient_count": len(payload.recipients),
+            },
+            request=request,
+        )
+    except Exception:
+        pass
+
+    return response
+
+
 @router.get("/r/{report_id}", response_model=ReportSchema)
 async def get_public_report(report_id: str, db: AsyncSession = Depends(get_async_db)):
     return await report_service.get_public_report(db, report_id)
@@ -210,8 +278,20 @@ async def get_public_artifact(
 
 @router.post("/reports/{report_id}/schedule", response_model=ReportSchema)
 @requires_permission('publish_reports', model=Report, owner_only=True)
-async def schedule_report(report_id: str, cron_expression: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await report_service.set_report_schedule(db, report_id, cron_expression, current_user, organization)
+async def schedule_report(
+    report_id: str,
+    body: ScheduleRequest = None,
+    cron_expression: str = Query(None),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    # Support both body-based and query-param-based calls for backwards compat
+    cron_expr = body.cron_expression if body else cron_expression
+    subscribers = None
+    if body and body.notification_subscribers is not None:
+        subscribers = [s.dict() for s in body.notification_subscribers]
+    return await report_service.set_report_schedule(db, report_id, cron_expr, current_user, organization, subscribers)
 
 # --- Training Mode Instructions ---
 

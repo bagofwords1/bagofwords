@@ -368,6 +368,20 @@ class ReportService:
         thumbnail_service = ThumbnailService()
         asyncio.create_task(thumbnail_service.regenerate_for_report(report_id))
 
+        # Notify subscribers after scheduled rerun
+        if report_orm and report_orm.notification_subscribers:
+            from app.services.notification_service import notification_service
+            from app.settings.config import settings as app_settings
+            report_url = f"{app_settings.bow_config.base_url}/r/{report_id}"
+            asyncio.create_task(
+                notification_service.send_scheduled_report_results(
+                    report_id=report_id,
+                    report_title=report_orm.title or "Untitled Report",
+                    subscribers=report_orm.notification_subscribers,
+                    report_url=report_url,
+                )
+            )
+
         logger.info(f"Completed scheduled report run for report_id: {report_id}")
         return report
 
@@ -937,7 +951,7 @@ class ReportService:
             # Now call rerun_report_steps with the fresh db and loaded objects
             await self.rerun_report_steps(db, report_id, current_user, organization)
 
-    async def set_report_schedule(self, db: AsyncSession, report_id: str, cron_expression: str, current_user: User, organization: Organization) -> Report:
+    async def set_report_schedule(self, db: AsyncSession, report_id: str, cron_expression: str, current_user: User, organization: Organization, notification_subscribers: list = None) -> Report:
         
         result = await db.execute(select(Report).filter(Report.id == report_id))
         report = result.scalar_one_or_none()
@@ -969,6 +983,12 @@ class ReportService:
         
         # Update the cron expression in the report (normalize unschedule values to None)
         report.cron_schedule = None if cron_expression in (None, '', 'None') else cron_expression
+
+        # Persist notification subscribers (clear if unscheduling)
+        if cron_expression in (None, '', 'None'):
+            report.notification_subscribers = None
+        elif notification_subscribers is not None:
+            report.notification_subscribers = notification_subscribers
         
         await db.commit()
         await db.refresh(report)
