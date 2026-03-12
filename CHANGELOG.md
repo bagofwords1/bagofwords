@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.336 (March 12, 2026)
+- feat: notification service for sending emails — supports dashboard sharing, conversation sharing, and scheduled report delivery with optional PDF attachment
+
 ## Version 0.0.335 (March 9, 2026)
 - fix: improve timbr semantic layer integration
 - fix: llm usage chart to show both input and output
