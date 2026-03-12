@@ -116,6 +116,8 @@ class ReportService:
             # Conversation sharing
             conversation_share_enabled=bool(getattr(report, "conversation_share_enabled", False)),
             conversation_share_token=getattr(report, "conversation_share_token", None),
+            # Scheduled rerun notification subscribers
+            notification_subscribers=getattr(report, "notification_subscribers", None),
         )
         return report_schema
 
@@ -989,7 +991,10 @@ class ReportService:
             report.notification_subscribers = None
         elif notification_subscribers is not None:
             report.notification_subscribers = notification_subscribers
-        
+
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(report, "notification_subscribers")
+
         await db.commit()
         await db.refresh(report)
         # Telemetry: report schedule changed

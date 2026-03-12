@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_db, get_async_db
 from app.dependencies import get_current_organization
@@ -280,18 +280,15 @@ async def get_public_artifact(
 @requires_permission('publish_reports', model=Report, owner_only=True)
 async def schedule_report(
     report_id: str,
-    body: ScheduleRequest = None,
-    cron_expression: str = Query(None),
+    body: ScheduleRequest,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    # Support both body-based and query-param-based calls for backwards compat
-    cron_expr = body.cron_expression if body else cron_expression
     subscribers = None
-    if body and body.notification_subscribers is not None:
-        subscribers = [s.dict() for s in body.notification_subscribers]
-    return await report_service.set_report_schedule(db, report_id, cron_expr, current_user, organization, subscribers)
+    if body.notification_subscribers is not None:
+        subscribers = [s.model_dump() for s in body.notification_subscribers]
+    return await report_service.set_report_schedule(db, report_id, body.cron_expression, current_user, organization, subscribers)
 
 # --- Training Mode Instructions ---
 
