@@ -21,6 +21,9 @@ class Report(BaseSchema):
     #privacy = Column(String, nullable=False, default='private') # private, internal, public
     cron_schedule = Column(String, nullable=True)
     last_run_at = Column(DateTime, nullable=True, default=None)
+    # Subscribers notified after each scheduled rerun
+    # Format: [{"type": "user", "id": "..."}, {"type": "email", "address": "..."}]
+    notification_subscribers = Column(JSON, nullable=True, default=None)
     
     # Conversation sharing (separate from dashboard publishing)
     conversation_share_token = Column(String, nullable=True, unique=True, index=True)

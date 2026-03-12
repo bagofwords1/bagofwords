@@ -175,26 +175,30 @@ def rerun_report(test_client):
 
 @pytest.fixture
 def schedule_report(test_client):
-    def _schedule_report(report_id, cron_expression, user_token=None, org_id=None):
+    def _schedule_report(report_id, cron_expression, user_token=None, org_id=None, notification_subscribers=None):
         if user_token is None:
             pytest.fail("User token is required for schedule_report")
         if org_id is None:
             pytest.fail("Organization ID is required for schedule_report")
-        
+
         headers = {
             "Authorization": f"Bearer {user_token}",
             "X-Organization-Id": str(org_id)
         }
-        
+
+        body = {"cron_expression": cron_expression}
+        if notification_subscribers is not None:
+            body["notification_subscribers"] = notification_subscribers
+
         response = test_client.post(
             f"/api/reports/{report_id}/schedule",
-            json={"cron_expression": cron_expression},
+            json=body,
             headers=headers
         )
-        
+
         assert response.status_code == 200, response.json()
         return response.json()
-    
+
     return _schedule_report
 
 @pytest.fixture

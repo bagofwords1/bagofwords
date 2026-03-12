@@ -56,6 +56,8 @@ class ReportSchema(ReportBase):
     artifact_modes: List[str] = []
     # Thumbnail URL for the main artifact
     thumbnail_url: Optional[str] = None
+    # Scheduled rerun notification subscribers
+    notification_subscribers: Optional[List[dict]] = None
 
     class Config:
         from_attributes = True
