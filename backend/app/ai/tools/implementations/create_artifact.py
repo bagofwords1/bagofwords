@@ -2,7 +2,6 @@ import asyncio
 import base64
 import json
 import logging
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import AsyncIterator, Dict, Any, Type, List, Optional
 
@@ -18,12 +17,6 @@ from app.models.report_file_association import report_file_association
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ValidationResult:
-    """Result of validating artifact code via headless browser."""
-    success: bool
-    errors: List[str] = field(default_factory=list)
-    screenshot_base64: Optional[str] = None
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import (
     ToolEvent,
@@ -91,51 +84,41 @@ class CreateArtifactTool(Tool):
     # __file__ -> implementations -> tools -> ai -> app -> backend -> project_root
     SANDBOX_HTML_PATH = Path(__file__).parent.parent.parent.parent.parent.parent / "frontend" / "public" / "artifact-sandbox.html"
 
-    # Validation-specific script to inject (replaces message-based data loading)
-    VALIDATION_SCRIPT = """
-    <script>
-      // ===========================================
-      // Validation Mode Overrides
-      // ===========================================
-      (function() {
-        // Inject artifact data directly (no message passing needed in validation)
-        window.ARTIFACT_DATA = __ARTIFACT_DATA_JSON__;
+    async def _take_preview_screenshot(
+        self,
+        html_content: str,
+    ) -> Optional[str]:
+        """Take a quick screenshot for planner reflection. Non-blocking, best-effort.
 
-        // Track errors for validation
-        window.__ARTIFACT_ERRORS__ = [];
+        Returns base64-encoded PNG string, or None on failure.
+        """
+        try:
+            from playwright.async_api import async_playwright
+        except ImportError:
+            return None
 
-        // Augment existing error handler to track errors
-        var originalOnError = window.onerror;
-        window.onerror = function(msg, url, lineNo, columnNo, error) {
-          window.__ARTIFACT_ERRORS__.push({
-            type: 'error',
-            message: msg,
-            line: lineNo,
-            column: columnNo,
-            stack: error ? error.stack : null
-          });
-          if (originalOnError) {
-            return originalOnError(msg, url, lineNo, columnNo, error);
-          }
-          return false;
-        };
+        try:
+            async with async_playwright() as p:
+                browser = await p.chromium.launch(headless=True)
+                page = await browser.new_page(viewport={"width": 1280, "height": 720})
+                await page.set_content(html_content, wait_until="networkidle")
 
-        window.addEventListener('unhandledrejection', function(event) {
-          window.__ARTIFACT_ERRORS__.push({
-            type: 'unhandledrejection',
-            message: event.reason ? event.reason.message || String(event.reason) : 'Unknown rejection'
-          });
-        });
+                # Wait for React to mount and charts to render (short timeout)
+                try:
+                    await page.wait_for_function(
+                        "window.__ARTIFACT_RENDER_COMPLETE__ === true",
+                        timeout=8000,
+                    )
+                except Exception:
+                    pass  # Take screenshot anyway — partial render is still useful
 
-        // Signal when render is complete
-        window.__ARTIFACT_RENDER_COMPLETE__ = false;
-
-        // Hide global loader immediately since we have data
-        var loader = document.getElementById('global-loader');
-        if (loader) loader.classList.add('hidden');
-      })();
-    </script>
-    """
+                await asyncio.sleep(0.3)
+                screenshot_bytes = await page.screenshot(type="png", full_page=False)
+                await browser.close()
+                return base64.b64encode(screenshot_bytes).decode("utf-8")
+        except Exception as e:
+            logger.warning(f"Preview screenshot failed: {e}")
+            return None
 
     async def _generate_thumbnail_background(
         self,
@@ -212,8 +195,8 @@ class CreateArtifactTool(Tool):
 
         return images
 
-    def _build_validation_html(self, artifact_data: dict, code: str, mode: str = "page") -> str:
-        """Build HTML for validation by reading sandbox file and injecting validation code.
+    def _build_thumbnail_html(self, artifact_data: dict, code: str, mode: str = "page") -> str:
+        """Build HTML for thumbnail generation in headless browser.
 
         Args:
             artifact_data: The data to inject as window.ARTIFACT_DATA
@@ -226,7 +209,6 @@ class CreateArtifactTool(Tool):
         data_json = json.dumps(artifact_data, default=str)
 
         # Slides mode: pure HTML + Tailwind (no React/Babel)
-        # Use string replacement instead of f-string to avoid JSON escaping issues
         if mode == "slides":
             slides_scripts = get_inline_scripts(mode="slides")
             slides_template = """<!DOCTYPE html>
@@ -244,23 +226,6 @@ class CreateArtifactTool(Tool):
 <body class="bg-slate-900">
   <script>
     window.ARTIFACT_DATA = __ARTIFACT_DATA_JSON__;
-    window.__ARTIFACT_ERRORS__ = [];
-    window.onerror = function(msg, url, lineNo, columnNo, error) {
-      window.__ARTIFACT_ERRORS__.push({
-        type: 'error',
-        message: msg,
-        line: lineNo,
-        column: columnNo,
-        stack: error ? error.stack : null
-      });
-      return false;
-    };
-    window.addEventListener('unhandledrejection', function(event) {
-      window.__ARTIFACT_ERRORS__.push({
-        type: 'unhandledrejection',
-        message: event.reason ? event.reason.message || String(event.reason) : 'Unknown rejection'
-      });
-    });
     window.__ARTIFACT_RENDER_COMPLETE__ = false;
     setTimeout(function() {
       window.__ARTIFACT_RENDER_COMPLETE__ = true;
@@ -290,11 +255,16 @@ class CreateArtifactTool(Tool):
         )
         sandbox_html = sandbox_html.replace('</head>', f'{page_scripts}\n</head>')
 
-        # Prepare the validation script with data injected
-        validation_script = self.VALIDATION_SCRIPT.replace("__ARTIFACT_DATA_JSON__", data_json)
-
-        # Insert validation script after <body> tag
-        html = sandbox_html.replace("<body>", f"<body>\n{validation_script}")
+        # Inject data directly for headless rendering
+        data_script = f"""
+    <script>
+      window.ARTIFACT_DATA = {data_json};
+      window.__ARTIFACT_RENDER_COMPLETE__ = false;
+      var loader = document.getElementById('global-loader');
+      if (loader) loader.classList.add('hidden');
+    </script>
+    """
+        html = sandbox_html.replace("<body>", f"<body>\n{data_script}")
 
         # Replace the LLM_GENERATED_CODE placeholder with actual code
         html = html.replace("<!-- LLM_GENERATED_CODE -->", code)
@@ -318,7 +288,6 @@ class CreateArtifactTool(Tool):
             return;
           }
 
-          // Check for visible loading spinners (LoadingSpinner uses animateTransform)
           var spinners = root.querySelectorAll('svg animateTransform');
           for (var i = 0; i < spinners.length; i++) {
             var svg = spinners[i].closest('svg');
@@ -328,7 +297,6 @@ class CreateArtifactTool(Tool):
             }
           }
 
-          // Content rendered, no spinners. Wait for ECharts animations to complete.
           var hasCharts = root.querySelectorAll('canvas').length > 0;
           setTimeout(function() {
             window.__ARTIFACT_RENDER_COMPLETE__ = true;
@@ -342,109 +310,6 @@ class CreateArtifactTool(Tool):
         html = html.replace("</body>", f"{render_complete_script}</body>")
 
         return html
-
-    async def _validate_artifact(
-        self,
-        code: str,
-        mode: str,
-        visualizations: List[Dict[str, Any]],
-        report: Any,
-        allow_llm_see_data: bool = True,
-    ) -> ValidationResult:
-        """Validate artifact code by rendering in a headless browser.
-
-        Args:
-            code: The generated artifact code
-            mode: 'page' or 'slides'
-            visualizations: List of visualization data dicts
-            report: The report object (for building ARTIFACT_DATA)
-            allow_llm_see_data: If False, skip screenshot capture for privacy
-
-        Returns:
-            ValidationResult with success status, errors, and optional screenshot
-        """
-        try:
-            from playwright.async_api import async_playwright
-        except ImportError:
-            logger.warning("Playwright not installed, skipping artifact validation")
-            return ValidationResult(
-                success=True,
-                errors=["Playwright not installed - validation skipped"]
-            )
-
-        # Build the artifact data structure
-        artifact_data = {
-            "report": {
-                "id": str(report.id) if report else None,
-                "title": getattr(report, 'title', None) if report else None,
-                "theme": getattr(report, 'theme', None) if report else None,
-            },
-            "visualizations": visualizations,
-        }
-
-        # Build the HTML to render using the sandbox file (mode-aware)
-        html = self._build_validation_html(artifact_data, code, mode=mode)
-
-        errors: List[str] = []
-        screenshot_base64: Optional[str] = None
-
-        try:
-            async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
-                page = await browser.new_page(viewport={"width": 1280, "height": 720})
-
-                # Capture console errors
-                def handle_console(msg):
-                    if msg.type == "error":
-                        errors.append(f"Console error: {msg.text}")
-
-                page.on("console", handle_console)
-
-                # Capture page errors
-                def handle_page_error(error):
-                    errors.append(f"Page error: {str(error)}")
-
-                page.on("pageerror", handle_page_error)
-
-                # Load the HTML content directly (no network request needed)
-                await page.set_content(html, wait_until="networkidle")
-
-                # Wait for smart render detection to signal completion
-                try:
-                    await page.wait_for_function(
-                        "window.__ARTIFACT_RENDER_COMPLETE__ === true",
-                        timeout=20000
-                    )
-                except Exception as e:
-                    errors.append(f"Render timeout: {str(e)}")
-
-                # Small buffer for any final paint
-                await asyncio.sleep(0.5)
-
-                # Collect any errors captured by our error handlers
-                captured_errors = await page.evaluate("window.__ARTIFACT_ERRORS__")
-                for err in captured_errors:
-                    err_msg = err.get("message", "Unknown error")
-                    if err.get("line"):
-                        err_msg += f" (line {err.get('line')})"
-                    errors.append(err_msg)
-
-                # Take screenshot only if allow_llm_see_data is True (privacy setting)
-                if allow_llm_see_data:
-                    screenshot_bytes = await page.screenshot(type="png", full_page=False)
-                    screenshot_base64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-
-                await browser.close()
-
-        except Exception as e:
-            logger.exception("Error during artifact validation")
-            errors.append(f"Validation error: {str(e)}")
-
-        return ValidationResult(
-            success=len(errors) == 0,
-            errors=errors,
-            screenshot_base64=screenshot_base64,
-        )
 
     async def _fix_code(
         self,
@@ -600,6 +465,28 @@ Fix these errors while keeping the same design and functionality. Output the cor
                     if stats:
                         profile["column_stats"] = stats
 
+                    # Identify filterable columns: categorical with reasonable cardinality
+                    filterable = []
+                    for col in viz.get("columns", []):
+                        col_name = col if isinstance(col, str) else col.get("field", col.get("name"))
+                        if not col_name:
+                            continue
+                        values = [r.get(col_name) for r in rows if r.get(col_name) is not None]
+                        if not values:
+                            continue
+                        # Skip numeric-only columns (metrics, not dimensions)
+                        if all(isinstance(v, (int, float)) for v in values):
+                            continue
+                        unique = list(set(str(v) for v in values))
+                        # Filterable: has repeating values (not all unique) and reasonable cardinality
+                        if 2 <= len(unique) <= 30 and len(unique) < len(values):
+                            filterable.append({
+                                "field": col_name,
+                                "unique_values": sorted(unique),
+                            })
+                    if filterable:
+                        profile["filterable_columns"] = filterable
+
         return profile
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
@@ -677,89 +564,110 @@ Fix these errors while keeping the same design and functionality. Output the cor
         warnings: List[str] = []
         included_viz_ids: List[str] = []
 
-        # Fetch and validate visualizations from DB
+        # Fetch all visualizations in a single batched query
         from app.models.query import Query
         from app.models.step import Step
         report_id = str(report.id) if report else None
-        for viz_id in data.visualization_ids:
-            try:
-                # Eagerly load query -> default_step and steps to avoid async lazy loading issues
-                result = await db.execute(
-                    select(Visualization)
-                    .options(
-                        selectinload(Visualization.query).selectinload(Query.default_step),
-                        selectinload(Visualization.query).selectinload(Query.steps),
-                    )
-                    .where(Visualization.id == viz_id)
+        try:
+            result = await db.execute(
+                select(Visualization)
+                .options(
+                    selectinload(Visualization.query).selectinload(Query.default_step),
+                    selectinload(Visualization.query).selectinload(Query.steps),
                 )
-                viz = result.scalar_one_or_none()
+                .where(Visualization.id.in_(data.visualization_ids))
+            )
+            fetched_vizs = {str(v.id): v for v in result.scalars().all()}
+        except Exception as e:
+            logger.exception("Failed to batch-fetch visualizations")
+            fetched_vizs = {}
+            warnings.append(f"Error fetching visualizations: {str(e)}")
 
-                if viz is None:
-                    warnings.append(f"Visualization {viz_id} not found")
-                    continue
+        # Process each requested viz in order, validating and building entries
+        for viz_id in data.visualization_ids:
+            viz = fetched_vizs.get(viz_id)
+            if viz is None:
+                warnings.append(f"Visualization {viz_id} not found")
+                continue
 
-                # Validate viz belongs to the report
-                if report_id and str(viz.report_id) != report_id:
-                    warnings.append(f"Visualization {viz_id} does not belong to this report")
-                    continue
+            # Validate viz belongs to the report
+            if report_id and str(viz.report_id) != report_id:
+                warnings.append(f"Visualization {viz_id} does not belong to this report")
+                continue
 
-                # Get the step with data (prefer default_step, fallback to latest step)
-                step = None
-                if viz.query and viz.query.default_step:
-                    step = viz.query.default_step
-                elif viz.query and viz.query.steps:
-                    step = viz.query.steps[-1] if viz.query.steps else None
+            # Get the step with data (prefer default_step, fallback to latest step)
+            step = None
+            if viz.query and viz.query.default_step:
+                step = viz.query.default_step
+            elif viz.query and viz.query.steps:
+                step = viz.query.steps[-1] if viz.query.steps else None
 
-                # Check if the associated step is successful
-                step_status = step.status if step else None
-                if step_status != "success":
-                    warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
-                    continue
+            # Check if the associated step is successful
+            step_status = step.status if step else None
+            if step_status != "success":
+                warnings.append(f"Visualization {viz_id} skipped: step status is '{step_status or 'unknown'}' (not success)")
+                continue
 
-                # Get data directly from step (like frontend does)
-                step_data = step.data if step else {}
-                rows = (step_data.get("rows") or [])[:100] if step_data else []
-                raw_columns = step_data.get("columns") or [] if step_data else []
-                data_model = step.data_model if step else {}
+            # Get data directly from step (like frontend does)
+            step_data = step.data if step else {}
+            rows = (step_data.get("rows") or [])[:100] if step_data else []
+            raw_columns = step_data.get("columns") or [] if step_data else []
+            data_model = step.data_model if step else {}
 
-                # Normalize columns to list of strings (may be objects with field/colId/headerName)
-                columns = []
-                for c in raw_columns:
-                    if isinstance(c, str):
-                        columns.append(c)
-                    elif isinstance(c, dict):
-                        col_name = c.get("field") or c.get("colId") or c.get("headerName") or c.get("name")
-                        if col_name:
-                            columns.append(col_name)
-                    else:
-                        columns.append(str(c))
+            # Keep raw column objects (with field/headerName) — matches the prompt contract
+            columns = raw_columns
 
-                # Build visualization entry
-                view_dict = viz.view or {}
-                query_id = str(viz.query_id) if viz.query_id else None
+            # Extract field names for internal use (filterable columns, logging)
+            column_fields = []
+            for c in raw_columns:
+                if isinstance(c, str):
+                    column_fields.append(c)
+                elif isinstance(c, dict):
+                    col_name = c.get("field") or c.get("colId") or c.get("headerName") or c.get("name")
+                    if col_name:
+                        column_fields.append(col_name)
 
-                ventry = {
-                    "id": str(viz.id),
-                    "title": viz.title,
-                    "query_id": query_id,
-                    "view": self._trim_none(view_dict),
-                    "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
-                    "columns": columns,
-                    "row_count": len(rows),
-                    "rows": rows,
-                    "dataModel": data_model or {},
-                }
+            # Build visualization entry
+            view_dict = viz.view or {}
+            query_id = str(viz.query_id) if viz.query_id else None
 
-                # Debug logging
-                logger.info(f"Visualization {viz.title}: {len(rows)} rows, {len(columns)} columns: {columns[:5] if columns else 'none'}")
-                if rows:
-                    logger.info(f"  Sample row keys: {list(rows[0].keys())[:5] if isinstance(rows[0], dict) else 'not a dict'}")
+            # Compute filterable columns for this visualization
+            filterable_columns = []
+            if rows and isinstance(rows[0], dict):
+                for col_name in column_fields:
+                    values = [r.get(col_name) for r in rows if r.get(col_name) is not None]
+                    if not values:
+                        continue
+                    if all(isinstance(v, (int, float)) for v in values):
+                        continue
+                    unique = sorted(set(str(v) for v in values))
+                    if 2 <= len(unique) <= 30 and len(unique) < len(values):
+                        filterable_columns.append({
+                            "field": col_name,
+                            "unique_values": unique,
+                        })
 
-                visualizations.append(ventry)
-                included_viz_ids.append(str(viz.id))
+            ventry = {
+                "id": str(viz.id),
+                "title": viz.title,
+                "query_id": query_id,
+                "view": self._trim_none(view_dict),
+                "data_model_type": (view_dict.get("view") or {}).get("type") or view_dict.get("type"),
+                "columns": columns,
+                "row_count": len(rows),
+                "rows": rows,
+                "dataModel": data_model or {},
+            }
+            if filterable_columns:
+                ventry["filterable_columns"] = filterable_columns
 
-            except Exception as e:
-                warnings.append(f"Error fetching visualization {viz_id}: {str(e)}")
+            # Debug logging
+            logger.info(f"Visualization {viz.title}: {len(rows)} rows, {len(column_fields)} columns: {column_fields[:5] if column_fields else 'none'}")
+            if rows:
+                logger.info(f"  Sample row keys: {list(rows[0].keys())[:5] if isinstance(rows[0], dict) else 'not a dict'}")
+
+            visualizations.append(ventry)
+            included_viz_ids.append(str(viz.id))
 
         # Early failure: if no valid visualizations were resolved, fail like create_data does with tables
         if not visualizations:
@@ -889,11 +797,11 @@ Fix these errors while keeping the same design and functionality. Output the cor
         code = self._extract_code(buffer, mode=data.mode)
 
         # ═══════════════════════════════════════════════════════════════════════
-        # Mode-specific processing: slides uses python-pptx, page uses browser validation
+        # Mode-specific processing: slides uses python-pptx, page skips to save
         # ═══════════════════════════════════════════════════════════════════════
 
-        validation_result: Optional[ValidationResult] = None
         pptx_path: Optional[str] = None
+        pptx_success: bool = True
         preview_images: List[str] = []
 
         if data.mode == "slides":
@@ -928,7 +836,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 )
 
                 pptx_path = str(result_path)
-                validation_result = ValidationResult(success=True)
 
                 yield ToolProgressEvent(
                     type="tool.progress",
@@ -944,58 +851,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
 
             except Exception as e:
                 logger.error(f"PPTX execution failed: {e}")
-                validation_result = ValidationResult(
-                    success=False,
-                    errors=[str(e)],
-                )
-
-        else:
-            # ═══════════════════════════════════════════════════════════════════
-            # PAGE MODE: Validate in headless browser
-            # ═══════════════════════════════════════════════════════════════════
-            max_validation_attempts = 3
-
-            for attempt in range(max_validation_attempts):
-                yield ToolProgressEvent(
-                    type="tool.progress",
-                    payload={
-                        "stage": "validating",
-                        "attempt": attempt + 1,
-                        "max_attempts": max_validation_attempts,
-                    }
-                )
-
-                validation_result = await self._validate_artifact(
-                    code=code,
-                    mode=data.mode,
-                    visualizations=visualizations,
-                    report=report,
-                    allow_llm_see_data=allow_llm_see_data,
-                )
-
-                if validation_result.success:
-                    # Validation passed
-                    break
-
-                if attempt < max_validation_attempts - 1:
-                    # Try to fix the code
-                    yield ToolProgressEvent(
-                        type="tool.progress",
-                        payload={
-                            "stage": "fixing_errors",
-                            "attempt": attempt + 1,
-                            "errors": validation_result.errors[:3],  # Show first 3 errors
-                        }
-                    )
-                    code = await self._fix_code(
-                        code=code,
-                        errors=validation_result.errors,
-                        mode=data.mode,
-                        runtime_ctx=runtime_ctx,
-                        prompt_context=prompt_context,
-                        screenshot_base64=validation_result.screenshot_base64,
-                        completion_images=completion_images,
-                    )
+                pptx_success = False
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
@@ -1011,7 +867,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
 
         # Update the pending artifact with content and mark as completed
         artifact.content = content
-        artifact.status = "completed" if (validation_result and validation_result.success) else "failed"
+        artifact.status = "completed" if (data.mode != "slides" or pptx_success) else "failed"
 
         # Set pptx_path for slides mode
         if pptx_path:
@@ -1020,7 +876,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
         await db.commit()
         await db.refresh(artifact)
 
-        # Generate thumbnail in background (for page mode or as fallback)
+        # Page mode: take preview screenshot for planner reflection + generate thumbnail
+        screenshot_base64: Optional[str] = None
         if data.mode == "page":
             artifact_data = {
                 "report": {
@@ -1030,7 +887,15 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 },
                 "visualizations": visualizations,
             }
-            thumbnail_html = self._build_validation_html(artifact_data, code, mode=data.mode)
+            thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
+
+            # Take preview screenshot (synchronous, ~3-5s) if model supports vision
+            model = runtime_ctx.get("model")
+            if allow_llm_see_data and model and getattr(model, "supports_vision", False):
+                yield ToolProgressEvent(type="tool.progress", payload={"stage": "capturing_preview"})
+                screenshot_base64 = await self._take_preview_screenshot(thumbnail_html)
+
+            # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
                 self._generate_thumbnail_background(
                     artifact_id=str(artifact.id),
@@ -1075,12 +940,11 @@ Fix these errors while keeping the same design and functionality. Output the cor
         }
 
         # Build observation message
-        has_screenshot = validation_result and validation_result.screenshot_base64
         summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
         if data.mode == "slides" and preview_images:
             summary_msg += f". Generated {len(preview_images)} slide preview images."
-        elif has_screenshot:
-            summary_msg += ". Screenshot of the rendered dashboard is attached for validation."
+        elif screenshot_base64:
+            summary_msg += ". Screenshot of the rendered dashboard is attached — review it for visual correctness."
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,
@@ -1091,6 +955,14 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "code": code,  # Include code for iteration context (compacted by observation builder after next artifact)
         }
 
+        # Add preview screenshot for planner reflection (page mode)
+        if screenshot_base64:
+            observation["images"] = [{
+                "data": screenshot_base64,
+                "media_type": "image/png",
+                "source_type": "base64",
+            }]
+
         # Add slides-specific info
         if data.mode == "slides":
             if preview_images:
@@ -1098,20 +970,6 @@ Fix these errors while keeping the same design and functionality. Output the cor
                 observation["slide_count"] = len(preview_images)
             if pptx_path:
                 observation["pptx_path"] = pptx_path
-
-        # Add validation info to observation
-        if validation_result:
-            observation["validation"] = {
-                "success": validation_result.success,
-                "errors": validation_result.errors if not validation_result.success else [],
-            }
-            # Add screenshot as images array for vision model consumption (page mode only)
-            if validation_result.screenshot_base64:
-                observation["images"] = [{
-                    "data": validation_result.screenshot_base64,
-                    "media_type": "image/png",
-                    "source_type": "base64",
-                }]
 
         if warnings:
             observation["warnings"] = warnings
@@ -1611,7 +1469,67 @@ Create a polished, executive-ready dashboard. Think:
 - Apply smooth gradients for area charts and backgrounds
 - Ensure sufficient contrast for readability
 - Use color consistently across related metrics
-- Filters should be cross visualizations, and always top z-index, so it will be above charts visualizations
+
+═══════════════════════════════════════════════════════════════════════════════
+CROSS-VISUALIZATION FILTERS
+═══════════════════════════════════════════════════════════════════════════════
+
+If visualizations have `filterable_columns` in their profile, implement cross-visualization filters.
+
+**Architecture:**
+- Store filter state in App with `useState` — one object mapping field names to selected values (or `null` for "All")
+- Pass filters down to every chart/table component. Each component filters its own `rows` before rendering.
+- Render the filter bar as a **sticky/fixed row at the top** with `z-50` so it stays above all charts.
+
+**Implementation pattern:**
+```jsx
+// In App:
+const [filters, setFilters] = React.useState({{}});
+
+// Collect filterable columns across all visualizations
+const filterableColumns = React.useMemo(() => {{
+  const seen = new Set();
+  const cols = [];
+  data.visualizations.forEach(viz => {{
+    (viz.filterable_columns || []).forEach(fc => {{
+      if (!seen.has(fc.field)) {{
+        seen.add(fc.field);
+        cols.push(fc);
+      }}
+    }});
+  }});
+  return cols;
+}}, [data]);
+
+// Filter function — reuse in every chart component
+const filterRows = (rows) => {{
+  return rows.filter(row =>
+    Object.entries(filters).every(([field, value]) =>
+      value == null || String(row[field]) === value
+    )
+  );
+}};
+
+// Filter bar UI (sticky, above charts)
+<div className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b px-6 py-3 flex gap-4 flex-wrap">
+  {{filterableColumns.map(fc => (
+    <select key={{fc.field}} value={{filters[fc.field] || ""}}
+      onChange={{e => setFilters(f => ({{...f, [fc.field]: e.target.value || null}}))}}
+      className="px-3 py-1.5 rounded-lg border text-sm">
+      <option value="">{{fc.field}}: All</option>
+      {{fc.unique_values.map(v => <option key={{v}} value={{v}}>{{v}}</option>)}}
+    </select>
+  ))}}
+</div>
+
+// In each chart component, always use filterRows(viz.rows) instead of viz.rows directly
+```
+
+**Rules:**
+- Only show filters if `filterable_columns` exist in the data
+- Filter bar must be `sticky top-0 z-50` — always visible above chart canvases
+- Every chart/table must respect active filters
+- Include a visual indicator of active filters and a "Reset" option
 
 **DO NOT include:**
 - Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")

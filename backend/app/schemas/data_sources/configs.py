@@ -226,6 +226,18 @@ class MssqlConfig(SQLConfig):
         description="Optional schema or comma-separated list of schemas",
         json_schema_extra={"ui:type": "string"}
     )
+    odbc_driver: int = Field(
+        18,
+        title="ODBC Driver Version",
+        description="ODBC driver version (17 or 18). Use 17 for SQL Server 2008 compatibility",
+        json_schema_extra={"ui:type": "select", "ui:options": [17, 18]}
+    )
+    encrypt: bool = Field(
+        True,
+        title="Encrypt Connection",
+        description="Encrypt the connection. Disable for SQL Server 2008 without TLS support",
+        json_schema_extra={"ui:type": "boolean"}
+    )
 
 
 class SybaseConfig(SQLConfig):
@@ -653,6 +665,45 @@ class TimbrConfig(BaseModel):
     )
 
 
+# Sisense
+class SisenseCredentials(BaseModel):
+    username: str = Field(
+        "",
+        title="Username",
+        description="Sisense username (email). Leave blank if using API token.",
+        json_schema_extra={"ui:type": "string"}
+    )
+    password: str = Field(
+        "",
+        title="Password",
+        description="Sisense password. Leave blank if using API token.",
+        json_schema_extra={"ui:type": "password"}
+    )
+    api_token: str = Field(
+        "",
+        title="API Token",
+        description="Pre-existing Sisense API bearer token. If provided, username/password are ignored.",
+        json_schema_extra={"ui:type": "password"}
+    )
+
+    @model_validator(mode="after")
+    def validate_auth(cls, model: "SisenseCredentials") -> "SisenseCredentials":
+        has_userpass = model.username and model.password
+        has_token = bool(model.api_token)
+        if not has_userpass and not has_token:
+            raise ValueError("Either username/password or api_token must be provided.")
+        return model
+
+
+class SisenseConfig(BaseModel):
+    host: str = Field(
+        ...,
+        title="Host",
+        description="Sisense server URL (e.g., https://sisense.company.com)",
+        json_schema_extra={"ui:type": "string"}
+    )
+
+
 __all__ = [
     # Configs
     "PostgreSQLConfig",
@@ -720,4 +771,7 @@ __all__ = [
     # Timbr
     "TimbrTokenCredentials",
     "TimbrConfig",
+    # Sisense
+    "SisenseCredentials",
+    "SisenseConfig",
 ]

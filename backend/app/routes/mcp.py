@@ -9,6 +9,7 @@ Authentication:
 Organization is derived from the API key or OAuth token.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ from typing import Any, Optional, Union, Tuple
 
 from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.responses import JSONResponse
+from starlette.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
@@ -310,19 +312,74 @@ async def mcp_endpoint(
         if not tool_class:
             return _mcp_response(jsonrpc_error(request.id, -32602, f"Unknown tool: {tool_name}"))
 
+        # Check if client supports SSE streaming
+        accept_header = raw_request.headers.get("accept", "")
+        use_sse = "text/event-stream" in accept_header
+        logger.info(f"MCP tools/call Accept header: '{accept_header}', use_sse={use_sse}")
+
         tool = tool_class()
-        try:
-            result = await tool.execute(arguments, db, user, organization)
-            return _mcp_response(jsonrpc_response(request.id, {
-                "content": [{"type": "text", "text": json.dumps(result)}],
-                "isError": False,
-            }))
-        except Exception as e:
-            logger.exception(f"Tool execution error: {e}")
-            return _mcp_response(jsonrpc_response(request.id, {
-                "content": [{"type": "text", "text": str(e)}],
-                "isError": True,
-            }))
+
+        if not use_sse:
+            # Non-streaming fallback: return plain JSON as before
+            try:
+                result = await tool.execute(arguments, db, user, organization)
+                return _mcp_response(jsonrpc_response(request.id, {
+                    "content": [{"type": "text", "text": json.dumps(result)}],
+                    "isError": False,
+                }))
+            except Exception as e:
+                logger.exception(f"Tool execution error: {e}")
+                return _mcp_response(jsonrpc_response(request.id, {
+                    "content": [{"type": "text", "text": str(e)}],
+                    "isError": True,
+                }))
+
+        # SSE streaming: send progress heartbeats every 5s while tool executes
+        async def _sse_tool_stream():
+            tool_task = asyncio.create_task(tool.execute(arguments, db, user, organization))
+            heartbeat_count = 0
+
+            try:
+                while not tool_task.done():
+                    try:
+                        await asyncio.wait_for(asyncio.shield(tool_task), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        # Tool still running — send progress heartbeat
+                        heartbeat_count += 1
+                        progress_notification = {
+                            "jsonrpc": "2.0",
+                            "method": "notifications/progress",
+                            "params": {
+                                "progressToken": f"tool-{request.id}",
+                                "progress": heartbeat_count,
+                                "message": f"Processing {tool_name}...",
+                            },
+                        }
+                        yield f"event: message\ndata: {json.dumps(progress_notification)}\n\n"
+
+                # Tool finished — get result
+                result = tool_task.result()
+                final_response = jsonrpc_response(request.id, {
+                    "content": [{"type": "text", "text": json.dumps(result)}],
+                    "isError": False,
+                })
+                yield f"event: message\ndata: {json.dumps(final_response)}\n\n"
+
+            except Exception as e:
+                logger.exception(f"Tool execution error (SSE): {e}")
+                if not tool_task.done():
+                    tool_task.cancel()
+                error_response = jsonrpc_response(request.id, {
+                    "content": [{"type": "text", "text": str(e)}],
+                    "isError": True,
+                })
+                yield f"event: message\ndata: {json.dumps(error_response)}\n\n"
+
+        return StreamingResponse(
+            _sse_tool_stream(),
+            media_type="text/event-stream",
+            headers={"MCP-Protocol-Version": MCP_PROTOCOL_VERSION, "Cache-Control": "no-cache"},
+        )
 
     elif request.method == "resources/list":
         return _mcp_response(jsonrpc_response(request.id, {
