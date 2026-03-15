@@ -54,6 +54,9 @@ from app.schemas.data_sources.configs import (
     # Timbr
     TimbrConfig,
     TimbrTokenCredentials,
+    # Sisense
+    SisenseConfig,
+    SisenseCredentials,
     # Credentials
     PostgreSQLCredentials,
     SQLiteCredentials,
@@ -498,6 +501,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             }
         ),
         client_path="app.data_sources.clients.timbr_client.TimbrClient",
+        requires_license="enterprise",
+    ),
+    "sisense": DataSourceRegistryEntry(
+        type="sisense",
+        title="Sisense",
+        description="Query Sisense ElastiCubes and live models via SQL. Auto-discovers data models, tables, and dashboards.",
+        config_schema=SisenseConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                "userpass": AuthVariant(
+                    title="Username / Password",
+                    schema=SisenseCredentials,
+                    scopes=["system", "user"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.sisense_client.SisenseClient",
         requires_license="enterprise",
     ),
 }
