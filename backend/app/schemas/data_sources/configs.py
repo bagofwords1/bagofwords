@@ -226,6 +226,18 @@ class MssqlConfig(SQLConfig):
         description="Optional schema or comma-separated list of schemas",
         json_schema_extra={"ui:type": "string"}
     )
+    odbc_driver: int = Field(
+        18,
+        title="ODBC Driver Version",
+        description="ODBC driver version (17 or 18). Use 17 for SQL Server 2008 compatibility",
+        json_schema_extra={"ui:type": "select", "ui:options": [17, 18]}
+    )
+    encrypt: bool = Field(
+        True,
+        title="Encrypt Connection",
+        description="Encrypt the connection. Disable for SQL Server 2008 without TLS support",
+        json_schema_extra={"ui:type": "boolean"}
+    )
 
 
 class SybaseConfig(SQLConfig):

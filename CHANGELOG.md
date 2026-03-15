@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.337 (March 15, 2026)
+- added support for MSSQL 2008 (ODBC 17)
+- Improve artifact generation (speed and reliability)
+
 ## Version 0.0.336 (March 12, 2026)
 - feat: notification service for sending emails — supports dashboard sharing, conversation sharing, and scheduled report delivery with optional PDF attachment
 

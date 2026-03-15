@@ -11,13 +11,20 @@ from functools import cached_property
 
 
 class MSSQLClient(DataSourceClient):
-    def __init__(self, host, port, database, user, password, schema: Optional[str] = None):
+    SUPPORTED_ODBC_DRIVERS = {17, 18}
+
+    def __init__(self, host, port, database, user, password, schema: Optional[str] = None,
+                 odbc_driver: int = 18, encrypt: bool = True):
         self.host = host
         self.port = port
         self.database = database
         self.user = user
         self.password = password
         self.schema = schema
+        self.odbc_driver = int(odbc_driver)
+        if self.odbc_driver not in self.SUPPORTED_ODBC_DRIVERS:
+            raise ValueError(f"Unsupported ODBC driver version: {self.odbc_driver}. Supported: {sorted(self.SUPPORTED_ODBC_DRIVERS)}")
+        self.encrypt = encrypt
         self._schemas = []
         if isinstance(self.schema, str) and self.schema.strip():
             parts = [s.strip() for s in self.schema.split(",") if s.strip()]
@@ -29,10 +36,16 @@ class MSSQLClient(DataSourceClient):
 
     @cached_property
     def sql_server_uri(self):
+        from urllib.parse import quote_plus
+        driver_name = f"ODBC Driver {self.odbc_driver} for SQL Server"
+        driver_encoded = quote_plus(driver_name)
         uri = (
             f"mssql+pyodbc://{self.user}:{self.password}@"
-            f"{self.host}:{self.port}/{self.database}?driver=ODBC+Driver+18+for+SQL+Server&TrustServerCertificate=yes"
+            f"{self.host}:{self.port}/{self.database}"
+            f"?driver={driver_encoded}&TrustServerCertificate=yes"
         )
+        if not self.encrypt:
+            uri += "&Encrypt=no"
         return uri
 
     @contextmanager

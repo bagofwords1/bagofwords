@@ -14,6 +14,7 @@ from app.schemas.data_sources.configs import (
     BigQueryConfig,
     NetSuiteConfig,
     SQLConfig,
+    MssqlConfig,
     PrestoConfig,
     GoogleAnalyticsConfig,
     GCPConfig,
@@ -270,7 +271,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         type="MSSQL",
         title="Microsoft SQL Server",
         description="MSSQL is Microsoft's relational database for managing and analyzing data.",
-        config_schema=SQLConfig,
+        config_schema=MssqlConfig,
         credentials_auth=AuthOptions(default="userpass", by_auth={
             "userpass": AuthVariant(title="Username / Password", schema=SQLCredentials, scopes=["system","user"])
         }),
