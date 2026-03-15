@@ -168,13 +168,13 @@ async def notify_report(
     if payload.type == NotificationType.SCHEDULE_REPORT and report.status != "published":
         raise HTTPException(status_code=400, detail="Schedule notifications are only available for published reports")
 
-    # Guard: email channel requires SMTP
-    if NotificationChannel.EMAIL in payload.channels and not app_settings.email_client:
-        raise HTTPException(status_code=400, detail="Email notifications are not available (SMTP not configured)")
-
     # Guard: share_url required for share types
     if payload.type in (NotificationType.SHARE_DASHBOARD, NotificationType.SHARE_CONVERSATION) and not payload.share_url:
         raise HTTPException(status_code=400, detail="share_url is required for share notifications")
+
+    # Guard: email channel requires SMTP
+    if NotificationChannel.EMAIL in payload.channels and not app_settings.email_client:
+        raise HTTPException(status_code=400, detail="Email notifications are not available (SMTP not configured)")
 
     # Build share_url for schedule type if not provided
     share_url = payload.share_url or f"{app_settings.bow_config.base_url}/r/{report.id}"
