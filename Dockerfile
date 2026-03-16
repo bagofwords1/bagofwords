@@ -91,7 +91,7 @@ RUN apt-get update && \
     curl -sSL -o /tmp/packages-microsoft-prod.deb https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb && \
     dpkg -i /tmp/packages-microsoft-prod.deb && rm /tmp/packages-microsoft-prod.deb && \
     apt-get update && \
-    ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql17 msodbcsql18 mssql-tools18 unixodbc tdsodbc freetds-dev && \
+    ACCEPT_EULA=Y apt-get install -y --no-install-recommends msodbcsql18 mssql-tools18 unixodbc tdsodbc freetds-common && \
     # For PPTX to PNG preview generation (slides mode)
     apt-get install -y --no-install-recommends libreoffice-impress poppler-utils && \
     apt-get clean && \
