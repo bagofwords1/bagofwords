@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.338 (March 16, 2026)
+- minor fixes and changes
+
 ## Version 0.0.337 (March 15, 2026)
 - added support for MSSQL 2008 (ODBC 17)
 - improve artifact generation (speed and reliability)
