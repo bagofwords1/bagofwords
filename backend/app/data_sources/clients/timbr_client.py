@@ -134,7 +134,11 @@ class TimbrClient(DataSourceClient):
         return schemas
 
     def _get_concept_schema(self) -> Optional[str]:
-        """Pick the richest accessible concept schema, or None."""
+        """Pick the richest accessible concept schema, or None.
+
+        Falls back to probing each schema directly when sys_permissions
+        does not contain schema-level grants.
+        """
         if self._concept_schema is not None:
             return self._concept_schema
         schemas = self._get_accessible_schemas()
@@ -143,6 +147,19 @@ class TimbrClient(DataSourceClient):
                 self._concept_schema = s
                 logger.info(f"Timbr concept schema selected: {s}")
                 return s
+
+        # Fallback: permissions didn't list schemas explicitly —
+        # probe each schema with a lightweight query.
+        logger.info("No schema-level permissions found, probing schemas directly")
+        for s in _CONCEPT_SCHEMAS_RANKED:
+            rows = self._query_internal(
+                f"SELECT 1 FROM `{s}`.`thing` LIMIT 1"
+            )
+            if rows:
+                self._concept_schema = s
+                logger.info(f"Timbr concept schema discovered by probing: {s}")
+                return s
+
         return None
 
     # ------------------------------------------------------------------
@@ -231,7 +248,13 @@ class TimbrClient(DataSourceClient):
                     ))
 
         # --- Views (vtimbr) ---
-        if "vtimbr" in accessible:
+        has_vtimbr = "vtimbr" in accessible
+        if not has_vtimbr:
+            # Probe vtimbr if permissions didn't list it
+            has_vtimbr = bool(self._query_internal(
+                "SELECT view_name FROM timbr.sys_views LIMIT 1"
+            ))
+        if has_vtimbr:
             views = self._discover_views()
             tables.extend(views)
 
