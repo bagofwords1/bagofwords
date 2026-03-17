@@ -1,6 +1,6 @@
 # Release Notes
 
-## Version 0.0.338 (March 17, 2026)
+## Version 0.0.339 (March 17, 2026)
 - Sybase connector to support owner schema
 
 ## Version 0.0.338 (March 16, 2026)
