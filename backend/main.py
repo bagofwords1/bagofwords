@@ -34,6 +34,7 @@ from app.core.cors import init_cors
 from app.core.scheduler import scheduler
 from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
+from app.core.otel import setup_telemetry, instrument_app
 
 from app.routes import (
     report,
@@ -82,7 +83,8 @@ from app.ee.license import get_license_info
 # Initialize logging
 loggers = setup_logging()
 logger = get_logger(__name__)
-
+# Initialize OpenTelemetry if enabled (before app creation)
+setup_telemetry(settings.bow_config.otel)
 # Read configuration
 enable_google_oauth = settings.bow_config.google_oauth.enabled
 google_client_id = settings.bow_config.google_oauth.client_id
@@ -109,6 +111,8 @@ app = FastAPI(
     swagger_ui_oauth2_redirect_url="/api/auth/jwt/login"
 )
 
+# Instrument FastAPI with OpenTelemetry
+instrument_app(app, settings.bow_config.otel)
 init_cors(app)
 
 oauth_providers = []

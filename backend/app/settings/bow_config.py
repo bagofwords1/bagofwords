@@ -33,6 +33,23 @@ class FeatureFlags(BaseModel):
     allow_multiple_organizations: bool = False
     verify_emails: bool = False
 
+class OTELConfig(BaseModel):
+    enabled: bool = False
+    service_name: str = "bagofwords-backend"
+    traces_endpoint: str = "http://localhost:4317"
+    protocol: str = "grpc"  # grpc or http/protobuf
+    headers: Optional[str] = ""  # format: key1=value1,key2=value2
+
+    def get_headers(self) -> dict:
+        """Parse OTLP headers from environment variable format: key1=value1,key2=value2"""
+        if not self.headers:
+            return {}
+        headers = {}
+        for pair in self.headers.split(","):
+            if "=" in pair:
+                key, value = pair.split("=", 1)
+                headers[key.strip()] = value.strip()
+        return headers
 
 class AuthConfig(BaseModel):
     # local_only | sso_only | hybrid
@@ -170,6 +187,7 @@ class BowConfig(BaseModel):
     intercom: Intercom = Intercom()
     telemetry: Telemetry = Telemetry()
     license: LicenseConfig = LicenseConfig()
+    otel: OTELConfig = OTELConfig()
 
     @validator('encryption_key')
     def validate_encryption_key(cls, v):

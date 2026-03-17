@@ -58,6 +58,13 @@ config:
   allowMultipleOrganizations: false
   verifyEmails: false
   uvicornWorkers: ""
+  otel:
+    enabled: false
+    service_name: "bagofwords-backend"
+    traces_endpoint: "http://localhost:4317"
+    protocol: "grpc" # grpc or http/protobuf
+    headers: "" # format: key1=value1,key2=value2
+
   # List of OIDC providers to enable (empty by default)
   # Example:
   # oidcProviders:

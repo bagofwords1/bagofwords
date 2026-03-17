@@ -106,6 +106,13 @@ data:
       auth:
         mode: ${BOW_AUTH_MODE}
 
+    otel:
+      enabled: {{ .Values.config.otel.enabled | quote }}
+      service_name: {{ .Values.config.otel.service_name }}
+      traces_endpoint: {{ .Values.config.otel.traces_endpoint }}
+      protocol: {{ .Values.config.otel.protocol}}
+      headers: {{ .Values.config.otel.headers }}
+
     # OpenID Connect providers
     oidc_providers:
 {{- if .Values.config.oidcProviders }}
