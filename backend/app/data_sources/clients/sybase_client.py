@@ -117,21 +117,22 @@ class SybaseClient(DataSourceClient):
         This is a Sybase SQL Anywhere database (Watcom SQL dialect).
         You can call the execute_query method to run SQL queries.
 
-        IMPORTANT: Tables must ALWAYS be referenced with their owner prefix using double quotes: "owner"."table_name".
-        The schema provides table names in owner.table_name format — use them with double quotes in SQL.
-        Example: if schema shows myowner.mytable, query it as "myowner"."mytable".
+        IMPORTANT: Tables must ALWAYS be referenced with their owner prefix: owner.table_name (no quotes).
+        The schema provides table names in owner.table_name format — use them exactly as given in SQL.
+        Example: if schema shows myowner.mytable, query it as myowner.mytable.
+        Do NOT quote table names with double quotes or single quotes.
 
         ```python
-        df = client.execute_query('SELECT TOP 10 * FROM "myowner"."mytable" ORDER BY name')
+        df = client.execute_query("SELECT TOP 10 * FROM myowner.mytable ORDER BY name")
         ```
         or:
         ```python
-        df = client.execute_query('SELECT sum(amount) FROM "myowner"."mytable" WHERE store_id=1 AND order_date BETWEEN 20230101 AND 20230131 AND status IN (\'active\',\'pending\')')
+        df = client.execute_query("SELECT sum(amount) FROM myowner.mytable WHERE store_id=1 AND order_date BETWEEN 20230101 AND 20230131 AND status IN ('active','pending')")
         ```
 
         IMPORTANT - Sybase SQL Anywhere dialect differences:
 
-        Table references: ALWAYS use "owner"."table_name" with double quotes.
+        Table references: ALWAYS use owner.table_name without quotes (e.g., BI.mytable, DBA.mytable).
         Date values: Dates may be stored as integers in YYYYMMDD format (e.g., 20230510). Check column types.
         Date ranges: Use BETWEEN for date ranges (e.g., sale_date BETWEEN 20230101 AND 20231231).
         Pagination: use TOP n (after SELECT) or LIMIT n (at end). "TOP 5 START AT 11" skips 10 rows (1-based). FETCH FIRST is NOT supported.
