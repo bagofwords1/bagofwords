@@ -56,12 +56,14 @@ class SybaseClient(DataSourceClient):
             with self.connect() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT t.table_name, c.column_name, d.domain_name AS data_type
+                    SELECT u.user_name || '.' || t.table_name AS table_name,
+                           c.column_name, d.domain_name AS data_type
                     FROM SYS.SYSTABCOL c
                     JOIN SYS.SYSTAB t ON c.table_id = t.table_id
                     JOIN SYS.SYSDOMAIN d ON c.domain_id = d.domain_id
+                    JOIN SYS.SYSUSER u ON t.creator = u.user_id
                     WHERE t.creator NOT IN (0, 3)
-                    ORDER BY t.table_name, c.column_id
+                    ORDER BY u.user_name, t.table_name, c.column_id
                 """)
                 rows = cursor.fetchall()
 
@@ -115,17 +117,24 @@ class SybaseClient(DataSourceClient):
         This is a Sybase SQL Anywhere database (Watcom SQL dialect).
         You can call the execute_query method to run SQL queries.
 
+        IMPORTANT: Tables must ALWAYS be referenced with their owner prefix using double quotes: "owner"."table_name".
+        The schema provides table names in owner.table_name format — use them with double quotes in SQL.
+        Example: if schema shows myowner.mytable, query it as "myowner"."mytable".
+
         ```python
-        df = client.execute_query("SELECT TOP 10 * FROM employees ORDER BY name")
+        df = client.execute_query('SELECT TOP 10 * FROM "myowner"."mytable" ORDER BY name')
         ```
         or:
         ```python
-        df = client.execute_query("SELECT department, COUNT(*) AS cnt FROM employees GROUP BY department")
+        df = client.execute_query('SELECT sum(amount) FROM "myowner"."mytable" WHERE store_id=1 AND order_date BETWEEN 20230101 AND 20230131 AND status IN (\'active\',\'pending\')')
         ```
 
         IMPORTANT - Sybase SQL Anywhere dialect differences:
 
-        Pagination: use TOP n or LIMIT n. "TOP 5 START AT 11" skips 10 rows (1-based). FETCH FIRST is NOT supported.
+        Table references: ALWAYS use "owner"."table_name" with double quotes.
+        Date values: Dates may be stored as integers in YYYYMMDD format (e.g., 20230510). Check column types.
+        Date ranges: Use BETWEEN for date ranges (e.g., sale_date BETWEEN 20230101 AND 20231231).
+        Pagination: use TOP n (after SELECT) or LIMIT n (at end). "TOP 5 START AT 11" skips 10 rows (1-based). FETCH FIRST is NOT supported.
         Current date/time: NOW(), GETDATE(), TODAY(), CURRENT DATE / CURRENT TIMESTAMP (space, not underscore).
         Date arithmetic: DATEADD(day, 7, date), DATEDIFF(day, d1, d2), DATEPART(year, date) or YEAR(date).
         Date formatting: DATEFORMAT(date, 'YYYY-MM-DD HH:NN:SS') — minutes are NN, not MI.
@@ -134,6 +143,7 @@ class SybaseClient(DataSourceClient):
         NULL handling: ISNULL(a, b) or COALESCE(a, b) both work.
         Find in string: LOCATE(haystack, needle) or CHARINDEX(needle, haystack).
         Boolean: BIT type with 0/1, not TRUE/FALSE.
+        Not-equal: Use <> (not !=).
 
         DO NOT use: EXTRACT(), INTERVAL, TO_CHAR(), STRING_AGG(), ILIKE, GENERATE_SERIES(), FETCH FIRST.
         """
