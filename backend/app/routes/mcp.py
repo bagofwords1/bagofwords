@@ -337,25 +337,16 @@ async def mcp_endpoint(
         # SSE streaming: send progress heartbeats every 5s while tool executes
         async def _sse_tool_stream():
             tool_task = asyncio.create_task(tool.execute(arguments, db, user, organization))
-            heartbeat_count = 0
 
             try:
                 while not tool_task.done():
                     try:
                         await asyncio.wait_for(asyncio.shield(tool_task), timeout=5.0)
                     except asyncio.TimeoutError:
-                        # Tool still running — send progress heartbeat
-                        heartbeat_count += 1
-                        progress_notification = {
-                            "jsonrpc": "2.0",
-                            "method": "notifications/progress",
-                            "params": {
-                                "progressToken": f"tool-{request.id}",
-                                "progress": heartbeat_count,
-                                "message": f"Processing {tool_name}...",
-                            },
-                        }
-                        yield f"event: message\ndata: {json.dumps(progress_notification)}\n\n"
+                        # Tool still running — send SSE comment to keep connection alive.
+                        # Comments are ignored by all SSE clients per spec, so this
+                        # won't be mistaken for a tool result by any MCP client.
+                        yield ": keepalive\n\n"
 
                 # Tool finished — get result
                 result = tool_task.result()
