@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 from app.settings.config import settings
 from app.settings.db_auth import get_auth_provider
+from app.core.otel import instrument_db
 import logging
 import os
 
@@ -87,6 +88,9 @@ def create_database_engine():
 
     if db_config.uses_iam_auth:
         _attach_iam_auth_hook(engine, db_config)
+
+    # Instrument with OpenTelemetry
+    instrument_db(engine, settings.bow_config.otel)
 
     return engine
 
@@ -204,6 +208,9 @@ def create_async_database_engine():
             else:
                 database_url = "sqlite+aiosqlite:///./app.db"
             engine = create_async_engine(database_url, echo=False)
+
+    # Instrument with OpenTelemetry
+    instrument_db(engine, settings.bow_config.otel)
 
     return engine
 
