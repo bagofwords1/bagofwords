@@ -2,6 +2,7 @@
 
 ## Version 0.0.339 (March 17, 2026)
 - Sybase connector to support owner schema
+- Keep alive for long running MCP queries
 
 ## Version 0.0.338 (March 16, 2026)
 - minor fixes and changes
