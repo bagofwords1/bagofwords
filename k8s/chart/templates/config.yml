@@ -52,6 +52,9 @@ data:
   BOW_ALLOW_UNINVITED_SIGNUPS: {{.Values.config.allowUninvitedSignups | quote}}
   BOW_ALLOW_MULTIPLE_ORGANIZATIONS: {{.Values.config.allowMultipleOrganizations | quote}}
   BOW_VERIFY_EMAILS: {{.Values.config.verifyEmails | quote}}
+  {{- if .Values.config.uvicornWorkers }}
+  UVICORN_WORKERS: {{ .Values.config.uvicornWorkers | quote }}
+  {{- end }}
   # OIDC providers rendered as YAML inside the config file
   BOW_OIDC_JSON: {{ .Values.config.oidcProviders | toJson | quote }}
   # Enterprise license key (optional - prefer using secretRef for security)
