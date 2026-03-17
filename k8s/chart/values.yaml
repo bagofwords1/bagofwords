@@ -57,6 +57,7 @@ config:
   allowUninvitedSignups: false
   allowMultipleOrganizations: false
   verifyEmails: false
+  uvicornWorkers: ""
   # List of OIDC providers to enable (empty by default)
   # Example:
   # oidcProviders:
