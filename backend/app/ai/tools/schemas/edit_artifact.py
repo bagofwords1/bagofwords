@@ -12,8 +12,8 @@ class EditArtifactInput(BaseModel):
     """
 
     artifact_id: str = Field(..., description="ID of the existing artifact to edit. Find this in previous create_artifact or read_artifact results as 'artifact_id: <uuid>' in the conversation.")
-    edit_instruction: str = Field(..., description="Natural language description of the change to make. E.g., 'Remove the filter bar', 'Make the revenue chart blue', 'Add a KPI card for total users'.")
-    visualization_ids: Optional[List[str]] = Field(default=None, description="Optional list of NEW visualization IDs to add to the artifact. Existing visualization IDs are kept automatically. Only provide this if the edit requires adding new visualizations.")
+    edit_instruction: str = Field(..., description="Natural language description of the change to make. Be specific about what to change and how. E.g., 'Remove the filter bar', 'Make the revenue chart blue', 'Add a KPI card for total users'. Also use this to fix visual issues from a previous create_artifact (e.g., 'the bar chart is cut off on the right side', 'KPI cards are overlapping'). If adding new visualizations, describe where they should go in the layout.")
+    visualization_ids: Optional[List[str]] = Field(default=None, description="Optional list of NEW visualization IDs to add to the artifact (from create_data results). Existing visualization IDs are kept automatically. Provide this when the edit adds a new chart or data source that wasn't in the original artifact.")
     title: Optional[str] = Field(default=None, description="Updated title for the artifact. If not provided, the existing title is kept.")
 
 
