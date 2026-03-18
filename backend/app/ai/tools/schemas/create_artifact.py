@@ -11,7 +11,7 @@ class CreateArtifactInput(BaseModel):
     - visualization_ids: ordered list of visualization IDs to include
     """
 
-    prompt: str = Field(..., description="Instructions for the artifact. For new artifacts: describe layout, visualizations, and style. For modifications: describe what to change - previous code is automatically available in context.")
+    prompt: str = Field(..., description="Detailed instructions for building the artifact from scratch. Describe the desired layout, which visualizations go where, chart types, KPI cards, filters, color scheme, and any specific design preferences. Be specific — this prompt drives the entire generation. Do NOT use this tool to modify an existing artifact; use edit_artifact instead.")
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
     visualization_ids: List[str] = Field(..., min_length=1, description="Ordered list of visualization IDs (UUIDs) to include. Find these in previous create_data results as 'viz_id: <uuid>'. Must contain at least one. Include only visualizations important to the dashboard goal.")

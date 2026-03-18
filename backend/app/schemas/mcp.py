@@ -212,3 +212,29 @@ class MCPCreateArtifactOutput(BaseModel):
     mode: Optional[str] = None
     error_message: Optional[str] = None
     url: Optional[str] = Field(default=None, description="Link to view the artifact. Always share this with the user.")
+
+
+# === edit_artifact ===
+
+class MCPEditArtifactInput(BaseModel):
+    """Input for edit_artifact MCP tool.
+
+    Surgically edit an existing dashboard or artifact by applying targeted changes.
+    Preserves existing design and only modifies what is requested.
+    """
+    report_id: str = Field(..., description="Report ID containing the artifact.")
+    artifact_id: str = Field(..., description="ID of the existing artifact to edit.")
+    edit_instruction: str = Field(..., description="Natural language description of the change. E.g., 'Remove the filter bar', 'Make the revenue chart blue'.")
+    visualization_ids: Optional[List[str]] = Field(default=None, description="Optional list of NEW visualization IDs to add. Existing ones are kept automatically.")
+    title: Optional[str] = Field(default=None, description="Updated title. If not provided, existing title is kept.")
+
+
+class MCPEditArtifactOutput(BaseModel):
+    """Output for edit_artifact MCP tool."""
+    report_id: str
+    artifact_id: Optional[str] = None
+    success: bool
+    version: Optional[int] = Field(default=None, description="New version number after edit.")
+    diff_applied: Optional[bool] = Field(default=None, description="True if surgical diff was applied, False if fell back to full rewrite.")
+    error_message: Optional[str] = None
+    url: Optional[str] = Field(default=None, description="Link to view the edited artifact. Always share this with the user.")
