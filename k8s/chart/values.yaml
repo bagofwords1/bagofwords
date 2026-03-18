@@ -60,8 +60,8 @@ config:
   uvicornWorkers: ""
   otel:
     enabled: false
-    service_name: "bagofwords-backend"
-    traces_endpoint: "http://localhost:4317"
+    serviceName: "bagofwords-backend"
+    tracesEndpoint: "http://localhost:4317"
     protocol: "grpc" # grpc or http/protobuf
     headers: "" # format: key1=value1,key2=value2
 

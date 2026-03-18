@@ -108,10 +108,10 @@ data:
 
     otel:
       enabled: {{ .Values.config.otel.enabled | quote }}
-      service_name: {{ .Values.config.otel.service_name }}
-      traces_endpoint: {{ .Values.config.otel.traces_endpoint }}
-      protocol: {{ .Values.config.otel.protocol}}
-      headers: {{ .Values.config.otel.headers }}
+      serviceName: {{ .Values.config.otel.serviceName | quote }}
+      tracesEndpoint: {{ .Values.config.otel.tracesEndpoint | quote }}
+      protocol: {{ .Values.config.otel.protocol | quote}}
+      headers: {{ .Values.config.otel.headers | quote }}
 
     # OpenID Connect providers
     oidc_providers:

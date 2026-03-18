@@ -661,8 +661,8 @@ class ReportService:
     ):
         with tracer.start_as_current_span("get_reports") as span:
 
-            span.set_attribute("user.id", current_user.name)
-            span.set_attribute("org.id", organization.name)
+            span.set_attribute("user.id", str(current_user.name))
+            span.set_attribute("org.id", str(organization.name))
             # Calculate offset
             offset = (page - 1) * limit
 
@@ -766,7 +766,7 @@ class ReportService:
                         report_schema.thumbnail_url = f"/thumbnails/{filename}"
 
                 report_schemas.append(report_schema)
-                span.add_event("report schemas ready")
+            span.add_event("report schemas ready")
 
             # Calculate pagination metadata
             total_pages = (total + limit - 1) // limit  # Ceiling division

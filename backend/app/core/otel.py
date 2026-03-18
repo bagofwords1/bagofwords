@@ -69,12 +69,12 @@ def _setup_tracing(config: OTELConfig, resource: Resource) -> None:
     if config.protocol == "grpc":
         otlp_exporter = GRPCSpanExporter(
             endpoint=config.traces_endpoint,
-            headers=config.headers,
+            headers=config.get_headers(),
         )
     else:  # http/protobuf
         otlp_exporter = HTTPSpanExporter(
             endpoint=config.traces_endpoint,
-            headers=config.headers,
+            headers=config.get_headers(),
         )
 
     provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
@@ -84,7 +84,7 @@ def _setup_tracing(config: OTELConfig, resource: Resource) -> None:
 
 
 def _setup_metrics(config: OTELConfig, resource: Resource) -> None:
-    """not implement yet."""
+    """Not implement yet."""
     return None
 
 

@@ -1,5 +1,6 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, ConfigDict, AliasGenerator
+from pydantic.alias_generators import to_camel
 import os
 import secrets
 import base64
@@ -34,6 +35,12 @@ class FeatureFlags(BaseModel):
     verify_emails: bool = False
 
 class OTELConfig(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=AliasGenerator(
+            validation_alias=to_camel,
+            serialization_alias=to_camel,
+        )
+    )
     enabled: bool = False
     service_name: str = "bagofwords-backend"
     traces_endpoint: str = "http://localhost:4317"
