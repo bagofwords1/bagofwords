@@ -14,6 +14,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.ai.context.builders.code_context_builder import CodeContextBuilder
 from app.ai.schemas.codegen import CodeGenContext, CodeGenRequest
+from app.core.otel import get_tracer
+from opentelemetry.trace import StatusCode
+
+_tracer = get_tracer(__name__)
 
 
 # =============================================================================
@@ -224,7 +228,17 @@ class QueryCapturingClientWrapper:
         """Intercept execute_query calls to capture the query string."""
         if isinstance(query, str):
             self._captured_queries.append(query)
-        return self._original.execute_query(query, *args, **kwargs)
+        with _tracer.start_as_current_span("datasource.execute_query") as span:
+            span.set_attribute("datasource.type", type(self._original).__name__)
+            try:
+                result = self._original.execute_query(query, *args, **kwargs)
+                if hasattr(result, '__len__'):
+                    span.set_attribute("datasource.result_rows", len(result))
+                return result
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
 
     def __getattr__(self, name):
         """Delegate all other attributes to the original client."""

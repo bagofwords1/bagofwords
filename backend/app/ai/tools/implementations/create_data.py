@@ -2,6 +2,9 @@ import json
 import asyncio
 from typing import AsyncIterator, Dict, Any, Type, Optional, List, Union
 from pydantic import BaseModel
+from app.core.otel import get_tracer
+
+tracer = get_tracer(__name__)
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -284,6 +287,13 @@ class CreateDataTool(Tool):
         Returns a minimal DataModel dict validated against schema: at least { type, series? }.
         Fallback to {"type": "table", "series": []} on failure.
         """
+        with tracer.start_as_current_span("create_data.infer_visualization") as span:
+            return await self._infer_visualization_model_traced(span, runtime_ctx, user_prompt, messages_context, formatted, allow_llm_see_data)
+
+    async def _infer_visualization_model_traced(self, span, runtime_ctx, user_prompt, messages_context, formatted, allow_llm_see_data):
+        info = formatted.get("info", {}) if isinstance(formatted, dict) else {}
+        span.set_attribute("data.row_count", info.get("total_rows", 0) or 0)
+        span.set_attribute("data.column_count", info.get("total_columns", 0) or 0)
         llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
         profile = self._build_viz_profile(formatted, allow_llm_see_data)
 
@@ -479,6 +489,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         # Normalize: ensure series exists for non-table types
         if candidate.get("type") != "table" and not candidate.get("series"):
             candidate["series"] = []
+        span.set_attribute("viz.inferred_type", candidate.get("type", "table"))
 
         # Emit a progress event for UI when series/type are inferred
         try:
@@ -537,87 +548,91 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         data_sources: Optional[List[Any]] = None,
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Resolve table patterns to active tables only.
-        
+
         Args:
             tables_by_source: List of TablesBySource with table names/patterns
             schema_builder: SchemaContextBuilder instance
             data_sources: Optional list of data sources to get all ds_ids
-            
+
         Returns:
             (resolved_tables_by_source, warnings) where:
             - resolved_tables_by_source: List of dicts with resolved active table names
             - warnings: List of warning messages for patterns with no matches
         """
         import re
-        
-        if not tables_by_source or not schema_builder:
-            return [], ["No tables_by_source or schema_builder provided"]
-        
-        resolved: List[Dict[str, Any]] = []
-        warnings: List[str] = []
 
-        for group in tables_by_source:
-            ds_id = str(group.data_source_id) if getattr(group, "data_source_id", None) else None
-            input_tables = getattr(group, "tables", []) or []
+        with tracer.start_as_current_span("create_data.resolve_active_tables") as span:
+            span.set_attribute("tables_by_source.count", len(tables_by_source or []))
 
-            if not input_tables:
-                continue
+            if not tables_by_source or not schema_builder:
+                return [], ["No tables_by_source or schema_builder provided"]
 
-            # Build name_patterns from table names (always escaped as literal)
-            name_patterns: List[str] = []
-            for name in input_tables:
-                if not isinstance(name, str) or not name.strip():
+            resolved: List[Dict[str, Any]] = []
+            warnings: List[str] = []
+
+            for group in tables_by_source:
+                ds_id = str(group.data_source_id) if getattr(group, "data_source_id", None) else None
+                input_tables = getattr(group, "tables", []) or []
+
+                if not input_tables:
                     continue
-                name = name.strip()
-                # Always escape - table names are concrete references, not regex patterns
-                esc = re.escape(name)
-                name_patterns.append(f"(?i)(?:^|[./]){esc}$")
-            
-            if not name_patterns:
-                continue
-            
-            # Resolve via schema_builder (only returns active tables)
-            try:
-                ctx = await schema_builder.build(
-                    with_stats=False,
-                    data_source_ids=[ds_id] if ds_id else None,
-                    name_patterns=name_patterns,
-                )
-                
-                # Extract resolved table names per data source
-                matched_by_ds: Dict[str, List[str]] = {}
-                for ds in (getattr(ctx, "data_sources", []) or []):
-                    ds_info = getattr(ds, "info", None)
-                    resolved_ds_id = getattr(ds_info, "id", None) if ds_info else None
-                    for t in (getattr(ds, "tables", []) or []):
-                        tbl_name = getattr(t, "name", None)
-                        if tbl_name:
-                            key = str(resolved_ds_id) if resolved_ds_id else "__all__"
-                            matched_by_ds.setdefault(key, []).append(tbl_name)
-                
-                # Build resolved group(s)
-                if ds_id:
-                    # Scoped to specific ds_id
-                    matched = matched_by_ds.get(ds_id, [])
-                    if matched:
-                        resolved.append({"data_source_id": ds_id, "tables": matched})
-                    else:
-                        warnings.append(f"No active tables matched patterns {input_tables} in data source {ds_id}")
-                else:
-                    # Cross-source: create one group per ds that had matches
-                    any_match = False
-                    for resolved_ds_id, matched in matched_by_ds.items():
+
+                # Build name_patterns from table names (always escaped as literal)
+                name_patterns: List[str] = []
+                for name in input_tables:
+                    if not isinstance(name, str) or not name.strip():
+                        continue
+                    name = name.strip()
+                    # Always escape - table names are concrete references, not regex patterns
+                    esc = re.escape(name)
+                    name_patterns.append(f"(?i)(?:^|[./]){esc}$")
+
+                if not name_patterns:
+                    continue
+
+                # Resolve via schema_builder (only returns active tables)
+                try:
+                    ctx = await schema_builder.build(
+                        with_stats=False,
+                        data_source_ids=[ds_id] if ds_id else None,
+                        name_patterns=name_patterns,
+                    )
+
+                    # Extract resolved table names per data source
+                    matched_by_ds: Dict[str, List[str]] = {}
+                    for ds in (getattr(ctx, "data_sources", []) or []):
+                        ds_info = getattr(ds, "info", None)
+                        resolved_ds_id = getattr(ds_info, "id", None) if ds_info else None
+                        for t in (getattr(ds, "tables", []) or []):
+                            tbl_name = getattr(t, "name", None)
+                            if tbl_name:
+                                key = str(resolved_ds_id) if resolved_ds_id else "__all__"
+                                matched_by_ds.setdefault(key, []).append(tbl_name)
+
+                    # Build resolved group(s)
+                    if ds_id:
+                        # Scoped to specific ds_id
+                        matched = matched_by_ds.get(ds_id, [])
                         if matched:
-                            any_match = True
-                            actual_ds_id = None if resolved_ds_id == "__all__" else resolved_ds_id
-                            resolved.append({"data_source_id": actual_ds_id, "tables": matched})
-                    if not any_match:
-                        warnings.append(f"No active tables matched patterns {input_tables} across any data source")
-                        
-            except Exception as e:
-                warnings.append(f"Failed to resolve tables {input_tables}: {str(e)}")
-        
-        return resolved, warnings
+                            resolved.append({"data_source_id": ds_id, "tables": matched})
+                        else:
+                            warnings.append(f"No active tables matched patterns {input_tables} in data source {ds_id}")
+                    else:
+                        # Cross-source: create one group per ds that had matches
+                        any_match = False
+                        for resolved_ds_id, matched in matched_by_ds.items():
+                            if matched:
+                                any_match = True
+                                actual_ds_id = None if resolved_ds_id == "__all__" else resolved_ds_id
+                                resolved.append({"data_source_id": actual_ds_id, "tables": matched})
+                        if not any_match:
+                            warnings.append(f"No active tables matched patterns {input_tables} across any data source")
+
+                except Exception as e:
+                    warnings.append(f"Failed to resolve tables {input_tables}: {str(e)}")
+
+            span.set_attribute("tables.resolved_count", sum(len(g.get("tables", [])) for g in resolved))
+            return resolved, warnings
 
     @staticmethod
     def _summarize_errors(errors) -> dict:
@@ -661,6 +676,12 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         return CreateDataOutput
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
+        with tracer.start_as_current_span("create_data.run_stream") as run_span:
+            run_span.set_attribute("tool.title", (tool_input or {}).get("title", ""))
+            async for event in self._run_stream_traced(run_span, tool_input, runtime_ctx):
+                yield event
+
+    async def _run_stream_traced(self, run_span, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = CreateDataInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title})
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "init"})
@@ -842,6 +863,7 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
                 history_summary = ""
 
         # Code generation and execution with retries
+        run_span.add_event("context_built")
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_code"})
 
         coder = Coder(
@@ -870,24 +892,28 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
         output_log = ""
         executed_queries = []
 
-        async for e in streamer.generate_and_execute_stream_v2(
-            request=CodeGenRequest(context=codegen_context, retries=2),
-            ds_clients=runtime_ctx.get("ds_clients", {}),
-            excel_files=runtime_ctx.get("excel_files", []),
-            code_context_builder=None,
-            code_generator_fn=coder.generate_code,
-            sigkill_event=runtime_ctx.get("sigkill_event"),
-        ):
-            if e["type"] == "progress":
-                yield ToolProgressEvent(type="tool.progress", payload=e["payload"]) 
-            elif e["type"] == "stdout":
-                yield ToolStdoutEvent(type="tool.stdout", payload=e["payload"]) 
-            elif e["type"] == "done":
-                generated_code = e["payload"].get("code")
-                code_errors = e["payload"].get("errors") or []
-                output_log = e["payload"].get("execution_log") or ""
-                exec_df = e["payload"].get("df")
-                executed_queries = e["payload"].get("executed_queries") or []
+        with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
+            async for e in streamer.generate_and_execute_stream_v2(
+                request=CodeGenRequest(context=codegen_context, retries=2),
+                ds_clients=runtime_ctx.get("ds_clients", {}),
+                excel_files=runtime_ctx.get("excel_files", []),
+                code_context_builder=None,
+                code_generator_fn=coder.generate_code,
+                sigkill_event=runtime_ctx.get("sigkill_event"),
+            ):
+                if e["type"] == "progress":
+                    yield ToolProgressEvent(type="tool.progress", payload=e["payload"])
+                elif e["type"] == "stdout":
+                    yield ToolStdoutEvent(type="tool.stdout", payload=e["payload"])
+                elif e["type"] == "done":
+                    generated_code = e["payload"].get("code")
+                    code_errors = e["payload"].get("errors") or []
+                    output_log = e["payload"].get("execution_log") or ""
+                    exec_df = e["payload"].get("df")
+                    executed_queries = e["payload"].get("executed_queries") or []
+            codegen_span.set_attribute("codegen.success", generated_code is not None and exec_df is not None)
+            codegen_span.set_attribute("codegen.error_count", len(code_errors))
+            codegen_span.set_attribute("codegen.query_count", len(executed_queries))
 
         if generated_code is None or exec_df is None:
             current_step_id = runtime_ctx.get("current_step_id")
@@ -1009,6 +1035,8 @@ Do NOT use generic placeholders like "value" unless that's the actual column nam
             observation["view"] = view_payload
         if current_step_id:
             observation["step_id"] = current_step_id
+        run_span.set_attribute("tool.success", True)
+        run_span.set_attribute("tool.chart_type", final_dm.get("type", "table"))
         yield ToolEndEvent(
             type="tool.end",
             payload={
