@@ -44,9 +44,9 @@ class ObservationContextBuilder:
         # Compact previous artifact observations (keep-last-only for code)
         # This ensures only the most recent artifact code is in context
         # Applies to both create_artifact and read_artifact tools
-        if tool_name in ("create_artifact", "read_artifact"):
+        if tool_name in ("create_artifact", "read_artifact", "edit_artifact"):
             for prev_obs in self.tool_observations:
-                if prev_obs["tool_name"] in ("create_artifact", "read_artifact"):
+                if prev_obs["tool_name"] in ("create_artifact", "read_artifact", "edit_artifact"):
                     prev_observation = prev_obs.get("observation", {})
                     if "code" in prev_observation:
                         code_len = len(prev_observation["code"])

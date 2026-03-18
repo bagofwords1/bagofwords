@@ -288,7 +288,7 @@ def test_mcp_tools_list(
     assert "tools" in data["result"]
 
     tools = data["result"]["tools"]
-    assert len(tools) == 10
+    assert len(tools) == 11
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
@@ -415,7 +415,7 @@ def test_mcp_rest_tools_endpoint(
     assert "tools" in data
 
     tools = data["tools"]
-    assert len(tools) == 10
+    assert len(tools) == 11
 
     tool_names = [t["name"] for t in tools]
     assert "create_report" in tool_names
