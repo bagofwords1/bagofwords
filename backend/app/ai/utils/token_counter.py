@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import logging
 from typing import Optional
 
@@ -16,22 +17,19 @@ except Exception as _exc:  # pragma: no cover
 _DEFAULT_ENCODING = "cl100k_base"
 
 
+@functools.lru_cache(maxsize=16)
 def _get_encoding(model_name: Optional[str]):
     if tiktoken is None:
         return None
     try:
         if model_name and hasattr(tiktoken, "encoding_for_model"):
             enc = tiktoken.encoding_for_model(model_name)
-            logger.debug("tiktoken encoding loaded for model=%s", model_name)
             return enc
-    except Exception as e:
-        logger.debug("tiktoken encoding_for_model failed for model=%s: %s, falling back to %s", model_name, e, _DEFAULT_ENCODING)
+    except Exception:
+        pass
     try:
-        enc = tiktoken.get_encoding(_DEFAULT_ENCODING)
-        logger.debug("tiktoken using fallback encoding=%s", _DEFAULT_ENCODING)
-        return enc
-    except Exception as e:
-        logger.warning("tiktoken failed to load fallback encoding=%s: %s", _DEFAULT_ENCODING, e)
+        return tiktoken.get_encoding(_DEFAULT_ENCODING)
+    except Exception:
         return None
 
 

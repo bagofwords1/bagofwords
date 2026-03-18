@@ -1,5 +1,11 @@
 # Release Notes
 
+## Version 0.0.341 (March 18, 2026)
+- add opentelemetry
+
+## Version 0.0.340 (March 18, 2026)
+- create/edit artifact tool improvements
+
 ## Version 0.0.339 (March 17, 2026)
 - Sybase connector to support owner schema
 - Keep alive for long running MCP queries

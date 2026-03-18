@@ -47,6 +47,8 @@ from sqlalchemy.orm import selectinload
 
 from fastapi import BackgroundTasks, HTTPException
 from app.core.telemetry import telemetry
+from app.core.otel import get_tracer
+from opentelemetry.trace import StatusCode
 
 from app.ai.agent_v2 import AgentV2
 from pydantic import ValidationError
@@ -131,6 +133,9 @@ async def _get_instruction_suggestions_for_completion(
 
 
 import re
+
+tracer = get_tracer(__name__)
+
 
 class CompletionService:
 
@@ -346,6 +351,37 @@ class CompletionService:
         external_channel_id: str = None,
         external_channel_type: str = None,
     ):
+        with tracer.start_as_current_span("completion.create") as span:
+            span.set_attribute("report.id", str(report_id))
+            span.set_attribute("completion.background", background)
+            try:
+                return await self._create_completion_traced(
+                    span, db, report_id, completion_data, current_user, organization,
+                    background, external_user_id, external_platform, build_id,
+                    external_thread_ts, external_message_ts, external_channel_id, external_channel_type,
+                )
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
+
+    async def _create_completion_traced(
+        self,
+        span,
+        db: AsyncSession,
+        report_id: str,
+        completion_data: CompletionCreate,
+        current_user: User,
+        organization: Organization,
+        background: bool = False,
+        external_user_id: str = None,
+        external_platform: str = None,
+        build_id: str = None,
+        external_thread_ts: str = None,
+        external_message_ts: str = None,
+        external_channel_id: str = None,
+        external_channel_type: str = None,
+    ):
         try:
             print("CompletionService: Starting create_completion (v2, non-stream)")
 
@@ -373,24 +409,28 @@ class CompletionService:
             else:
                 step = None
 
+            span.add_event("validation_done")
+
             # Get default model - this is critical
 
             if completion_data.prompt and completion_data.prompt.model_id:
                 model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
             else:
                 model = await organization.get_default_llm_model(db)
-            
+
             small_model = await self.llm_service.get_default_model(db, organization, current_user, is_small=True)
-            
+
             if not model:
                 raise HTTPException(
                     status_code=400,
                     detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
-            
+
             # Fallback: if no small model configured, use the main model
             if not small_model:
                 small_model = model
+
+            span.set_attribute("llm.model_id", model.model_id)
 
             # Create user completion (head)
             prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
@@ -421,6 +461,9 @@ class CompletionService:
             except Exception as e:
                 await db.rollback()
                 raise HTTPException(status_code=500, detail=f"Failed to save user completion: {str(e)}")
+
+            span.set_attribute("completion.head_id", str(head_completion.id))
+            span.add_event("head_completion_saved")
 
             # Mark image files with this completion_id (so they show attached to this message)
             await self._mark_images_with_completion(db, report.id, str(head_completion.id))
@@ -472,6 +515,9 @@ class CompletionService:
             except Exception as e:
                 await db.rollback()
                 raise HTTPException(status_code=500, detail=f"Failed to save system completion: {str(e)}")
+
+            span.set_attribute("completion.system_id", str(system_completion.id))
+            span.add_event("system_completion_saved")
 
             org_settings = await organization.get_settings(db)
             resolved_build_id = await self._resolve_build_id(db, organization, build_id)
@@ -544,10 +590,12 @@ class CompletionService:
             else:
                 try:
                     # Foreground execution (wait and return final v2)
-                    clients = {}
-                    for data_source in report.data_sources:
-                        ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
-                        clients.update(ds_clients)
+                    with tracer.start_as_current_span("completion.construct_clients") as clients_span:
+                        clients = {}
+                        for data_source in report.data_sources:
+                            ds_clients = await self.data_source_service.construct_clients(db, data_source, current_user)
+                            clients.update(ds_clients)
+                        clients_span.set_attribute("data_sources.count", len(report.data_sources))
                     # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
                     _ = report.files
                     agent = AgentV2(
@@ -565,12 +613,16 @@ class CompletionService:
                         clients=clients,
                         build_id=resolved_build_id,
                     )
-                    await agent.main_execution()
+                    span.add_event("agent_execution_started")
+                    with tracer.start_as_current_span("completion.agent_execution"):
+                        await agent.main_execution()
+                    span.add_event("agent_execution_finished")
 
                     # Assemble v2 for the new message pair (user + system children)
-                    response_completions = await self._get_response_completions(db, head_completion, current_user, organization)
-                    ids = [c.id for c in response_completions]
-                    v2_list = await self._assemble_v2_for_completion_ids(db, ids)
+                    with tracer.start_as_current_span("completion.assemble_v2_response"):
+                        response_completions = await self._get_response_completions(db, head_completion, current_user, organization)
+                        ids = [c.id for c in response_completions]
+                        v2_list = await self._assemble_v2_for_completion_ids(db, ids)
 
                     # Compute aggregates similar to get_completions_v2 but for this set
                     earliest = min((c.created_at for c in v2_list), default=None)
@@ -675,6 +727,12 @@ class CompletionService:
         then sorted ascending for UI render. If `before` is provided (ISO8601), fetches
         items strictly before that timestamp (cursor pagination).
         """
+        with tracer.start_as_current_span("completion.get_completions_v2") as span:
+            span.set_attribute("report.id", str(report_id))
+            span.set_attribute("completions.limit", limit)
+            return await self._get_completions_v2_traced(span, db, report_id, organization, current_user, limit, before)
+
+    async def _get_completions_v2_traced(self, span, db, report_id, organization, current_user, limit, before):
         # Validate access
         report = await self.report_service.get_report(db, report_id, current_user, organization)
         if not report:
@@ -715,6 +773,8 @@ class CompletionService:
 
         completion_ids = [c.id for c in all_completions]
         system_completion_ids = [c.id for c in all_completions if c.role == 'system']
+        span.set_attribute("completions.count", len(all_completions))
+        span.add_event("completions_fetched")
 
         # 2) Fetch agent executions for these completions (both roles to map quickly)
         ae_stmt = select(AgentExecution).where(AgentExecution.completion_id.in_(completion_ids))
@@ -812,6 +872,8 @@ class CompletionService:
             vis_res = await db.execute(vis_stmt)
             for v in vis_res.scalars().all():
                 visualization_map[v.id] = v
+
+        span.add_event("batch_queries_done")
 
         # 5) Build per-completion block lists and compute aggregates using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in completion_ids}
@@ -1031,6 +1093,8 @@ class CompletionService:
         # 8) Global aggregates
         earliest = min((c.created_at for c in all_completions), default=None)
         latest = max((c.updated_at for c in all_completions), default=None)
+        span.set_attribute("completions.total_blocks", total_blocks)
+        span.add_event("assembly_done")
 
         return CompletionsV2Response(
             report_id=report_id,
@@ -1454,6 +1518,30 @@ class CompletionService:
         build_id: str = None,
     ):
         """Create a completion with real-time streaming events via SSE."""
+        with tracer.start_as_current_span("completion.create_stream") as span:
+            span.set_attribute("report.id", str(report_id))
+            try:
+                return await self._create_completion_stream_traced(
+                    span, db, report_id, completion_data, current_user, organization,
+                    external_user_id, external_platform, build_id,
+                )
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise
+
+    async def _create_completion_stream_traced(
+        self,
+        span,
+        db: AsyncSession,
+        report_id: str,
+        completion_data: CompletionCreate,
+        current_user: User,
+        organization: Organization,
+        external_user_id: str = None,
+        external_platform: str = None,
+        build_id: str = None,
+    ):
         try:
             # Validate report exists (same as regular create_completion)
             result = await db.execute(select(Report).filter(Report.id == report_id))
@@ -1469,7 +1557,7 @@ class CompletionService:
                     raise HTTPException(status_code=404, detail="Widget not found")
             else:
                 widget = None
-            
+
             # Validate step if provided
             if completion_data.prompt.step_id:
                 step = await db.execute(select(Step).filter(Step.id == completion_data.prompt.step_id))
@@ -1479,6 +1567,8 @@ class CompletionService:
             else:
                 step = None
 
+            span.add_event("validation_done")
+
             # Get default model
             if completion_data.prompt and completion_data.prompt.model_id:
                 model = await self.llm_service.get_model_by_id(db, organization, current_user, completion_data.prompt.model_id)
@@ -1487,7 +1577,7 @@ class CompletionService:
 
             if not model:
                 raise HTTPException(
-                    status_code=400, 
+                    status_code=400,
                     detail="No default LLM model configured. Please go to Settings > LLM and set a default model."
                 )
 
@@ -1495,6 +1585,8 @@ class CompletionService:
             # Fallback: if no small model configured, use the main model
             if not small_model:
                 small_model = model
+
+            span.set_attribute("llm.model_id", model.model_id)
 
             # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()
@@ -1546,6 +1638,10 @@ class CompletionService:
                     detail=f"Failed to save completions: {str(e)}"
                 )
 
+            span.set_attribute("completion.head_id", str(completion.id))
+            span.set_attribute("completion.system_id", str(system_completion.id))
+            span.add_event("completions_saved")
+
             # Mark image files with this completion_id (so they show attached to this message)
             await self._mark_images_with_completion(db, report.id, str(completion.id))
 
@@ -1577,136 +1673,147 @@ class CompletionService:
 
             async def run_agent_with_streaming():
                 """Run agent in background and stream events."""
-                async_session = create_async_session_factory()
-                async with async_session() as session:
-                    try:
-                        # Re-fetch all database-dependent objects using the new session
-                        report_obj = await session.get(Report, report.id)
-                        completion_obj = await session.get(Completion, completion.id)
-                        system_completion_obj = await session.get(Completion, system_completion.id)
-                        widget_obj = await session.get(Widget, widget.id) if widget else None
-                        step_obj = await session.get(Step, step.id) if step else None
+                with tracer.start_as_current_span("completion.stream_agent_execution") as agent_span:
+                    agent_span.set_attribute("report.id", str(report.id))
+                    agent_span.set_attribute("completion.system_id", str(system_completion.id))
+                    agent_span.set_attribute("llm.model_id", model.model_id)
+                    async_session = create_async_session_factory()
+                    async with async_session() as session:
+                        try:
+                            # Re-fetch all database-dependent objects using the new session
+                            report_obj = await session.get(Report, report.id)
+                            completion_obj = await session.get(Completion, completion.id)
+                            system_completion_obj = await session.get(Completion, system_completion.id)
+                            widget_obj = await session.get(Widget, widget.id) if widget else None
+                            step_obj = await session.get(Step, step.id) if step else None
 
-                        if not all([report_obj, completion_obj, system_completion_obj]):
-                            logging.error("Failed to fetch necessary objects for streaming agent.")
+                            if not all([report_obj, completion_obj, system_completion_obj]):
+                                logging.error("Failed to fetch necessary objects for streaming agent.")
+                                error_event = SSEEvent(
+                                    event="completion.error",
+                                    completion_id=str(system_completion.id),
+                                    data={"error": "Failed to initialize agent execution"}
+                                )
+                                await event_queue.put(error_event)
+                                return
+
+                            with tracer.start_as_current_span("completion.construct_clients") as clients_span:
+                                clients = {}
+                                for data_source in report_obj.data_sources:
+                                    ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
+                                    clients.update(ds_clients)
+                                clients_span.set_attribute("data_sources.count", len(report_obj.data_sources))
+
+                            # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
+                            # (AgentV2.__init__ is synchronous, so lazy-loading files there would fail)
+                            _ = report_obj.files
+
+                            # Create agent with event queue
+                            agent = AgentV2(
+                                db=session,
+                                organization=organization,
+                                organization_settings=org_settings,
+                                model=model,
+                                small_model=small_model,
+                                mode=completion_data.prompt.mode,
+                                report=report_obj,
+                                messages=[],
+                                head_completion=completion_obj,
+                                system_completion=system_completion_obj,
+                                widget=widget_obj,
+                                step=step_obj,
+                                event_queue=event_queue,  # Pass event queue for streaming
+                                clients=clients,
+                                build_id=resolved_build_id,
+                            )
+
+                            # Emit telemetry: stream started
+                            try:
+                                await telemetry.capture(
+                                    "completion_stream_started",
+                                    {
+                                        "report_id": str(report.id),
+                                        "system_completion_id": str(system_completion.id),
+                                        "model_id": model.model_id,
+                                        "has_widget": bool(widget_obj is not None),
+                                    },
+                                    user_id=current_user.id,
+                                    org_id=organization.id,
+                                )
+                            except Exception:
+                                pass
+
+                            # Run agent execution
+                            agent_span.add_event("agent_execution_started")
+                            with tracer.start_as_current_span("completion.agent_execution"):
+                                await agent.main_execution()
+                            agent_span.add_event("agent_execution_finished")
+
+                            # Send completion finished event
+                            finished_event = SSEEvent(
+                                event="completion.finished",
+                                completion_id=str(system_completion.id),
+                                data={"status": "success"}
+                            )
+                            await event_queue.put(finished_event)
+
+                            # Emit telemetry: stream completed
+                            try:
+                                await telemetry.capture(
+                                    "completion_stream_completed",
+                                    {
+                                        "report_id": str(report.id),
+                                        "system_completion_id": str(system_completion.id),
+                                    },
+                                    user_id=current_user.id,
+                                    org_id=organization.id,
+                                )
+                            except Exception:
+                                pass
+
+                        except Exception as e:
+                            agent_span.set_status(StatusCode.ERROR, str(e))
+                            agent_span.record_exception(e)
+                            logging.error(f"Agent streaming execution failed: {e}")
+                            # Send error event
                             error_event = SSEEvent(
                                 event="completion.error",
                                 completion_id=str(system_completion.id),
-                                data={"error": "Failed to initialize agent execution"}
+                                data={
+                                    "error": str(e),
+                                    "error_type": type(e).__name__
+                                }
                             )
                             await event_queue.put(error_event)
-                            return
-                        
-                        clients = {}
-                        for data_source in report_obj.data_sources:
-                            ds_clients = await self.data_source_service.construct_clients(session, data_source, current_user)
-                            clients.update(ds_clients)
 
-                        # Pre-load files relationship in async context to avoid greenlet error in AgentV2.__init__
-                        # (AgentV2.__init__ is synchronous, so lazy-loading files there would fail)
-                        _ = report_obj.files
+                            # Emit telemetry: stream failed
+                            try:
+                                await telemetry.capture(
+                                    "completion_stream_failed",
+                                    {
+                                        "report_id": str(report.id),
+                                        "system_completion_id": str(system_completion.id),
+                                        "error_type": type(e).__name__,
+                                    },
+                                    user_id=current_user.id,
+                                    org_id=organization.id,
+                                )
+                            except Exception:
+                                pass
 
-                        # Create agent with event queue
-                        agent = AgentV2(
-                            db=session,
-                            organization=organization,
-                            organization_settings=org_settings,
-                            model=model,
-                            small_model=small_model,
-                            mode=completion_data.prompt.mode,
-                            report=report_obj,
-                            messages=[],
-                            head_completion=completion_obj,
-                            system_completion=system_completion_obj,
-                            widget=widget_obj,
-                            step=step_obj,
-                            event_queue=event_queue,  # Pass event queue for streaming
-                            clients=clients,
-                            build_id=resolved_build_id,
-                        )
-
-                        # Emit telemetry: stream started
-                        try:
-                            await telemetry.capture(
-                                "completion_stream_started",
-                                {
-                                    "report_id": str(report.id),
-                                    "system_completion_id": str(system_completion.id),
-                                    "model_id": model.model_id,
-                                    "has_widget": bool(widget_obj is not None),
-                                },
-                                user_id=current_user.id,
-                                org_id=organization.id,
-                            )
-                        except Exception:
-                            pass
-
-                        # Run agent execution
-                        await agent.main_execution()
-                        
-                        # Send completion finished event
-                        finished_event = SSEEvent(
-                            event="completion.finished",
-                            completion_id=str(system_completion.id),
-                            data={"status": "success"}
-                        )
-                        await event_queue.put(finished_event)
-
-                        # Emit telemetry: stream completed
-                        try:
-                            await telemetry.capture(
-                                "completion_stream_completed",
-                                {
-                                    "report_id": str(report.id),
-                                    "system_completion_id": str(system_completion.id),
-                                },
-                                user_id=current_user.id,
-                                org_id=organization.id,
-                            )
-                        except Exception:
-                            pass
-                        
-                    except Exception as e:
-                        logging.error(f"Agent streaming execution failed: {e}")
-                        # Send error event
-                        error_event = SSEEvent(
-                            event="completion.error",
-                            completion_id=str(system_completion.id),
-                            data={
-                                "error": str(e),
-                                "error_type": type(e).__name__
-                            }
-                        )
-                        await event_queue.put(error_event)
-
-                        # Emit telemetry: stream failed
-                        try:
-                            await telemetry.capture(
-                                "completion_stream_failed",
-                                {
-                                    "report_id": str(report.id),
-                                    "system_completion_id": str(system_completion.id),
-                                    "error_type": type(e).__name__,
-                                },
-                                user_id=current_user.id,
-                                org_id=organization.id,
-                            )
-                        except Exception:
-                            pass
-                        
-                        # Update completion status in database
-                        try:
-                            await session.execute(
-                                update(Completion)
-                                .where(Completion.id == system_completion.id)
-                                .values(status='error', completion={'content': f"Agent failed: {str(e)}", "error": True})
-                            )
-                            await session.commit()
-                        except Exception:
-                            pass
-                    finally:
-                        # Mark queue as finished
-                        event_queue.finish()
+                            # Update completion status in database
+                            try:
+                                await session.execute(
+                                    update(Completion)
+                                    .where(Completion.id == system_completion.id)
+                                    .values(status='error', completion={'content': f"Agent failed: {str(e)}", "error": True})
+                                )
+                                await session.commit()
+                            except Exception:
+                                pass
+                        finally:
+                            # Mark queue as finished
+                            event_queue.finish()
 
             # Start agent execution in background
             asyncio.create_task(run_agent_with_streaming())

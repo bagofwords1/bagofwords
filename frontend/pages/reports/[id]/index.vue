@@ -410,6 +410,7 @@ import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
+import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
 import AnswerQuestionTool from '~/components/tools/AnswerQuestionTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
@@ -708,6 +709,8 @@ function getToolComponent(toolName: string) {
 			return CreateArtifactTool
 		case 'read_artifact':
 			return ReadArtifactTool
+		case 'edit_artifact':
+			return EditArtifactTool
 		case 'answer_question':
 			return AnswerQuestionTool
 		case 'read_resources':
@@ -1422,6 +1425,18 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							slide.status = 'done'
 						}
 						// Update hasArtifacts state and dispatch event to notify ArtifactFrame
+						hasArtifacts.value = true
+						try {
+							window.dispatchEvent(new CustomEvent('artifact:created', {
+								detail: {
+									report_id: report_id,
+									artifact_id: payload.result_json?.artifact_id
+								}
+							}))
+						} catch {}
+					}
+					// If artifact was edited successfully, refresh ArtifactFrame with the new version
+					if (payload.tool_name === 'edit_artifact' && payload.status === 'success') {
 						hasArtifacts.value = true
 						try {
 							window.dispatchEvent(new CustomEvent('artifact:created', {

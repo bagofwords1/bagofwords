@@ -1,5 +1,6 @@
 import asyncio
 import re
+import time
 from typing import AsyncGenerator, Optional, Callable
 
 from .clients.openai_client import OpenAi
@@ -12,9 +13,12 @@ from app.ai.utils.token_counter import count_tokens
 from app.models.llm_model import LLMModel
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.settings.logging_config import get_logger
+from app.core.otel import get_tracer
+from opentelemetry.trace import StatusCode
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
+tracer = get_tracer(__name__)
 
 
 class LLM:
@@ -108,30 +112,39 @@ class LLM:
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
     ) -> str:
-        self._validate_vision_support(images)
-        logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
-        prompt_tokens_estimate = self._count_tokens(prompt)
-        try:
-            response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
-        except Exception as e:
-            raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
-        logger.debug("Response: %s", response)
+        with tracer.start_as_current_span("llm.inference") as span:
+            span.set_attribute("llm.model_id", self.model_id)
+            span.set_attribute("llm.provider", self.provider)
+            self._validate_vision_support(images)
+            logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
+            prompt_tokens_estimate = self._count_tokens(prompt)
+            span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
+            try:
+                response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise RuntimeError(f"LLM inference failed (provider={self.provider}, model={self.model_id}): {e}") from e
+            logger.debug("Response: %s", response)
 
-        text, usage = self._coerce_response(response)
-        if not usage.prompt_tokens and not usage.completion_tokens and hasattr(self.client, "pop_last_usage"):
-            usage = self.client.pop_last_usage()
-        sanitized = self._sanitize_response_text(text)
-        completion_tokens = usage.completion_tokens or self._count_tokens(sanitized)
-        prompt_tokens = usage.prompt_tokens or prompt_tokens_estimate
+            text, usage = self._coerce_response(response)
+            if not usage.prompt_tokens and not usage.completion_tokens and hasattr(self.client, "pop_last_usage"):
+                usage = self.client.pop_last_usage()
+            sanitized = self._sanitize_response_text(text)
+            completion_tokens = usage.completion_tokens or self._count_tokens(sanitized)
+            prompt_tokens = usage.prompt_tokens or prompt_tokens_estimate
 
-        self._schedule_usage_record(
-            scope=usage_scope,
-            scope_ref_id=usage_scope_ref_id,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            should_record=should_record,
-        )
-        return sanitized
+            span.set_attribute("llm.prompt_tokens", prompt_tokens)
+            span.set_attribute("llm.completion_tokens", completion_tokens)
+
+            self._schedule_usage_record(
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                should_record=should_record,
+            )
+            return sanitized
 
     async def inference_stream(
         self,
@@ -142,75 +155,98 @@ class LLM:
         usage_scope_ref_id: Optional[str] = None,
         should_record: bool = True,
     ) -> AsyncGenerator[str, None]:
-        self._validate_vision_support(images)
-        logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
-        started_payload = False
-        prefix = ""
-        prompt_tokens = self._count_tokens(prompt)
-        completion_tokens = 0
-        streamed_chunks: list[str] = []
-        try:
-            async for chunk in self.client.inference_stream(model_id=self.model_id, prompt=prompt, images=images):
-                if chunk is None:
-                    continue
-                if not isinstance(chunk, str):
-                    try:
-                        chunk = str(chunk)
-                    except Exception:
+        with tracer.start_as_current_span("llm.inference_stream") as span:
+            span.set_attribute("llm.model_id", self.model_id)
+            span.set_attribute("llm.provider", self.provider)
+            self._validate_vision_support(images)
+            logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
+            started_payload = False
+            prefix = ""
+            prompt_tokens = self._count_tokens(prompt)
+            span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens)
+            completion_tokens = 0
+            streamed_chunks: list[str] = []
+            stream_start = time.monotonic()
+            ttft_recorded = False
+            try:
+                async for chunk in self.client.inference_stream(model_id=self.model_id, prompt=prompt, images=images):
+                    if chunk is None:
                         continue
+                    if not isinstance(chunk, str):
+                        try:
+                            chunk = str(chunk)
+                        except Exception:
+                            continue
 
-                if "```" in chunk:
-                    chunk = chunk.replace("```", "")
+                    if "```" in chunk:
+                        chunk = chunk.replace("```", "")
 
-                if not started_payload:
-                    prefix += chunk
-                    prefix = re.sub(r"^\s*```(?:[A-Za-z]+)?\s*", "", prefix)
-                    prefix = re.sub(r"^\s*(?:json|JSON|python|PYTHON)\s*\r?\n", "", prefix)
-                    if re.fullmatch(r"\s*(?:json|JSON|python|PYTHON)\s*", prefix or ""):
-                        continue
-                    prefix = re.sub(r"^\s+", "", prefix)
+                    if not started_payload:
+                        prefix += chunk
+                        prefix = re.sub(r"^\s*```(?:[A-Za-z]+)?\s*", "", prefix)
+                        prefix = re.sub(r"^\s*(?:json|JSON|python|PYTHON)\s*\r?\n", "", prefix)
+                        if re.fullmatch(r"\s*(?:json|JSON|python|PYTHON)\s*", prefix or ""):
+                            continue
+                        prefix = re.sub(r"^\s+", "", prefix)
 
-                    m = re.search(r"[\{\[]", prefix)
-                    if not m:
-                        if re.search(r"\S", prefix):
+                        m = re.search(r"[\{\[]", prefix)
+                        if not m:
+                            if re.search(r"\S", prefix):
+                                started_payload = True
+                                emission = prefix
+                                prefix = ""
+                                if not ttft_recorded:
+                                    ttft_ms = (time.monotonic() - stream_start) * 1000
+                                    span.set_attribute("llm.ttft_ms", ttft_ms)
+                                    span.add_event("ttft", {"ttft_ms": ttft_ms})
+                                    ttft_recorded = True
+                                completion_tokens += self._count_tokens(emission)
+                                streamed_chunks.append(emission)
+                                yield emission
+                            else:
+                                continue
+                        else:
                             started_payload = True
-                            emission = prefix
+                            emission = prefix[m.start():]
                             prefix = ""
+                            if not ttft_recorded:
+                                ttft_ms = (time.monotonic() - stream_start) * 1000
+                                span.set_attribute("llm.ttft_ms", ttft_ms)
+                                span.add_event("ttft", {"ttft_ms": ttft_ms})
+                                ttft_recorded = True
                             completion_tokens += self._count_tokens(emission)
                             streamed_chunks.append(emission)
                             yield emission
-                        else:
-                            continue
                     else:
-                        started_payload = True
-                        emission = prefix[m.start():]
-                        prefix = ""
-                        completion_tokens += self._count_tokens(emission)
-                        streamed_chunks.append(emission)
-                        yield emission
-                else:
-                    if "```" in chunk:
-                        chunk = chunk.replace("```", "")
-                    completion_tokens += self._count_tokens(chunk)
-                    streamed_chunks.append(chunk)
-                    yield chunk
-        except Exception as e:
-            raise RuntimeError(f"LLM streaming failed (provider={self.provider}, model={self.model_id}): {e}") from e
-        usage = LLMUsage()
-        if hasattr(self.client, "pop_last_usage"):
-            usage = self.client.pop_last_usage()
-        if usage.prompt_tokens or usage.completion_tokens:
-            prompt_tokens = usage.prompt_tokens or prompt_tokens
-            completion_tokens = usage.completion_tokens or completion_tokens
-        else:
-            completion_tokens = self._count_tokens("".join(streamed_chunks)) or completion_tokens
-        self._schedule_usage_record(
-            scope=usage_scope,
-            scope_ref_id=usage_scope_ref_id,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            should_record=should_record,
-        )
+                        if "```" in chunk:
+                            chunk = chunk.replace("```", "")
+                        completion_tokens += self._count_tokens(chunk)
+                        streamed_chunks.append(chunk)
+                        yield chunk
+            except Exception as e:
+                span.set_status(StatusCode.ERROR, str(e))
+                span.record_exception(e)
+                raise RuntimeError(f"LLM streaming failed (provider={self.provider}, model={self.model_id}): {e}") from e
+            usage = LLMUsage()
+            if hasattr(self.client, "pop_last_usage"):
+                usage = self.client.pop_last_usage()
+            if usage.prompt_tokens or usage.completion_tokens:
+                prompt_tokens = usage.prompt_tokens or prompt_tokens
+                completion_tokens = usage.completion_tokens or completion_tokens
+            else:
+                completion_tokens = self._count_tokens("".join(streamed_chunks)) or completion_tokens
+
+            span.set_attribute("llm.prompt_tokens", prompt_tokens)
+            span.set_attribute("llm.completion_tokens", completion_tokens)
+            span.set_attribute("llm.stream_chunks", len(streamed_chunks))
+
+            self._schedule_usage_record(
+                scope=usage_scope,
+                scope_ref_id=usage_scope_ref_id,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                should_record=should_record,
+            )
 
     async def test_connection(self, prompt: str = "Hello, how are you?"):
         logger.info("Testing LLM connection: provider=%s, model=%s", self.provider, self.model_id)

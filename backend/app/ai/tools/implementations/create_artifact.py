@@ -542,7 +542,8 @@ Fix these errors while keeping the same design and functionality. Output the cor
         try:
             _messages_section_obj = getattr(context_view.warm, "messages", None) if context_view else None
             messages_context = _messages_section_obj.render() if _messages_section_obj else ""
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to extract messages context: {e}")
             messages_context = ""
 
         # Load images attached to the head completion for vision-capable models
@@ -1530,6 +1531,8 @@ const filterRows = (rows) => {{
 - Filter bar must be `sticky top-0 z-50` — always visible above chart canvases
 - Every chart/table must respect active filters
 - Include a visual indicator of active filters and a "Reset" option
+- When multiple visualizations share a filterable column with the same field name, that filter MUST operate across ALL visualizations simultaneously. A filter for "Country" should filter every chart and table that has a "Country" column, not just one. If a visualization does not have the filtered column, it should remain unaffected (show all its data).
+- After filtering, if a visualization has zero matching rows, display a friendly "No data matches current filters" message instead of rendering a broken or empty chart.
 
 **DO NOT include:**
 - Report IDs, UUIDs, or technical identifiers (e.g., "ID 0c6a0483-6876...")
@@ -1578,6 +1581,7 @@ REQUIREMENTS:
 6. Style: Minimalist, clean, professional - no branding badges or decorative headers -- BUT NOT BORING AND TEMPLATE LIKE!
 7. Charts must be beautiful with vibrant, harmonious colors, gradients, and smooth animations
 8. ALL displayed values must come from data.visualizations[N].rows - no placeholder data
+9. Handle edge cases gracefully: if a visualization has zero rows after filtering, show "No data matches the current filters" instead of a broken chart. If a column value is null or undefined, skip it rather than crashing. Wrap ECharts initialization in try/catch so a single broken chart does not take down the entire dashboard.
 
 Example loading state:
 ```jsx
@@ -1594,6 +1598,7 @@ if (!data) {{
 - Extract ALL values from `data.visualizations` - never write literal numbers or strings
 - Keep it minimal and professional - no decorative text, badges, or branding
 - Use beautiful, colorful charts with vibrant palettes
+- Pay close attention to the user's specific requests in the conversation history and the prompt. If they mention specific colors, layouts, chart types, or data points to highlight, follow those instructions precisely. The user's explicit request takes priority over default design choices. Do not override user preferences with your own aesthetic judgment.
 
 Now create the dashboard:"""
 

@@ -28,6 +28,11 @@
       <span v-if="formatDuration" class="ml-1.5 text-gray-400">{{ formatDuration }}</span>
     </div>
 
+    <!-- Prompt summary (always visible, truncated) -->
+    <div v-if="artifactPrompt" class="mt-0.5 ml-[18px] text-[11px] text-gray-400 truncate max-w-md" :title="artifactPrompt">
+      {{ artifactPrompt }}
+    </div>
+
     <!-- Error message below header -->
     <div v-if="status === 'error' && errorMessage" class="mt-1 ml-4 text-xs text-gray-500">
       {{ errorMessage }}
@@ -162,7 +167,7 @@ interface Props {
     arguments_json?: {
       title?: string
       mode?: string
-      user_prompt?: string
+      prompt?: string
     }
     result_json?: {
       artifact_id?: string
@@ -197,6 +202,9 @@ const validationMaxAttempts = computed(() => progressPayload.value?.max_attempts
 const fixingErrors = computed(() => progressPayload.value?.errors || [])
 
 // Artifact info
+const artifactPrompt = computed(() =>
+  props.toolExecution.arguments_json?.prompt || ''
+)
 const artifactTitle = computed(() =>
   props.toolExecution.result_json?.title ||
   props.toolExecution.arguments_json?.title ||
