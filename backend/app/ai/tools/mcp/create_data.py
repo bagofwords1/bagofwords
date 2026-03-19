@@ -1,12 +1,16 @@
 """MCP Tool: create_data - Generate data visualizations with Query/Step/Visualization persistence."""
 
 import asyncio
+import logging
 from typing import Dict, Any, Optional
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
+from app.ee.audit.tool_audit import _truncate_queries
+
+_logger = logging.getLogger(__name__)
 from app.ai.tools.mcp.context import build_rich_context
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
@@ -108,6 +112,19 @@ class CreateDataMCPTool(MCPTool):
         
         # Check if we have connected data sources
         if not rich_ctx.ds_clients:
+            try:
+                from app.ee.audit.service import audit_service
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="tool.data_query_failed",
+                    user_id=str(user.id),
+                    resource_type="report",
+                    resource_id=str(report.id),
+                    details={"tool": "mcp.create_data", "error_type": "no_data_sources"},
+                )
+            except Exception:
+                pass
             await self._finish_tracking(
                 db, tracking, success=False,
                 summary="No data sources could be connected."
@@ -154,6 +171,7 @@ class CreateDataMCPTool(MCPTool):
         generated_code = ""
         exec_df = None
         code_errors = []
+        executed_queries = []
 
         sigkill_event = asyncio.Event()
 
@@ -170,10 +188,32 @@ class CreateDataMCPTool(MCPTool):
                     output_log += payload + "\n"
                 else:
                     output_log += (payload.get("message") or "") + "\n"
+            elif e["type"] == "security_violation":
+                _vtype = e["payload"].get("violation_type", "unknown")
+                _action = "security.unsafe_code_blocked" if _vtype == "unsafe_python" else "security.unsafe_sql_blocked"
+                try:
+                    from app.ee.audit.service import audit_service
+                    await audit_service.log(
+                        db=db,
+                        organization_id=str(organization.id),
+                        action=_action,
+                        user_id=str(user.id),
+                        resource_type="report",
+                        resource_id=str(report.id),
+                        details={
+                            "tool": "mcp.create_data",
+                            "violation_type": _vtype,
+                            "message": e["payload"].get("message", "")[:300],
+                            "code_snippet": e["payload"].get("code_snippet", "")[:300],
+                        },
+                    )
+                except Exception:
+                    _logger.debug("MCP create_data security audit failed", exc_info=True)
             elif e["type"] == "done":
                 generated_code = e["payload"].get("code") or ""
                 code_errors = e["payload"].get("errors") or []
                 exec_df = e["payload"].get("df")
+                executed_queries = e["payload"].get("executed_queries") or []
                 full_log = e["payload"].get("execution_log")
                 if full_log and len(full_log) > len(output_log):
                     output_log = full_log
@@ -183,7 +223,28 @@ class CreateDataMCPTool(MCPTool):
             error_msg = "Code execution failed"
             if code_errors:
                 error_msg = str(code_errors[-1][1] if code_errors else "Unknown error")[:500]
-            
+
+            try:
+                from app.ee.audit.service import audit_service
+                _tables = [t for g in (rich_ctx.tables_by_source or []) for t in (g.get("tables") or [])]
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="tool.data_query_failed",
+                    user_id=str(user.id),
+                    resource_type="report",
+                    resource_id=str(report.id),
+                    details={
+                        "tool": "mcp.create_data",
+                        "error_type": "execution_failure",
+                        "error_message": error_msg[:300],
+                        "tables_requested": _tables,
+                        "executed_queries": _truncate_queries(executed_queries),
+                    },
+                )
+            except Exception:
+                _logger.debug("MCP create_data failure audit failed", exc_info=True)
+
             await self._finish_tracking(
                 db, tracking, success=False,
                 summary=f"Create data failed: {error_msg}"
@@ -279,6 +340,29 @@ class CreateDataMCPTool(MCPTool):
             "total_rows": formatted.get("info", {}).get("total_rows", len(formatted.get("rows", []))),
         }
         
+        # Audit: successful data query via MCP
+        try:
+            from app.ee.audit.service import audit_service
+            _tables = [t for g in (rich_ctx.tables_by_source or []) for t in (g.get("tables") or [])]
+            _ds_ids = list({str(g.get("data_source_id")) for g in (rich_ctx.tables_by_source or []) if g.get("data_source_id")})
+            await audit_service.log(
+                db=db,
+                organization_id=str(organization.id),
+                action="tool.data_queried",
+                user_id=str(user.id),
+                resource_type="report",
+                resource_id=str(report.id),
+                details={
+                    "tool": "mcp.create_data",
+                    "data_source_ids": _ds_ids,
+                    "tables_accessed": _tables,
+                    "executed_queries": _truncate_queries(executed_queries),
+                    "row_count": data_preview.get("total_rows", 0),
+                },
+            )
+        except Exception:
+            _logger.debug("MCP create_data success audit failed", exc_info=True)
+
         # Finish tracking
         await self._finish_tracking(
             db, tracking, success=True,

@@ -80,6 +80,7 @@ ADMIN_PERMISSIONS = {
     'train_mode',
     # Enterprise features
     'view_audit_logs',
+    'manage_scim',
 }
 
 # Combine permissions for roles

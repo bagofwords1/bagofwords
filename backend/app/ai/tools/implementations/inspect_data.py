@@ -3,6 +3,7 @@ import time
 from typing import AsyncIterator, Dict, Any, Type, List, Optional
 from pydantic import BaseModel
 
+from app.ee.audit.tool_audit import log_tool_audit, _truncate_queries
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.inspect_data import InspectDataInput, InspectDataOutput
@@ -57,6 +58,13 @@ Don't use on images
         # Check if LLM is allowed to see data
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         if not allow_llm_see_data:
+            await log_tool_audit(
+                runtime_ctx,
+                action="tool.access_blocked_by_policy",
+                resource_type="report",
+                resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+                details={"tool": "inspect_data", "policy": "allow_llm_see_data"},
+            )
             yield ToolEndEvent(
                 type="tool.end",
                 payload={
@@ -164,6 +172,7 @@ Don't use on images
         success = False
         execution_error = None
         execution_duration_ms = 0
+        executed_queries: List[str] = []
         execution_start = time.monotonic()
 
         # No retries by default for inspection to keep it fast, unless it crashes hard
@@ -184,11 +193,27 @@ Don't use on images
                     output_log += (payload.get("message") or "") + "\n"
             elif e["type"] == "progress":
                 yield ToolProgressEvent(type="tool.progress", payload=e["payload"])
+            elif e["type"] == "security_violation":
+                _vtype = e["payload"].get("violation_type", "unknown")
+                _action = "security.unsafe_code_blocked" if _vtype == "unsafe_python" else "security.unsafe_sql_blocked"
+                await log_tool_audit(
+                    runtime_ctx,
+                    action=_action,
+                    resource_type="report",
+                    resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+                    details={
+                        "tool": "inspect_data",
+                        "violation_type": _vtype,
+                        "message": e["payload"].get("message", "")[:300],
+                        "code_snippet": e["payload"].get("code_snippet", "")[:300],
+                    },
+                )
             elif e["type"] == "done":
                 execution_duration_ms = int((time.monotonic() - execution_start) * 1000)
                 success = True
                 # e["payload"] contains 'code', 'execution_log', 'errors', 'df'
                 generated_code = e["payload"].get("code") or ""
+                executed_queries = e["payload"].get("executed_queries") or []
                 if e["payload"].get("errors"):
                     success = False
                     execution_error = str(e["payload"]["errors"])
@@ -197,7 +222,38 @@ Don't use on images
                 if full_log and len(full_log) > len(output_log):
                     output_log = full_log
 
-        # 5. Final Result
+        # 5. Audit
+        _ds_ids = list({g.get("data_source_id") for g in resolved_tables if g.get("data_source_id")})
+        _tables = [t for g in resolved_tables for t in g.get("tables", [])]
+        if success:
+            await log_tool_audit(
+                runtime_ctx,
+                action="tool.data_queried",
+                resource_type="report",
+                resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+                details={
+                    "tool": "inspect_data",
+                    "data_source_ids": _ds_ids,
+                    "tables_accessed": _tables,
+                    "executed_queries": _truncate_queries(executed_queries),
+                },
+            )
+        else:
+            await log_tool_audit(
+                runtime_ctx,
+                action="tool.data_query_failed",
+                resource_type="report",
+                resource_id=str(runtime_ctx.get("report").id) if runtime_ctx.get("report") else None,
+                details={
+                    "tool": "inspect_data",
+                    "error_type": "execution_failure",
+                    "error_message": (execution_error or "")[:300],
+                    "data_source_ids": _ds_ids,
+                    "tables_requested": _tables,
+                },
+            )
+
+        # 6. Final Result
         # The value is the LOGS.
         yield ToolEndEvent(
             type="tool.end",

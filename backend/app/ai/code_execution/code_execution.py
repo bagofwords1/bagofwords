@@ -679,6 +679,15 @@ class StreamingCodeExecutor:
                 exec_df, execution_log, executed_queries = self.execute_code(code=final_code, ds_clients=ds_clients, excel_files=excel_files)
                 executed_successfully = True
                 break
+            except CodeSecurityError as e:
+                # Tag security violations distinctly so callers can audit them
+                violation_type = "unsafe_python" if isinstance(e, UnsafePythonError) else "unsafe_sql"
+                msg = f"Security violation ({violation_type}): {str(e)}"
+                code_and_error_messages.append((final_code, msg))
+                yield {"type": "security_violation", "payload": {"violation_type": violation_type, "message": str(e), "code_snippet": final_code[:500]}}
+                yield {"type": "stdout", "payload": msg}
+                # Security violations are not retryable
+                break
             except Exception as e:
                 import traceback
                 trace = traceback.format_exc()

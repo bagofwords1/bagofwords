@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
@@ -17,6 +17,7 @@ from app.schemas.external_platform_schema import (
     TeamsConfig,
 )
 from app.models.external_platform import ExternalPlatform
+from app.ee.audit.service import audit_service
 
 router = APIRouter(tags=["organization_settings"])
 external_platform_service = ExternalPlatformService()
@@ -63,14 +64,28 @@ async def update_integration(
 @requires_permission('manage_organization_settings', model=ExternalPlatform)
 async def delete_integration(
     platform_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Delete an integration"""
-    return await external_platform_service.delete_platform(
+    result = await external_platform_service.delete_platform(
         db, platform_id, organization
     )
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="integration.deleted",
+            user_id=current_user.id,
+            resource_type="integration",
+            resource_id=platform_id,
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 @router.post("/settings/integrations/{platform_id}/test", response_model=dict)
 @requires_permission('view_organization_settings', model=ExternalPlatform)
@@ -88,25 +103,55 @@ async def test_integration(
 @router.post("/settings/integrations/slack", response_model=ExternalPlatformSchema)
 @requires_permission('manage_organization_settings')
 async def create_slack_integration(
-    data: SlackConfig,  # <-- Use SlackConfig here
+    data: SlackConfig,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Create a new Slack integration"""
-    return await external_platform_service.create_slack_platform(
+    result = await external_platform_service.create_slack_platform(
         db, organization, data.bot_token, data.signing_secret, current_user
     )
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="integration.created",
+            user_id=current_user.id,
+            resource_type="integration",
+            resource_id=result.id if hasattr(result, "id") else None,
+            details={"type": "slack"},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 @router.post("/settings/integrations/teams", response_model=ExternalPlatformSchema)
 @requires_permission('manage_organization_settings')
 async def create_teams_integration(
     data: TeamsConfig,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
 ):
     """Create a new Teams integration"""
-    return await external_platform_service.create_teams_platform(
+    result = await external_platform_service.create_teams_platform(
         db, organization, data.app_id, data.client_secret, data.tenant_id, current_user
     )
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="integration.created",
+            user_id=current_user.id,
+            resource_type="integration",
+            resource_id=result.id if hasattr(result, "id") else None,
+            details={"type": "teams"},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result

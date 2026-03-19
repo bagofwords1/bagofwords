@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, get_current_organization
 from app.services.step_service import StepService
@@ -6,6 +6,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
+from app.ee.audit.service import audit_service
 import io
 import logging
 from app.schemas.step_schema import StepSchema
@@ -17,6 +18,7 @@ step_service = StepService()
 @requires_permission('view_reports')
 async def export_step(
     step_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
@@ -24,11 +26,25 @@ async def export_step(
     logging.info(f"CSV export request received for step {step_id}")
     try:
         df, step = await step_service.export_step_to_csv(db, step_id)
-        
+
         csv_buffer = io.StringIO()
         df.to_csv(csv_buffer, index=False)
         csv_buffer.seek(0)
-        
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=organization.id,
+                action="data.exported",
+                user_id=current_user.id,
+                resource_type="step",
+                resource_id=step_id,
+                details={"format": "csv", "row_count": len(df)},
+                request=request,
+            )
+        except Exception:
+            pass
+
         response = Response(content=csv_buffer.getvalue(), media_type="text/csv")
         widget_title = "".join(c for c in step.widget.title if c.isalnum() or c in (' ', '_')).rstrip()
         file_name = f"{widget_title}-{step.slug}.csv".replace(" ", "_")

@@ -210,6 +210,10 @@ app.include_router(connection.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 
+# SCIM 2.0 provisioning endpoints (mounted at /scim/v2, not under /api)
+from app.ee.scim.routes import scim_router
+app.include_router(scim_router)
+
 # Remove the direct assignment of app.openapi_schema and replace with this function
 def custom_openapi():
     if app.openapi_schema:
