@@ -103,33 +103,19 @@ class PlanningTextStreamer:
         content = content or ""
         now = self._now_ms()
 
-        # Emit reasoning delta - time OR char threshold triggers emission
+        # Emit reasoning delta immediately
         if reasoning != self.prev_reasoning:
-            # Calculate pending chars as difference from last emitted state
-            pending_chars = len(reasoning) - len(self.prev_reasoning)
-            time_ready = (now - self.last_emit["reasoning"]) >= self.throttle_ms
-            char_ready = pending_chars >= self.char_threshold
+            rdelta = self._delta(self.prev_reasoning, reasoning)
+            if rdelta:
+                await self._emit_field_delta("reasoning", rdelta)
+                self.prev_reasoning = reasoning
 
-            if time_ready or char_ready:
-                rdelta = self._delta(self.prev_reasoning, reasoning)
-                if rdelta:
-                    await self._emit_chunked("reasoning", rdelta)
-                    self.prev_reasoning = reasoning
-                    self.last_emit["reasoning"] = self._now_ms()
-
-        # Emit content delta - time OR char threshold triggers emission
+        # Emit content delta immediately
         if content != self.prev_content:
-            # Calculate pending chars as difference from last emitted state
-            pending_chars = len(content) - len(self.prev_content)
-            time_ready = (now - self.last_emit["content"]) >= self.throttle_ms
-            char_ready = pending_chars >= self.char_threshold
-
-            if time_ready or char_ready:
-                cdelta = self._delta(self.prev_content, content)
-                if cdelta:
-                    await self._emit_chunked("content", cdelta)
-                    self.prev_content = content
-                    self.last_emit["content"] = self._now_ms()
+            cdelta = self._delta(self.prev_content, content)
+            if cdelta:
+                await self._emit_field_delta("content", cdelta)
+                self.prev_content = content
 
         # Periodic full snapshot for robustness
         if (now - self.last_snapshot) >= self.snapshot_every_ms:
