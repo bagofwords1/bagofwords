@@ -33,8 +33,10 @@ from app.ee.audit.service import audit_service
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step
+from app.core.otel import get_tracer
 
 logger = getLogger(__name__)
+tracer = get_tracer(__name__)
 
 class ReportService:
 
@@ -657,125 +659,132 @@ class ReportService:
         scheduled: bool | None = None,
         status: str | None = None,
     ):
-        # Calculate offset
-        offset = (page - 1) * limit
+        with tracer.start_as_current_span("get_reports") as span:
 
-        # Build filter conditions based on filter parameter
-        base_conditions = [
-            Report.organization_id == organization.id,
-            Report.status != 'archived',
-            Report.report_type == 'regular',
-        ]
+            span.set_attribute("user.id", str(current_user.name))
+            span.set_attribute("org.id", str(organization.name))
+            # Calculate offset
+            offset = (page - 1) * limit
 
-        if filter == "my":
-            # Show only reports owned by current user
-            base_conditions.append(Report.user_id == current_user.id)
-        elif filter == "published":
-            # Show only published reports
-            base_conditions.append(Report.status == 'published')
-        else:
-            # Default: show reports user can view (owned by user OR published)
-            base_conditions.append(
-                or_(Report.status == 'published', Report.user_id == current_user.id)
-            )
-
-        # Optional search on report title
-        if search:
-            base_conditions.append(Report.title.ilike(f"%{search}%"))
-
-        # Optional filter by scheduled status
-        if scheduled is True:
-            base_conditions.append(Report.cron_schedule.isnot(None))
-        elif scheduled is False:
-            base_conditions.append(Report.cron_schedule.is_(None))
-
-        # Optional filter by report status (draft/published)
-        if status in ('draft', 'published'):
-            base_conditions.append(Report.status == status)
-        
-        # Base query for filtering
-        base_query = select(Report).where(*base_conditions)
-        
-        # Count total items
-        count_query = select(func.count(Report.id)).where(*base_conditions)
-        
-        total_result = await db.execute(count_query)
-        total = total_result.scalar()
-        
-        # Get paginated results - load data_sources with connections to get type
-        query = base_query.options(
-            selectinload(Report.user),
-            selectinload(Report.widgets),
-            selectinload(Report.data_sources).selectinload(DataSource.connections),
-            selectinload(Report.artifacts)
-        ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
-        
-        result = await db.execute(query)
-        reports = result.scalars().all()
-
-        # Convert to schemas
-        report_schemas = []
-        for report in reports:
-            report_schema = ReportSchema.from_orm(report)
-            report_schema.user = UserSchema.from_orm(report.user)
-            
-            # Manually build data_sources with type computed from connection
-            report_schema.data_sources = [
-                DataSourceReportSchema(
-                    id=str(ds.id),
-                    name=ds.name,
-                    organization_id=str(ds.organization_id),
-                    created_at=ds.created_at,
-                    updated_at=ds.updated_at,
-                    context=ds.context,
-                    description=ds.description,
-                    summary=ds.summary,
-                    is_active=ds.is_active,
-                    is_public=ds.is_public,
-                    owner_user_id=str(ds.owner_user_id) if ds.owner_user_id else None,
-                    use_llm_sync=ds.use_llm_sync,
-                    # Compute type from first connection
-                    type=ds.connections[0].type if ds.connections else None,
-                )
-                for ds in (report.data_sources or [])
+            # Build filter conditions based on filter parameter
+            base_conditions = [
+                Report.organization_id == organization.id,
+                Report.status != 'archived',
+                Report.report_type == 'regular',
             ]
 
-            # Compute unique artifact modes for this report
-            report_schema.artifact_modes = list(set(
-                a.mode for a in (report.artifacts or []) if a.mode
-            ))
-
-            # Get thumbnail URL from latest artifact (prefer page mode)
-            if report.artifacts:
-                sorted_artifacts = sorted(
-                    [a for a in report.artifacts if a.thumbnail_path],
-                    key=lambda a: (a.mode != 'page', -a.created_at.timestamp() if a.created_at else 0)
+            if filter == "my":
+                # Show only reports owned by current user
+                base_conditions.append(Report.user_id == current_user.id)
+            elif filter == "published":
+                # Show only published reports
+                base_conditions.append(Report.status == 'published')
+            else:
+                # Default: show reports user can view (owned by user OR published)
+                base_conditions.append(
+                    or_(Report.status == 'published', Report.user_id == current_user.id)
                 )
-                if sorted_artifacts:
-                    # thumbnail_path is like "thumbnails/{artifact_id}.png", serve via /thumbnails/{filename}
-                    thumb_path = sorted_artifacts[0].thumbnail_path
-                    filename = thumb_path.split("/")[-1] if "/" in thumb_path else thumb_path
-                    report_schema.thumbnail_url = f"/thumbnails/{filename}"
 
-            report_schemas.append(report_schema)
+            # Optional search on report title
+            if search:
+                base_conditions.append(Report.title.ilike(f"%{search}%"))
 
-        # Calculate pagination metadata
-        total_pages = (total + limit - 1) // limit  # Ceiling division
-        has_next = page < total_pages
-        has_prev = page > 1
+            # Optional filter by scheduled status
+            if scheduled is True:
+                base_conditions.append(Report.cron_schedule.isnot(None))
+            elif scheduled is False:
+                base_conditions.append(Report.cron_schedule.is_(None))
 
-        from app.schemas.report_schema import PaginationMeta, ReportListResponse
-        
-        meta = PaginationMeta(
-            total=total,
-            page=page,
-            limit=limit,
-            total_pages=total_pages,
-            has_next=has_next,
-            has_prev=has_prev
-        )
+            # Optional filter by report status (draft/published)
+            if status in ('draft', 'published'):
+                base_conditions.append(Report.status == status)
 
-        return ReportListResponse(reports=report_schemas, meta=meta)
+            # Base query for filtering
+            base_query = select(Report).where(*base_conditions)
+
+            # Count total items
+            count_query = select(func.count(Report.id)).where(*base_conditions)
+
+            total_result = await db.execute(count_query)
+            total = total_result.scalar()
+
+            # Get paginated results - load data_sources with connections to get type
+            query = base_query.options(
+                selectinload(Report.user),
+                selectinload(Report.widgets),
+                selectinload(Report.data_sources).selectinload(DataSource.connections),
+                selectinload(Report.artifacts)
+            ).order_by(Report.created_at.desc()).offset(offset).limit(limit)
+
+            result = await db.execute(query)
+            span.add_event("query executed")
+            reports = result.scalars().all()
+            span.add_event("query result loaded into memory ")
+
+            # Convert to schemas
+            report_schemas = []
+            for report in reports:
+                report_schema = ReportSchema.from_orm(report)
+                report_schema.user = UserSchema.from_orm(report.user)
+
+                # Manually build data_sources with type computed from connection
+                report_schema.data_sources = [
+                    DataSourceReportSchema(
+                        id=str(ds.id),
+                        name=ds.name,
+                        organization_id=str(ds.organization_id),
+                        created_at=ds.created_at,
+                        updated_at=ds.updated_at,
+                        context=ds.context,
+                        description=ds.description,
+                        summary=ds.summary,
+                        is_active=ds.is_active,
+                        is_public=ds.is_public,
+                        owner_user_id=str(ds.owner_user_id) if ds.owner_user_id else None,
+                        use_llm_sync=ds.use_llm_sync,
+                        # Compute type from first connection
+                        type=ds.connections[0].type if ds.connections else None,
+                    )
+                    for ds in (report.data_sources or [])
+                ]
+
+                # Compute unique artifact modes for this report
+                report_schema.artifact_modes = list(set(
+                    a.mode for a in (report.artifacts or []) if a.mode
+                ))
+
+                # Get thumbnail URL from latest artifact (prefer page mode)
+                if report.artifacts:
+                    sorted_artifacts = sorted(
+                        [a for a in report.artifacts if a.thumbnail_path],
+                        key=lambda a: (a.mode != 'page', -a.created_at.timestamp() if a.created_at else 0)
+                    )
+                    if sorted_artifacts:
+                        # thumbnail_path is like "thumbnails/{artifact_id}.png", serve via /thumbnails/{filename}
+                        thumb_path = sorted_artifacts[0].thumbnail_path
+                        filename = thumb_path.split("/")[-1] if "/" in thumb_path else thumb_path
+                        report_schema.thumbnail_url = f"/thumbnails/{filename}"
+
+                report_schemas.append(report_schema)
+            span.add_event("report schemas ready")
+
+            # Calculate pagination metadata
+            total_pages = (total + limit - 1) // limit  # Ceiling division
+            has_next = page < total_pages
+            has_prev = page > 1
+
+            from app.schemas.report_schema import PaginationMeta, ReportListResponse
+
+            meta = PaginationMeta(
+                total=total,
+                page=page,
+                limit=limit,
+                total_pages=total_pages,
+                has_next=has_next,
+                has_prev=has_prev
+            )
+            span.add_event("get_reports done")
+            return ReportListResponse(reports=report_schemas, meta=meta)
 
     async def bulk_archive_reports(
         self,

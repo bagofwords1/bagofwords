@@ -193,3 +193,12 @@ pdf2image==1.17.0
 playwright==1.57.0
 databricks-sql-connector==3.6.0
 pyqvd==2.3.0
+opentelemetry-api==1.29.0
+opentelemetry-sdk==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-sqlalchemy==0.50b0
+opentelemetry-instrumentation-httpx==0.50b0
+opentelemetry-instrumentation-logging==0.50b0
+opentelemetry-exporter-otlp==1.29.0
+opentelemetry-exporter-otlp-proto-grpc==1.29.0
+opentelemetry-exporter-otlp-proto-http==1.29.0

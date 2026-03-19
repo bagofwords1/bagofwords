@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.341 (March 18, 2026)
+- add opentelemetry
+
 ## Version 0.0.340 (March 18, 2026)
 - create/edit artifact tool improvements
 
