@@ -4,6 +4,7 @@
 - Fix context bloat when designing dashboards
 - Add full SCIM support
 - Enhanced audit trail with more activities
+- Expose OpenAPI swagger docs
 
 ## Version 0.0.341 (March 18, 2026)
 - add opentelemetry

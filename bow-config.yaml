@@ -39,6 +39,9 @@ intercom:
 telemetry:
   enabled: true
 
+swagger:
+  enabled: false
+
 # OpenTelemetry
 otel:
   enabled: false

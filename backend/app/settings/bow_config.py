@@ -25,6 +25,9 @@ class Intercom(BaseModel):
 class Telemetry(BaseModel):
     enabled: bool = True
 
+class Swagger(BaseModel):
+    enabled: bool = False
+
 
 class DeploymentConfig(BaseModel):
     type: str = "self_hosted"
@@ -193,6 +196,7 @@ class BowConfig(BaseModel):
     database: Database = Database()
     intercom: Intercom = Intercom()
     telemetry: Telemetry = Telemetry()
+    swagger: Swagger = Swagger()
     license: LicenseConfig = LicenseConfig()
     otel: OTELConfig = OTELConfig()
 
