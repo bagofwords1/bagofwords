@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.services.widget_service import WidgetService
@@ -12,6 +12,7 @@ import logging
 import io
 from app.core.permissions_decorator import requires_permission
 from app.models.report import Report
+from app.ee.audit.service import audit_service
 
 router = APIRouter(tags=["widgets"])
 widget_service = WidgetService()
@@ -44,6 +45,7 @@ async def delete_widget(widget_uuid: str, current_user: User = Depends(current_u
 @requires_permission('export_widgets', model=Report)
 async def export_widget(
     widget_id: str,
+    request: Request,
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db)
@@ -52,11 +54,25 @@ async def export_widget(
     try:
         csv_data = await widget_service.export_widget_to_csv(db, widget_id)
         logging.info(f"CSV data generated, size: {len(csv_data)} characters")
-        
+
         # Create a StringIO object from the csv_data
         csv_buffer = io.StringIO()
         csv_data.to_csv(csv_buffer, index=False)
-        
+
+        try:
+            await audit_service.log(
+                db=db,
+                organization_id=organization.id,
+                action="data.exported",
+                user_id=current_user.id,
+                resource_type="widget",
+                resource_id=widget_id,
+                details={"format": "csv"},
+                request=request,
+            )
+        except Exception:
+            pass
+
         response = Response(content=csv_buffer.getvalue(), media_type="text/csv")
         response.headers["Content-Disposition"] = f"attachment; filename={widget_id}.csv"
         return response

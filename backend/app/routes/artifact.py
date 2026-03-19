@@ -1,7 +1,7 @@
 import re
 from typing import List, Dict, Any
 from io import BytesIO
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from lxml import html as lxml_html
@@ -309,6 +309,7 @@ async def duplicate_artifact(
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def export_artifact_pptx(
     artifact_id: str,
+    request: Request,
     current_user: User = Depends(current_user_dep),
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
@@ -316,6 +317,7 @@ async def export_artifact_pptx(
     """Export a slides artifact as PowerPoint (PPTX)."""
     from pathlib import Path
     from fastapi.responses import FileResponse
+    from app.ee.audit.service import audit_service
 
     artifact = await service.get(db, artifact_id)
     if not artifact:
@@ -335,6 +337,20 @@ async def export_artifact_pptx(
     safe_title = (artifact.title or "presentation").encode("ascii", "ignore").decode("ascii")
     safe_title = re.sub(r'[^\w\s-]', '', safe_title).strip() or "presentation"
     filename = f"{safe_title}.pptx"
+
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="artifact.exported",
+            user_id=current_user.id,
+            resource_type="artifact",
+            resource_id=artifact_id,
+            details={"format": "pptx", "title": artifact.title},
+            request=request,
+        )
+    except Exception:
+        pass
 
     # Check if we have a pre-generated PPTX file (new python-pptx approach)
     if artifact.pptx_path:

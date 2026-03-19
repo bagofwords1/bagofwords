@@ -1,12 +1,16 @@
 """MCP Tool: inspect_data - Quick data inspection with auto-discovery."""
 
 import asyncio
+import logging
 from typing import Dict, Any
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.tools.mcp.base import MCPTool
+from app.ee.audit.tool_audit import _truncate_queries
+
+_logger = logging.getLogger(__name__)
 from app.ai.tools.mcp.context import build_rich_context
 from app.ai.agents.coder.coder import Coder
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
@@ -92,6 +96,19 @@ class InspectDataMCPTool(MCPTool):
             pass
         
         if not allow_llm_see_data:
+            try:
+                from app.ee.audit.service import audit_service
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="tool.access_blocked_by_policy",
+                    user_id=str(user.id),
+                    resource_type="report",
+                    resource_id=str(report.id),
+                    details={"tool": "mcp.inspect_data", "policy": "allow_llm_see_data"},
+                )
+            except Exception:
+                pass
             await self._finish_tracking(
                 db, tracking, success=False,
                 summary="Data inspection is disabled. The 'Allow LLM to see data' setting is turned off."
@@ -118,6 +135,19 @@ class InspectDataMCPTool(MCPTool):
         
         # Check if we have connected data sources
         if not rich_ctx.ds_clients:
+            try:
+                from app.ee.audit.service import audit_service
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="tool.data_query_failed",
+                    user_id=str(user.id),
+                    resource_type="report",
+                    resource_id=str(report.id),
+                    details={"tool": "mcp.inspect_data", "error_type": "no_data_sources"},
+                )
+            except Exception:
+                pass
             await self._finish_tracking(
                 db, tracking, success=False,
                 summary="No data sources could be connected."
@@ -169,9 +199,10 @@ class InspectDataMCPTool(MCPTool):
         generated_code = ""
         success = False
         execution_error = None
-        
+        executed_queries = []
+
         sigkill_event = asyncio.Event()
-        
+
         async for e in streamer.generate_and_execute_stream_v2(
             request=CodeGenRequest(context=codegen_context, retries=0),
             ds_clients=rich_ctx.ds_clients,
@@ -185,16 +216,77 @@ class InspectDataMCPTool(MCPTool):
                     output_log += payload + "\n"
                 else:
                     output_log += (payload.get("message") or "") + "\n"
+            elif e["type"] == "security_violation":
+                _vtype = e["payload"].get("violation_type", "unknown")
+                _action = "security.unsafe_code_blocked" if _vtype == "unsafe_python" else "security.unsafe_sql_blocked"
+                try:
+                    from app.ee.audit.service import audit_service
+                    await audit_service.log(
+                        db=db,
+                        organization_id=str(organization.id),
+                        action=_action,
+                        user_id=str(user.id),
+                        resource_type="report",
+                        resource_id=str(report.id),
+                        details={
+                            "tool": "mcp.inspect_data",
+                            "violation_type": _vtype,
+                            "message": e["payload"].get("message", "")[:300],
+                            "code_snippet": e["payload"].get("code_snippet", "")[:300],
+                        },
+                    )
+                except Exception:
+                    _logger.debug("MCP inspect_data security audit failed", exc_info=True)
             elif e["type"] == "done":
                 success = True
                 generated_code = e["payload"].get("code") or ""
+                executed_queries = e["payload"].get("executed_queries") or []
                 if e["payload"].get("errors"):
                     success = False
                     execution_error = str(e["payload"]["errors"])
                 full_log = e["payload"].get("execution_log")
                 if full_log and len(full_log) > len(output_log):
                     output_log = full_log
-        
+
+        # Audit: success or failure
+        try:
+            from app.ee.audit.service import audit_service
+            _tables = [t for g in (rich_ctx.tables_by_source or []) for t in (g.get("tables") or [])]
+            _ds_ids = list({str(g.get("data_source_id")) for g in (rich_ctx.tables_by_source or []) if g.get("data_source_id")})
+            if success:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="tool.data_queried",
+                    user_id=str(user.id),
+                    resource_type="report",
+                    resource_id=str(report.id),
+                    details={
+                        "tool": "mcp.inspect_data",
+                        "data_source_ids": _ds_ids,
+                        "tables_accessed": _tables,
+                        "executed_queries": _truncate_queries(executed_queries),
+                    },
+                )
+            else:
+                await audit_service.log(
+                    db=db,
+                    organization_id=str(organization.id),
+                    action="tool.data_query_failed",
+                    user_id=str(user.id),
+                    resource_type="report",
+                    resource_id=str(report.id),
+                    details={
+                        "tool": "mcp.inspect_data",
+                        "error_type": "execution_failure",
+                        "error_message": (execution_error or "")[:300],
+                        "data_source_ids": _ds_ids,
+                        "tables_requested": _tables,
+                    },
+                )
+        except Exception:
+            _logger.debug("MCP inspect_data audit failed", exc_info=True)
+
         # Finish tracking
         summary = "Data inspection completed successfully" if success else f"Data inspection failed: {execution_error or 'Unknown error'}"
         await self._finish_tracking(

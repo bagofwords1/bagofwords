@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -18,14 +18,29 @@ from app.core.permissions_decorator import requires_permission
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from app.models.report import Report
+from app.ee.audit.service import audit_service
 
 router = APIRouter(tags=["files"])
 file_service = FileService()
 
 @router.post("/files", response_model=FileSchema)
 @requires_permission('upload_files')
-async def upload_file(file: UploadFile = File(...), report_id: Optional[str] = Form(None), current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await file_service.upload_file(db, file, current_user, organization, report_id)
+async def upload_file(request: Request, file: UploadFile = File(...), report_id: Optional[str] = Form(None), current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    result = await file_service.upload_file(db, file, current_user, organization, report_id)
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="file.uploaded",
+            user_id=current_user.id,
+            resource_type="file",
+            resource_id=result.id,
+            details={"filename": file.filename, "content_type": file.content_type},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 @router.get("/reports/{report_id}/files", response_model=list[FileSchemaWithCompletionId])
 @requires_permission('view_files', model=Report)
@@ -44,7 +59,7 @@ async def get_files(current_user: User = Depends(current_user), db: AsyncSession
 
 @router.get("/files/{file_id}/content")
 @requires_permission('view_files')
-async def get_file_content(file_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+async def get_file_content(file_id: str, request: Request, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     """Serve file content (for displaying images in chat)."""
     stmt = select(FileModel).filter(FileModel.id == file_id, FileModel.organization_id == organization.id)
     result = await db.execute(stmt)
@@ -55,6 +70,20 @@ async def get_file_content(file_id: str, current_user: User = Depends(current_us
 
     if not file.path or not os.path.exists(file.path):
         raise HTTPException(status_code=404, detail="File content not found")
+
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="file.downloaded",
+            user_id=current_user.id,
+            resource_type="file",
+            resource_id=file_id,
+            details={"filename": file.filename},
+            request=request,
+        )
+    except Exception:
+        pass
 
     return FileResponse(
         path=file.path,

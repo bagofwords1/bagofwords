@@ -22,6 +22,7 @@ TIER_FEATURES = {
     "enterprise": [
         "audit_logs",
         "step_retention_config",
+        "scim",
     ],
 }
 

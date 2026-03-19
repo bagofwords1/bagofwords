@@ -73,8 +73,30 @@ async def remove_member(
 
 @router.put("/organizations/{organization_id}/members/{membership_id}", response_model=MembershipSchema)
 @requires_permission('update_organization_members')
-async def update_member(organization_id: str, membership_id: str, membership: MembershipUpdate, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await organization_service.update_member(db, membership_id, organization_id, membership, current_user, organization)
+async def update_member(
+    organization_id: str,
+    membership_id: str,
+    membership: MembershipUpdate,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    result = await organization_service.update_member(db, membership_id, organization_id, membership, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization_id,
+            action="member.role_changed",
+            user_id=current_user.id,
+            resource_type="membership",
+            resource_id=membership_id,
+            details={"new_role": membership.role, "target_user_id": str(result.user_id) if hasattr(result, "user_id") else None},
+            request=request,
+        )
+    except Exception:
+        pass
+    return result
 
 @router.get("/organizations", response_model=List[OrganizationAndRoleSchema])
 async def get_organizations(db: AsyncSession = Depends(get_async_db), current_user: User = Depends(current_user)):
