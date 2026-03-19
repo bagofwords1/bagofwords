@@ -91,9 +91,13 @@ google_client_id = settings.bow_config.google_oauth.client_id
 google_client_secret = settings.bow_config.google_oauth.client_secret
 
 # Initialize FastAPI app
+swagger_enabled = settings.bow_config.swagger.enabled
 app = FastAPI(
-    title=settings.PROJECT_NAME, 
+    title=settings.PROJECT_NAME,
     debug=settings.DEBUG,
+    docs_url="/swagger" if swagger_enabled else None,
+    redoc_url=None,
+    openapi_url="/openapi.json" if swagger_enabled else None,
     openapi_tags=[
         {"name": "auth", "description": "Authentication operations"},
         {"name": "reports", "description": "Report management"},

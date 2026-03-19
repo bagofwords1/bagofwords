@@ -115,6 +115,18 @@ export default defineNuxtConfig({
             secure: false,
             rewrite: (path) => `/api${path}`
         },
+        '/swagger': {
+            target: 'http://127.0.0.1:8000',
+            changeOrigin: true,
+            secure: false,
+            rewrite: (path) => path
+        },
+        '/openapi.json': {
+            target: 'http://127.0.0.1:8000',
+            changeOrigin: true,
+            secure: false,
+            rewrite: (path) => path
+        },
         '/api': {
             target: 'http://127.0.0.1:8000',
             changeOrigin: true,
