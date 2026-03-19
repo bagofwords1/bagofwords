@@ -953,7 +953,7 @@ Fix these errors while keeping the same design and functionality. Output the cor
             "mode": data.mode,
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
-            "code": code,  # Include code for iteration context (compacted by observation builder after next artifact)
+            "code": code,  # Available for 1 iteration; compacted by observation builder on next tool call
         }
 
         # Add preview screenshot for planner reflection (page mode)

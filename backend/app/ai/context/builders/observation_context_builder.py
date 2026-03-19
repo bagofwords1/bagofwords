@@ -41,17 +41,20 @@ class ObservationContextBuilder:
         """
         self.execution_count += 1
 
-        # Compact previous artifact observations (keep-last-only for code)
-        # This ensures only the most recent artifact code is in context
-        # Applies to both create_artifact and read_artifact tools
-        if tool_name in ("create_artifact", "read_artifact", "edit_artifact"):
-            for prev_obs in self.tool_observations:
-                if prev_obs["tool_name"] in ("create_artifact", "read_artifact", "edit_artifact"):
-                    prev_observation = prev_obs.get("observation", {})
-                    if "code" in prev_observation:
-                        code_len = len(prev_observation["code"])
-                        del prev_observation["code"]
-                        prev_observation["code_compacted"] = f"{code_len} chars (artifact_id available for reference)"
+        # Compact previous artifact observations after 1 iteration.
+        # Any new tool observation triggers stripping of code and images
+        # from all prior artifact observations, keeping only lightweight
+        # metadata (artifact_id, summary, mode, viz_ids).
+        for prev_obs in self.tool_observations:
+            if prev_obs["tool_name"] in ("create_artifact", "read_artifact", "edit_artifact"):
+                prev_observation = prev_obs.get("observation", {})
+                if "code" in prev_observation:
+                    code_len = len(prev_observation["code"])
+                    del prev_observation["code"]
+                    prev_observation["code_compacted"] = f"{code_len} chars"
+                if "images" in prev_observation:
+                    del prev_observation["images"]
+                    prev_observation["images_compacted"] = True
 
         tool_observation = {
             "execution_number": self.execution_count,

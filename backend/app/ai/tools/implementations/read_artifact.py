@@ -184,7 +184,7 @@ class ReadArtifactTool(Tool):
             "artifact_id": str(artifact.id),
             "title": artifact.title,
             "mode": artifact.mode,
-            "code": code,  # Full code in observation for context
+            "code": code,  # Available for 1 iteration; compacted by observation builder on next tool call
             "visualization_ids": visualization_ids,
             "version": artifact.version,
         }
