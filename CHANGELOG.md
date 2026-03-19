@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.342 (March 19, 2026)
+- 
+
 ## Version 0.0.341 (March 18, 2026)
 - add opentelemetry
 
